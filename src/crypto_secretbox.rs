@@ -1,4 +1,4 @@
-//! # Authenticated encryption
+//! # Authenticated encryption functions
 //!
 //! Implements libsodium's secret-key authenticated crypto boxes.
 //!

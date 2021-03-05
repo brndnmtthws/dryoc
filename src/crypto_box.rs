@@ -1,4 +1,4 @@
-//! # Authenticated public-key cryptography
+//! # Authenticated public-key cryptography functions
 //!
 //! Implements libsodium's public-key authenticated crypto boxes.
 //!

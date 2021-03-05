@@ -37,6 +37,7 @@ pub mod rng;
 
 #[cfg(test)]
 mod tests {
+
     #[test]
     fn test_randombytes_buf() {
         use crate::rng::*;
