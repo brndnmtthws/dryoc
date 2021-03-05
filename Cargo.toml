@@ -1,0 +1,24 @@
+[package]
+authors = ["Brenden Matthews <brenden@brndn.io>"]
+description = "dryoc is a pure-Rust implementation of the excellent libsodium"
+edition = "2018"
+license = "LGPL-3.0-only"
+name = "dryoc"
+readme = "README.md"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+generic-array = "0.14"
+poly1305 = "0.6"
+rand_core = {version = "0.5", features = ["getrandom"]}
+salsa20 = {version = "0.7", features = ["hsalsa20"]}
+sha2 = "0.9"
+subtle = "2.4"
+x25519-dalek = "1.1"
+zeroize = "1.2"
+
+[dev-dependencies]
+base64 = "0.13"
+sodiumoxide = "0.2"
