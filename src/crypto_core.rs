@@ -10,15 +10,13 @@ pub fn crypto_scalarmult_base(n: &[u8; CRYPTO_SCALARMULT_BYTES]) -> [u8; CRYPTO_
 mod tests {
     use super::*;
     use crate::crypto_box::*;
-    use crate::rng::*;
 
     #[test]
     fn test_crypto_box_easy() {
-        for i in 0..20 {
-            use base64::encode;
+        for _ in 0..20 {
             use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
 
-            let keypair = crypto_box_keypair().unwrap();
+            let keypair = crypto_box_keypair();
 
             let public_key = crypto_scalarmult_base(&keypair.secret_key);
 

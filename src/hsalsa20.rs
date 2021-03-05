@@ -1,5 +1,3 @@
-use crate::constants::*;
-
 use generic_array::GenericArray;
 use salsa20::hsalsa20;
 
