@@ -1,3 +1,5 @@
+[![Build & test](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml)
+
 # dryoc: Don't Roll Your Own Crypto
 
 dryoc is a pure-Rust implementation of the excellent
