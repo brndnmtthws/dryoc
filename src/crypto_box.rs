@@ -46,7 +46,9 @@ use crate::constants::*;
 use crate::crypto_box_impl::*;
 use crate::crypto_secretbox::*;
 use crate::crypto_secretbox_impl::*;
+use crate::dryocbox::*;
 use crate::error::Error;
+use crate::keypair::*;
 use crate::types::*;
 
 use zeroize::Zeroize;
@@ -73,17 +75,17 @@ pub fn crypto_box_detached_afternm(
     message: &Input,
     nonce: &Nonce,
     key: &SecretboxKey,
-) -> Result<CryptoBox, Error> {
+) -> Result<DryocBox, Error> {
     Ok(crypto_secretbox_detached(message, nonce, key))
 }
 
 /// In-place variant of [crypto_box_detached_afternm]
 pub fn crypto_box_detached_afternm_inplace(
-    cryptobox: &mut CryptoBox,
+    dryocbox: &mut DryocBox,
     nonce: &Nonce,
     key: &SecretboxKey,
 ) {
-    crypto_secretbox_detached_inplace(cryptobox, nonce, key);
+    crypto_secretbox_detached_inplace(dryocbox, nonce, key);
 }
 
 /// Detached variant of [crypto_box_easy]
@@ -92,7 +94,7 @@ pub fn crypto_box_detached(
     nonce: &Nonce,
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
-) -> Result<CryptoBox, Error> {
+) -> Result<DryocBox, Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
     let res = crypto_box_detached_afternm(message, nonce, &key)?;
@@ -108,16 +110,16 @@ pub fn crypto_box_detached_inplace(
     nonce: &Nonce,
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
-) -> Result<CryptoBox, Error> {
+) -> Result<DryocBox, Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
-    let mut cryptobox = CryptoBox::from_data(message);
+    let mut dryocbox = DryocBox::from_data(message);
 
-    crypto_box_detached_afternm_inplace(&mut cryptobox, nonce, &key);
+    crypto_box_detached_afternm_inplace(&mut dryocbox, nonce, &key);
 
     key.zeroize();
 
-    Ok(cryptobox)
+    Ok(dryocbox)
 }
 
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
@@ -135,11 +137,11 @@ pub fn crypto_box_easy(
             CRYPTO_BOX_MESSAGEBYTES_MAX
         )))
     } else {
-        let cryptobox =
+        let dryocbox =
             crypto_box_detached(message, nonce, recipient_public_key, sender_secret_key)?;
         let mut ciphertext = Vec::new();
-        ciphertext.extend_from_slice(&cryptobox.mac);
-        ciphertext.extend(cryptobox.data);
+        ciphertext.extend_from_slice(&dryocbox.mac);
+        ciphertext.extend(dryocbox.data);
         Ok(ciphertext)
     }
 }
@@ -160,16 +162,16 @@ pub fn crypto_box_easy_inplace(
             CRYPTO_BOX_MESSAGEBYTES_MAX
         )))
     } else {
-        let cryptobox =
+        let dryocbox =
             crypto_box_detached_inplace(message, nonce, recipient_public_key, sender_secret_key)?;
 
-        let mut ciphertext = cryptobox.data;
+        let mut ciphertext = dryocbox.data;
         // Resize to prepend mac
         ciphertext.resize(ciphertext.len() + CRYPTO_BOX_MACBYTES, 0);
         // Rotate everything to the right
         ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
         // Copy mac into ciphertext
-        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(&cryptobox.mac);
+        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(&dryocbox.mac);
 
         Ok(ciphertext)
     }
@@ -194,16 +196,16 @@ pub fn crypto_box_open_detached_afternm_inplace(
     let mut mac: Mac = [0u8; CRYPTO_BOX_MACBYTES];
     mac.copy_from_slice(&ciphertext[0..CRYPTO_BOX_MACBYTES]);
 
-    let mut cryptobox = CryptoBox::from_data_and_mac(mac, ciphertext);
+    let mut dryocbox = DryocBox::from_data_and_mac(mac, ciphertext);
 
-    cryptobox.data.rotate_left(CRYPTO_BOX_MACBYTES);
-    cryptobox
+    dryocbox.data.rotate_left(CRYPTO_BOX_MACBYTES);
+    dryocbox
         .data
-        .resize(cryptobox.data.len() - CRYPTO_BOX_MACBYTES, 0);
+        .resize(dryocbox.data.len() - CRYPTO_BOX_MACBYTES, 0);
 
-    crypto_secretbox_open_detached_inplace(&mut cryptobox, nonce, key)?;
+    crypto_secretbox_open_detached_inplace(&mut dryocbox, nonce, key)?;
 
-    Ok(cryptobox.data)
+    Ok(dryocbox.data)
 }
 
 /// Detached variant of [crypto_box_easy_open]

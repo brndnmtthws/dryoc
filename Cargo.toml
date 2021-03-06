@@ -10,10 +10,12 @@ version = "0.2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+curve25519-dalek = "3.0"
 generic-array = "0.14"
 poly1305 = "0.6"
 rand_core = {version = "0.5", features = ["getrandom"]}
 salsa20 = {version = "0.7", features = ["hsalsa20"]}
+serde = {version = "*", optional = true, features = ["derive"]}
 sha2 = "0.9"
 subtle = "2.4"
 x25519-dalek = "1.1"
@@ -22,3 +24,11 @@ zeroize = "1.2"
 [dev-dependencies]
 base64 = "0.13"
 sodiumoxide = "0.2"
+
+[features]
+default = [
+  "u64_backend",
+]
+simd_backend = ["curve25519-dalek/simd_backend"]
+u32_backend = ["x25519-dalek/u32_backend"]
+u64_backend = ["x25519-dalek/u64_backend"]

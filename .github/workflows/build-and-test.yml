@@ -18,6 +18,9 @@ jobs:
           - stable
           - beta
           - nightly
+        fetaures:
+          - serde
+          - simd_backend
 
     steps:
       - uses: actions/checkout@v2

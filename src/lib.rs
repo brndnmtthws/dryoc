@@ -4,7 +4,17 @@
 //! intended to be 100% compatible with a mostly interchangeable API, and have
 //! limited dependencies.
 //!
-//! To get started, refer to [crypto_box] and [crypto_secretbox].
+//! This library includes both a _classic_ API, which is very similar to the
+//! original libsodium API, and a more Rust-friendly API with Rust-specific
+//! features. Both APIs can be used together interchangeably, according to your
+//! preferences. The Rustaceous API is a wrapper around the underlying classic
+//! API.
+//!
+//! To get started with the Rustaceous API, refer to [dryocbox] and
+//! [dryocsecretbox].
+//!
+//! To get started, with the classic API refer to [crypto_box] and
+//! [crypto_secretbox].
 //!
 //! # Security notes
 //!
@@ -17,10 +27,12 @@
 #![warn(missing_crate_level_docs)]
 #![warn(missing_doc_code_examples)]
 
+#[cfg(feature = "serde")]
+extern crate serde;
+
 #[macro_use]
 mod error;
 mod crypto_box_impl;
-mod crypto_core;
 mod crypto_secretbox_impl;
 mod hsalsa20;
 mod scalarmult_curve25519;
@@ -29,9 +41,15 @@ mod types;
 /// Constant value definitions
 pub mod constants;
 pub mod crypto_box;
+/// Core cryptography functions
+pub mod crypto_core;
 /// Hash functions
 pub mod crypto_hash;
 pub mod crypto_secretbox;
+pub mod dryocbox;
+pub mod dryocsecretbox;
+/// Public-key tools
+pub mod keypair;
 /// Random number generation utilities
 pub mod rng;
 
