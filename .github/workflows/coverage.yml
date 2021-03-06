@@ -17,10 +17,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
       - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
+        run: cargo +nightly install cargo-tarpaulin
       - name: Generate code coverage
         run: |
-          cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
+          cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1
         with:
