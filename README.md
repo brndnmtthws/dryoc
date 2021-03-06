@@ -1,4 +1,4 @@
-[![Docs](https://docs.rs/dryoc/badge.svg)](https://docs.rs/crate/dryoc) [![Build & test](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml)
+[![Docs](https://docs.rs/dryoc/badge.svg)](https://docs.rs/crate/dryoc) [![Crates.io](https://img.shields.io/crates/v/dryoc)](https://crates.io/crates/dryoc) [![Build & test](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml)
 
 # dryoc: Don't Roll Your Own Crypto
 
