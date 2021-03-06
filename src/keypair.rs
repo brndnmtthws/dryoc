@@ -4,7 +4,11 @@ use crate::types::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "example", derive(Serialize, Deserialize))]
+use zeroize::Zeroize;
+
+#[cfg_attr(feature = "example", derive(Serialize, Deserialize, Zeroize))]
+#[cfg_attr(not(feature = "example"), derive(Zeroize))]
+#[zeroize(drop)]
 /// Public/private keypair for use with [DryocBox], aka libsodium box
 pub struct KeyPair {
     /// Secret key
@@ -46,6 +50,29 @@ impl Default for KeyPair {
 
 mod tests {
     use super::*;
+
+    fn all_eq<T>(t: &[T], v: T) -> bool
+    where
+        T: PartialEq,
+    {
+        t.iter().fold(true, |acc, x| acc && *x == v)
+    }
+
+    #[test]
+    fn test_new() {
+        let keypair = KeyPair::new();
+
+        assert_eq!(all_eq(&keypair.public_key, 0), true);
+        assert_eq!(all_eq(&keypair.secret_key, 0), true);
+    }
+
+    #[test]
+    fn test_default() {
+        let keypair = KeyPair::default();
+
+        assert_eq!(all_eq(&keypair.public_key, 0), true);
+        assert_eq!(all_eq(&keypair.secret_key, 0), true);
+    }
 
     #[test]
     fn test_gen_keypair() {

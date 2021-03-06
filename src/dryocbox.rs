@@ -4,6 +4,13 @@ use crate::constants::*;
 use crate::error::*;
 use crate::types::*;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+use zeroize::Zeroize;
+
+#[cfg_attr(feature = "example", derive(Serialize, Deserialize, Zeroize))]
+#[cfg_attr(not(feature = "example"), derive(Zeroize))]
 /// A libsodium public-key authenticated encrypted box
 pub struct DryocBox {
     /// libsodium box authentication tag, usually prepended to each box
@@ -162,6 +169,26 @@ impl Default for DryocBox {
 mod tests {
     use super::*;
 
+    fn all_eq<T>(t: &[T], v: T) -> bool
+    where
+        T: PartialEq,
+    {
+        t.iter().fold(true, |acc, x| acc && *x == v)
+    }
+
     #[test]
-    fn test_dryocbox() {}
+    fn test_new() {
+        let dryocbox = DryocBox::new();
+
+        assert_eq!(all_eq(&dryocbox.mac, 0), true);
+        assert_eq!(all_eq(&dryocbox.data, 0), true);
+    }
+
+    #[test]
+    fn test_default() {
+        let dryocbox = DryocBox::default();
+
+        assert_eq!(all_eq(&dryocbox.mac, 0), true);
+        assert_eq!(all_eq(&dryocbox.data, 0), true);
+    }
 }

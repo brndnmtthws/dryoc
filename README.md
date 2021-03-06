@@ -29,9 +29,10 @@ ecosystem to provide high quality and easy to use cryptography.
 
 The following features are currently implemented, or awaiting implementation:
 
-* [x] [Public-key cryptography](https://doc.libsodium.org/public-key_cryptography) (crypto_box_*)
-* [x] [Secret-key cryptography](https://doc.libsodium.org/secret-key_cryptography) (crypto_secretbox_*)
+* [x] [Public-key cryptography](https://doc.libsodium.org/public-key_cryptography) (`crypto_box_*`)
+* [x] [Secret-key cryptography](https://doc.libsodium.org/secret-key_cryptography) (`crypto_secretbox_*`)
 * [x] [Point*scalar multiplication](https://doc.libsodium.org/advanced/scalar_multiplication)
+* [x] [Zeroing memory](https://doc.libsodium.org/memory_management) with [zeroize]()
 * [ ] [Generating random data](https://doc.libsodium.org/generating_random_data)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation)
 * [ ] [Generic hashing](https://doc.libsodium.org/hashing/generic_hashing)
@@ -45,7 +46,6 @@ plan to implement them:
 
 * [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate)
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
-* [Zeroing memory](https://doc.libsodium.org/memory_management) (use [zeroize](https://crates.io/crates/zeroize) crate)
 * [Memory locking](https://doc.libsodium.org/memory_management)
 * [Advanced features](https://doc.libsodium.org/advanced):
   * [SHA-2](https://doc.libsodium.org/advanced/sha-2_hash_function) (use [sha2](https://crates.io/crates/sha2) crate)
@@ -58,9 +58,7 @@ plan to implement them:
 
 [![Stargazers over time](https://starchart.cc/brndnmtthws/dryoc.svg)](https://starchart.cc/brndnmtthws/dryoc)
 
-## Other Rust implementations
-
-Here's some other libraries worth checking out:
+## Other Rust implementations worth mentioning
 
 * [sodiumoxide](https://crates.io/crates/sodiumoxide)
 * [crypto_box](https://crates.io/crates/crypto_box)
