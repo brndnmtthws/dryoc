@@ -47,7 +47,6 @@ pub mod crypto_core;
 pub mod crypto_hash;
 pub mod crypto_secretbox;
 pub mod dryocbox;
-pub mod dryocsecretbox;
 /// Public-key tools
 pub mod keypair;
 /// Random number generation utilities
