@@ -18,14 +18,10 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
         with:
-          command: install cargo-tarpaulin
-      - name: Generate code coverage
-        uses: actions-rs/cargo@v1
-        with:
-          command: tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
+          version: "0.16.0"
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v1
         with:
