@@ -1,11 +1,12 @@
 //! # Public-key authenticated encryption
 
 use crate::constants::CRYPTO_BOX_MACBYTES;
+use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
 use crate::keypair::{PublicKey, SecretKey};
-use crate::message::*;
+use crate::message::Message;
 use crate::nonce::Nonce;
-use crate::types::{InputBase, MacBase};
+use crate::types::{InputBase, MacBase, OutputBase};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -93,7 +94,7 @@ impl DryocBox {
         nonce: &Nonce,
         sender_public_key: &PublicKey,
         recipient_secret_key: &SecretKey,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<OutputBase, Error> {
         use crate::crypto_box::*;
         let dryocbox = crypto_box_open_detached(
             &self.mac,
@@ -118,6 +119,15 @@ impl DryocBox {
 impl Default for DryocBox {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<DryocSecretBox> for DryocBox {
+    fn from(other: DryocSecretBox) -> Self {
+        Self {
+            mac: other.mac,
+            data: other.data,
+        }
     }
 }
 
@@ -153,19 +163,18 @@ mod tests {
             use crate::dryocbox::*;
             use crate::keypair::*;
             use crate::nonce::*;
-            use crate::traits::*;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
             let keypair_sender = KeyPair::gen();
             let keypair_recipient = KeyPair::gen();
-            let keypair_sender_2 = keypair_sender.clone();
-            let keypair_recipient_2 = keypair_recipient.clone();
+            let keypair_sender_copy = keypair_sender.clone();
+            let keypair_recipient_copy = keypair_recipient.clone();
             let nonce = Nonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
-            let message_2 = message.clone();
+            let message_copy = message.clone();
             let dryocbox = DryocBox::encrypt(
                 &message.into(),
                 &nonce,
@@ -176,16 +185,16 @@ mod tests {
             let ciphertext = dryocbox.clone().to_vec();
 
             let so_ciphertext = box_::seal(
-                message_2.as_bytes(),
+                message_copy.as_bytes(),
                 &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_2.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_2.secret_key.0).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient_copy.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender_copy.secret_key.0).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
-            let keypair_sender = keypair_sender_2.clone();
-            let keypair_recipient = keypair_recipient_2.clone();
+            let keypair_sender = keypair_sender_copy.clone();
+            let keypair_recipient = keypair_recipient_copy.clone();
 
             let m = dryocbox
                 .decrypt(&nonce, &keypair_sender.into(), &keypair_recipient.into())
@@ -193,12 +202,12 @@ mod tests {
             let so_m = box_::open(
                 &ciphertext,
                 &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_2.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_2.secret_key.0).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient_copy.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender_copy.secret_key.0).unwrap(),
             )
             .expect("HMMM");
 
-            assert_eq!(m, message_2.as_bytes());
+            assert_eq!(m, message_copy.as_bytes());
             assert_eq!(m, so_m);
         }
     }

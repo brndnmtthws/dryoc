@@ -46,6 +46,7 @@ pub mod crypto_core;
 pub mod crypto_hash;
 pub mod crypto_secretbox;
 pub mod dryocbox;
+pub mod dryocsecretbox;
 /// Public-key tools
 pub mod keypair;
 pub mod message;
@@ -53,6 +54,7 @@ pub mod nonce;
 pub mod prelude;
 /// Random number generation utilities
 pub mod rng;
+pub mod secretboxkey;
 pub mod traits;
 
 #[cfg(test)]

@@ -56,7 +56,8 @@ use crate::constants::*;
 use crate::crypto_box_impl::*;
 use crate::crypto_secretbox::*;
 use crate::crypto_secretbox_impl::*;
-use crate::dryocbox::*;
+use crate::dryocbox::DryocBox;
+use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
 use crate::keypair::*;
 use crate::nonce::*;
@@ -90,7 +91,7 @@ pub fn crypto_box_detached_afternm(
     nonce: &Nonce,
     key: &SecretBoxKeyBase,
 ) -> Result<DryocBox, Error> {
-    Ok(crypto_secretbox_detached(message, nonce, key))
+    Ok(crypto_secretbox_detached(message, nonce, key).into())
 }
 
 /// In-place variant of [crypto_box_detached_afternm]
@@ -99,7 +100,7 @@ pub fn crypto_box_detached_afternm_inplace(
     nonce: &Nonce,
     key: &SecretBoxKeyBase,
 ) {
-    crypto_secretbox_detached_inplace(dryocbox, nonce, key);
+    crypto_secretbox_detached_inplace(&mut dryocbox.mac, &mut dryocbox.data, nonce, key);
 }
 
 /// Detached variant of [crypto_box_easy]
@@ -217,7 +218,7 @@ pub fn crypto_box_open_detached_afternm_inplace(
         .data
         .resize(dryocbox.data.len() - CRYPTO_BOX_MACBYTES, 0);
 
-    crypto_secretbox_open_detached_inplace(&mut dryocbox, nonce, key)?;
+    crypto_secretbox_open_detached_inplace(&mut dryocbox.mac, &mut dryocbox.data, nonce, key)?;
 
     Ok(dryocbox.data)
 }

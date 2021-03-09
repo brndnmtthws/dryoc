@@ -1,6 +1,6 @@
-use crate::constants::*;
-use crate::traits::*;
-use crate::types::*;
+use crate::constants::CRYPTO_BOX_SECRETKEYBYTES;
+use crate::traits::Gen;
+use crate::types::{PublicKeyBase, SecretKeyBase};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use zeroize::Zeroize;
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
 #[zeroize(drop)]
-pub struct SecretKey(pub SecretBoxKeyBase);
+pub struct SecretKey(pub SecretKeyBase);
 
 #[cfg_attr(
     feature = "serde",

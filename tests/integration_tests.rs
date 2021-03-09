@@ -1,5 +1,5 @@
 #[test]
-fn test_pk_box() {
+fn test_dryocbox() {
     use dryoc::prelude::*;
 
     let sender_keypair = KeyPair::gen();
