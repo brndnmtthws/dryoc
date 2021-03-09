@@ -72,7 +72,7 @@ pub fn crypto_secretbox_open_detached(
     let mut dryocsecretbox = DryocSecretBox::with_data_and_mac(mac, ciphertext);
 
     crypto_secretbox_open_detached_inplace(
-        &mut dryocsecretbox.mac,
+        &dryocsecretbox.mac,
         &mut dryocsecretbox.data,
         nonce,
         key,
@@ -166,7 +166,7 @@ pub fn crypto_secretbox_open_easy_inplace(
             .resize(dryocsecretbox.data.len() - CRYPTO_SECRETBOX_MACBYTES, 0);
 
         crypto_secretbox_open_detached_inplace(
-            &mut dryocsecretbox.mac,
+            &dryocsecretbox.mac,
             &mut dryocsecretbox.data,
             nonce,
             key,

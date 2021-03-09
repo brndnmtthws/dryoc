@@ -104,8 +104,16 @@ impl DryocSecretBox {
         Ok(dryocsecretbox)
     }
 
+    /// Copies this box into a new Vec
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&self.mac);
+        data.extend(&self.data);
+        data
+    }
+
     /// Consumes this box and returns it as a Vec
-    pub fn to_vec(self) -> Vec<u8> {
+    pub fn into_vec(self) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&self.mac);
         data.extend(&self.data);
