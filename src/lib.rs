@@ -5,11 +5,15 @@
 //! limited dependencies.
 //!
 //! This library includes both a _classic_ API, which is very similar to the
-//! original libsodium API, and Rustaceous API with Rust-specific features. Both
-//! APIs can be used together interchangeably, according to your preferences. The
-//! Rustaceous API is a wrapper around the underlying classic API.
+//! original libsodium API, and _Rustaceous_ API with Rust-specific features.
+//! Both APIs can be used together interchangeably, according to your
+//! preferences. The Rustaceous API is a wrapper around the underlying classic
+//! API.
 //!
-//! To get started with the Rustaceous API, refer to [dryocbox].
+//! It's recommended that you use the Rustaceous API unless you have strong
+//! feelings about using the Classic API.
+//!
+//! To get started with the Rustaceous API, refer to [dryocbox] and [dryocsecretbox].
 //!
 //! To get started, with the classic (libsodium) API, refer to [crypto_box] and
 //! [crypto_secretbox].
@@ -36,6 +40,7 @@ mod hsalsa20;
 mod scalarmult_curve25519;
 mod types;
 
+/// Ciphertext wrapper
 pub mod ciphertext;
 /// Constant value definitions
 pub mod constants;
@@ -49,12 +54,16 @@ pub mod dryocbox;
 pub mod dryocsecretbox;
 /// Public-key tools
 pub mod keypair;
+/// Message wrapper
 pub mod message;
+/// Nonce wrapper
 pub mod nonce;
 pub mod prelude;
 /// Random number generation utilities
 pub mod rng;
+/// Secret-key box key wrapper
 pub mod secretboxkey;
+/// Public traits
 pub mod traits;
 
 #[cfg(test)]

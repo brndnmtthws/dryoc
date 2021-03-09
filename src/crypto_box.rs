@@ -4,31 +4,22 @@
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption).
 //!
-//! # Rustaceous API
+//! # Classic API example
 //!
 //! ```
-//! use dryoc::rng::randombytes_buf;
-//! use dryoc::crypto_box::{crypto_box_keypair, crypto_box_easy, crypto_box_open_easy};
-//! use dryoc::traits::Gen;
-//! use dryoc::nonce::Nonce;
-//! ```
-//!
-//! # Classic API
-//!
-//! ```
-//! use dryoc::rng::randombytes_buf;
 //! use dryoc::prelude::*;
-//! use dryoc::constants::CRYPTO_BOX_NONCEBYTES;
+//! use dryoc::rng::copy_randombytes; // Not included in prelude
+//! use dryoc::constants::CRYPTO_BOX_NONCEBYTES; // Not included in prelude
 //!
-//! // Create a sender keypair
+//! // Create a random sender keypair
 //! let keypair_sender = crypto_box_keypair();
 //!
-//! // Recipient keypair
+//! // Create a random recipient keypair
 //! let keypair_recipient = crypto_box_keypair();
 //!
 //! // Generate a random nonce
-//! let nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES);
-//! let nonce = Nonce::gen();
+//! let mut nonce: [u8; CRYPTO_BOX_NONCEBYTES] = [0u8; CRYPTO_BOX_NONCEBYTES];
+//! copy_randombytes(&mut nonce);
 //!
 //! let message = "hello".as_bytes();
 //! // Encrypt message
@@ -57,7 +48,6 @@ use crate::crypto_box_impl::*;
 use crate::crypto_secretbox::*;
 use crate::crypto_secretbox_impl::*;
 use crate::dryocbox::DryocBox;
-use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
 use crate::keypair::*;
 use crate::nonce::*;
@@ -85,7 +75,7 @@ pub fn crypto_box_beforenm(
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
-/// Precalculation variant of [crypto_box_easy]
+/// Precalculation variant of [`crate::crypto_box::crypto_box_easy`]
 pub fn crypto_box_detached_afternm(
     message: &InputBase,
     nonce: &Nonce,
@@ -94,7 +84,7 @@ pub fn crypto_box_detached_afternm(
     Ok(crypto_secretbox_detached(message, nonce, key).into())
 }
 
-/// In-place variant of [crypto_box_detached_afternm]
+/// In-place variant of [`crypto_box_detached_afternm`]
 pub fn crypto_box_detached_afternm_inplace(
     dryocbox: &mut DryocBox,
     nonce: &Nonce,
@@ -103,7 +93,7 @@ pub fn crypto_box_detached_afternm_inplace(
     crypto_secretbox_detached_inplace(&mut dryocbox.mac, &mut dryocbox.data, nonce, key);
 }
 
-/// Detached variant of [crypto_box_easy]
+/// Detached variant of [`crypto_box_easy`]
 pub fn crypto_box_detached(
     message: &InputBase,
     nonce: &Nonce,
@@ -223,7 +213,7 @@ pub fn crypto_box_open_detached_afternm_inplace(
     Ok(dryocbox.data)
 }
 
-/// Detached variant of [crypto_box_easy_open]
+/// Detached variant of [`crate::crypto_box::crypto_box_open_easy`]
 pub fn crypto_box_open_detached(
     mac: &MacBase,
     ciphertext: &InputBase,
@@ -240,7 +230,7 @@ pub fn crypto_box_open_detached(
     Ok(res)
 }
 
-/// In-place variant of [crypto_box_open_detached]
+/// In-place variant of ['crypto_box_open_detached']
 pub fn crypto_box_open_detached_inplace(
     ciphertext: Vec<u8>,
     nonce: &Nonce,

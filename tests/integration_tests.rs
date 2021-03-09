@@ -21,3 +21,20 @@ fn test_dryocbox() {
 
     assert_eq!(message.as_bytes(), decrypted.as_slice());
 }
+
+#[test]
+fn test_dryocsecretbox() {
+    use dryoc::prelude::*;
+
+    let secret_key = SecretBoxKey::gen();
+    let nonce = Nonce::gen();
+    let message = "hey";
+
+    let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
+
+    let decrypted = dryocsecretbox
+        .decrypt(&nonce, &secret_key)
+        .expect("unable to decrypt");
+
+    assert_eq!(message.as_bytes(), decrypted.as_slice());
+}

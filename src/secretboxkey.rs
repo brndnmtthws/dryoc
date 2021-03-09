@@ -14,9 +14,11 @@ use zeroize::Zeroize;
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
 #[zeroize(drop)]
+/// A wrapper for [`crate::dryocsecretbox::DryocSecretBox`] secret keys
 pub struct SecretBoxKey(pub SecretBoxKeyBase);
 
 impl SecretBoxKey {
+    /// Returns an empty initialized secret key
     pub fn new() -> Self {
         Self([0u8; CRYPTO_SECRETBOX_KEYBYTES])
     }

@@ -1,7 +1,26 @@
 //! # Secret-key authenticated encryption
+//!
+//! _For public-key based encryption, see [crate::dryocbox]_.
+//!
+//! # Rustaceous API example
+//!
+//! ```
+//! use dryoc::prelude::*;
+//!
+//! let secret_key = SecretBoxKey::gen();
+//! let nonce = Nonce::gen();
+//! let message = "hey";
+//!
+//! let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
+//!
+//! let decrypted = dryocsecretbox
+//!     .decrypt(&nonce, &secret_key)
+//!     .expect("unable to decrypt");
+//!
+//! assert_eq!(message.as_bytes(), decrypted.as_slice());
+//! ```
 
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
-use crate::dryocbox::DryocBox;
 use crate::error::Error;
 use crate::message::Message;
 use crate::nonce::Nonce;
@@ -100,6 +119,7 @@ impl Default for DryocSecretBox {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

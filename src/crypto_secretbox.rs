@@ -4,7 +4,7 @@
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox).
 //!
-//! # Basic usage
+//! # Classic API example
 //!
 //! ```
 //! use dryoc::rng::randombytes_buf;

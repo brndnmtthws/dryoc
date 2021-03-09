@@ -13,6 +13,7 @@ use zeroize::Zeroize;
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
 #[zeroize(drop)]
+/// Wrapper for [`crate::dryocbox::DryocBox`] secret keys
 pub struct SecretKey(pub SecretKeyBase);
 
 #[cfg_attr(
@@ -21,6 +22,7 @@ pub struct SecretKey(pub SecretKeyBase);
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
 #[zeroize(drop)]
+/// Wrapper for [`crate::dryocbox::DryocBox`] public keys
 pub struct PublicKey(pub PublicKeyBase);
 
 #[cfg_attr(
@@ -29,7 +31,7 @@ pub struct PublicKey(pub PublicKeyBase);
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
 #[zeroize(drop)]
-/// Public/private keypair for use with [DryocBox], aka libsodium box
+/// Public/private keypair for use with [`crate::dryocbox::DryocBox`], aka libsodium box
 pub struct KeyPair {
     /// Public key
     pub public_key: PublicKey,
@@ -38,6 +40,7 @@ pub struct KeyPair {
 }
 
 impl PublicKey {
+    /// Returns an empty public key
     pub fn new() -> Self {
         Self([0u8; CRYPTO_BOX_SECRETKEYBYTES])
     }
@@ -50,6 +53,7 @@ impl From<[u8; CRYPTO_BOX_SECRETKEYBYTES]> for PublicKey {
 }
 
 impl SecretKey {
+    /// Returns an empty secret key
     pub fn new() -> Self {
         Self([0u8; CRYPTO_BOX_SECRETKEYBYTES])
     }
@@ -139,6 +143,7 @@ impl From<KeyPair> for PublicKey {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

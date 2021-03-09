@@ -1,11 +1,13 @@
 use sha2::{Digest, Sha512};
 
+/// Computes a SHA512 hash from `input'
 pub fn crypto_hash_sha512(input: &[u8]) -> Vec<u8> {
     let mut state = crypto_hash_sha512_init();
     state.update(input);
     state.finalize()
 }
 
+/// SHA512 wrapper
 pub struct HashSha512 {
     hasher: Sha512,
 }
@@ -28,18 +30,22 @@ impl HashSha512 {
     }
 }
 
+/// Initializes SHA512 hasher
 pub fn crypto_hash_sha512_init() -> HashSha512 {
     HashSha512::new()
 }
 
+/// Updates `state` of SHA512 hasher with `input`
 pub fn crypto_hash_sha512_update(state: &mut HashSha512, input: &[u8]) {
     state.update(input);
 }
 
+/// Finalizes `state` of SHA512 and return hash result
 pub fn crypto_hash_sha512_final(state: HashSha512) -> Vec<u8> {
     state.finalize()
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
