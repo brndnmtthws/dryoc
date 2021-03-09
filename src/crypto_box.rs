@@ -194,23 +194,12 @@ pub fn crypto_box_open_detached_afternm(
 
 /// In-place variant of [crypto_box_open_detached_afternm]
 pub fn crypto_box_open_detached_afternm_inplace(
-    ciphertext: Vec<u8>,
+    mac: &MacBase,
+    ciphertext: &mut Vec<u8>,
     nonce: &Nonce,
     key: &SecretBoxKeyBase,
-) -> Result<OutputBase, Error> {
-    let mut mac: MacBase = [0u8; CRYPTO_BOX_MACBYTES];
-    mac.copy_from_slice(&ciphertext[0..CRYPTO_BOX_MACBYTES]);
-
-    let mut dryocbox = DryocBox::from_data_and_mac(mac, ciphertext);
-
-    dryocbox.data.rotate_left(CRYPTO_BOX_MACBYTES);
-    dryocbox
-        .data
-        .resize(dryocbox.data.len() - CRYPTO_BOX_MACBYTES, 0);
-
-    crypto_secretbox_open_detached_inplace(&mut dryocbox.mac, &mut dryocbox.data, nonce, key)?;
-
-    Ok(dryocbox.data)
+) -> Result<(), Error> {
+    crypto_secretbox_open_detached_inplace(mac, ciphertext, nonce, key)
 }
 
 /// Detached variant of [`crate::crypto_box::crypto_box_open_easy`]
@@ -232,18 +221,19 @@ pub fn crypto_box_open_detached(
 
 /// In-place variant of ['crypto_box_open_detached']
 pub fn crypto_box_open_detached_inplace(
-    ciphertext: Vec<u8>,
+    mac: &MacBase,
+    ciphertext: &mut Vec<u8>,
     nonce: &Nonce,
     recipient_public_key: &PublicKeyBase,
     sender_secret_key: &SecretKeyBase,
-) -> Result<OutputBase, Error> {
+) -> Result<(), Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
-    let res = crypto_box_open_detached_afternm_inplace(ciphertext, nonce, &key)?;
+    let res = crypto_box_open_detached_afternm_inplace(mac, ciphertext, nonce, &key);
 
     key.zeroize();
 
-    Ok(res)
+    res
 }
 
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
@@ -278,11 +268,11 @@ pub fn crypto_box_open_easy(
 /// sender's public key `sender_public_key` using `nonce` in-place, without
 /// allocated additional memory for the message
 pub fn crypto_box_open_easy_inplace(
-    ciphertext: Vec<u8>,
+    ciphertext: &mut Vec<u8>,
     nonce: &Nonce,
     sender_public_key: &PublicKeyBase,
     recipient_secret_key: &SecretKeyBase,
-) -> Result<OutputBase, Error> {
+) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_BOX_MACBYTES {
         Err(dryoc_error!(format!(
             "Impossibly small box ({} < {}",
@@ -293,13 +283,23 @@ pub fn crypto_box_open_easy_inplace(
         let mut mac: MacBase = [0u8; CRYPTO_BOX_MACBYTES];
         mac.copy_from_slice(&ciphertext[0..CRYPTO_BOX_MACBYTES]);
 
-        crypto_box_open_detached(
+        ciphertext.rotate_left(CRYPTO_BOX_MACBYTES);
+        ciphertext.resize(ciphertext.len() - CRYPTO_BOX_MACBYTES, 0);
+
+        match crypto_box_open_detached_inplace(
             &mac,
-            &ciphertext[CRYPTO_BOX_MACBYTES..],
+            ciphertext,
             nonce,
             sender_public_key,
             recipient_secret_key,
-        )
+        ) {
+            Err(err) => {
+                ciphertext.resize(ciphertext.len() + CRYPTO_BOX_MACBYTES, 0);
+                ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
+                Err(err)
+            }
+            Ok(k) => Ok(k),
+        }
     }
 }
 
@@ -389,16 +389,24 @@ mod tests {
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
-            let ciphertext_clone = ciphertext.clone();
+            let mut ciphertext_clone = ciphertext.clone();
 
-            let m = crypto_box_open_easy_inplace(
-                ciphertext_clone,
+            crypto_box_open_easy_inplace(
+                &mut ciphertext_clone,
                 &nonce,
                 &keypair_sender.public_key.0,
                 &keypair_recipient.secret_key.0,
             )
-            .unwrap();
-            assert_eq!(encode(&m), encode(&message_copy));
+            .expect("decrypt failed");
+            let so_m = box_::open(
+                ciphertext.as_slice(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
+            )
+            .expect("decrypt failed");
+            assert_eq!(encode(&ciphertext_clone), encode(&message_copy));
+            assert_eq!(encode(&so_m), encode(&message_copy));
         }
     }
 

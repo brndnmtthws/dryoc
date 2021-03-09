@@ -26,10 +26,6 @@
 //! paranoid, and avoid non-ARM and non-Intel microarchitectures.
 
 #![warn(missing_docs)]
-#![cfg_attr(featrue = "nightly", warn(rustdoc::missing_crate_level_docs))]
-#![cfg_attr(feature = "nightly", warn(rustdoc::missing_doc_code_examples))]
-#![cfg_attr(not(feature = "nightly"), warn(missing_crate_level_docs))]
-#![cfg_attr(not(feature = "nightly"), warn(missing_doc_code_examples))]
 
 #[cfg(feature = "serde")]
 extern crate serde;

@@ -15,25 +15,40 @@ use zeroize::Zeroize;
 pub struct Message(pub Box<InputBase>);
 
 impl From<Vec<u8>> for Message {
-    fn from(v: Vec<u8>) -> Self {
-        Self(Box::from(v.as_slice()))
+    fn from(other: Vec<u8>) -> Self {
+        Self(Box::from(other.as_slice()))
     }
 }
 
 impl From<&[u8]> for Message {
-    fn from(a: &[u8]) -> Self {
-        Self(Box::from(a))
+    fn from(other: &[u8]) -> Self {
+        Self(Box::from(other))
     }
 }
 
 impl From<String> for Message {
-    fn from(s: String) -> Self {
-        Self(Box::from(s.as_bytes()))
+    fn from(other: String) -> Self {
+        Self(Box::from(other.as_bytes()))
     }
 }
 
 impl From<&str> for Message {
-    fn from(s: &str) -> Self {
-        Self(Box::from(s.as_bytes()))
+    fn from(other: &str) -> Self {
+        Self(Box::from(other.as_bytes()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from() {
+        assert_eq!(Message::from("hey").0.as_ref(), "hey".as_bytes());
+        assert_eq!(
+            Message::from(String::from("hey")).0.as_ref(),
+            "hey".as_bytes()
+        );
+        assert_eq!(Message::from(vec![1, 2, 3]).0.as_ref(), [1, 2, 3]);
     }
 }

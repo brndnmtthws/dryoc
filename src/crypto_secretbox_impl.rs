@@ -40,7 +40,7 @@ pub(crate) fn crypto_secretbox_detached_inplace(
 }
 
 pub(crate) fn crypto_secretbox_open_detached_inplace(
-    mac: &mut MacBase,
+    mac: &MacBase,
     data: &mut Vec<u8>,
     nonce: &Nonce,
     key: &InputBase,
