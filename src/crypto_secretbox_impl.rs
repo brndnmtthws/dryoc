@@ -1,6 +1,7 @@
 use crate::constants::*;
 use crate::dryocbox::*;
 use crate::error::Error;
+use crate::nonce::*;
 use crate::types::*;
 
 use generic_array::GenericArray;
@@ -13,9 +14,9 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 pub(crate) fn crypto_secretbox_detached_inplace(
-    DryocBox: &mut DryocBox,
+    dryocbox: &mut DryocBox,
     nonce: &Nonce,
-    key: &SecretboxKey,
+    key: &SecretBoxKeyBase,
 ) {
     let mut nonce_prefix: [u8; 16] = [0; 16];
     nonce_prefix.clone_from_slice(&nonce[..16]);
@@ -32,18 +33,18 @@ pub(crate) fn crypto_secretbox_detached_inplace(
 
     mac_key.zeroize();
 
-    cipher.apply_keystream(DryocBox.data.as_mut_slice());
+    cipher.apply_keystream(dryocbox.data.as_mut_slice());
 
-    DryocBox.mac = mac
-        .compute_unpadded(DryocBox.data.as_slice())
+    dryocbox.mac = mac
+        .compute_unpadded(dryocbox.data.as_slice())
         .into_bytes()
         .into();
 }
 
 pub(crate) fn crypto_secretbox_open_detached_inplace(
-    DryocBox: &mut DryocBox,
+    dryocbox: &mut DryocBox,
     nonce: &Nonce,
-    key: &Input,
+    key: &InputBase,
 ) -> Result<(), Error> {
     let mut nonce_prefix: [u8; 16] = [0; 16];
     nonce_prefix.clone_from_slice(&nonce[..16]);
@@ -61,13 +62,13 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
     mac_key.zeroize();
 
     let mac: [u8; CRYPTO_SECRETBOX_MACBYTES] = mac
-        .compute_unpadded(DryocBox.data.as_slice())
+        .compute_unpadded(dryocbox.data.as_slice())
         .into_bytes()
         .into();
 
-    cipher.apply_keystream(DryocBox.data.as_mut_slice());
+    cipher.apply_keystream(dryocbox.data.as_mut_slice());
 
-    if mac.ct_eq(&DryocBox.mac).unwrap_u8() == 1 {
+    if mac.ct_eq(&dryocbox.mac).unwrap_u8() == 1 {
         Ok(())
     } else {
         Err(dryoc_error!("decryption error (authentication failure)"))

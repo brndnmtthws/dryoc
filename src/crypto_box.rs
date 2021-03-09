@@ -4,11 +4,20 @@
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption).
 //!
-//! # Basic usage
+//! # Rustaceous API
 //!
 //! ```
 //! use dryoc::rng::randombytes_buf;
 //! use dryoc::crypto_box::{crypto_box_keypair, crypto_box_easy, crypto_box_open_easy};
+//! use dryoc::traits::Gen;
+//! use dryoc::nonce::Nonce;
+//! ```
+//!
+//! # Classic API
+//!
+//! ```
+//! use dryoc::rng::randombytes_buf;
+//! use dryoc::prelude::*;
 //! use dryoc::constants::CRYPTO_BOX_NONCEBYTES;
 //!
 //! // Create a sender keypair
@@ -19,23 +28,24 @@
 //!
 //! // Generate a random nonce
 //! let nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES);
+//! let nonce = Nonce::gen();
 //!
 //! let message = "hello".as_bytes();
 //! // Encrypt message
 //! let ciphertext = crypto_box_easy(
 //!     message,
-//!     nonce.as_slice(),
-//!     &keypair_recipient.public_key,
-//!     &keypair_sender.secret_key,
+//!     &nonce,
+//!     &keypair_recipient.public_key.0,
+//!     &keypair_sender.secret_key.0,
 //! )
 //! .unwrap();
 //!
 //! // Decrypt message
 //! let decrypted_message = crypto_box_open_easy(
-//!     ciphertext.as_slice(),
-//!     nonce.as_slice(),
-//!     &keypair_sender.public_key,
-//!     &keypair_recipient.secret_key,
+//!     &ciphertext,
+//!     &nonce,
+//!     &keypair_sender.public_key.0,
+//!     &keypair_recipient.secret_key.0,
 //! )
 //! .unwrap();
 //!
@@ -49,6 +59,7 @@ use crate::crypto_secretbox_impl::*;
 use crate::dryocbox::*;
 use crate::error::Error;
 use crate::keypair::*;
+use crate::nonce::*;
 use crate::types::*;
 
 use zeroize::Zeroize;
@@ -60,21 +71,24 @@ pub fn crypto_box_keypair() -> KeyPair {
 }
 
 /// Deterministically derives a keypair from `seed`.
-pub fn crypto_box_seed_keypair(seed: &Input) -> KeyPair {
+pub fn crypto_box_seed_keypair(seed: &InputBase) -> KeyPair {
     crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed)
 }
 
 /// Computes a shared secret for the given `public_key` and `private_key`.
 /// Resulting shared secret can be used with the precalculation interface.
-pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> SecretboxKey {
+pub fn crypto_box_beforenm(
+    public_key: &PublicKeyBase,
+    secret_key: &SecretKeyBase,
+) -> SecretBoxKeyBase {
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
 /// Precalculation variant of [crypto_box_easy]
 pub fn crypto_box_detached_afternm(
-    message: &Input,
+    message: &InputBase,
     nonce: &Nonce,
-    key: &SecretboxKey,
+    key: &SecretBoxKeyBase,
 ) -> Result<DryocBox, Error> {
     Ok(crypto_secretbox_detached(message, nonce, key))
 }
@@ -83,17 +97,17 @@ pub fn crypto_box_detached_afternm(
 pub fn crypto_box_detached_afternm_inplace(
     dryocbox: &mut DryocBox,
     nonce: &Nonce,
-    key: &SecretboxKey,
+    key: &SecretBoxKeyBase,
 ) {
     crypto_secretbox_detached_inplace(dryocbox, nonce, key);
 }
 
 /// Detached variant of [crypto_box_easy]
 pub fn crypto_box_detached(
-    message: &Input,
+    message: &InputBase,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
+    recipient_public_key: &PublicKeyBase,
+    sender_secret_key: &SecretKeyBase,
 ) -> Result<DryocBox, Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
@@ -108,8 +122,8 @@ pub fn crypto_box_detached(
 pub fn crypto_box_detached_inplace(
     message: Vec<u8>,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
+    recipient_public_key: &PublicKeyBase,
+    sender_secret_key: &SecretKeyBase,
 ) -> Result<DryocBox, Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
@@ -125,11 +139,11 @@ pub fn crypto_box_detached_inplace(
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
 /// sender's secret key `sender_secret_key` using `nonce`
 pub fn crypto_box_easy(
-    message: &Input,
+    message: &InputBase,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
-) -> Result<Output, Error> {
+    recipient_public_key: &PublicKeyBase,
+    sender_secret_key: &SecretKeyBase,
+) -> Result<OutputBase, Error> {
     if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
         Err(dryoc_error!(format!(
             "Message length {} exceeds max message length {}",
@@ -152,9 +166,9 @@ pub fn crypto_box_easy(
 pub fn crypto_box_easy_inplace(
     message: Vec<u8>,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
-) -> Result<Output, Error> {
+    recipient_public_key: &PublicKeyBase,
+    sender_secret_key: &SecretKeyBase,
+) -> Result<OutputBase, Error> {
     if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
         Err(dryoc_error!(format!(
             "Message length {} exceeds max message length {}",
@@ -179,11 +193,11 @@ pub fn crypto_box_easy_inplace(
 
 /// Precalculation variant of [crypto_box_open_easy]
 pub fn crypto_box_open_detached_afternm(
-    mac: &Mac,
-    ciphertext: &Input,
+    mac: &MacBase,
+    ciphertext: &InputBase,
     nonce: &Nonce,
-    key: &SecretboxKey,
-) -> Result<Output, Error> {
+    key: &SecretBoxKeyBase,
+) -> Result<OutputBase, Error> {
     crypto_secretbox_open_detached(mac, ciphertext, nonce, key)
 }
 
@@ -191,9 +205,9 @@ pub fn crypto_box_open_detached_afternm(
 pub fn crypto_box_open_detached_afternm_inplace(
     ciphertext: Vec<u8>,
     nonce: &Nonce,
-    key: &SecretboxKey,
-) -> Result<Output, Error> {
-    let mut mac: Mac = [0u8; CRYPTO_BOX_MACBYTES];
+    key: &SecretBoxKeyBase,
+) -> Result<OutputBase, Error> {
+    let mut mac: MacBase = [0u8; CRYPTO_BOX_MACBYTES];
     mac.copy_from_slice(&ciphertext[0..CRYPTO_BOX_MACBYTES]);
 
     let mut dryocbox = DryocBox::from_data_and_mac(mac, ciphertext);
@@ -210,12 +224,12 @@ pub fn crypto_box_open_detached_afternm_inplace(
 
 /// Detached variant of [crypto_box_easy_open]
 pub fn crypto_box_open_detached(
-    mac: &Mac,
-    ciphertext: &Input,
+    mac: &MacBase,
+    ciphertext: &InputBase,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
-) -> Result<Output, Error> {
+    recipient_public_key: &PublicKeyBase,
+    sender_secret_key: &SecretKeyBase,
+) -> Result<OutputBase, Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
     let res = crypto_box_open_detached_afternm(mac, ciphertext, nonce, &key)?;
@@ -229,9 +243,9 @@ pub fn crypto_box_open_detached(
 pub fn crypto_box_open_detached_inplace(
     ciphertext: Vec<u8>,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
-) -> Result<Output, Error> {
+    recipient_public_key: &PublicKeyBase,
+    sender_secret_key: &SecretKeyBase,
+) -> Result<OutputBase, Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
     let res = crypto_box_open_detached_afternm_inplace(ciphertext, nonce, &key)?;
@@ -244,11 +258,11 @@ pub fn crypto_box_open_detached_inplace(
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
 /// sender's public key `sender_public_key` using `nonce`
 pub fn crypto_box_open_easy(
-    ciphertext: &Input,
+    ciphertext: &InputBase,
     nonce: &Nonce,
-    sender_public_key: &PublicKey,
-    recipient_secret_key: &SecretKey,
-) -> Result<Output, Error> {
+    sender_public_key: &PublicKeyBase,
+    recipient_secret_key: &SecretKeyBase,
+) -> Result<OutputBase, Error> {
     if ciphertext.len() < CRYPTO_BOX_MACBYTES {
         Err(dryoc_error!(format!(
             "Impossibly small box ({} < {}",
@@ -256,7 +270,7 @@ pub fn crypto_box_open_easy(
             CRYPTO_BOX_MACBYTES
         )))
     } else {
-        let mut mac: Mac = [0u8; CRYPTO_BOX_MACBYTES];
+        let mut mac: MacBase = [0u8; CRYPTO_BOX_MACBYTES];
         mac.copy_from_slice(&ciphertext[0..CRYPTO_BOX_MACBYTES]);
 
         crypto_box_open_detached(
@@ -275,9 +289,9 @@ pub fn crypto_box_open_easy(
 pub fn crypto_box_open_easy_inplace(
     ciphertext: Vec<u8>,
     nonce: &Nonce,
-    sender_public_key: &PublicKey,
-    recipient_secret_key: &SecretKey,
-) -> Result<Output, Error> {
+    sender_public_key: &PublicKeyBase,
+    recipient_secret_key: &SecretKeyBase,
+) -> Result<OutputBase, Error> {
     if ciphertext.len() < CRYPTO_BOX_MACBYTES {
         Err(dryoc_error!(format!(
             "Impossibly small box ({} < {}",
@@ -285,7 +299,7 @@ pub fn crypto_box_open_easy_inplace(
             CRYPTO_BOX_MACBYTES
         )))
     } else {
-        let mut mac: Mac = [0u8; CRYPTO_BOX_MACBYTES];
+        let mut mac: MacBase = [0u8; CRYPTO_BOX_MACBYTES];
         mac.copy_from_slice(&ciphertext[0..CRYPTO_BOX_MACBYTES]);
 
         crypto_box_open_detached(
@@ -308,42 +322,43 @@ mod tests {
         for i in 0..20 {
             use base64::encode;
             use sodiumoxide::crypto::box_;
-            use sodiumoxide::crypto::box_::{Nonce, PublicKey, SecretKey};
+            use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+            use std::convert::TryInto;
 
             let keypair_sender = crypto_box_keypair();
             let keypair_recipient = crypto_box_keypair();
-            let nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES);
+            let nonce: Nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES).try_into().unwrap();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let ciphertext = crypto_box_easy(
                 message.as_bytes(),
-                nonce.as_slice(),
-                &keypair_recipient.public_key,
-                &keypair_sender.secret_key,
+                &nonce,
+                &keypair_recipient.public_key.0,
+                &keypair_sender.secret_key.0,
             )
             .unwrap();
 
             let so_ciphertext = box_::seal(
                 message.as_bytes(),
-                &Nonce::from_slice(nonce.as_slice()).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
             let m = crypto_box_open_easy(
                 ciphertext.as_slice(),
-                nonce.as_slice(),
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
+                &nonce,
+                &keypair_sender.public_key.0,
+                &keypair_recipient.secret_key.0,
             )
             .unwrap();
             let so_m = box_::open(
                 ciphertext.as_slice(),
-                &Nonce::from_slice(nonce.as_slice()).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
             )
             .unwrap();
 
@@ -357,27 +372,28 @@ mod tests {
         for i in 0..20 {
             use base64::encode;
             use sodiumoxide::crypto::box_;
-            use sodiumoxide::crypto::box_::{Nonce, PublicKey, SecretKey};
+            use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+            use std::convert::TryInto;
 
             let keypair_sender = crypto_box_keypair();
             let keypair_recipient = crypto_box_keypair();
-            let nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES);
+            let nonce: Nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES).try_into().unwrap();
             let words = vec!["hello1".to_string(); i];
             let message: Vec<u8> = words.join(" :D ").as_bytes().to_vec();
             let message_copy = message.clone();
 
             let ciphertext = crypto_box_easy_inplace(
                 message,
-                nonce.as_slice(),
-                &keypair_recipient.public_key,
-                &keypair_sender.secret_key,
+                &nonce,
+                &keypair_recipient.public_key.0,
+                &keypair_sender.secret_key.0,
             )
             .unwrap();
             let so_ciphertext = box_::seal(
                 message_copy.as_slice(),
-                &Nonce::from_slice(nonce.as_slice()).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
@@ -386,12 +402,28 @@ mod tests {
 
             let m = crypto_box_open_easy_inplace(
                 ciphertext_clone,
-                nonce.as_slice(),
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
+                &nonce,
+                &keypair_sender.public_key.0,
+                &keypair_recipient.secret_key.0,
             )
             .unwrap();
             assert_eq!(encode(&m), encode(&message_copy));
+        }
+    }
+
+    #[test]
+    fn test_crypto_box_seed_keypair() {
+        use base64::encode;
+        use sodiumoxide::crypto::box_::{keypair_from_seed, Seed};
+
+        for _ in 0..10 {
+            let seed = randombytes_buf(CRYPTO_BOX_SEEDBYTES);
+
+            let keypair = crypto_box_seed_keypair(&seed);
+            let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());
+
+            assert_eq!(encode(&keypair.public_key.0), encode(so_pk.as_ref()));
+            assert_eq!(encode(&keypair.secret_key.0), encode(so_sk.as_ref()));
         }
     }
 }

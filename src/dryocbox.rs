@@ -1,20 +1,23 @@
 //! # Public-key authenticated encryption
 
-use crate::constants::*;
-use crate::error::*;
-use crate::types::*;
+use crate::constants::CRYPTO_BOX_MACBYTES;
+use crate::error::Error;
+use crate::keypair::{PublicKey, SecretKey};
+use crate::message::*;
+use crate::nonce::Nonce;
+use crate::types::{InputBase, MacBase};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
 
-#[cfg_attr(feature = "example", derive(Serialize, Deserialize, Zeroize))]
-#[cfg_attr(not(feature = "example"), derive(Zeroize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Zeroize, Clone))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
 /// A libsodium public-key authenticated encrypted box
 pub struct DryocBox {
     /// libsodium box authentication tag, usually prepended to each box
-    pub mac: Mac,
+    pub mac: MacBase,
     /// libsodium box message or ciphertext, depending on state
     pub data: Vec<u8>,
 }
@@ -23,136 +26,88 @@ impl DryocBox {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            mac: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            mac: [0u8; CRYPTO_BOX_MACBYTES],
             data: vec![],
         }
     }
-    /// Returns a box with an empty `mac`, and data from `data`
+
+    /// Returns a box with an empty `mac`, and data from `data`, consuming `data`
     pub fn from_data(data: Vec<u8>) -> Self {
         Self {
-            mac: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            mac: [0u8; CRYPTO_BOX_MACBYTES],
             data,
         }
     }
-    /// Returns a new box with `mac` and `data`
-    pub fn from_data_and_mac(mac: [u8; CRYPTO_SECRETBOX_MACBYTES], data: Vec<u8>) -> Self {
+
+    /// Returns a new box with `mac` and `data`, consuming both
+    pub fn from_data_and_mac(mac: [u8; CRYPTO_BOX_MACBYTES], data: Vec<u8>) -> Self {
         Self { mac, data }
     }
+
     /// Returns a box with `data` copied from slice `input`
-    pub fn with_data(input: &Input) -> Self {
+    pub fn with_data(input: &InputBase) -> Self {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
-            mac: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            mac: [0u8; CRYPTO_BOX_MACBYTES],
             data,
         }
     }
-    /// Returns a new box with `data` and `mac` copied from `input` and `mac` respectively
-    pub fn with_data_and_mac(mac: &Mac, input: &Input) -> Self {
+
+    /// Returns a new box with `data` and `mac` copied from `input` and `mac`
+    /// respectively
+    pub fn with_data_and_mac(mac: &MacBase, input: &InputBase) -> Self {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         let mut r = Self {
-            mac: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            mac: [0u8; CRYPTO_BOX_MACBYTES],
             data,
         };
         r.mac.copy_from_slice(mac);
         r
     }
 
-    /// Encrypts this box using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new box with ciphertext and mac
-    pub fn encrypt_pk(
+    /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
+    /// and returns a new [DryocBox] with ciphertext and mac
+    pub fn encrypt(
+        message: &Message,
+        nonce: &Nonce,
+        recipient_public_key: &PublicKey,
+        sender_secret_key: &SecretKey,
+    ) -> Result<Self, Error> {
+        use crate::crypto_box::*;
+        let dryocbox = crypto_box_detached(
+            &message.0,
+            nonce,
+            &recipient_public_key.0,
+            &sender_secret_key.0,
+        )?;
+
+        Ok(dryocbox)
+    }
+
+    /// Decrypts `ciphertext` using `recipient_secret_key` and
+    /// `sender_public_key`, returning a new [DryocBox] with decrypted message
+    pub fn decrypt(
         &self,
         nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
-    ) -> Result<Self, Error> {
+        sender_public_key: &PublicKey,
+        recipient_secret_key: &SecretKey,
+    ) -> Result<Vec<u8>, Error> {
         use crate::crypto_box::*;
-        let dryocbox =
-            crypto_box_detached(&self.data, nonce, recipient_public_key, sender_secret_key)?;
-
-        Ok(dryocbox)
-    }
-
-    /// Encrypts string `message` using `sender_secret_key` for
-    /// `recipient_public_key`, and returns a new box with ciphertext and mac
-    pub fn encrypt_string_pk(
-        message: &str,
-        nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
-    ) -> Result<Self, Error> {
-        use crate::crypto_box::*;
-        let dryocbox = crypto_box_detached(
-            message.as_bytes(),
+        let dryocbox = crypto_box_open_detached(
+            &self.mac,
+            &self.data,
             nonce,
-            recipient_public_key,
-            sender_secret_key,
+            &sender_public_key.0,
+            &recipient_secret_key.0,
         )?;
 
         Ok(dryocbox)
     }
 
-    /// Encrypts byte slice `message` using `sender_secret_key` for
-    /// `recipient_public_key`, and returns a new box with ciphertext and mac
-    pub fn encrypt_slice_pk(
-        message: &[u8],
-        nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
-    ) -> Result<Self, Error> {
-        use crate::crypto_box::*;
-        let dryocbox =
-            crypto_box_detached(message, nonce, recipient_public_key, sender_secret_key)?;
-
-        Ok(dryocbox)
-    }
-
-    /// Encrypts this box using `secret_key` and returns a new box with
-    /// ciphertext and mac
-    pub fn encrypt_sk(&self, nonce: &Nonce, secret_key: &SecretKey) -> Self {
-        use crate::crypto_secretbox::*;
-        let dryocbox = crypto_secretbox_detached(&self.data, nonce, secret_key);
-
-        dryocbox
-    }
-
-    /// Encrypt a string `message` using `secret_key` and return a new box with
-    /// ciphertext and mac
-    pub fn encrypt_string_sk(
-        message: &str,
-        nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
-    ) -> Result<Self, Error> {
-        use crate::crypto_box::*;
-        let dryocbox = crypto_box_detached(
-            message.as_bytes(),
-            nonce,
-            recipient_public_key,
-            sender_secret_key,
-        )?;
-
-        Ok(dryocbox)
-    }
-
-    /// Encrypt a byte slice `message` using `sender_secret_key` for
-    /// `recipient_public_key`, and return a new box with ciphertext and mac
-    pub fn encrypt_slice_sk(
-        message: &[u8],
-        nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
-    ) -> Result<Self, Error> {
-        use crate::crypto_box::*;
-        let dryocbox =
-            crypto_box_detached(message, nonce, recipient_public_key, sender_secret_key)?;
-
-        Ok(dryocbox)
-    }
-
-    /// Combine mac and data, return a Vec
-    pub fn to_vec(&self) -> Vec<u8> {
+    /// Consumes this box and returns it as a Vec
+    pub fn to_vec(self) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&self.mac);
         data.extend(&self.data);
@@ -190,5 +145,61 @@ mod tests {
 
         assert_eq!(all_eq(&dryocbox.mac, 0), true);
         assert_eq!(all_eq(&dryocbox.data, 0), true);
+    }
+
+    #[test]
+    fn test_dryocbox() {
+        for i in 0..20 {
+            use crate::dryocbox::*;
+            use crate::keypair::*;
+            use crate::nonce::*;
+            use crate::traits::*;
+            use base64::encode;
+            use sodiumoxide::crypto::box_;
+            use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+
+            let keypair_sender = KeyPair::gen();
+            let keypair_recipient = KeyPair::gen();
+            let keypair_sender_2 = keypair_sender.clone();
+            let keypair_recipient_2 = keypair_recipient.clone();
+            let nonce = Nonce::gen();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+            let message_2 = message.clone();
+            let dryocbox = DryocBox::encrypt(
+                &message.into(),
+                &nonce,
+                &keypair_recipient.into(),
+                &keypair_sender.into(),
+            )
+            .unwrap();
+            let ciphertext = dryocbox.clone().to_vec();
+
+            let so_ciphertext = box_::seal(
+                message_2.as_bytes(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient_2.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender_2.secret_key.0).unwrap(),
+            );
+
+            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+
+            let keypair_sender = keypair_sender_2.clone();
+            let keypair_recipient = keypair_recipient_2.clone();
+
+            let m = dryocbox
+                .decrypt(&nonce, &keypair_sender.into(), &keypair_recipient.into())
+                .expect("hmm");
+            let so_m = box_::open(
+                &ciphertext,
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient_2.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender_2.secret_key.0).unwrap(),
+            )
+            .expect("HMMM");
+
+            assert_eq!(m, message_2.as_bytes());
+            assert_eq!(m, so_m);
+        }
     }
 }

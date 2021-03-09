@@ -1,6 +1,8 @@
+use crate::constants::*;
 use crate::crypto_hash::crypto_hash_sha512;
 use crate::hsalsa20::crypto_core_hsalsa20;
 use crate::keypair::*;
+use crate::scalarmult_curve25519::*;
 use crate::types::*;
 
 use rand_core::OsRng;
@@ -9,9 +11,9 @@ use x25519_dalek::StaticSecret as DalekSecretKey;
 use zeroize::Zeroize;
 
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(
-    public_key: &PublicKey,
-    secret_key: &SecretKey,
-) -> SecretboxKey {
+    public_key: &PublicKeyBase,
+    secret_key: &SecretKeyBase,
+) -> SecretBoxKeyBase {
     let sk = DalekSecretKey::from(*secret_key);
     let pk = DalekPublicKey::from(*public_key);
 
@@ -26,27 +28,16 @@ pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair() -> KeyPair {
     let secret_key = DalekSecretKey::new(OsRng);
     let public_key = DalekPublicKey::from(&secret_key);
 
-    KeyPair {
-        secret_key: secret_key.to_bytes(),
-        public_key: public_key.to_bytes(),
-    }
+    KeyPair::from_slices(public_key.to_bytes(), secret_key.to_bytes())
 }
 
-pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed: &[u8]) -> KeyPair {
+pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed: &InputBase) -> KeyPair {
     let mut hash = crypto_hash_sha512(seed);
 
-    let mut seed_hash = [0u8; 32];
-    for (i, n) in hash.iter().take(32).enumerate() {
-        seed_hash[i] = *n;
-    }
-
-    let secret_key = DalekSecretKey::from(seed_hash);
-    let public_key = DalekPublicKey::from(&secret_key);
+    let mut secret_key = [0u8; CRYPTO_BOX_SEEDBYTES];
+    secret_key.copy_from_slice(&hash[0..CRYPTO_BOX_SEEDBYTES]);
 
     hash.zeroize();
 
-    KeyPair {
-        secret_key: secret_key.to_bytes(),
-        public_key: public_key.to_bytes(),
-    }
+    KeyPair::from_slices(crypto_scalarmult_curve25519_base(&secret_key), secret_key)
 }

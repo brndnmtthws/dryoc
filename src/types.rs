@@ -1,13 +1,11 @@
 use crate::constants::*;
 
-pub type Nonce = [u8];
+pub type OutputBase = Vec<u8>;
+pub type InputBase = [u8];
 
-pub type Output = Vec<u8>;
-pub type Input = [u8];
+pub type MacBase = [u8; CRYPTO_BOX_MACBYTES];
 
-pub type Mac = [u8; CRYPTO_BOX_MACBYTES];
+pub type SecretBoxKeyBase = [u8; CRYPTO_SECRETBOX_KEYBYTES];
 
-pub type SecretboxKey = [u8; CRYPTO_SECRETBOX_KEYBYTES];
-
-pub type PublicKey = [u8; CRYPTO_BOX_PUBLICKEYBYTES];
-pub type SecretKey = [u8; CRYPTO_BOX_SECRETKEYBYTES];
+pub type PublicKeyBase = [u8; CRYPTO_BOX_PUBLICKEYBYTES];
+pub type SecretKeyBase = [u8; CRYPTO_BOX_SECRETKEYBYTES];

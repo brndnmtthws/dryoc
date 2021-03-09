@@ -5,20 +5,18 @@
 //! limited dependencies.
 //!
 //! This library includes both a _classic_ API, which is very similar to the
-//! original libsodium API, and a more Rust-friendly API with Rust-specific
-//! features. Both APIs can be used together interchangeably, according to your
-//! preferences. The Rustaceous API is a wrapper around the underlying classic
-//! API.
+//! original libsodium API, and Rustaceous API with Rust-specific features. Both
+//! APIs can be used together interchangeably, according to your preferences. The
+//! Rustaceous API is a wrapper around the underlying classic API.
 //!
-//! To get started with the Rustaceous API, refer to [dryocbox] and
-//! [dryocsecretbox].
+//! To get started with the Rustaceous API, refer to [dryocbox].
 //!
-//! To get started, with the classic API refer to [crypto_box] and
+//! To get started, with the classic (libsodium) API, refer to [crypto_box] and
 //! [crypto_secretbox].
 //!
 //! # Security notes
 //!
-//! This crate has not been audited, but some of the underlying implementations
+//! This crate has NOT been audited, but some of the underlying implementations
 //! have received some auditing, such as the [poly1305] crate. Notably, only the
 //! non-AVX2 backend has been audited. Thus, don't enable AVX2 if you're
 //! paranoid, and avoid non-ARM and non-Intel microarchitectures.
@@ -38,6 +36,7 @@ mod hsalsa20;
 mod scalarmult_curve25519;
 mod types;
 
+pub mod ciphertext;
 /// Constant value definitions
 pub mod constants;
 pub mod crypto_box;
@@ -49,8 +48,12 @@ pub mod crypto_secretbox;
 pub mod dryocbox;
 /// Public-key tools
 pub mod keypair;
+pub mod message;
+pub mod nonce;
+pub mod prelude;
 /// Random number generation utilities
 pub mod rng;
+pub mod traits;
 
 #[cfg(test)]
 mod tests {

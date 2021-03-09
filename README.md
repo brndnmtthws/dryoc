@@ -40,6 +40,11 @@ The following features are currently implemented, or awaiting implementation:
 * [ ] [Password hashing](https://doc.libsodium.org/password_hashing/default_phf)
 * [ ] [Key exchange](https://doc.libsodium.org/key_exchange)
 * [ ] [One-time authentication](https://doc.libsodium.org/advanced/poly1305)
+* [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
+* [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
+* [ ] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+* [ ] [Encrypting related message](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
+* [ ] [Authentication](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 
 The following libsodium features are not implemented, and there's no
 plan to implement them:
