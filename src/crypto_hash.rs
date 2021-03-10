@@ -7,7 +7,7 @@ pub fn crypto_hash_sha512(input: &[u8]) -> Vec<u8> {
     state.finalize().to_vec()
 }
 
-/// SHA512 wrapper
+/// SHA-512 wrapper, for more ergonomic usage
 pub struct HashSha512 {
     hasher: Sha512,
 }
