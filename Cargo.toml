@@ -1,11 +1,13 @@
 [package]
 authors = ["Brenden Matthews <brenden@brndn.io>"]
 description = "dryoc is a pure-Rust implementation of the excellent libsodium"
+documentation = "https://docs.rs/dryoc"
 edition = "2018"
 license = "LGPL-3.0-only"
 name = "dryoc"
 readme = "README.md"
-version = "0.2.1"
+repository = "https://github.com/brndnmtthws/dryoc"
+version = "0.2.0"
 
 [dependencies]
 base64 = {version = "0.13", optional = true}
