@@ -298,7 +298,7 @@ pub fn crypto_box_open_easy_inplace(
                 ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
                 Err(err)
             }
-            Ok(k) => Ok(k),
+            Ok(()) => Ok(()),
         }
     }
 }
