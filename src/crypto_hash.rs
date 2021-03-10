@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha512};
 
-/// Computes a SHA512 hash from `input'
+/// Computes a SHA-512 hash from `input'
 pub fn crypto_hash_sha512(input: &[u8]) -> Vec<u8> {
     let mut state = crypto_hash_sha512_init();
     state.update(input);
@@ -31,17 +31,17 @@ impl HashSha512 {
     }
 }
 
-/// Initializes SHA512 hasher
+/// Initializes SHA-512 hasher
 pub fn crypto_hash_sha512_init() -> Sha512 {
     Sha512::new()
 }
 
-/// Updates `state` of SHA512 hasher with `input`
+/// Updates `state` of SHA-512 hasher with `input`
 pub fn crypto_hash_sha512_update(state: &mut Sha512, input: &[u8]) {
     state.update(input);
 }
 
-/// Finalizes `state` of SHA512 and return hash result, consuming `state`
+/// Finalizes `state` of SHA-512 and return hash result, consuming `state`
 pub fn crypto_hash_sha512_final(state: Sha512) -> Vec<u8> {
     state.finalize().to_vec()
 }
