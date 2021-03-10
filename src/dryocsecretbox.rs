@@ -210,4 +210,28 @@ mod tests {
             assert_eq!(m, so_decrypted);
         }
     }
+
+    #[test]
+    fn test_copy() {
+        for _ in 0..20 {
+            use crate::rng::*;
+
+            let mut data1: Vec<u8> = vec![0u8; 1024];
+            copy_randombytes(data1.as_mut_slice());
+            let data1_copy = data1.clone();
+
+            let dryocsecretbox = DryocSecretBox::from_data(data1);
+            assert_eq!(&dryocsecretbox.data, &data1_copy);
+
+            let data1 = data1_copy.clone();
+            let dryocsecretbox = DryocSecretBox::with_data(&data1);
+            assert_eq!(&dryocsecretbox.data, &data1_copy);
+
+            let data1 = data1_copy.clone();
+            let mac: [u8; CRYPTO_SECRETBOX_MACBYTES] = [0u8; CRYPTO_SECRETBOX_MACBYTES];
+            let dryocsecretbox = DryocSecretBox::with_data_and_mac(&mac, &data1);
+            assert_eq!(&dryocsecretbox.data, &data1_copy);
+            assert_eq!(&dryocsecretbox.mac, &[0u8; CRYPTO_SECRETBOX_MACBYTES]);
+        }
+    }
 }

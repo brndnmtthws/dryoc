@@ -346,7 +346,6 @@ mod tests {
     fn test_copy() {
         for _ in 0..20 {
             use crate::rng::*;
-            use crate::types::*;
 
             let mut data1: Vec<u8> = vec![0u8; 1024];
             copy_randombytes(data1.as_mut_slice());
