@@ -18,6 +18,14 @@
 //! To get started, with the classic (libsodium) API, refer to [crypto_box] and
 //! [crypto_secretbox].
 //!
+//! # Using Serde
+//!
+//! This crate includes optional [Serde](https://serde.rs/) support which can be
+//! enabled with the `serde` feature flag. When using text-based formats, such as
+//! JSON or YAML, it's recommended you enable the `base64` feature as well, which
+//! encodes binary fields as base64. For binary formats, this may not be
+//! necessary if they already include optimized storage for binary types.
+//!
 //! # Security notes
 //!
 //! This crate has NOT been audited, but some of the underlying implementations
