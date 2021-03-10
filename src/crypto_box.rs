@@ -296,6 +296,7 @@ pub fn crypto_box_open_easy_inplace(
             Err(err) => {
                 ciphertext.resize(ciphertext.len() + CRYPTO_BOX_MACBYTES, 0);
                 ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
+                ciphertext[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&mac);
                 Err(err)
             }
             Ok(()) => Ok(()),
@@ -405,6 +406,7 @@ mod tests {
                 &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
             )
             .expect("decrypt failed");
+
             assert_eq!(encode(&ciphertext_clone), encode(&message_copy));
             assert_eq!(encode(&so_m), encode(&message_copy));
         }
@@ -433,6 +435,7 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
         for _ in 0..20 {
+            use base64::encode;
             use std::convert::TryInto;
 
             let keypair_sender = crypto_box_keypair();
@@ -448,6 +451,24 @@ mod tests {
                 &keypair_recipient.secret_key.0,
             )
             .expect_err("expected an error");
+
+            ciphertext.resize(1024, 0);
+            copy_randombytes(ciphertext.as_mut_slice());
+            let ciphertext_copy = ciphertext.clone();
+
+            crypto_box_open_easy_inplace(
+                &mut ciphertext,
+                &nonce,
+                &keypair_sender.public_key.0,
+                &keypair_recipient.secret_key.0,
+            )
+            .expect_err("expected an error");
+
+            assert_eq!(ciphertext.len(), ciphertext_copy.len());
+            assert_eq!(
+                encode(&ciphertext[0..CRYPTO_BOX_MACBYTES]),
+                encode(&ciphertext_copy[0..CRYPTO_BOX_MACBYTES])
+            );
         }
     }
 
