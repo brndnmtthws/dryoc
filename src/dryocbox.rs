@@ -156,11 +156,11 @@ impl DryocBox {
     }
 
     /// Consumes this box and returns it as a Vec
-    pub fn into_vec(self) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(&self.mac);
-        data.extend(&self.data);
-        data
+    pub fn into_vec(mut self) -> Vec<u8> {
+        self.data.resize(self.data.len() + CRYPTO_BOX_MACBYTES, 0);
+        self.data.rotate_right(CRYPTO_BOX_MACBYTES);
+        self.data[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&self.mac);
+        self.data
     }
 }
 
