@@ -13,17 +13,20 @@ pub struct HashSha512 {
 }
 
 impl HashSha512 {
-    fn new() -> Self {
+    /// Returns a new SHA-512 hasher instance
+    pub fn new() -> Self {
         Self {
             hasher: crypto_hash_sha512_init(),
         }
     }
 
-    fn update(&mut self, input: &[u8]) {
+    /// Updates SHA-512 hash state with `input`
+    pub fn update(&mut self, input: &[u8]) {
         crypto_hash_sha512_update(&mut self.hasher, input);
     }
 
-    fn finalize(self) -> Vec<u8> {
+    /// Consumes hasher and return final computed hash
+    pub fn finalize(self) -> Vec<u8> {
         crypto_hash_sha512_final(self.hasher)
     }
 }
