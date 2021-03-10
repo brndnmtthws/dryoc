@@ -26,7 +26,7 @@ where
     use serde::de::Error;
     String::deserialize(deserializer)
         .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
-        .and_then(|vec| {
+        .map(|vec| {
             let mut mac: MacBase = [0u8; CRYPTO_BOX_MACBYTES];
             mac.copy_from_slice(&vec);
             mac
