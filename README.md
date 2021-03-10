@@ -25,14 +25,39 @@ cryptographic functions where possible, rather than succumbing to NIH
 syndrome. This library leverages existing vetted projects in the Rust
 ecosystem to provide high quality and easy to use cryptography.
 
+## Usage
+
+In `cargo.toml`:
+
+```toml
+[dependencies]
+dryoc = "0.1"
+```
+
+With optional features:
+
+```toml
+[dependencies]
+dryoc = {version = "0.1", features = ["serde", "base64", "simd_backend"]
+```
+
+## Features
+
+* Many libsodium implemented with both Classic and Rustaceous API
+* [Serde](https://serde.rs/) support, including optional base64 encoding (with `dryoc = {version = "*", features = ["serde", "base64"]}`)
+* SIMD optimizations, where supported (with `dryoc = {version = "*", features = ["simd_backend"]}`)
+
 ## Project status
 
-The following features are currently implemented, or awaiting implementation:
+The following libsodium features are currently implemented, or awaiting
+implementation:
 
 * [x] [Public-key cryptography](https://doc.libsodium.org/public-key_cryptography) (`crypto_box_*`)
 * [x] [Secret-key cryptography](https://doc.libsodium.org/secret-key_cryptography) (`crypto_secretbox_*`)
 * [x] [Point*scalar multiplication](https://doc.libsodium.org/advanced/scalar_multiplication)
-* [x] [Zeroing memory](https://doc.libsodium.org/memory_management) with [zeroize]()
+* [x] [Zeroing memory](https://doc.libsodium.org/memory_management) with [zeroize](https://crates.io/crates/zeroize)
+* [ ] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+* [ ] [Encrypting related message](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
 * [ ] [Generating random data](https://doc.libsodium.org/generating_random_data)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation)
 * [ ] [Generic hashing](https://doc.libsodium.org/hashing/generic_hashing)
@@ -42,8 +67,6 @@ The following features are currently implemented, or awaiting implementation:
 * [ ] [One-time authentication](https://doc.libsodium.org/advanced/poly1305)
 * [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
-* [ ] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream)
-* [ ] [Encrypting related message](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
 * [ ] [Authentication](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 
 The following libsodium features are not implemented, and there's no
