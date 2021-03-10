@@ -231,7 +231,9 @@ mod tests {
                 &keypair_sender.into(),
             )
             .unwrap();
+
             let ciphertext = dryocbox.clone().into_vec();
+            assert_eq!(&ciphertext, &dryocbox.to_vec());
 
             let so_ciphertext = box_::seal(
                 message_copy.as_bytes(),

@@ -126,11 +126,12 @@ impl DryocSecretBox {
     }
 
     /// Consumes this box and returns it as a Vec
-    pub fn into_vec(self) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(&self.mac);
-        data.extend(&self.data);
-        data
+    pub fn into_vec(mut self) -> Vec<u8> {
+        self.data
+            .resize(self.data.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
+        self.data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
+        self.data[0..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&self.mac);
+        self.data
     }
 }
 
@@ -182,7 +183,10 @@ mod tests {
             let message = words.join(" :D ");
             let message_copy = message.clone();
             let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
-            let ciphertext = dryocsecretbox.clone().to_vec();
+
+            let ciphertext = dryocsecretbox.clone().into_vec();
+            assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
+
             let ciphertext_copy = ciphertext.clone();
 
             let so_ciphertext = secretbox::seal(
