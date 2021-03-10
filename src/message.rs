@@ -50,5 +50,9 @@ mod tests {
             "hey".as_bytes()
         );
         assert_eq!(Message::from(vec![1, 2, 3]).0.as_ref(), [1, 2, 3]);
+        assert_eq!(
+            Message::from(vec![1, 2, 3].as_slice()).0.as_ref(),
+            [1, 2, 3]
+        );
     }
 }
