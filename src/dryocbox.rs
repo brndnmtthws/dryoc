@@ -209,7 +209,6 @@ mod tests {
     #[test]
     fn test_dryocbox() {
         for i in 0..20 {
-            use crate::dryocbox::*;
             use crate::keypair::*;
             use crate::nonce::*;
             use base64::encode;
@@ -266,7 +265,6 @@ mod tests {
     #[test]
     fn test_decrypt_failure() {
         for i in 0..20 {
-            use crate::dryocbox::*;
             use crate::keypair::*;
             use crate::nonce::*;
             use base64::encode;
@@ -325,7 +323,6 @@ mod tests {
     #[test]
     fn test_decrypt_failure_empty() {
         for _ in 0..20 {
-            use crate::dryocbox::*;
             use crate::keypair::*;
             use crate::nonce::*;
 
@@ -342,6 +339,31 @@ mod tests {
                     &invalid_key_copy_2.into(),
                 )
                 .expect_err("hmm");
+        }
+    }
+
+    #[test]
+    fn test_copy() {
+        for _ in 0..20 {
+            use crate::rng::*;
+            use crate::types::*;
+
+            let mut data1: Vec<u8> = vec![0u8; 1024];
+            copy_randombytes(data1.as_mut_slice());
+            let data1_copy = data1.clone();
+
+            let dryocbox = DryocBox::from_data(data1);
+            assert_eq!(&dryocbox.data, &data1_copy);
+
+            let data1 = data1_copy.clone();
+            let dryocbox = DryocBox::with_data(&data1);
+            assert_eq!(&dryocbox.data, &data1_copy);
+
+            let data1 = data1_copy.clone();
+            let mac: [u8; CRYPTO_BOX_MACBYTES] = [0u8; CRYPTO_BOX_MACBYTES];
+            let dryocbox = DryocBox::with_data_and_mac(&mac, &data1);
+            assert_eq!(&dryocbox.data, &data1_copy);
+            assert_eq!(&dryocbox.mac, &[0u8; CRYPTO_BOX_MACBYTES]);
         }
     }
 }
