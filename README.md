@@ -7,12 +7,12 @@ dryoc is a pure-Rust implementation of the excellent
 
 The purpose of this project is to provide a pure-Rust, mostly drop-in
 replacement for libsodium. This library has nearly the same ergonomics as
-libsodium (referred to in dryoc as the _classic_ API), so that people
+libsodium (referred to in dryoc as the _Classic_ API), so that people
 familiar with libsodium can use this library nearly interchangeably. While
 the API is not 100% identical to libsodium, most functions have the same or
 very similar signatures.
 
-In addition to the classic API, there's a Rustaceous API which aims to bring
+In addition to the Classic API, there's a Rustaceous API which aims to bring
 an idiomatic Rust implementation of libsodium's core features: public and
 secret key authenticated cryptography.
 
@@ -31,14 +31,14 @@ In `cargo.toml`:
 
 ```toml
 [dependencies]
-dryoc = "0.1"
+dryoc = "0.2"
 ```
 
 With optional features:
 
 ```toml
 [dependencies]
-dryoc = {version = "0.1", features = ["serde", "base64", "simd_backend"]
+dryoc = {version = "0.2", features = ["serde", "base64", "simd_backend"]
 ```
 
 ## Features
