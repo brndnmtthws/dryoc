@@ -262,4 +262,86 @@ mod tests {
             assert_eq!(m, so_m);
         }
     }
+
+    #[test]
+    fn test_decrypt_failure() {
+        for i in 0..20 {
+            use crate::dryocbox::*;
+            use crate::keypair::*;
+            use crate::nonce::*;
+            use base64::encode;
+            use sodiumoxide::crypto::box_;
+            use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+
+            let keypair_sender = KeyPair::gen();
+            let keypair_recipient = KeyPair::gen();
+            let keypair_sender_copy = keypair_sender.clone();
+            let keypair_recipient_copy = keypair_recipient.clone();
+            let nonce = Nonce::gen();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+            let message_copy = message.clone();
+            let dryocbox = DryocBox::encrypt(
+                &message.into(),
+                &nonce,
+                &keypair_recipient.into(),
+                &keypair_sender.into(),
+            )
+            .unwrap();
+
+            let ciphertext = dryocbox.clone().into_vec();
+            assert_eq!(&ciphertext, &dryocbox.to_vec());
+
+            let so_ciphertext = box_::seal(
+                message_copy.as_bytes(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&keypair_recipient_copy.public_key.0).unwrap(),
+                &SecretKey::from_slice(&keypair_sender_copy.secret_key.0).unwrap(),
+            );
+
+            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+
+            let invalid_key = KeyPair::gen();
+            let invalid_key_copy_1 = invalid_key.clone();
+            let invalid_key_copy_2 = invalid_key.clone();
+
+            dryocbox
+                .decrypt(
+                    &nonce,
+                    &invalid_key_copy_1.into(),
+                    &invalid_key_copy_2.into(),
+                )
+                .expect_err("hmm");
+            box_::open(
+                &ciphertext,
+                &SONonce::from_slice(&nonce).unwrap(),
+                &PublicKey::from_slice(&invalid_key.public_key.0).unwrap(),
+                &SecretKey::from_slice(&invalid_key.secret_key.0).unwrap(),
+            )
+            .expect_err("HMMM");
+        }
+    }
+
+    #[test]
+    fn test_decrypt_failure_empty() {
+        for _ in 0..20 {
+            use crate::dryocbox::*;
+            use crate::keypair::*;
+            use crate::nonce::*;
+
+            let invalid_key = KeyPair::gen();
+            let invalid_key_copy_1 = invalid_key.clone();
+            let invalid_key_copy_2 = invalid_key.clone();
+            let nonce = Nonce::gen();
+
+            let dryocbox = DryocBox::from_data("lol".as_bytes().into());
+            dryocbox
+                .decrypt(
+                    &nonce,
+                    &invalid_key_copy_1.into(),
+                    &invalid_key_copy_2.into(),
+                )
+                .expect_err("hmm");
+        }
+    }
 }

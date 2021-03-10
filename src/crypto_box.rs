@@ -8,8 +8,9 @@
 //!
 //! ```
 //! use dryoc::prelude::*;
-//! use dryoc::rng::copy_randombytes; // Not included in prelude
+//! use dryoc::rng::randombytes_buf; // Not included in prelude
 //! use dryoc::constants::CRYPTO_BOX_NONCEBYTES; // Not included in prelude
+//! use std::convert::TryInto;
 //!
 //! // Create a random sender keypair
 //! let keypair_sender = crypto_box_keypair();
@@ -18,8 +19,7 @@
 //! let keypair_recipient = crypto_box_keypair();
 //!
 //! // Generate a random nonce
-//! let mut nonce: [u8; CRYPTO_BOX_NONCEBYTES] = [0u8; CRYPTO_BOX_NONCEBYTES];
-//! copy_randombytes(&mut nonce);
+//! let nonce: Nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES).try_into().unwrap();
 //!
 //! let message = "hello".as_bytes();
 //! // Encrypt message
@@ -407,6 +407,47 @@ mod tests {
             .expect("decrypt failed");
             assert_eq!(encode(&ciphertext_clone), encode(&message_copy));
             assert_eq!(encode(&so_m), encode(&message_copy));
+        }
+    }
+
+    #[test]
+    fn test_crypto_box_easy_invalid() {
+        for _ in 0..20 {
+            use std::convert::TryInto;
+
+            let keypair_sender = crypto_box_keypair();
+            let keypair_recipient = crypto_box_keypair();
+            let nonce: Nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES).try_into().unwrap();
+
+            let ciphertext: Vec<u8> = vec![];
+
+            crypto_box_open_easy(
+                &ciphertext,
+                &nonce,
+                &keypair_sender.public_key.0,
+                &keypair_recipient.secret_key.0,
+            )
+            .expect_err("expected an error");
+        }
+    }
+    #[test]
+    fn test_crypto_box_easy_inplace_invalid() {
+        for _ in 0..20 {
+            use std::convert::TryInto;
+
+            let keypair_sender = crypto_box_keypair();
+            let keypair_recipient = crypto_box_keypair();
+            let nonce: Nonce = randombytes_buf(CRYPTO_BOX_NONCEBYTES).try_into().unwrap();
+
+            let mut ciphertext: Vec<u8> = vec![];
+
+            crypto_box_open_easy_inplace(
+                &mut ciphertext,
+                &nonce,
+                &keypair_sender.public_key.0,
+                &keypair_recipient.secret_key.0,
+            )
+            .expect_err("expected an error");
         }
     }
 
