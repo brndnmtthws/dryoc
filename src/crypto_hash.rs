@@ -31,6 +31,12 @@ impl HashSha512 {
     }
 }
 
+impl Default for HashSha512 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Initializes SHA-512 hasher
 pub fn crypto_hash_sha512_init() -> Sha512 {
     Sha512::new()
