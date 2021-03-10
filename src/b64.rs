@@ -40,6 +40,6 @@ where
         .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
         .and_then(|vec| {
             mac.copy_from_slice(&vec);
-            Ok(mac)
+            mac
         })
 }
