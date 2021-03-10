@@ -2,17 +2,6 @@ use crate::constants::CRYPTO_BOX_MACBYTES;
 use crate::types::MacBase;
 use serde::{Deserialize, Deserializer, Serializer};
 
-// fn from_base64<D>(deserializer: &mut D) -> Result<PublicKey, D::Error>
-// where
-//     D: Deserializer,
-// {
-//     use serde::de::Error;
-//     String::deserialize(deserializer)
-//         .and_then(|string| base64::decode(&string).map_err(|err| Error::custom(err.to_string())))
-//         .map(|bytes| PublicKey::from_slice(&bytes))
-//         .and_then(|opt| opt.ok_or_else(|| Error::custom("failed to deserialize public key")))
-// }
-
 pub(crate) fn as_base64<T, S>(key: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
     T: AsRef<[u8]>,
