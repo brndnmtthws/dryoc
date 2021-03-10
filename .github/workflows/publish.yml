@@ -24,12 +24,10 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --all-features
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --all-features
       - name: Login to crates.io
         uses: actions-rs/cargo@v1
         with:

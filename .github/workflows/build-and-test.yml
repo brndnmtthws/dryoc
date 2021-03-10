@@ -23,6 +23,11 @@ jobs:
           - serde,base64
           - simd_backend
           - default
+        exclude:
+          - rust: stable
+            features: simd_backend
+          - rust: beta
+            features: simd_backend
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust toolchain

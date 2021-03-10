@@ -44,8 +44,8 @@ dryoc = {version = "0.2", features = ["serde", "base64", "simd_backend"]
 ## Features
 
 * Many libsodium implemented with both Classic and Rustaceous API
-* [Serde](https://serde.rs/) support, including optional base64 encoding (with `dryoc = {version = "*", features = ["serde", "base64"]}`)
-* SIMD optimizations, where supported (with `dryoc = {version = "*", features = ["simd_backend"]}`)
+* [Serde](https://serde.rs/) support, including optional base64 encoding (with `dryoc = {version = "0.2", features = ["serde", "base64"]}`)
+* SIMD optimizations, nightly only (with `dryoc = {version = "0.2", features = ["simd_backend"]}`)
 
 ## Project status
 
