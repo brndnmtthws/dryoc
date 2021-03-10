@@ -8,6 +8,7 @@ readme = "README.md"
 version = "0.2.0"
 
 [dependencies]
+base64 = {version = "0.13", optional = true}
 curve25519-dalek = "3.0"
 generic-array = "0.14"
 poly1305 = "0.6"
@@ -21,6 +22,7 @@ zeroize = "1.2"
 
 [dev-dependencies]
 base64 = "0.13"
+serde_json = "*"
 sodiumoxide = "0.2"
 
 [features]

@@ -20,6 +20,7 @@ jobs:
           - nightly
         fetaures:
           - serde
+          - serde,base64
           - simd_backend
 
     steps:

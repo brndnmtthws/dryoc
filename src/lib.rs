@@ -30,8 +30,13 @@
 #[cfg(feature = "serde")]
 extern crate serde;
 
+#[cfg(all(feature = "serde", feature = "base64"))]
+extern crate base64;
+
 #[macro_use]
 mod error;
+#[cfg(all(feature = "serde", feature = "base64"))]
+mod b64;
 mod crypto_box_impl;
 mod crypto_secretbox_impl;
 mod hsalsa20;

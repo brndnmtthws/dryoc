@@ -20,6 +20,8 @@
 //! assert_eq!(message.as_bytes(), decrypted.as_slice());
 //! ```
 
+#[cfg(all(feature = "serde", feature = "base64"))]
+use crate::b64::{as_base64, mac_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
 use crate::message::Message;
@@ -32,12 +34,23 @@ use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Zeroize, Clone))]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize, Zeroize, Clone, Debug)
+)]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box
 pub struct DryocSecretBox {
+    #[cfg_attr(
+        all(feature = "serde", feature = "base64"),
+        serde(serialize_with = "as_base64", deserialize_with = "mac_from_base64")
+    )]
     /// libsodium box authentication tag, usually prepended to each box
     pub mac: MacBase,
+    #[cfg_attr(
+        all(feature = "serde", feature = "base64"),
+        serde(serialize_with = "as_base64", deserialize_with = "vec_from_base64")
+    )]
     /// libsodium box message or ciphertext, depending on state
     pub data: Vec<u8>,
 }
