@@ -18,12 +18,11 @@ jobs:
           - stable
           - beta
           - nightly
-        fetaures:
+        features:
           - serde
           - serde,base64
           - simd_backend
           - default
-
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust toolchain
