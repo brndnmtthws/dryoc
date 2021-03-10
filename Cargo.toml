@@ -5,7 +5,7 @@ edition = "2018"
 license = "LGPL-3.0-only"
 name = "dryoc"
 readme = "README.md"
-version = "0.2.1"
+version = "0.2.0"
 
 [dependencies]
 base64 = {version = "0.13", optional = true}
@@ -14,7 +14,7 @@ generic-array = "0.14"
 poly1305 = "0.6"
 rand_core = {version = "0.5", features = ["getrandom"]}
 salsa20 = {version = "0.7", features = ["hsalsa20"]}
-serde = {version = "*", optional = true, features = ["derive"]}
+serde = {version = "1.0", optional = true, features = ["derive"]}
 sha2 = "0.9"
 subtle = "2.4"
 x25519-dalek = "1.1"
