@@ -74,7 +74,7 @@ plan to implement them:
 
 * [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate)
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
-* [Memory locking](https://doc.libsodium.org/memory_management)
+* [Memory locking](https://doc.libsodium.org/memory_management) (use [secrets](https://crates.io/crates/secrets) crate)
 * [Advanced features](https://doc.libsodium.org/advanced):
   * [SHA-2](https://doc.libsodium.org/advanced/sha-2_hash_function) (use [sha2](https://crates.io/crates/sha2) crate)
   * [HMAC-SHA-2](https://doc.libsodium.org/advanced/hmac-sha2) (use [hmac](https://crates.io/crates/hmac) crate)
