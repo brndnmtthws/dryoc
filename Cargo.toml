@@ -31,6 +31,6 @@ sodiumoxide = "0.2"
 default = [
   "u64_backend",
 ]
-simd_backend = ["curve25519-dalek/simd_backend"]
+simd_backend = ["curve25519-dalek/simd_backend", "sha2/asm"]
 u32_backend = ["x25519-dalek/u32_backend"]
 u64_backend = ["x25519-dalek/u64_backend"]
