@@ -32,6 +32,8 @@ jobs:
             features: simd_backend
           - rust: beta
             features: simd_backend
+          - os: windows-2019
+            features: simd_backend
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
