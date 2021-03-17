@@ -53,7 +53,7 @@ pub fn crypto_secretbox_detached(
     let mut dryocsecretbox = DryocSecretBox::with_data(message);
 
     crypto_secretbox_detached_inplace(
-        &mut dryocsecretbox.mac,
+        &mut dryocsecretbox.tag,
         &mut dryocsecretbox.data,
         nonce,
         key,
@@ -72,7 +72,7 @@ pub fn crypto_secretbox_open_detached(
     let mut dryocsecretbox = DryocSecretBox::with_data_and_mac(mac, ciphertext);
 
     crypto_secretbox_open_detached_inplace(
-        &dryocsecretbox.mac,
+        &dryocsecretbox.tag,
         &mut dryocsecretbox.data,
         nonce,
         key,
@@ -89,7 +89,7 @@ pub fn crypto_secretbox_easy(
 ) -> Result<OutputBase, Error> {
     let dryocsecretbox = crypto_secretbox_detached(message, nonce, key);
     let mut ciphertext = Vec::new();
-    ciphertext.extend_from_slice(&dryocsecretbox.mac);
+    ciphertext.extend_from_slice(&dryocsecretbox.tag);
     ciphertext.extend(dryocsecretbox.data);
     Ok(ciphertext)
 }
@@ -124,7 +124,7 @@ pub fn crypto_secretbox_easy_inplace(
     let mut dryocsecretbox = DryocSecretBox::from_data(message);
 
     crypto_secretbox_detached_inplace(
-        &mut dryocsecretbox.mac,
+        &mut dryocsecretbox.tag,
         &mut dryocsecretbox.data,
         nonce,
         key,
@@ -136,7 +136,7 @@ pub fn crypto_secretbox_easy_inplace(
     // Rotate everything to the right
     ciphertext.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
     // Copy mac into ciphertext
-    ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&dryocsecretbox.mac);
+    ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&dryocsecretbox.tag);
 
     Ok(ciphertext)
 }
@@ -166,7 +166,7 @@ pub fn crypto_secretbox_open_easy_inplace(
             .resize(dryocsecretbox.data.len() - CRYPTO_SECRETBOX_MACBYTES, 0);
 
         crypto_secretbox_open_detached_inplace(
-            &dryocsecretbox.mac,
+            &dryocsecretbox.tag,
             &mut dryocsecretbox.data,
             nonce,
             key,

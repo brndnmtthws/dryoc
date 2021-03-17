@@ -54,7 +54,7 @@ pub struct DryocBox {
         serde(serialize_with = "as_base64", deserialize_with = "mac_from_base64")
     )]
     /// libsodium box authentication tag, usually prepended to each box
-    pub mac: MacBase,
+    pub tag: MacBase,
     #[cfg_attr(
         all(feature = "serde", feature = "base64"),
         serde(serialize_with = "as_base64", deserialize_with = "vec_from_base64")
@@ -67,22 +67,22 @@ impl DryocBox {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            mac: [0u8; CRYPTO_BOX_MACBYTES],
+            tag: [0u8; CRYPTO_BOX_MACBYTES],
             data: vec![],
         }
     }
 
-    /// Returns a box with an empty `mac`, and data from `data`, consuming `data`
+    /// Returns a box with an empty `tag`, and data from `data`, consuming `data`
     pub fn from_data(data: Vec<u8>) -> Self {
         Self {
-            mac: [0u8; CRYPTO_BOX_MACBYTES],
+            tag: [0u8; CRYPTO_BOX_MACBYTES],
             data,
         }
     }
 
-    /// Returns a new box with `mac` and `data`, consuming both
-    pub fn from_data_and_mac(mac: [u8; CRYPTO_BOX_MACBYTES], data: Vec<u8>) -> Self {
-        Self { mac, data }
+    /// Returns a new box with `tag` and `data`, consuming both
+    pub fn from_data_and_mac(tag: [u8; CRYPTO_BOX_MACBYTES], data: Vec<u8>) -> Self {
+        Self { tag, data }
     }
 
     /// Returns a box with `data` copied from slice `input`
@@ -90,26 +90,26 @@ impl DryocBox {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
-            mac: [0u8; CRYPTO_BOX_MACBYTES],
+            tag: [0u8; CRYPTO_BOX_MACBYTES],
             data,
         }
     }
 
-    /// Returns a new box with `data` and `mac` copied from `input` and `mac`
+    /// Returns a new box with `data` and `tag` copied from `input` and `tag`
     /// respectively
-    pub fn with_data_and_mac(mac: &MacBase, input: &InputBase) -> Self {
+    pub fn with_data_and_mac(tag: &MacBase, input: &InputBase) -> Self {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         let mut r = Self {
-            mac: [0u8; CRYPTO_BOX_MACBYTES],
+            tag: [0u8; CRYPTO_BOX_MACBYTES],
             data,
         };
-        r.mac.copy_from_slice(mac);
+        r.tag.copy_from_slice(tag);
         r
     }
 
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new [DryocBox] with ciphertext and mac
+    /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt(
         message: &Message,
         nonce: &Nonce,
@@ -137,7 +137,7 @@ impl DryocBox {
     ) -> Result<OutputBase, Error> {
         use crate::crypto_box::*;
         let dryocbox = crypto_box_open_detached(
-            &self.mac,
+            &self.tag,
             &self.data,
             nonce,
             &sender_public_key.0,
@@ -150,7 +150,7 @@ impl DryocBox {
     /// Copies this box into a new Vec
     pub fn to_vec(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&self.mac);
+        data.extend_from_slice(&self.tag);
         data.extend(&self.data);
         data
     }
@@ -159,7 +159,7 @@ impl DryocBox {
     pub fn into_vec(mut self) -> Vec<u8> {
         self.data.resize(self.data.len() + CRYPTO_BOX_MACBYTES, 0);
         self.data.rotate_right(CRYPTO_BOX_MACBYTES);
-        self.data[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&self.mac);
+        self.data[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&self.tag);
         self.data
     }
 }
@@ -173,7 +173,7 @@ impl Default for DryocBox {
 impl From<DryocSecretBox> for DryocBox {
     fn from(other: DryocSecretBox) -> Self {
         Self {
-            mac: other.mac,
+            tag: other.tag,
             data: other.data,
         }
     }
@@ -194,7 +194,7 @@ mod tests {
     fn test_new() {
         let dryocbox = DryocBox::new();
 
-        assert_eq!(all_eq(&dryocbox.mac, 0), true);
+        assert_eq!(all_eq(&dryocbox.tag, 0), true);
         assert_eq!(all_eq(&dryocbox.data, 0), true);
     }
 
@@ -202,7 +202,7 @@ mod tests {
     fn test_default() {
         let dryocbox = DryocBox::default();
 
-        assert_eq!(all_eq(&dryocbox.mac, 0), true);
+        assert_eq!(all_eq(&dryocbox.tag, 0), true);
         assert_eq!(all_eq(&dryocbox.data, 0), true);
     }
 
@@ -359,10 +359,10 @@ mod tests {
             assert_eq!(&dryocbox.data, &data1_copy);
 
             let data1 = data1_copy.clone();
-            let mac: [u8; CRYPTO_BOX_MACBYTES] = [0u8; CRYPTO_BOX_MACBYTES];
-            let dryocbox = DryocBox::with_data_and_mac(&mac, &data1);
+            let tag: [u8; CRYPTO_BOX_MACBYTES] = [0u8; CRYPTO_BOX_MACBYTES];
+            let dryocbox = DryocBox::with_data_and_mac(&tag, &data1);
             assert_eq!(&dryocbox.data, &data1_copy);
-            assert_eq!(&dryocbox.mac, &[0u8; CRYPTO_BOX_MACBYTES]);
+            assert_eq!(&dryocbox.tag, &[0u8; CRYPTO_BOX_MACBYTES]);
         }
     }
 }

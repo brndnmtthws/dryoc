@@ -90,7 +90,7 @@ pub fn crypto_box_detached_afternm_inplace(
     nonce: &Nonce,
     key: &SecretBoxKeyBase,
 ) {
-    crypto_secretbox_detached_inplace(&mut dryocbox.mac, &mut dryocbox.data, nonce, key);
+    crypto_secretbox_detached_inplace(&mut dryocbox.tag, &mut dryocbox.data, nonce, key);
 }
 
 /// Detached variant of [`crypto_box_easy`]
@@ -145,7 +145,7 @@ pub fn crypto_box_easy(
         let dryocbox =
             crypto_box_detached(message, nonce, recipient_public_key, sender_secret_key)?;
         let mut ciphertext = Vec::new();
-        ciphertext.extend_from_slice(&dryocbox.mac);
+        ciphertext.extend_from_slice(&dryocbox.tag);
         ciphertext.extend(dryocbox.data);
         Ok(ciphertext)
     }
@@ -176,7 +176,7 @@ pub fn crypto_box_easy_inplace(
         // Rotate everything to the right
         ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
         // Copy mac into ciphertext
-        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(&dryocbox.mac);
+        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(&dryocbox.tag);
 
         Ok(ciphertext)
     }
