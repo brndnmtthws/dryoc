@@ -33,14 +33,13 @@ use crate::crypto_secretbox_impl::*;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
 use crate::nonce::*;
-use crate::rng::*;
+use crate::rng::copy_randombytes;
 use crate::types::*;
 
-/// Generates a random key using [randombytes_buf]
+/// Generates a random key using [copy_randombytes]
 pub fn crypto_secretbox_keygen() -> SecretBoxKeyBase {
     let mut key: SecretBoxKeyBase = [0u8; CRYPTO_SECRETBOX_KEYBYTES];
-    let random_bytes = randombytes_buf(CRYPTO_SECRETBOX_KEYBYTES);
-    key.copy_from_slice(&random_bytes);
+    copy_randombytes(&mut key);
     key
 }
 
@@ -183,6 +182,7 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy() {
         for i in 0..20 {
+            use crate::rng::randombytes_buf;
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key, Nonce as SONonce};
@@ -218,6 +218,7 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy_inplace() {
         for i in 0..20 {
+            use crate::rng::randombytes_buf;
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key, Nonce};

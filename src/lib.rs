@@ -60,6 +60,8 @@ pub mod crypto_box;
 pub mod crypto_core;
 /// Hash functions
 pub mod crypto_hash;
+/// Provides one-time authentication using Poly1305
+pub mod crypto_onetimeauth;
 pub mod crypto_secretbox;
 pub mod dryocbox;
 pub mod dryocsecretbox;
@@ -74,6 +76,10 @@ pub mod prelude;
 pub mod rng;
 /// Secret-key box key wrapper
 pub mod secretboxkey;
+/// Secret stream functions
+pub mod secretstream_xchacha20poly1305;
+/// Secret stream key wrapper
+pub mod secretstreamkey;
 /// Public traits
 pub mod traits;
 
