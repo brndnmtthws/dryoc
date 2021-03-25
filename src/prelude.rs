@@ -15,6 +15,4 @@ pub use crate::crypto_secretbox::*;
 pub use crate::dryocbox::*;
 pub use crate::dryocsecretbox::*;
 pub use crate::keypair::*;
-pub use crate::nonce::*;
-pub use crate::secretboxkey::*;
-pub use crate::traits::*;
+pub use crate::types::*;

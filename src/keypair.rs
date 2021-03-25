@@ -1,29 +1,10 @@
 use crate::constants::CRYPTO_BOX_SECRETKEYBYTES;
-use crate::traits::Gen;
-use crate::types::{PublicKeyBase, SecretKeyBase};
+use crate::types::{PublicKey, SecretKey};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
-
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize, Zeroize, Debug, Clone, PartialEq)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
-#[zeroize(drop)]
-/// Wrapper for [`crate::dryocbox::DryocBox`] secret keys
-pub struct SecretKey(pub SecretKeyBase);
-
-#[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize, Zeroize, Debug, Clone, PartialEq)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
-#[zeroize(drop)]
-/// Wrapper for [`crate::dryocbox::DryocBox`] public keys
-pub struct PublicKey(pub PublicKeyBase);
 
 #[cfg_attr(
     feature = "serde",
@@ -39,32 +20,6 @@ pub struct KeyPair {
     pub secret_key: SecretKey,
 }
 
-impl PublicKey {
-    /// Returns an empty public key
-    pub fn new() -> Self {
-        Self([0u8; CRYPTO_BOX_SECRETKEYBYTES])
-    }
-}
-
-impl From<[u8; CRYPTO_BOX_SECRETKEYBYTES]> for PublicKey {
-    fn from(data: [u8; CRYPTO_BOX_SECRETKEYBYTES]) -> Self {
-        Self(data)
-    }
-}
-
-impl SecretKey {
-    /// Returns an empty secret key
-    pub fn new() -> Self {
-        Self([0u8; CRYPTO_BOX_SECRETKEYBYTES])
-    }
-}
-
-impl From<[u8; CRYPTO_BOX_SECRETKEYBYTES]> for SecretKey {
-    fn from(data: [u8; CRYPTO_BOX_SECRETKEYBYTES]) -> Self {
-        Self(data)
-    }
-}
-
 impl KeyPair {
     /// Creates a new, unititialized keypair
     pub fn new() -> Self {
@@ -73,73 +28,37 @@ impl KeyPair {
             secret_key: SecretKey::new(),
         }
     }
+    /// Generates a random keypair
+    pub fn gen() -> Self {
+        use crate::crypto_box::crypto_box_keypair;
+        crypto_box_keypair()
+    }
     /// Derives a keypair from `secret_key`, and consume it
-    pub fn from_secret_key(secret_key: SecretKeyBase) -> Self {
+    pub fn from_secret_key(secret_key: SecretKey) -> Self {
         use crate::crypto_core::crypto_scalarmult_base;
-        let public_key = crypto_scalarmult_base(&secret_key);
+        let public_key = crypto_scalarmult_base(&secret_key.0);
         Self {
             public_key: public_key.into(),
-            secret_key: secret_key.into(),
+            secret_key: secret_key,
         }
     }
 
     /// Constructs a new keypair from key slices, consuming them. Does not check
     /// validity or authenticity of keypair.
-    pub fn from_slices(public_key: PublicKeyBase, secret_key: SecretKeyBase) -> Self {
+    pub fn from_slices(
+        public_key: [u8; CRYPTO_BOX_SECRETKEYBYTES],
+        secret_key: [u8; CRYPTO_BOX_SECRETKEYBYTES],
+    ) -> Self {
         Self {
             public_key: public_key.into(),
             secret_key: secret_key.into(),
         }
-    }
-}
-
-impl Gen for KeyPair {
-    /// Generates a random keypair
-    fn gen() -> Self {
-        use crate::crypto_box::crypto_box_keypair;
-        crypto_box_keypair()
     }
 }
 
 impl Default for KeyPair {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Default for SecretKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Default for PublicKey {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> From<&'a KeyPair> for &'a SecretKey {
-    fn from(keypair: &'a KeyPair) -> Self {
-        &keypair.secret_key
-    }
-}
-
-impl<'a> From<&'a KeyPair> for &'a PublicKey {
-    fn from(keypair: &'a KeyPair) -> Self {
-        &keypair.public_key
-    }
-}
-
-impl From<KeyPair> for SecretKey {
-    fn from(keypair: KeyPair) -> Self {
-        keypair.secret_key.clone()
-    }
-}
-
-impl From<KeyPair> for PublicKey {
-    fn from(keypair: KeyPair) -> Self {
-        keypair.public_key.clone()
     }
 }
 
@@ -189,7 +108,7 @@ mod tests {
     #[test]
     fn test_from_secret_key() {
         let keypair_1 = KeyPair::gen();
-        let keypair_2 = KeyPair::from_secret_key(keypair_1.secret_key.0);
+        let keypair_2 = KeyPair::from_secret_key(keypair_1.secret_key.clone());
 
         assert_eq!(keypair_1.public_key, keypair_2.public_key);
     }

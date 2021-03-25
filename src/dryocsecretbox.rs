@@ -25,9 +25,7 @@ use crate::b64::{as_base64, mac_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
 use crate::message::Message;
-use crate::nonce::Nonce;
-use crate::secretboxkey::SecretBoxKey;
-use crate::types::{InputBase, MacBase, OutputBase};
+use crate::types::{InputBase, Nonce, OutputBase, SecretBoxKey, SecretBoxMac};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -46,7 +44,7 @@ pub struct DryocSecretBox {
         serde(serialize_with = "as_base64", deserialize_with = "mac_from_base64")
     )]
     /// libsodium box authentication tag, usually prepended to each box
-    pub tag: MacBase,
+    pub tag: SecretBoxMac,
     #[cfg_attr(
         all(feature = "serde", feature = "base64"),
         serde(serialize_with = "as_base64", deserialize_with = "vec_from_base64")
@@ -59,7 +57,7 @@ impl DryocSecretBox {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            tag: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            tag: SecretBoxMac::new(),
             data: vec![],
         }
     }
@@ -67,13 +65,13 @@ impl DryocSecretBox {
     /// Returns a box with an empty `tag`, and data from `data`, consuming `data`
     pub fn from_data(data: Vec<u8>) -> Self {
         Self {
-            tag: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            tag: SecretBoxMac::new(),
             data,
         }
     }
 
     /// Returns a new box with `tag` and `data`, consuming both
-    pub fn from_data_and_mac(tag: [u8; CRYPTO_SECRETBOX_MACBYTES], data: Vec<u8>) -> Self {
+    pub fn from_data_and_mac(tag: SecretBoxMac, data: Vec<u8>) -> Self {
         Self { tag, data }
     }
 
@@ -82,29 +80,27 @@ impl DryocSecretBox {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
-            tag: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+            tag: SecretBoxMac::new(),
             data,
         }
     }
 
     /// Returns a new box with `data` and `tag` copied from `input` and `tag`
     /// respectively
-    pub fn with_data_and_mac(tag: &MacBase, input: &InputBase) -> Self {
+    pub fn with_data_and_mac(tag: &SecretBoxMac, input: &InputBase) -> Self {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
-        let mut r = Self {
-            tag: [0u8; CRYPTO_SECRETBOX_MACBYTES],
+        Self {
+            tag: tag.clone(),
             data,
-        };
-        r.tag.copy_from_slice(tag);
-        r
+        }
     }
 
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocSecretBox] with ciphertext and tag
     pub fn encrypt(message: &Message, nonce: &Nonce, secret_key: &SecretBoxKey) -> Self {
         use crate::crypto_secretbox::crypto_secretbox_detached;
-        crypto_secretbox_detached(&message.0, nonce, &secret_key.0)
+        crypto_secretbox_detached(&message.0, nonce, &secret_key)
     }
 
     /// Decrypts `ciphertext` using `recipient_secret_key` and
@@ -112,7 +108,7 @@ impl DryocSecretBox {
     pub fn decrypt(&self, nonce: &Nonce, secret_key: &SecretBoxKey) -> Result<OutputBase, Error> {
         use crate::crypto_secretbox::crypto_secretbox_open_detached;
         let dryocsecretbox =
-            crypto_secretbox_open_detached(&self.tag, &self.data, nonce, &secret_key.0)?;
+            crypto_secretbox_open_detached(&self.tag, &self.data, nonce, &secret_key)?;
 
         Ok(dryocsecretbox)
     }
@@ -120,7 +116,7 @@ impl DryocSecretBox {
     /// Copies this box into a new Vec
     pub fn to_vec(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&self.tag);
+        data.extend_from_slice(&self.tag.0);
         data.extend(&self.data);
         data
     }
@@ -130,7 +126,7 @@ impl DryocSecretBox {
         self.data
             .resize(self.data.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
         self.data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
-        self.data[0..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&self.tag);
+        self.data[0..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&self.tag.0);
         self.data
     }
 }
@@ -143,6 +139,8 @@ impl Default for DryocSecretBox {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryInto;
+
     use super::*;
 
     fn all_eq<T>(t: &[T], v: T) -> bool
@@ -156,7 +154,7 @@ mod tests {
     fn test_new() {
         let dryocsecretbox = DryocSecretBox::new();
 
-        assert_eq!(all_eq(&dryocsecretbox.tag, 0), true);
+        assert_eq!(all_eq(&dryocsecretbox.tag.0, 0), true);
         assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
     }
 
@@ -164,7 +162,7 @@ mod tests {
     fn test_default() {
         let dryocsecretbox = DryocSecretBox::default();
 
-        assert_eq!(all_eq(&dryocsecretbox.tag, 0), true);
+        assert_eq!(all_eq(&dryocsecretbox.tag.0, 0), true);
         assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
     }
 
@@ -172,7 +170,7 @@ mod tests {
     fn test_dryocbox() {
         for i in 0..20 {
             use crate::dryocsecretbox::*;
-            use crate::nonce::*;
+            use crate::types::Nonce;
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key, Nonce as SONonce};
@@ -191,14 +189,14 @@ mod tests {
 
             let so_ciphertext = secretbox::seal(
                 &message_copy.as_bytes(),
-                &SONonce::from_slice(&nonce).unwrap(),
+                &SONonce::from_slice(&nonce.0).unwrap(),
                 &Key::from_slice(&secret_key.0).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,
-                &SONonce::from_slice(&nonce).unwrap(),
+                &SONonce::from_slice(&nonce.0).unwrap(),
                 &Key::from_slice(&secret_key.0).unwrap(),
             )
             .expect("decrypt failed");
@@ -229,9 +227,9 @@ mod tests {
 
             let data1 = data1_copy.clone();
             let tag: [u8; CRYPTO_SECRETBOX_MACBYTES] = [0u8; CRYPTO_SECRETBOX_MACBYTES];
-            let dryocsecretbox = DryocSecretBox::with_data_and_mac(&tag, &data1);
+            let dryocsecretbox = DryocSecretBox::with_data_and_mac(&tag.into(), &data1);
             assert_eq!(&dryocsecretbox.data, &data1_copy);
-            assert_eq!(&dryocsecretbox.tag, &[0u8; CRYPTO_SECRETBOX_MACBYTES]);
+            assert_eq!(&dryocsecretbox.tag.0, &[0u8; CRYPTO_SECRETBOX_MACBYTES]);
         }
     }
 }

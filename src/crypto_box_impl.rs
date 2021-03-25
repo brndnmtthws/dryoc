@@ -11,17 +11,17 @@ use x25519_dalek::StaticSecret as DalekSecretKey;
 use zeroize::Zeroize;
 
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(
-    public_key: &PublicKeyBase,
-    secret_key: &SecretKeyBase,
-) -> SecretBoxKeyBase {
-    let sk = DalekSecretKey::from(*secret_key);
-    let pk = DalekPublicKey::from(*public_key);
+    public_key: &PublicKey,
+    secret_key: &SecretKey,
+) -> SecretBoxKey {
+    let sk = DalekSecretKey::from(secret_key.0);
+    let pk = DalekPublicKey::from(public_key.0);
 
     let s = sk.diffie_hellman(&pk);
 
     let result = crypto_core_hsalsa20(&[0u8; 16], s.as_bytes());
 
-    result
+    result.into()
 }
 
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair() -> KeyPair {

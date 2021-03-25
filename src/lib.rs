@@ -49,7 +49,6 @@ mod crypto_box_impl;
 mod crypto_secretbox_impl;
 mod hsalsa20;
 mod scalarmult_curve25519;
-mod types;
 
 /// Ciphertext wrapper
 pub mod ciphertext;
@@ -69,19 +68,13 @@ pub mod dryocsecretbox;
 pub mod keypair;
 /// Message wrapper
 pub mod message;
-/// Nonce wrapper
-pub mod nonce;
 pub mod prelude;
 /// Random number generation utilities
 pub mod rng;
-/// Secret-key box key wrapper
-pub mod secretboxkey;
 /// Secret stream functions
 pub mod secretstream_xchacha20poly1305;
-/// Secret stream key wrapper
-pub mod secretstreamkey;
-/// Public traits
-pub mod traits;
+/// Base type definitions
+pub mod types;
 
 #[cfg(test)]
 mod tests {

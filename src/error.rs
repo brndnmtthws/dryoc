@@ -21,6 +21,6 @@ impl From<&str> for Error {
 
 macro_rules! dryoc_error {
     ($msg:expr) => {{
-        Error::from(format!("{}, from {}:{}", $msg, file!(), line!()))
+        crate::error::Error::from(format!("{}, from {}:{}", $msg, file!(), line!()))
     }};
 }

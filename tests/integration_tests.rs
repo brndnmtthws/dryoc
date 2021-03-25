@@ -10,13 +10,17 @@ fn test_dryocbox() {
     let dryocbox = DryocBox::encrypt(
         &message.into(),
         &nonce,
-        &recipient_keypair.clone().into(),
-        &sender_keypair.clone().into(),
+        &recipient_keypair.public_key.clone(),
+        &sender_keypair.secret_key.clone(),
     )
     .expect("unable to encrypt");
 
     let decrypted = dryocbox
-        .decrypt(&nonce, &sender_keypair.into(), &recipient_keypair.into())
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
         .expect("unable to decrypt");
 
     assert_eq!(message.as_bytes(), decrypted.as_slice());

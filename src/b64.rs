@@ -19,7 +19,7 @@ where
         .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
 }
 
-pub(crate) fn mac_from_base64<'de, D>(deserializer: D) -> Result<MacBase, D::Error>
+pub(crate) fn bytearray_from_base64<'de, D>(deserializer: D) -> Result<MacBase, D::Error>
 where
     D: Deserializer<'de>,
 {

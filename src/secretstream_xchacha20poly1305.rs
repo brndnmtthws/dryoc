@@ -8,11 +8,9 @@ use crate::constants::{
 };
 use crate::crypto_core::crypto_core_hchacha20;
 use crate::error::*;
-use crate::rng::copy_randombytes;
-use crate::types::{InputBase, OutputBase, SecretStreamKeyBase};
+use crate::types::{InputBase, OutputBase, SecretStreamKey};
 
 const PADBYTES: usize = 8;
-type SecretStreamKey = [u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES];
 type SecretstreamNonce = [u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES];
 type SecretStreamPad = [u8; PADBYTES];
 
@@ -25,7 +23,7 @@ pub struct SecretstreamXchacha20poly1305State {
 impl SecretstreamXchacha20poly1305State {
     pub fn new() -> Self {
         Self {
-            k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+            k: SecretStreamKey::new(),
             nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
             _pad: [0u8; PADBYTES],
         }
@@ -39,10 +37,8 @@ impl Default for SecretstreamXchacha20poly1305State {
 }
 
 /// Generates a random key using [copy_randombytes]
-pub fn crypto_secretstream_xchacha20poly1305_keygen() -> SecretStreamKeyBase {
-    let mut key: SecretStreamKeyBase = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES];
-    copy_randombytes(&mut key);
-    key
+pub fn crypto_secretstream_xchacha20poly1305_keygen() -> SecretStreamKey {
+    SecretStreamKey::gen()
 }
 
 fn crypto_secretstream_xchacha20poly1305_counter_reset(
@@ -54,14 +50,14 @@ fn crypto_secretstream_xchacha20poly1305_counter_reset(
 
 pub fn crypto_secretstream_xchacha20poly1305_init_push(
     state: &mut SecretstreamXchacha20poly1305State,
-    key: &SecretStreamKeyBase,
+    key: &SecretStreamKey,
 ) -> OutputBase {
     use crate::rng::copy_randombytes;
 
     let mut out: OutputBase = vec![0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
 
     copy_randombytes(&mut out);
-    let mut out = crypto_core_hchacha20(&state.k[0..16], key);
+    let mut out = crypto_core_hchacha20(&state.k.0[0..16], &key.0);
 
     state.nonce[CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES..].copy_from_slice(
         &out[CRYPTO_CORE_HCHACHA20_INPUTBYTES
@@ -135,7 +131,7 @@ mod tests {
 
         let key = crypto_secretstream_xchacha20poly1305_keygen();
 
-        let so_key = Key::from_slice(&key).expect("failed to get key");
+        let so_key = Key::from_slice(&key.0).expect("failed to get key");
         let (mut enc_stream, header) = Stream::init_push(&so_key).expect("failed to init stream");
 
         let mut state = SecretstreamXchacha20poly1305State::default();

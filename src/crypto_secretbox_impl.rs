@@ -1,7 +1,6 @@
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
-use crate::nonce::Nonce;
-use crate::types::{InputBase, MacBase, SecretBoxKeyBase};
+use crate::types::{Nonce, SecretBoxKey, SecretBoxMac};
 
 use generic_array::GenericArray;
 use poly1305::{universal_hash::NewUniversalHash, Poly1305};
@@ -13,17 +12,17 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 pub(crate) fn crypto_secretbox_detached_inplace(
-    mac: &mut MacBase,
+    mac: &mut SecretBoxMac,
     data: &mut Vec<u8>,
     nonce: &Nonce,
-    key: &SecretBoxKeyBase,
+    key: &SecretBoxKey,
 ) {
     let mut nonce_prefix: [u8; 16] = [0; 16];
-    nonce_prefix.clone_from_slice(&nonce[..16]);
+    nonce_prefix.clone_from_slice(&nonce.0[..16]);
 
     let mut cipher = XSalsa20::new(
-        &GenericArray::from_slice(key),
-        &GenericArray::from_slice(nonce),
+        &GenericArray::from_slice(&key.0),
+        &GenericArray::from_slice(&nonce.0),
     );
 
     let mut mac_key = poly1305::Key::default();
@@ -36,21 +35,21 @@ pub(crate) fn crypto_secretbox_detached_inplace(
     cipher.apply_keystream(data.as_mut_slice());
 
     let computed_mac = computed_mac.compute_unpadded(data.as_slice()).into_bytes();
-    mac.copy_from_slice(&computed_mac);
+    mac.0.copy_from_slice(&computed_mac);
 }
 
 pub(crate) fn crypto_secretbox_open_detached_inplace(
-    mac: &MacBase,
+    mac: &SecretBoxMac,
     data: &mut Vec<u8>,
     nonce: &Nonce,
-    key: &InputBase,
+    key: &SecretBoxKey,
 ) -> Result<(), Error> {
     let mut nonce_prefix: [u8; 16] = [0; 16];
-    nonce_prefix.clone_from_slice(&nonce[..16]);
+    nonce_prefix.clone_from_slice(&nonce.0[..16]);
 
     let mut cipher = XSalsa20::new(
-        &GenericArray::from_slice(key),
-        &GenericArray::from_slice(nonce),
+        &GenericArray::from_slice(&key.0),
+        &GenericArray::from_slice(&nonce.0),
     );
 
     let mut mac_key = poly1305::Key::default();
@@ -67,7 +66,7 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
 
     cipher.apply_keystream(data.as_mut_slice());
 
-    if mac.ct_eq(&computed_mac).unwrap_u8() == 1 {
+    if mac.0.ct_eq(&computed_mac).unwrap_u8() == 1 {
         Ok(())
     } else {
         Err(dryoc_error!("decryption error (authentication failure)"))
