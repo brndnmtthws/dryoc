@@ -309,7 +309,6 @@ mod tests {
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
-            use std::convert::TryInto;
 
             let keypair_sender = crypto_box_keypair();
             let keypair_recipient = crypto_box_keypair();

@@ -1,25 +1,100 @@
+use std::convert::TryInto;
+
 use crate::constants::{
     CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_CORE_HCHACHA20_KEYBYTES, CRYPTO_SCALARMULT_BYTES,
 };
 use crate::scalarmult_curve25519::crypto_scalarmult_curve25519_base;
 use crate::types::OutputBase;
+use generic_array::GenericArray;
 
 /// Computes the public key for a previously generated secret key.
 pub fn crypto_scalarmult_base(n: &[u8; CRYPTO_SCALARMULT_BYTES]) -> [u8; CRYPTO_SCALARMULT_BYTES] {
     crypto_scalarmult_curve25519_base(n)
 }
 
-/// Implements the HSalso20 function, but unlike the libsodium version does not permit specifying constants
-pub fn crypto_core_hchacha20(input: &[u8], key: &[u8]) -> OutputBase {
-    use generic_array::GenericArray;
-    use salsa20::hsalsa20;
-    assert_eq!(input.len(), CRYPTO_CORE_HCHACHA20_INPUTBYTES);
-    assert_eq!(key.len(), CRYPTO_CORE_HCHACHA20_KEYBYTES);
-    let output = hsalsa20(
-        GenericArray::from_slice(key),
-        GenericArray::from_slice(input),
+fn round(x: &mut u32, y: &mut u32, z: &mut u32, rot: u32) {
+    *x = x.wrapping_add(*y);
+    *z = (*z ^ *x).rotate_left(rot);
+}
+
+fn quarterround(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
+    round(a, b, d, 16);
+    round(c, d, b, 12);
+    round(a, b, d, 8);
+    round(c, d, b, 7);
+}
+
+/// Implements the HChaCha20 function
+pub fn crypto_core_hchacha20(
+    input: &[u8],
+    key: &[u8],
+    constants: Option<(u32, u32, u32, u32)>,
+) -> OutputBase {
+    assert_eq!(input.len(), 16);
+    assert_eq!(key.len(), 32);
+    let (mut x0, mut x1, mut x2, mut x3) =
+        constants.unwrap_or((0x61707865, 0x3320646e, 0x79622d32, 0x6b206574));
+    let (
+        mut x4,
+        mut x5,
+        mut x6,
+        mut x7,
+        mut x8,
+        mut x9,
+        mut x10,
+        mut x11,
+        mut x12,
+        mut x13,
+        mut x14,
+        mut x15,
+    ) = (
+        u32::from_le_bytes(key[0..4].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[4..8].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[8..12].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[12..16].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[16..20].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[20..24].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[24..28].try_into().expect("key size invalid")),
+        u32::from_le_bytes(key[28..32].try_into().expect("key size invalid")),
+        u32::from_le_bytes(input[0..4].try_into().expect("input size invalid")),
+        u32::from_le_bytes(input[4..8].try_into().expect("input size invalid")),
+        u32::from_le_bytes(input[8..12].try_into().expect("input size invalid")),
+        u32::from_le_bytes(input[12..16].try_into().expect("input size invalid")),
     );
-    output.as_slice().to_vec()
+
+    for _ in 0..10 {
+        quarterround(&mut x0, &mut x4, &mut x8, &mut x12);
+        quarterround(&mut x1, &mut x5, &mut x9, &mut x13);
+        quarterround(&mut x2, &mut x6, &mut x10, &mut x14);
+        quarterround(&mut x3, &mut x7, &mut x11, &mut x15);
+        quarterround(&mut x0, &mut x5, &mut x10, &mut x15);
+        quarterround(&mut x1, &mut x6, &mut x11, &mut x12);
+        quarterround(&mut x2, &mut x7, &mut x8, &mut x13);
+        quarterround(&mut x3, &mut x4, &mut x9, &mut x14);
+    }
+
+    let mut out = vec![0u8; 32];
+    out[0..4].copy_from_slice(&x0.to_le_bytes());
+    out[4..8].copy_from_slice(&x1.to_le_bytes());
+    out[8..12].copy_from_slice(&x2.to_le_bytes());
+    out[12..16].copy_from_slice(&x3.to_le_bytes());
+    out[16..20].copy_from_slice(&x12.to_le_bytes());
+    out[20..24].copy_from_slice(&x13.to_le_bytes());
+    out[24..28].copy_from_slice(&x14.to_le_bytes());
+    out[28..32].copy_from_slice(&x15.to_le_bytes());
+    out
+}
+
+/// Implements the HSalsa20 function
+pub fn crypto_core_hsalsa20(input: &[u8; 16], key: &[u8]) -> [u8; 32] {
+    use salsa20::hsalsa20;
+
+    let res = hsalsa20(
+        &GenericArray::from_slice(key),
+        &GenericArray::from_slice(input),
+    );
+
+    res.into()
 }
 
 #[cfg(test)]
@@ -42,6 +117,34 @@ mod tests {
             let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key.0).unwrap());
 
             assert_eq!(encode(ge.as_ref()), encode(public_key));
+        }
+    }
+
+    #[test]
+    fn test_crypto_core_hchacha20() {
+        use crate::rng::copy_randombytes;
+        use base64::encode;
+        use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
+
+        for _ in 0..10 {
+            let mut key = [0u8; 32];
+            let mut data = [0u8; 16];
+            copy_randombytes(&mut key);
+            copy_randombytes(&mut data);
+
+            let out = crypto_core_hchacha20(&data, &key, None);
+
+            let mut so_out = [0u8; 32];
+            unsafe {
+                let ret = so_crypto_core_hchacha20(
+                    so_out.as_mut_ptr(),
+                    data.as_ptr(),
+                    key.as_ptr(),
+                    std::ptr::null(),
+                );
+                assert_eq!(ret, 0);
+            }
+            assert_eq!(encode(&out), encode(&so_out));
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::constants::*;
+use crate::crypto_core::crypto_core_hsalsa20;
 use crate::crypto_hash::crypto_hash_sha512;
-use crate::hsalsa20::crypto_core_hsalsa20;
 use crate::keypair::*;
 use crate::scalarmult_curve25519::*;
 use crate::types::*;

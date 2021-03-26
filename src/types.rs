@@ -28,6 +28,9 @@ impl<const LENGTH: usize> ByteArray<LENGTH> {
         copy_randombytes(&mut res.0);
         res
     }
+    pub fn fill(&mut self, value: u8) {
+        self.0.fill(value);
+    }
 }
 
 impl<const LENGTH: usize> Default for ByteArray<LENGTH> {
@@ -81,3 +84,6 @@ pub type SecretKey = ByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
 
 pub type SecretBoxKey = ByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
 pub type SecretStreamKey = ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
+
+pub type SecretstreamNonce = ByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
+pub type SecretStreamPad = ByteArray<CRYPTO_SECRETSTREAM_PADBYTES>;

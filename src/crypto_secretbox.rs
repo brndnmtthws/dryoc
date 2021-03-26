@@ -237,7 +237,7 @@ mod tests {
                 &SONonce::from_slice(&nonce.0).unwrap(),
                 &Key::from_slice(&key.0).unwrap(),
             )
-            .unwrap();
+            .expect("decrypt failed");
 
             assert_eq!(&decrypted, &message_copy);
             assert_eq!(decrypted, so_decrypted);

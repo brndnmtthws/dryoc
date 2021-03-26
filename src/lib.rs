@@ -47,7 +47,6 @@ mod error;
 mod b64;
 mod crypto_box_impl;
 mod crypto_secretbox_impl;
-mod hsalsa20;
 mod scalarmult_curve25519;
 
 /// Ciphertext wrapper
@@ -75,6 +74,8 @@ pub mod rng;
 pub mod secretstream_xchacha20poly1305;
 /// Base type definitions
 pub mod types;
+/// Various utility functions
+pub mod utils;
 
 #[cfg(test)]
 mod tests {
