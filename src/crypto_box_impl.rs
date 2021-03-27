@@ -14,8 +14,8 @@ pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(
     public_key: &PublicKey,
     secret_key: &SecretKey,
 ) -> SecretBoxKey {
-    let sk = DalekSecretKey::from(secret_key.0);
-    let pk = DalekPublicKey::from(public_key.0);
+    let sk = DalekSecretKey::from(secret_key.as_slice().to_owned());
+    let pk = DalekPublicKey::from(public_key.as_slice().to_owned());
 
     let s = sk.diffie_hellman(&pk);
 

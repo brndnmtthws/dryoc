@@ -21,7 +21,7 @@
 //! ```
 
 #[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::{as_base64, mac_from_base64, vec_from_base64};
+use crate::b64::{as_base64, bytearray_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
 use crate::message::Message;
@@ -43,7 +43,10 @@ type Nonce = SecretBoxNonce;
 pub struct DryocSecretBox {
     #[cfg_attr(
         all(feature = "serde", feature = "base64"),
-        serde(serialize_with = "as_base64", deserialize_with = "mac_from_base64")
+        serde(
+            serialize_with = "as_base64",
+            deserialize_with = "bytearray_from_base64"
+        )
     )]
     /// libsodium box authentication tag, usually prepended to each box
     pub tag: SecretBoxMac,
@@ -118,7 +121,7 @@ impl DryocSecretBox {
     /// Copies this box into a new Vec
     pub fn to_vec(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&self.tag.0);
+        data.extend_from_slice(self.tag.as_slice());
         data.extend(&self.data);
         data
     }
@@ -128,7 +131,7 @@ impl DryocSecretBox {
         self.data
             .resize(self.data.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
         self.data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
-        self.data[0..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&self.tag.0);
+        self.data[0..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(self.tag.as_slice());
         self.data
     }
 }
@@ -141,8 +144,6 @@ impl Default for DryocSecretBox {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-
     use super::*;
 
     fn all_eq<T>(t: &[T], v: T) -> bool
@@ -156,7 +157,7 @@ mod tests {
     fn test_new() {
         let dryocsecretbox = DryocSecretBox::new();
 
-        assert_eq!(all_eq(&dryocsecretbox.tag.0, 0), true);
+        assert_eq!(all_eq(dryocsecretbox.tag.as_slice(), 0), true);
         assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
     }
 
@@ -164,7 +165,7 @@ mod tests {
     fn test_default() {
         let dryocsecretbox = DryocSecretBox::default();
 
-        assert_eq!(all_eq(&dryocsecretbox.tag.0, 0), true);
+        assert_eq!(all_eq(dryocsecretbox.tag.as_slice(), 0), true);
         assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
     }
 
@@ -191,15 +192,15 @@ mod tests {
 
             let so_ciphertext = secretbox::seal(
                 &message_copy.as_bytes(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &Key::from_slice(&secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &Key::from_slice(secret_key.as_slice()).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &Key::from_slice(&secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &Key::from_slice(secret_key.as_slice()).unwrap(),
             )
             .expect("decrypt failed");
 
@@ -231,7 +232,10 @@ mod tests {
             let tag: [u8; CRYPTO_SECRETBOX_MACBYTES] = [0u8; CRYPTO_SECRETBOX_MACBYTES];
             let dryocsecretbox = DryocSecretBox::with_data_and_mac(&tag.into(), &data1);
             assert_eq!(&dryocsecretbox.data, &data1_copy);
-            assert_eq!(&dryocsecretbox.tag.0, &[0u8; CRYPTO_SECRETBOX_MACBYTES]);
+            assert_eq!(
+                dryocsecretbox.tag.as_slice(),
+                &[0u8; CRYPTO_SECRETBOX_MACBYTES]
+            );
         }
     }
 }

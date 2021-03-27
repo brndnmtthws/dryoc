@@ -1,8 +1,6 @@
 use std::convert::TryInto;
 
-use crate::constants::{
-    CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_CORE_HCHACHA20_KEYBYTES, CRYPTO_SCALARMULT_BYTES,
-};
+use crate::constants::CRYPTO_SCALARMULT_BYTES;
 use crate::scalarmult_curve25519::crypto_scalarmult_curve25519_base;
 use crate::types::OutputBase;
 use generic_array::GenericArray;
@@ -116,11 +114,11 @@ mod tests {
 
             let keypair = crypto_box_keypair();
 
-            let public_key = crypto_scalarmult_base(&keypair.secret_key.0);
+            let public_key = crypto_scalarmult_base(keypair.secret_key.as_slice());
 
-            assert_eq!(keypair.public_key.0, public_key);
+            assert_eq!(keypair.public_key.as_slice(), &public_key);
 
-            let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key.0).unwrap());
+            let ge = scalarmult_base(&Scalar::from_slice(keypair.secret_key.as_slice()).unwrap());
 
             assert_eq!(encode(ge.as_ref()), encode(public_key));
         }

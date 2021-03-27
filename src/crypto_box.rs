@@ -151,7 +151,7 @@ pub fn crypto_box_easy(
         let dryocbox =
             crypto_box_detached(message, nonce, recipient_public_key, sender_secret_key)?;
         let mut ciphertext = Vec::new();
-        ciphertext.extend_from_slice(&dryocbox.tag.0);
+        ciphertext.extend_from_slice(dryocbox.tag.as_slice());
         ciphertext.extend(dryocbox.data);
         Ok(ciphertext)
     }
@@ -182,7 +182,7 @@ pub fn crypto_box_easy_inplace(
         // Rotate everything to the right
         ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
         // Copy mac into ciphertext
-        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(&dryocbox.tag.0);
+        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(dryocbox.tag.as_slice());
 
         Ok(ciphertext)
     }
@@ -308,7 +308,7 @@ pub fn crypto_box_open_easy_inplace(
             Err(err) => {
                 ciphertext.resize(ciphertext.len() + CRYPTO_BOX_MACBYTES, 0);
                 ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
-                ciphertext[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&mac.0);
+                ciphertext[0..CRYPTO_BOX_MACBYTES].copy_from_slice(mac.as_slice());
                 Err(err)
             }
             Ok(()) => Ok(()),
@@ -343,9 +343,9 @@ mod tests {
 
             let so_ciphertext = box_::seal(
                 message.as_bytes(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender.secret_key.as_slice()).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
@@ -359,9 +359,9 @@ mod tests {
             .unwrap();
             let so_m = box_::open(
                 ciphertext.as_slice(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender.secret_key.as_slice()).unwrap(),
             )
             .unwrap();
 
@@ -393,9 +393,9 @@ mod tests {
             .unwrap();
             let so_ciphertext = box_::seal(
                 message_copy.as_slice(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender.secret_key.as_slice()).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
@@ -411,9 +411,9 @@ mod tests {
             .expect("decrypt failed");
             let so_m = box_::open(
                 ciphertext.as_slice(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender.secret_key.as_slice()).unwrap(),
             )
             .expect("decrypt failed");
 
@@ -491,8 +491,8 @@ mod tests {
             let keypair = crypto_box_seed_keypair(&seed);
             let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());
 
-            assert_eq!(encode(&keypair.public_key.0), encode(so_pk.as_ref()));
-            assert_eq!(encode(&keypair.secret_key.0), encode(so_sk.as_ref()));
+            assert_eq!(encode(&keypair.public_key), encode(so_pk.as_ref()));
+            assert_eq!(encode(&keypair.secret_key), encode(so_sk.as_ref()));
         }
     }
 }

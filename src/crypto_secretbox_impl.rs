@@ -18,11 +18,11 @@ pub(crate) fn crypto_secretbox_detached_inplace(
     key: &SecretBoxKey,
 ) {
     let mut nonce_prefix: [u8; 16] = [0; 16];
-    nonce_prefix.clone_from_slice(&nonce.0[..16]);
+    nonce_prefix.clone_from_slice(&nonce[..16]);
 
     let mut cipher = XSalsa20::new(
-        &GenericArray::from_slice(&key.0),
-        &GenericArray::from_slice(&nonce.0),
+        &GenericArray::from_slice(key.as_slice()),
+        &GenericArray::from_slice(nonce.as_slice()),
     );
 
     let mut mac_key = poly1305::Key::default();
@@ -35,7 +35,7 @@ pub(crate) fn crypto_secretbox_detached_inplace(
     cipher.apply_keystream(data.as_mut_slice());
 
     let computed_mac = computed_mac.compute_unpadded(data.as_slice()).into_bytes();
-    mac.0.copy_from_slice(&computed_mac);
+    mac.copy_from_slice(&computed_mac);
 }
 
 pub(crate) fn crypto_secretbox_open_detached_inplace(
@@ -45,11 +45,11 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
     key: &SecretBoxKey,
 ) -> Result<(), Error> {
     let mut nonce_prefix: [u8; 16] = [0; 16];
-    nonce_prefix.clone_from_slice(&nonce.0[..16]);
+    nonce_prefix.clone_from_slice(&nonce[..16]);
 
     let mut cipher = XSalsa20::new(
-        &GenericArray::from_slice(&key.0),
-        &GenericArray::from_slice(&nonce.0),
+        &GenericArray::from_slice(key.as_slice()),
+        &GenericArray::from_slice(nonce.as_slice()),
     );
 
     let mut mac_key = poly1305::Key::default();
@@ -66,7 +66,7 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
 
     cipher.apply_keystream(data.as_mut_slice());
 
-    if mac.0.ct_eq(&computed_mac).unwrap_u8() == 1 {
+    if mac.as_slice().ct_eq(&computed_mac).unwrap_u8() == 1 {
         Ok(())
     } else {
         Err(dryoc_error!("decryption error (authentication failure)"))

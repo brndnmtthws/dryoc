@@ -56,8 +56,8 @@ fn test_dryocbox_serde() {
     let dryocbox = DryocBox::encrypt(
         &message.into(),
         &nonce,
-        &recipient_keypair.clone().into(),
-        &sender_keypair.clone().into(),
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
     )
     .expect("unable to encrypt");
 
@@ -66,10 +66,14 @@ fn test_dryocbox_serde() {
     let dryocbox: DryocBox = serde_json::from_str(&json).unwrap();
 
     let decrypted = dryocbox
-        .decrypt(&nonce, &sender_keypair.into(), &recipient_keypair.into())
-        .expect("unable to decrypt");
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("decrypt failed");
 
-    assert_eq!(message.as_bytes(), decrypted.as_slice());
+    assert_eq!(message.as_bytes(), decrypted);
 }
 #[cfg(feature = "serde")]
 #[test]

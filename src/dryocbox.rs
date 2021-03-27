@@ -28,7 +28,7 @@
 //! ```
 
 #[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::{as_base64, mac_from_base64, vec_from_base64};
+use crate::b64::{as_base64, bytearray_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_BOX_MACBYTES;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
@@ -49,6 +49,13 @@ type Nonce = BoxNonce;
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box
 pub struct DryocBox {
+    #[cfg_attr(
+        all(feature = "serde", feature = "base64"),
+        serde(
+            serialize_with = "as_base64",
+            deserialize_with = "bytearray_from_base64"
+        )
+    )]
     /// libsodium box authentication tag, usually prepended to each box
     pub tag: BoxMac,
     #[cfg_attr(
@@ -143,7 +150,7 @@ impl DryocBox {
     /// Copies this box into a new Vec
     pub fn to_vec(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&self.tag.0);
+        data.extend_from_slice(self.tag.as_slice());
         data.extend(&self.data);
         data
     }
@@ -152,7 +159,7 @@ impl DryocBox {
     pub fn into_vec(mut self) -> Vec<u8> {
         self.data.resize(self.data.len() + CRYPTO_BOX_MACBYTES, 0);
         self.data.rotate_right(CRYPTO_BOX_MACBYTES);
-        self.data[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&self.tag.0);
+        self.data[0..CRYPTO_BOX_MACBYTES].copy_from_slice(self.tag.as_slice());
         self.data
     }
 }
@@ -187,7 +194,7 @@ mod tests {
     fn test_new() {
         let dryocbox = DryocBox::new();
 
-        assert_eq!(all_eq(&dryocbox.tag.0, 0), true);
+        assert_eq!(all_eq(dryocbox.tag.as_slice(), 0), true);
         assert_eq!(all_eq(&dryocbox.data, 0), true);
     }
 
@@ -195,7 +202,7 @@ mod tests {
     fn test_default() {
         let dryocbox = DryocBox::default();
 
-        assert_eq!(all_eq(&dryocbox.tag.0, 0), true);
+        assert_eq!(all_eq(dryocbox.tag.as_slice(), 0), true);
         assert_eq!(all_eq(&dryocbox.data, 0), true);
     }
 
@@ -229,9 +236,9 @@ mod tests {
 
             let so_ciphertext = box_::seal(
                 message_copy.as_bytes(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_copy.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_copy.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient_copy.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender_copy.secret_key.as_slice()).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
@@ -248,9 +255,9 @@ mod tests {
                 .expect("hmm");
             let so_m = box_::open(
                 &ciphertext,
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_copy.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_copy.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient_copy.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender_copy.secret_key.as_slice()).unwrap(),
             )
             .expect("HMMM");
 
@@ -289,9 +296,9 @@ mod tests {
 
             let so_ciphertext = box_::seal(
                 message_copy.as_bytes(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_copy.public_key.0).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_copy.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(keypair_recipient_copy.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(keypair_sender_copy.secret_key.as_slice()).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
@@ -309,9 +316,9 @@ mod tests {
                 .expect_err("hmm");
             box_::open(
                 &ciphertext,
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &PublicKey::from_slice(&invalid_key.public_key.0).unwrap(),
-                &SecretKey::from_slice(&invalid_key.secret_key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &PublicKey::from_slice(invalid_key.public_key.as_slice()).unwrap(),
+                &SecretKey::from_slice(invalid_key.secret_key.as_slice()).unwrap(),
             )
             .expect_err("HMMM");
         }
@@ -359,7 +366,7 @@ mod tests {
             let tag = BoxMac::new();
             let dryocbox = DryocBox::with_data_and_mac(&tag, &data1);
             assert_eq!(&dryocbox.data, &data1_copy);
-            assert_eq!(&dryocbox.tag.0, &[0u8; CRYPTO_BOX_MACBYTES]);
+            assert_eq!(dryocbox.tag.as_slice(), &[0u8; CRYPTO_BOX_MACBYTES]);
         }
     }
 }

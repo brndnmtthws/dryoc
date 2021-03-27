@@ -90,7 +90,7 @@ pub fn crypto_secretbox_easy(
 ) -> Result<OutputBase, Error> {
     let dryocsecretbox = crypto_secretbox_detached(message, nonce, key);
     let mut ciphertext = Vec::new();
-    ciphertext.extend_from_slice(&dryocsecretbox.tag.0);
+    ciphertext.extend_from_slice(dryocsecretbox.tag.as_slice());
     ciphertext.extend(dryocsecretbox.data);
     Ok(ciphertext)
 }
@@ -111,7 +111,7 @@ pub fn crypto_secretbox_open_easy(
         )))
     } else {
         use std::convert::TryInto;
-        let mut mac: SecretBoxMac = ciphertext[0..CRYPTO_SECRETBOX_MACBYTES].try_into()?;
+        let mac: SecretBoxMac = ciphertext[0..CRYPTO_SECRETBOX_MACBYTES].try_into()?;
 
         crypto_secretbox_open_detached(&mac, &ciphertext[CRYPTO_SECRETBOX_MACBYTES..], nonce, key)
     }
@@ -139,7 +139,7 @@ pub fn crypto_secretbox_easy_inplace(
     // Rotate everything to the right
     ciphertext.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
     // Copy mac into ciphertext
-    ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&dryocsecretbox.tag.0);
+    ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(dryocsecretbox.tag.as_slice());
 
     Ok(ciphertext)
 }
@@ -159,7 +159,7 @@ pub fn crypto_secretbox_open_easy_inplace(
         )))
     } else {
         use std::convert::TryInto;
-        let mut mac: SecretBoxMac = ciphertext[0..CRYPTO_SECRETBOX_MACBYTES].try_into()?;
+        let mac: SecretBoxMac = ciphertext[0..CRYPTO_SECRETBOX_MACBYTES].try_into()?;
 
         let mut dryocsecretbox = DryocSecretBox::from_data_and_mac(mac, ciphertext);
 
@@ -199,16 +199,16 @@ mod tests {
             let ciphertext = crypto_secretbox_easy(message.as_bytes(), &nonce, &key).unwrap();
             let so_ciphertext = secretbox::seal(
                 message.as_bytes(),
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &Key::from_slice(&key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &Key::from_slice(key.as_slice()).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
             let decrypted = crypto_secretbox_open_easy(&ciphertext, &nonce, &key).unwrap();
             let so_decrypted = secretbox::open(
                 &ciphertext,
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &Key::from_slice(&key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &Key::from_slice(key.as_slice()).unwrap(),
             )
             .unwrap();
 
@@ -235,8 +235,8 @@ mod tests {
             let ciphertext = crypto_secretbox_easy_inplace(message, &nonce, &key).unwrap();
             let so_ciphertext = secretbox::seal(
                 &message_copy,
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &Key::from_slice(&key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &Key::from_slice(key.as_slice()).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
@@ -244,8 +244,8 @@ mod tests {
             let decrypted = crypto_secretbox_open_easy_inplace(ciphertext, &nonce, &key).unwrap();
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,
-                &SONonce::from_slice(&nonce.0).unwrap(),
-                &Key::from_slice(&key.0).unwrap(),
+                &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                &Key::from_slice(key.as_slice()).unwrap(),
             )
             .expect("decrypt failed");
 

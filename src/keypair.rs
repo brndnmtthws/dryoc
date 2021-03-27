@@ -36,7 +36,7 @@ impl KeyPair {
     /// Derives a keypair from `secret_key`, and consume it
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
         use crate::crypto_core::crypto_scalarmult_base;
-        let public_key = crypto_scalarmult_base(&secret_key.0);
+        let public_key = crypto_scalarmult_base(secret_key.as_slice());
         Self {
             public_key: public_key.into(),
             secret_key: secret_key,
@@ -77,16 +77,16 @@ mod tests {
     fn test_new() {
         let keypair = KeyPair::new();
 
-        assert_eq!(all_eq(&keypair.public_key.0, 0), true);
-        assert_eq!(all_eq(&keypair.secret_key.0, 0), true);
+        assert_eq!(all_eq(keypair.public_key.as_slice(), 0), true);
+        assert_eq!(all_eq(keypair.secret_key.as_slice(), 0), true);
     }
 
     #[test]
     fn test_default() {
         let keypair = KeyPair::default();
 
-        assert_eq!(all_eq(&keypair.public_key.0, 0), true);
-        assert_eq!(all_eq(&keypair.secret_key.0, 0), true);
+        assert_eq!(all_eq(keypair.public_key.as_slice(), 0), true);
+        assert_eq!(all_eq(keypair.secret_key.as_slice(), 0), true);
     }
 
     #[test]
@@ -96,11 +96,11 @@ mod tests {
 
         let keypair = KeyPair::gen();
 
-        let public_key = crypto_scalarmult_base(&keypair.secret_key.0);
+        let public_key = crypto_scalarmult_base(keypair.secret_key.as_slice());
 
-        assert_eq!(keypair.public_key.0, public_key);
+        assert_eq!(keypair.public_key.as_slice(), &public_key);
 
-        let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key.0).unwrap());
+        let ge = scalarmult_base(&Scalar::from_slice(keypair.secret_key.as_slice()).unwrap());
 
         assert_eq!(ge.as_ref(), public_key);
     }

@@ -3,7 +3,7 @@ use crate::error;
 use crate::rng::copy_randombytes;
 
 #[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::{as_base64, mac_from_base64, vec_from_base64};
+use crate::b64::{as_base64, slice_from_base64};
 
 use std::convert::TryFrom;
 use zeroize::Zeroize;
@@ -18,7 +18,13 @@ use serde::{Deserialize, Serialize};
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, PartialEq, Clone))]
 #[zeroize(drop)]
-pub struct ByteArray<const LENGTH: usize>(pub [u8; LENGTH]);
+pub struct ByteArray<const LENGTH: usize>(
+    #[cfg_attr(
+        all(feature = "serde", feature = "base64"),
+        serde(serialize_with = "as_base64", deserialize_with = "slice_from_base64")
+    )]
+    [u8; LENGTH],
+);
 
 impl<const LENGTH: usize> ByteArray<LENGTH> {
     /// Returns a zero-initialized byte array.
@@ -35,7 +41,64 @@ impl<const LENGTH: usize> ByteArray<LENGTH> {
     pub fn fill(&mut self, value: u8) {
         self.0.fill(value);
     }
+    /// Copies all elements from src into self, using a memcpy.
+    pub fn copy_from_slice(&mut self, src: &[u8]) {
+        self.0.copy_from_slice(src)
+    }
+    /// Returns a reference to the underlying data as a slice.
+    pub fn as_slice(&self) -> &[u8; LENGTH] {
+        &self.0
+    }
+    /// Returns a mutable reference to the underlying data as a slice.
+    pub fn as_mut_slice(&mut self) -> &mut [u8; LENGTH] {
+        &mut self.0
+    }
 }
+
+impl<const LENGTH: usize> std::convert::AsRef<[u8]> for ByteArray<LENGTH> {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const LENGTH: usize> std::convert::AsMut<[u8]> for ByteArray<LENGTH> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
+
+impl<const LENGTH: usize> std::ops::Deref for ByteArray<LENGTH> {
+    type Target = [u8; LENGTH];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+macro_rules! impl_index {
+    ($range:ty) => {
+        impl<const LENGTH: usize> std::ops::Index<$range> for ByteArray<LENGTH> {
+            type Output = [u8];
+            #[inline]
+            fn index(&self, index: $range) -> &Self::Output {
+                &self.0[index]
+            }
+        }
+        impl<const LENGTH: usize> std::ops::IndexMut<$range> for ByteArray<LENGTH> {
+            #[inline]
+            fn index_mut(&mut self, index: $range) -> &mut Self::Output {
+                &mut self.0[index]
+            }
+        }
+    };
+}
+
+impl_index!(std::ops::Range<usize>);
+impl_index!(std::ops::RangeFull);
+impl_index!(std::ops::RangeFrom<usize>);
+impl_index!(std::ops::RangeInclusive<usize>);
+impl_index!(std::ops::RangeTo<usize>);
+impl_index!(std::ops::RangeToInclusive<usize>);
 
 impl<const LENGTH: usize> Default for ByteArray<LENGTH> {
     fn default() -> Self {
