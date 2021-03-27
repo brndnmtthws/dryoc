@@ -1,18 +1,16 @@
 /// Increments `bytes` representing a large integer as if they were encoded as
-/// little-endian, equivalent to `sodium_increment`.
+/// little-endian in constant-time, equivalent to `sodium_increment`.
 pub fn increment_bytes(bytes: &mut [u8]) {
     let mut carry: u16 = 1;
     for b in bytes {
         carry = carry + *b as u16;
-        *b = carry as u8;
+        *b = (carry & 0xff) as u8;
         carry = carry >> 8;
     }
 }
 
 pub(crate) fn xor_buf(out: &mut [u8], in_: &[u8]) {
     let len = std::cmp::min(out.len(), in_.len());
-    let out = &mut out[..len];
-    let in_ = &in_[..len];
     for i in 0..len {
         out[i] = out[i] ^ in_[i];
     }
