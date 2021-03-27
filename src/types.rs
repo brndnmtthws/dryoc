@@ -86,4 +86,3 @@ pub type SecretBoxKey = ByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
 pub type SecretStreamKey = ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
 
 pub type SecretstreamNonce = ByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
-pub type SecretStreamPad = ByteArray<CRYPTO_SECRETSTREAM_PADBYTES>;

@@ -13,11 +13,10 @@ use crate::constants::{
 };
 use crate::crypto_core::crypto_core_hchacha20;
 use crate::error::*;
-use crate::types::{InputBase, OutputBase, SecretStreamKey, SecretStreamPad, SecretstreamNonce};
+use crate::types::{InputBase, OutputBase, SecretStreamKey, SecretstreamNonce};
 use crate::utils::{increment_bytes, xor_buf};
 
 use bitflags::bitflags;
-use libsodium_sys::crypto_onetimeauth_final;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -158,14 +157,8 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     associated_data: Option<&InputBase>,
     tag: Tag,
 ) -> Result<OutputBase, Error> {
-    use base64::encode;
     use chacha20::cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
     use chacha20::{ChaCha20, Key, Nonce};
-    use libsodium_sys::{
-        crypto_onetimeauth_poly1305_final, crypto_onetimeauth_poly1305_init,
-        crypto_onetimeauth_poly1305_state, crypto_onetimeauth_poly1305_update,
-        crypto_stream_chacha20_ietf, crypto_stream_chacha20_ietf_xor_ic,
-    };
     use poly1305::{
         universal_hash::{NewUniversalHash, UniversalHash},
         Key as Poly1305Key, Poly1305,
@@ -188,46 +181,11 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     let nonce = Nonce::from_slice(&state.nonce.0);
     let mut cipher = ChaCha20::new(key, nonce);
 
-    let mut mac_key_so = [0u8; 64];
-    let key_so = state.k.0.clone();
-    let nonce_so = state.nonce.0.clone();
-
-    unsafe {
-        crypto_stream_chacha20_ietf(
-            mac_key_so.as_mut_ptr(),
-            64,
-            nonce_so.as_ptr(),
-            key_so.as_ptr(),
-        );
-    }
-
     cipher.apply_keystream(&mut mac_key);
-    assert_eq!(encode(&mac_key), encode(&mac_key_so));
     let mut mac = Poly1305::new(&Poly1305Key::from_slice(&mac_key[0..32]));
-    let mut so_mac_state = crypto_onetimeauth_poly1305_state { opaque: [0; 256] };
-    unsafe {
-        crypto_onetimeauth_poly1305_init(&mut so_mac_state, mac_key.as_ptr());
-    }
     mac_key.zeroize();
 
     mac.update_padded(&associated_data);
-    unsafe {
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            associated_data.as_ptr(),
-            associated_data.len() as u64,
-        );
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            _pad0.as_ptr(),
-            ((0x10 - associated_data.len()) & 0xf) as u64,
-        );
-        let mut so_mac_state_final = so_mac_state.clone();
-        let mut mac_out = [0u8; 16];
-        crypto_onetimeauth_poly1305_final(&mut so_mac_state_final, mac_out.as_mut_ptr());
-        let mac_final = mac.clone().finalize().into_bytes();
-        assert_eq!(encode(&mac_out), encode(&mac_final));
-    }
 
     let mut block = [0u8; 64];
     block[0] = tag.bits();
@@ -235,25 +193,6 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     cipher.seek(64);
     cipher.apply_keystream(&mut block);
     mac.update_padded(&block);
-
-    unsafe {
-        crypto_stream_chacha20_ietf_xor_ic(
-            block_so.as_mut_ptr(),
-            block_so.as_ptr(),
-            block.len() as u64,
-            nonce_so.as_ptr(),
-            1,
-            key_so.as_ptr(),
-        );
-        crypto_onetimeauth_poly1305_update(&mut so_mac_state, block.as_ptr(), block.len() as u64);
-        let mut so_mac_state_final = so_mac_state.clone();
-        let mut mac_out = [0u8; 16];
-        crypto_onetimeauth_poly1305_final(&mut so_mac_state_final, mac_out.as_mut_ptr());
-        let mac_final = mac.clone().finalize().into_bytes();
-        assert_eq!(encode(&mac_out), encode(&mac_final));
-    }
-
-    assert_eq!(encode(&block), encode(&block_so));
 
     let mlen = message.len();
     let mut buffer: Vec<u8> = vec![0u8; block.len() + mlen];
@@ -264,45 +203,9 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     cipher.seek(128);
     cipher.apply_keystream(&mut buffer[1..(1 + mlen)]);
 
-    let message_so = &mut buffer_so[1..(1 + mlen)];
-    unsafe {
-        crypto_stream_chacha20_ietf_xor_ic(
-            message_so.as_mut_ptr(),
-            message_so.as_ptr(),
-            mlen as u64,
-            nonce_so.as_ptr(),
-            2,
-            key_so.as_ptr(),
-        );
-        crypto_stream_chacha20_ietf_xor_ic(
-            block_so.as_mut_ptr(),
-            block_so.as_ptr(),
-            block.len() as u64,
-            nonce_so.as_ptr(),
-            1,
-            key_so.as_ptr(),
-        );
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            buffer[1..(1 + mlen)].as_ptr(),
-            mlen as u64,
-        );
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            _pad0.as_ptr(),
-            ((0x10 - block.len() as i64 + mlen as i64) & 0xf) as u64,
-        );
-    }
-
-    assert_eq!(encode(&buffer[1..(1 + mlen)]), encode(&message_so));
-
     let mut size_data = [0u8; 16];
     size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
     size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
-
-    unsafe {
-        crypto_onetimeauth_poly1305_update(&mut so_mac_state, size_data.as_ptr(), 16);
-    }
 
     // this is to workaround an unfortunate padding bug in libsodium, there's a
     // note in commit 290197ba3ee72245fdab5e971c8de43a82b19874. There's no
@@ -315,15 +218,8 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     buffer.resize(size_data_end, 0);
     let mac = mac.compute_unpadded(&buffer[1..]).into_bytes();
 
-    let mut mac_out = [0u8; 16];
-    unsafe {
-        let mut so_mac_state_final = so_mac_state.clone();
-        crypto_onetimeauth_poly1305_final(&mut so_mac_state_final, mac_out.as_mut_ptr());
-        assert_eq!(encode(&mac_out), encode(&mac));
-    }
-
     buffer.resize(mlen + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES, 0);
-    buffer[1 + mlen..].copy_from_slice(&mac_out);
+    buffer[1 + mlen..].copy_from_slice(&mac);
 
     let inonce = state_inonce(&mut state.nonce);
     xor_buf(inonce, &mac);
@@ -349,14 +245,8 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     input: &InputBase,
     associated_data: Option<&InputBase>,
 ) -> Result<(OutputBase, Tag), Error> {
-    use base64::encode;
     use chacha20::cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
     use chacha20::{ChaCha20, Key, Nonce};
-    use libsodium_sys::{
-        crypto_onetimeauth_poly1305_final, crypto_onetimeauth_poly1305_init,
-        crypto_onetimeauth_poly1305_state, crypto_onetimeauth_poly1305_update,
-        crypto_stream_chacha20_ietf, crypto_stream_chacha20_ietf_xor_ic,
-    };
     use poly1305::{
         universal_hash::{NewUniversalHash, UniversalHash},
         Key as Poly1305Key, Poly1305,
@@ -373,56 +263,19 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     let associated_data = associated_data.unwrap_or(&[]);
 
     let mut mac_key = [0u8; 64];
-    let _pad0 = [0u8; 16];
 
     let key = Key::from_slice(&state.k.0);
     let nonce = Nonce::from_slice(&state.nonce.0);
     let mut cipher = ChaCha20::new(key, nonce);
 
-    let mut mac_key_so = [0u8; 64];
-    let key_so = state.k.0.clone();
-    let nonce_so = state.nonce.0.clone();
-
-    unsafe {
-        crypto_stream_chacha20_ietf(
-            mac_key_so.as_mut_ptr(),
-            64,
-            nonce_so.as_ptr(),
-            key_so.as_ptr(),
-        );
-    }
-
     cipher.apply_keystream(&mut mac_key);
-    assert_eq!(encode(&mac_key), encode(&mac_key_so));
     let mut mac = Poly1305::new(&Poly1305Key::from_slice(&mac_key[0..32]));
-    let mut so_mac_state = crypto_onetimeauth_poly1305_state { opaque: [0; 256] };
-    unsafe {
-        crypto_onetimeauth_poly1305_init(&mut so_mac_state, mac_key.as_ptr());
-    }
     mac_key.zeroize();
 
     mac.update_padded(&associated_data);
-    unsafe {
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            associated_data.as_ptr(),
-            associated_data.len() as u64,
-        );
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            _pad0.as_ptr(),
-            ((0x10 - associated_data.len()) & 0xf) as u64,
-        );
-        let mut so_mac_state_final = so_mac_state.clone();
-        let mut mac_out = [0u8; 16];
-        crypto_onetimeauth_poly1305_final(&mut so_mac_state_final, mac_out.as_mut_ptr());
-        let mac_final = mac.clone().finalize().into_bytes();
-        assert_eq!(encode(&mac_out), encode(&mac_final));
-    }
 
     let mut block = [0u8; 64];
     block[0] = input[0];
-    let mut block_so = block.clone();
 
     cipher.seek(64);
     cipher.apply_keystream(&mut block);
@@ -432,58 +285,13 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     mac.update_padded(&block);
 
-    unsafe {
-        crypto_stream_chacha20_ietf_xor_ic(
-            block_so.as_mut_ptr(),
-            block_so.as_ptr(),
-            block_so.len() as u64,
-            nonce_so.as_ptr(),
-            1,
-            key_so.as_ptr(),
-        );
-        block_so[0] = input[0];
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            block_so.as_ptr(),
-            block_so.len() as u64,
-        );
-        let mut so_mac_state_final = so_mac_state.clone();
-        let mut mac_out = [0u8; 16];
-        crypto_onetimeauth_poly1305_final(&mut so_mac_state_final, mac_out.as_mut_ptr());
-        let mac_final = mac.clone().finalize().into_bytes();
-        assert_eq!(encode(&mac_out), encode(&mac_final));
-    }
-
-    assert_eq!(encode(&block), encode(&block_so));
-
     let mlen = input.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
     let mut buffer: Vec<u8> = vec![0u8; mlen + block.len()];
     buffer[..mlen].copy_from_slice(&input[1..1 + mlen]);
-    let mut buffer_so = buffer.clone();
 
     let mut size_data = [0u8; 16];
     size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
     size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
-
-    let message_so = &mut buffer_so[..mlen];
-    unsafe {
-        crypto_onetimeauth_poly1305_update(&mut so_mac_state, buffer.as_ptr(), mlen as u64);
-        crypto_onetimeauth_poly1305_update(
-            &mut so_mac_state,
-            _pad0.as_ptr(),
-            ((0x10 - block.len() as i64 + mlen as i64) & 0xf) as u64,
-        );
-
-        crypto_onetimeauth_poly1305_update(&mut so_mac_state, size_data.as_ptr(), 16);
-        crypto_stream_chacha20_ietf_xor_ic(
-            message_so.as_mut_ptr(),
-            message_so.as_ptr(),
-            mlen as u64,
-            nonce_so.as_ptr(),
-            2,
-            key_so.as_ptr(),
-        );
-    }
 
     // this is to workaround an unfortunate padding bug in libsodium, there's a
     // note in commit 290197ba3ee72245fdab5e971c8de43a82b19874. There's no
@@ -496,21 +304,10 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     buffer.resize(size_data_end, 0);
     let mac = mac.compute_unpadded(&buffer).into_bytes();
 
-    let mut mac_out = [0u8; 16];
-    unsafe {
-        let mut so_mac_state_final = so_mac_state.clone();
-        crypto_onetimeauth_poly1305_final(&mut so_mac_state_final, mac_out.as_mut_ptr());
-    }
-    assert_eq!(encode(&mac_out), encode(&mac));
-
     cipher.seek(128);
     cipher.apply_keystream(&mut buffer[..mlen]);
 
-    assert_eq!(encode(&buffer[..mlen]), encode(&message_so));
-
     buffer.resize(mlen, 0);
-
-    assert_eq!(encode(&input[1 + mlen..]), encode(&mac));
 
     if input[1 + mlen..].ct_eq(&mac).unwrap_u8() == 0 {
         return Err(dryoc_error!("Message authentication mismatch"));
