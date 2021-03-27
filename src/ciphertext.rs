@@ -11,7 +11,7 @@ use zeroize::Zeroize;
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, PartialEq))]
 #[zeroize(drop)]
-/// Ciphertext container, for use with encrypted messages
+/// Ciphertext container, for use with encrypted messages.
 pub struct Ciphertext(pub Box<InputBase>);
 
 impl From<Vec<u8>> for Ciphertext {

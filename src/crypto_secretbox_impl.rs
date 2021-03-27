@@ -1,6 +1,6 @@
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
-use crate::types::{Nonce, SecretBoxKey, SecretBoxMac};
+use crate::types::{SecretBoxKey, SecretBoxMac, SecretBoxNonce};
 
 use generic_array::GenericArray;
 use poly1305::{universal_hash::NewUniversalHash, Poly1305};
@@ -14,7 +14,7 @@ use zeroize::Zeroize;
 pub(crate) fn crypto_secretbox_detached_inplace(
     mac: &mut SecretBoxMac,
     data: &mut Vec<u8>,
-    nonce: &Nonce,
+    nonce: &SecretBoxNonce,
     key: &SecretBoxKey,
 ) {
     let mut nonce_prefix: [u8; 16] = [0; 16];
@@ -41,7 +41,7 @@ pub(crate) fn crypto_secretbox_detached_inplace(
 pub(crate) fn crypto_secretbox_open_detached_inplace(
     mac: &SecretBoxMac,
     data: &mut Vec<u8>,
-    nonce: &Nonce,
+    nonce: &SecretBoxNonce,
     key: &SecretBoxKey,
 ) -> Result<(), Error> {
     let mut nonce_prefix: [u8; 16] = [0; 16];

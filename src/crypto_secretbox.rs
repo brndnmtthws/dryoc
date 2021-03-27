@@ -10,10 +10,10 @@
 //! use dryoc::rng::randombytes_buf;
 //! use dryoc::crypto_secretbox::{crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy};
 //! use dryoc::constants::CRYPTO_SECRETBOX_NONCEBYTES;
-//! use dryoc::types::Nonce;
+//! use dryoc::types::SecretBoxNonce;
 //!
 //! let key = crypto_secretbox_keygen();
-//! let nonce = Nonce::gen();
+//! let nonce = SecretBoxNonce::gen();
 //!
 //! let message = "I Love Doge!";
 //!
@@ -30,14 +30,18 @@ use crate::constants::*;
 use crate::crypto_secretbox_impl::*;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
-use crate::types::{InputBase, Nonce, OutputBase, SecretBoxKey, SecretBoxMac};
+use crate::types::{InputBase, OutputBase, SecretBoxKey, SecretBoxMac, SecretBoxNonce};
 
-/// Generates a random key using [copy_randombytes]
+type Nonce = SecretBoxNonce;
+
+/// Generates a random key using [crate::rng::copy_randombytes].
 pub fn crypto_secretbox_keygen() -> SecretBoxKey {
     SecretBoxKey::gen()
 }
 
-/// Detached version of [crypto_secretbox_easy]
+/// Detached version of [crypto_secretbox_easy].
+///
+/// Compatible with libsodium's `crypto_secretbox_detached`.
 pub fn crypto_secretbox_detached(
     message: &InputBase,
     nonce: &Nonce,
@@ -55,7 +59,9 @@ pub fn crypto_secretbox_detached(
     dryocsecretbox
 }
 
-/// Detached version of [crypto_secretbox_open_easy]
+/// Detached version of [crypto_secretbox_open_easy].
+///
+/// Compatible with libsodium's `crypto_secretbox_open_detached`.
 pub fn crypto_secretbox_open_detached(
     mac: &SecretBoxMac,
     ciphertext: &InputBase,
@@ -74,7 +80,9 @@ pub fn crypto_secretbox_open_detached(
     Ok(dryocsecretbox.data)
 }
 
-/// Encrypts `message` with `nonce` and `key`
+/// Encrypts `message` with `nonce` and `key`.
+///
+/// Compatible with libsodium's `crypto_secretbox_easy`.
 pub fn crypto_secretbox_easy(
     message: &InputBase,
     nonce: &Nonce,
@@ -87,7 +95,9 @@ pub fn crypto_secretbox_easy(
     Ok(ciphertext)
 }
 
-/// Decrypts `ciphertext` with `nonce` and `key`
+/// Decrypts `ciphertext` with `nonce` and `key`.
+///
+/// Compatible with libsodium's `crypto_secretbox_open_easy`.
 pub fn crypto_secretbox_open_easy(
     ciphertext: &InputBase,
     nonce: &Nonce,
@@ -108,7 +118,7 @@ pub fn crypto_secretbox_open_easy(
 }
 
 /// Encrypts `message` with `nonce` and `key` in-place, without allocating
-/// additional memory for the ciphertext
+/// additional memory for the ciphertext.
 pub fn crypto_secretbox_easy_inplace(
     message: Vec<u8>,
     nonce: &Nonce,
@@ -135,7 +145,7 @@ pub fn crypto_secretbox_easy_inplace(
 }
 
 /// Decrypts `ciphertext` with `nonce` and `key` in-place, without allocating
-/// additional memory for the message
+/// additional memory for the message.
 pub fn crypto_secretbox_open_easy_inplace(
     ciphertext: Vec<u8>,
     nonce: &Nonce,
@@ -210,13 +220,13 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy_inplace() {
         for i in 0..20 {
-            use crate::types::Nonce;
+            use crate::types::SecretBoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key, Nonce as SONonce};
 
             let key = crypto_secretbox_keygen();
-            let nonce = Nonce::gen();
+            let nonce = SecretBoxNonce::gen();
 
             let words = vec!["love Doge".to_string(); i];
             let message: Vec<u8> = words.join(" <3 ").into();

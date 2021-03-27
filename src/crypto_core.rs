@@ -8,6 +8,8 @@ use crate::types::OutputBase;
 use generic_array::GenericArray;
 
 /// Computes the public key for a previously generated secret key.
+///
+/// Compatible with libsodium's `crypto_scalarmult_base`.
 pub fn crypto_scalarmult_base(n: &[u8; CRYPTO_SCALARMULT_BYTES]) -> [u8; CRYPTO_SCALARMULT_BYTES] {
     crypto_scalarmult_curve25519_base(n)
 }
@@ -24,7 +26,9 @@ fn quarterround(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
     round(c, d, b, 7);
 }
 
-/// Implements the HChaCha20 function
+/// Implements the HChaCha20 function.
+///
+/// Compatible with libsodium's `crypto_core_hchacha20`.
 pub fn crypto_core_hchacha20(
     input: &[u8],
     key: &[u8],
@@ -85,7 +89,9 @@ pub fn crypto_core_hchacha20(
     out
 }
 
-/// Implements the HSalsa20 function
+/// Implements the HSalsa20 function.
+///
+/// Compatible with libsodium's `crypto_core_hsalsa20`.
 pub fn crypto_core_hsalsa20(input: &[u8; 16], key: &[u8]) -> [u8; 32] {
     use salsa20::hsalsa20;
 

@@ -9,7 +9,7 @@
 //!
 //! let sender_keypair = KeyPair::gen();
 //! let recipient_keypair = KeyPair::gen();
-//! let nonce = Nonce::gen();
+//! let nonce = BoxNonce::gen();
 //! let message = "hey";
 //!
 //! let dryocbox = DryocBox::encrypt(
@@ -33,12 +33,14 @@ use crate::constants::CRYPTO_BOX_MACBYTES;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
 use crate::message::Message;
-use crate::types::{BoxMac, InputBase, Nonce, OutputBase, PublicKey, SecretKey};
+use crate::types::{BoxMac, BoxNonce, InputBase, OutputBase, PublicKey, SecretKey};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
+
+type Nonce = BoxNonce;
 
 #[cfg_attr(
     feature = "serde",
@@ -201,7 +203,7 @@ mod tests {
     fn test_dryocbox() {
         for i in 0..20 {
             use crate::keypair::*;
-            use crate::types::Nonce;
+            use crate::types::BoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
@@ -210,7 +212,7 @@ mod tests {
             let keypair_recipient = KeyPair::gen();
             let keypair_sender_copy = keypair_sender.clone();
             let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = Nonce::gen();
+            let nonce = BoxNonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
@@ -261,7 +263,7 @@ mod tests {
     fn test_decrypt_failure() {
         for i in 0..20 {
             use crate::keypair::*;
-            use crate::types::Nonce;
+            use crate::types::BoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
@@ -270,7 +272,7 @@ mod tests {
             let keypair_recipient = KeyPair::gen();
             let keypair_sender_copy = keypair_sender.clone();
             let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = Nonce::gen();
+            let nonce = BoxNonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
@@ -319,12 +321,12 @@ mod tests {
     fn test_decrypt_failure_empty() {
         for _ in 0..20 {
             use crate::keypair::*;
-            use crate::types::Nonce;
+            use crate::types::BoxNonce;
 
             let invalid_key = KeyPair::gen();
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
-            let nonce = Nonce::gen();
+            let nonce = BoxNonce::gen();
 
             let dryocbox = DryocBox::from_data("lol".as_bytes().into());
             dryocbox

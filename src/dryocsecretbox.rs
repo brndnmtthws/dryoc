@@ -8,7 +8,7 @@
 //! use dryoc::prelude::*;
 //!
 //! let secret_key = SecretBoxKey::gen();
-//! let nonce = Nonce::gen();
+//! let nonce = SecretBoxNonce::gen();
 //! let message = "hey";
 //!
 //! let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
@@ -25,12 +25,14 @@ use crate::b64::{as_base64, mac_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
 use crate::message::Message;
-use crate::types::{InputBase, Nonce, OutputBase, SecretBoxKey, SecretBoxMac};
+use crate::types::{InputBase, OutputBase, SecretBoxKey, SecretBoxMac, SecretBoxNonce};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
+
+type Nonce = SecretBoxNonce;
 
 #[cfg_attr(
     feature = "serde",
@@ -170,13 +172,13 @@ mod tests {
     fn test_dryocbox() {
         for i in 0..20 {
             use crate::dryocsecretbox::*;
-            use crate::types::Nonce;
+            use crate::types::SecretBoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key, Nonce as SONonce};
 
             let secret_key = SecretBoxKey::gen();
-            let nonce = Nonce::gen();
+            let nonce = SecretBoxNonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();

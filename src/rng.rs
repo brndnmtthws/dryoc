@@ -1,4 +1,4 @@
-/// Provides random data up to `len` from the OS's random number generator
+/// Provides random data up to `len` from the OS's random number generator.
 pub fn randombytes_buf(len: usize) -> Vec<u8> {
     use rand_core::{OsRng, RngCore};
 
@@ -9,7 +9,7 @@ pub fn randombytes_buf(len: usize) -> Vec<u8> {
 }
 
 /// Provides random data up to length of `data` from the OS's random number
-/// generator
+/// generator.
 pub fn copy_randombytes(dest: &mut [u8]) {
     use rand_core::{OsRng, RngCore};
 

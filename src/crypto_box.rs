@@ -17,7 +17,7 @@
 //! let keypair_recipient = crypto_box_keypair();
 //!
 //! // Generate a random nonce
-//! let nonce = Nonce::gen();
+//! let nonce = BoxNonce::gen();
 //!
 //! let message = "hello".as_bytes();
 //! // Encrypt message
@@ -48,28 +48,36 @@ use crate::crypto_secretbox_impl::*;
 use crate::dryocbox::DryocBox;
 use crate::error::Error;
 use crate::keypair::*;
-use crate::types::{BoxMac, InputBase, Nonce, OutputBase, PublicKey, SecretBoxKey, SecretKey};
+use crate::types::{BoxMac, BoxNonce, InputBase, OutputBase, PublicKey, SecretBoxKey, SecretKey};
 
 use zeroize::Zeroize;
 
+type Nonce = BoxNonce;
+
 /// Generates a public/secret key pair using OS provided data using
-/// [rand_core::OsRng]
+/// [rand_core::OsRng].
 pub fn crypto_box_keypair() -> KeyPair {
     crypto_box_curve25519xsalsa20poly1305_keypair()
 }
 
 /// Deterministically derives a keypair from `seed`.
+///
+/// Compatible with libsodium's `crypto_box_seed_keypair`.
 pub fn crypto_box_seed_keypair(seed: &InputBase) -> KeyPair {
     crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed)
 }
 
 /// Computes a shared secret for the given `public_key` and `private_key`.
 /// Resulting shared secret can be used with the precalculation interface.
+///
+/// Compatible with libsodium's `crypto_box_beforenm`.
 pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> SecretBoxKey {
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
 /// Precalculation variant of [`crate::crypto_box::crypto_box_easy`]
+///
+/// Compatible with libsodium's `crypto_box_detached_afternm`.
 pub fn crypto_box_detached_afternm(
     message: &InputBase,
     nonce: &Nonce,
@@ -78,7 +86,7 @@ pub fn crypto_box_detached_afternm(
     Ok(crypto_secretbox_detached(message, nonce, key).into())
 }
 
-/// In-place variant of [`crypto_box_detached_afternm`]
+/// In-place variant of [`crypto_box_detached_afternm`].
 pub fn crypto_box_detached_afternm_inplace(
     dryocbox: &mut DryocBox,
     nonce: &Nonce,
@@ -87,7 +95,9 @@ pub fn crypto_box_detached_afternm_inplace(
     crypto_secretbox_detached_inplace(&mut dryocbox.tag, &mut dryocbox.data, nonce, key);
 }
 
-/// Detached variant of [`crypto_box_easy`]
+/// Detached variant of [`crypto_box_easy`].
+///
+/// Compatible with libsodium's `crypto_box_detached`.
 pub fn crypto_box_detached(
     message: &InputBase,
     nonce: &Nonce,
@@ -122,7 +132,9 @@ pub fn crypto_box_detached_inplace(
 }
 
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
-/// sender's secret key `sender_secret_key` using `nonce`
+/// sender's secret key `sender_secret_key` using `nonce`.
+///
+/// Compatible with libsodium's `crypto_box_easy`.
 pub fn crypto_box_easy(
     message: &InputBase,
     nonce: &Nonce,
@@ -147,7 +159,7 @@ pub fn crypto_box_easy(
 
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
 /// sender's secret key `sender_secret_key` using `nonce` in-place, without
-/// allocated additional memory for the message
+/// allocated additional memory for the message.
 pub fn crypto_box_easy_inplace(
     message: Vec<u8>,
     nonce: &Nonce,
@@ -176,7 +188,9 @@ pub fn crypto_box_easy_inplace(
     }
 }
 
-/// Precalculation variant of [crypto_box_open_easy]
+/// Precalculation variant of [crypto_box_open_easy].
+///
+/// Compatible with libsodium's `crypto_box_open_detached_afternm`.
 pub fn crypto_box_open_detached_afternm(
     mac: &BoxMac,
     ciphertext: &InputBase,
@@ -186,7 +200,7 @@ pub fn crypto_box_open_detached_afternm(
     crypto_secretbox_open_detached(mac, ciphertext, nonce, key)
 }
 
-/// In-place variant of [crypto_box_open_detached_afternm]
+/// In-place variant of [crypto_box_open_detached_afternm].
 pub fn crypto_box_open_detached_afternm_inplace(
     mac: &BoxMac,
     ciphertext: &mut Vec<u8>,
@@ -196,7 +210,9 @@ pub fn crypto_box_open_detached_afternm_inplace(
     crypto_secretbox_open_detached_inplace(mac, ciphertext, nonce, key)
 }
 
-/// Detached variant of [`crate::crypto_box::crypto_box_open_easy`]
+/// Detached variant of [`crate::crypto_box::crypto_box_open_easy`].
+///
+/// Compatible with libsodium's `crypto_box_open_detached`.
 pub fn crypto_box_open_detached(
     mac: &BoxMac,
     ciphertext: &InputBase,
@@ -213,7 +229,7 @@ pub fn crypto_box_open_detached(
     Ok(res)
 }
 
-/// In-place variant of ['crypto_box_open_detached']
+/// In-place variant of [crypto_box_open_detached].
 pub fn crypto_box_open_detached_inplace(
     mac: &BoxMac,
     ciphertext: &mut Vec<u8>,
@@ -231,7 +247,9 @@ pub fn crypto_box_open_detached_inplace(
 }
 
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
-/// sender's public key `sender_public_key` using `nonce`
+/// sender's public key `sender_public_key` using `nonce`.
+///
+/// Compatible with libsodium's `crypto_box_open_easy`.
 pub fn crypto_box_open_easy(
     ciphertext: &InputBase,
     nonce: &Nonce,
@@ -246,7 +264,7 @@ pub fn crypto_box_open_easy(
         )))
     } else {
         use std::convert::TryInto;
-        let mut mac: BoxMac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
+        let mac: BoxMac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
 
         crypto_box_open_detached(
             &mac,
@@ -260,7 +278,7 @@ pub fn crypto_box_open_easy(
 
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
 /// sender's public key `sender_public_key` using `nonce` in-place, without
-/// allocated additional memory for the message
+/// allocated additional memory for the message.
 pub fn crypto_box_open_easy_inplace(
     ciphertext: &mut Vec<u8>,
     nonce: &Nonce,
@@ -275,7 +293,7 @@ pub fn crypto_box_open_easy_inplace(
         )))
     } else {
         use std::convert::TryInto;
-        let mut mac: BoxMac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
+        let mac: BoxMac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
 
         ciphertext.rotate_left(CRYPTO_BOX_MACBYTES);
         ciphertext.resize(ciphertext.len() - CRYPTO_BOX_MACBYTES, 0);
@@ -425,12 +443,12 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
         for _ in 0..20 {
-            use crate::types::Nonce;
+            use crate::types::BoxNonce;
             use base64::encode;
 
             let keypair_sender = crypto_box_keypair();
             let keypair_recipient = crypto_box_keypair();
-            let nonce = Nonce::gen();
+            let nonce = BoxNonce::gen();
 
             let mut ciphertext: Vec<u8> = vec![];
 
