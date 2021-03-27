@@ -16,7 +16,6 @@ bitflags = "1.0"
 chacha20 = {version = "0.6", features = ["rng"]}
 curve25519-dalek = "3.0"
 generic-array = "0.14"
-libc = "*"
 poly1305 = "0.6"
 rand_core = {version = "0.5", features = ["getrandom"]}
 salsa20 = {version = "0.7", features = ["hsalsa20"]}
@@ -28,6 +27,7 @@ zeroize = "1"
 
 [dev-dependencies]
 base64 = "0.13"
+libc = "0.2"
 libsodium-sys = "0.2"
 serde_json = "1.0"
 sodiumoxide = "0.2"
