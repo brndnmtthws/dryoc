@@ -189,7 +189,6 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
 
     let mut block = [0u8; 64];
     block[0] = tag.bits();
-    let mut block_so = block.clone();
     cipher.seek(64);
     cipher.apply_keystream(&mut block);
     mac.update_padded(&block);
@@ -198,7 +197,6 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     let mut buffer: Vec<u8> = vec![0u8; block.len() + mlen];
     buffer[0] = block[0];
     buffer[1..(1 + mlen)].copy_from_slice(&message);
-    let mut buffer_so = buffer.clone();
 
     cipher.seek(128);
     cipher.apply_keystream(&mut buffer[1..(1 + mlen)]);
