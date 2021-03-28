@@ -164,13 +164,13 @@ macro_rules! impl_index {
             type Output = [u8];
             #[inline]
             fn index(&self, index: $range) -> &Self::Output {
-                &self.0[..][index]
+                &self.0[index]
             }
         }
         impl<const LENGTH: usize> std::ops::IndexMut<$range> for ByteArray<LENGTH> {
             #[inline]
             fn index_mut(&mut self, index: $range) -> &mut Self::Output {
-                &mut self.0[..][index]
+                &mut self.0[index]
             }
         }
     };
