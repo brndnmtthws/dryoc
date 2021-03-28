@@ -10,7 +10,7 @@ use zeroize::Zeroize;
 
 #[cfg(all(feature = "serde", not(feature = "base64")))]
 use serde::{
-    de::{SeqAccess, Visitor},
+    de::{self, SeqAccess, Visitor},
     Deserializer, Serializer,
 };
 #[cfg(feature = "serde")]
@@ -49,7 +49,7 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for ByteArray<LENGTH> {
                 write!(formatter, "sequence")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<ByteArray<LENGTH>, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: SeqAccess<'de>,
             {
@@ -67,9 +67,21 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for ByteArray<LENGTH> {
 
                 Ok(bytearray)
             }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if v.len() != LENGTH {
+                    return Err(de::Error::invalid_length(v.len(), &stringify!(LENGTH)));
+                }
+                let mut bytearray = ByteArray::<LENGTH>::new();
+                bytearray.copy_from_slice(v);
+                Ok(bytearray)
+            }
         }
 
-        deserializer.deserialize_seq(ByteArrayVisitor::<LENGTH>)
+        deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
     }
 }
 
