@@ -1,9 +1,22 @@
 /*!
-# dryoc: Don't Roll Your Own Crypto™️
+# dryoc: Don't Roll Your Own Crypto™[^1]
 
-Dryoc is a pure-Rust implementation of
+dryoc is a pure-Rust implementation of
 [libsodium](https://libsodium.gitbook.io/doc/), intended to be 100%
-compatible with a mostly interchangeable API, and have limited dependencies.
+compatible with a interchangeable with the libsodium API, and have limited
+dependencies.
+
+## Features
+
+The importart features of dryoc are:
+* it's 100% pure Rust
+* free of unsafe code (except when some optimizations are enabled, which are disabled by default)
+* automatic safety features such as zeroization of data structures
+* covers most common use cases for safe encryption
+* provides full compatibility with libsodium and implements most of its key functions
+* it's designed to be difficult to use incorrectly (with the Rustaceous API)
+
+# APIs
 
 This library includes both a _classic_ API, which is very similar to the
 original libsodium API, and _Rustaceous_ API with Rust-specific features.
@@ -30,10 +43,19 @@ necessary if they already include optimized storage for binary types.
 
 # Security notes
 
-This crate has NOT been audited, but some of the underlying implementations
+This crate has not been audited, but some of the underlying implementations
 have received some auditing, such as the [poly1305] crate. Notably, only the
 non-AVX2 backend has been audited. Thus, don't enable AVX2 if you're
 paranoid, and avoid non-ARM and non-Intel microarchitectures.
+
+With that out of the way, the deterministic nature of cryptography and
+extensive testing used in this crate means it's relatively safe to use,
+provided the underlying algorithms remain safe. Arguably, this crate is
+_incredibly_ safe (as far as cryptography libraries go) thanks to the
+features provided by the Rust language.
+
+[^1]: Not actually trademarked.
+
 */
 
 #![warn(missing_docs)]
