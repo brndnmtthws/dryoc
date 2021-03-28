@@ -8,15 +8,23 @@ use crate::b64::{as_base64, slice_from_base64};
 use std::convert::TryFrom;
 use zeroize::Zeroize;
 
+#[cfg(all(feature = "serde", not(feature = "base64")))]
+use serde::{
+    de::{SeqAccess, Visitor},
+    Deserializer, Serializer,
+};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// A generic byte array for working with data, with optional [Serde](https://serde.rs) features.
 #[cfg_attr(
-    feature = "serde",
-    derive(Serialize, Deserialize, Zeroize, Debug, Clone, PartialEq)
+    all(feature = "serde", feature = "base64"),
+    derive(Zeroize, Debug, PartialEq, Clone, Serialize, Deserialize)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, PartialEq, Clone))]
+#[cfg_attr(
+    not(all(feature = "serde", feature = "base64")),
+    derive(Zeroize, Debug, PartialEq, Clone)
+)]
 #[zeroize(drop)]
 pub struct ByteArray<const LENGTH: usize>(
     #[cfg_attr(
@@ -25,6 +33,55 @@ pub struct ByteArray<const LENGTH: usize>(
     )]
     [u8; LENGTH],
 );
+
+#[cfg(all(feature = "serde", not(feature = "base64")))]
+impl<'de, const LENGTH: usize> Deserialize<'de> for ByteArray<LENGTH> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ByteArrayVisitor<const LENGTH: usize>;
+
+        impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
+            type Value = ByteArray<LENGTH>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "sequence")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<ByteArray<LENGTH>, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut bytearray = ByteArray::<LENGTH>::new();
+                let mut idx: usize = 0;
+
+                while let Some(elem) = seq.next_element()? {
+                    if idx < LENGTH {
+                        bytearray[idx] = elem;
+                        idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                Ok(bytearray)
+            }
+        }
+
+        deserializer.deserialize_seq(ByteArrayVisitor::<LENGTH>)
+    }
+}
+
+#[cfg(all(feature = "serde", not(feature = "base64")))]
+impl<const LENGTH: usize> Serialize for ByteArray<LENGTH> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.as_slice())
+    }
+}
 
 impl<const LENGTH: usize> ByteArray<LENGTH> {
     /// Returns a zero-initialized byte array.
@@ -75,19 +132,33 @@ impl<const LENGTH: usize> std::ops::Deref for ByteArray<LENGTH> {
     }
 }
 
+impl<const LENGTH: usize> std::ops::Index<usize> for ByteArray<LENGTH> {
+    type Output = u8;
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+impl<const LENGTH: usize> std::ops::IndexMut<usize> for ByteArray<LENGTH> {
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
 macro_rules! impl_index {
     ($range:ty) => {
         impl<const LENGTH: usize> std::ops::Index<$range> for ByteArray<LENGTH> {
             type Output = [u8];
             #[inline]
             fn index(&self, index: $range) -> &Self::Output {
-                &self.0[index]
+                &self.0[..][index]
             }
         }
         impl<const LENGTH: usize> std::ops::IndexMut<$range> for ByteArray<LENGTH> {
             #[inline]
             fn index_mut(&mut self, index: $range) -> &mut Self::Output {
-                &mut self.0[index]
+                &mut self.0[..][index]
             }
         }
     };
