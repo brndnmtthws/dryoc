@@ -1,6 +1,6 @@
 [![Docs](https://docs.rs/dryoc/badge.svg)](https://docs.rs/dryoc) [![Crates.io](https://img.shields.io/crates/v/dryoc)](https://crates.io/crates/dryoc) [![Build & test](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml) [![Codecov](https://img.shields.io/codecov/c/github/brndnmtthws/dryoc)](https://app.codecov.io/gh/brndnmtthws/dryoc/)
 
-# dryoc: Don't Roll Your Own Crypto
+# dryoc: Don't Roll Your Own Crypto™<sup><sup>[1](#footnotes)</sup></sup>
 
 dryoc is a pure-Rust implementation of the excellent
 [libsodium](https://github.com/jedisct1/libsodium) library.
@@ -24,6 +24,12 @@ This project prefers to rely on existing well-known implementations of
 cryptographic functions where possible, rather than succumbing to NIH
 syndrome. This library leverages existing vetted projects in the Rust
 ecosystem to provide high quality and easy to use cryptography.
+
+Additionally, this crate provides exceptionally safe cryptography thanks to
+Rust's safety features. The Rustaceous API is designed designed to make it
+difficult to shoot yourself in the foot. However, it's worth noting, you
+certainly can still shoot yourself if you choose (either by leaking private
+data, using insecure hardware, OPSEC issues, etc).
 
 ## Usage
 
@@ -90,3 +96,7 @@ plan to implement them:
 
 * [sodiumoxide](https://crates.io/crates/sodiumoxide)
 * [crypto_box](https://crates.io/crates/crypto_box)
+
+## Footnotes
+
+1. Not actually trademarked.
