@@ -95,14 +95,20 @@ impl<const LENGTH: usize> Serialize for ByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> {
-    /// Returns a zero-initialized byte array.
+    /// Returns a new zero-initialized byte array.
     pub fn new() -> Self {
         Self([0u8; LENGTH])
     }
-    /// Returns a byte array filled with random data.
+    /// Returns a new byte array filled with random data.
     pub fn gen() -> Self {
         let mut res = Self::new();
         copy_randombytes(&mut res.0);
+        res
+    }
+    /// Returns a new byte array from `other`. Panics if sizes do not match.
+    pub fn from_slice(other: &[u8]) -> Self {
+        let mut res = Self::new();
+        res.copy_from_slice(other);
         res
     }
     /// Fills `self` with `value`.

@@ -73,8 +73,9 @@ fn test_dryocbox_serde() {
         )
         .expect("decrypt failed");
 
-    assert_eq!(message, decrypted);
+    assert_eq!(message, decrypted.as_slice());
 }
+
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocsecretbox_serde() {
@@ -173,4 +174,119 @@ fn test_streams_rustaceous() {
     assert_eq!(tag1, Tag::MESSAGE);
     assert_eq!(tag2, Tag::MESSAGE);
     assert_eq!(tag3, Tag::FINAL);
+}
+
+#[cfg(all(feature = "serde", not(feature = "base64")))]
+#[test]
+fn test_dryocbox_serde_known_good() {
+    use dryoc::dryocbox::*;
+
+    let sender_keypair = KeyPair::from_slices(
+        [
+            19, 102, 68, 158, 243, 5, 191, 249, 31, 150, 224, 99, 131, 223, 250, 86, 183, 59, 12,
+            207, 166, 197, 248, 213, 150, 17, 186, 94, 179, 184, 168, 31,
+        ],
+        [
+            32, 93, 215, 217, 145, 250, 115, 60, 43, 161, 237, 154, 192, 46, 239, 131, 101, 167,
+            229, 195, 16, 170, 88, 53, 253, 30, 21, 29, 150, 214, 140, 64,
+        ],
+    );
+    let recipient_keypair = KeyPair::from_slices(
+        [
+            203, 213, 109, 27, 115, 197, 227, 35, 161, 27, 73, 179, 181, 104, 237, 253, 207, 206,
+            186, 108, 254, 67, 246, 221, 47, 60, 68, 37, 148, 169, 242, 109,
+        ],
+        [
+            0, 209, 170, 57, 221, 216, 185, 113, 114, 217, 32, 72, 65, 99, 132, 187, 137, 68, 72,
+            19, 14, 237, 37, 220, 77, 172, 148, 163, 106, 5, 201, 101,
+        ],
+    );
+    let nonce = Nonce::from_slice(&[
+        52, 53, 237, 208, 81, 208, 57, 122, 253, 6, 222, 28, 25, 157, 13, 108, 28, 38, 41, 60, 242,
+        45, 126, 101,
+    ]);
+    let message = b"hey friend";
+
+    let dryocbox = DryocBox::encrypt(
+        message,
+        &nonce,
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("unable to encrypt");
+
+    let json = serde_json::to_string(&dryocbox).expect("doesn't serialize");
+
+    assert_eq!(json, "{\"tag\":[105,111,140,72,164,126,195,203,17,25,161,50,61,65,22,82],\"data\":[183,35,105,8,103,239,207,9,37,137]}");
+
+    let dryocbox: DryocBox = serde_json::from_str(&json).unwrap();
+
+    let decrypted = dryocbox
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("decrypt failed");
+
+    assert_eq!(message, decrypted.as_slice());
+}
+
+#[cfg(all(feature = "serde", feature = "base64"))]
+#[test]
+fn test_dryocbox_serde_known_good() {
+    use dryoc::dryocbox::*;
+
+    let sender_keypair = KeyPair::from_slices(
+        [
+            19, 102, 68, 158, 243, 5, 191, 249, 31, 150, 224, 99, 131, 223, 250, 86, 183, 59, 12,
+            207, 166, 197, 248, 213, 150, 17, 186, 94, 179, 184, 168, 31,
+        ],
+        [
+            32, 93, 215, 217, 145, 250, 115, 60, 43, 161, 237, 154, 192, 46, 239, 131, 101, 167,
+            229, 195, 16, 170, 88, 53, 253, 30, 21, 29, 150, 214, 140, 64,
+        ],
+    );
+    let recipient_keypair = KeyPair::from_slices(
+        [
+            203, 213, 109, 27, 115, 197, 227, 35, 161, 27, 73, 179, 181, 104, 237, 253, 207, 206,
+            186, 108, 254, 67, 246, 221, 47, 60, 68, 37, 148, 169, 242, 109,
+        ],
+        [
+            0, 209, 170, 57, 221, 216, 185, 113, 114, 217, 32, 72, 65, 99, 132, 187, 137, 68, 72,
+            19, 14, 237, 37, 220, 77, 172, 148, 163, 106, 5, 201, 101,
+        ],
+    );
+    let nonce = Nonce::from_slice(&[
+        52, 53, 237, 208, 81, 208, 57, 122, 253, 6, 222, 28, 25, 157, 13, 108, 28, 38, 41, 60, 242,
+        45, 126, 101,
+    ]);
+    let message = b"hey friend";
+
+    let dryocbox = DryocBox::encrypt(
+        message,
+        &nonce,
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("unable to encrypt");
+
+    let json = serde_json::to_string(&dryocbox).expect("doesn't serialize");
+
+    assert_eq!(
+        json,
+        "{\"tag\":\"aW+MSKR+w8sRGaEyPUEWUg==\",\"data\":\"tyNpCGfvzwkliQ==\"}"
+    );
+
+    let dryocbox: DryocBox = serde_json::from_str(&json).unwrap();
+
+    let decrypted = dryocbox
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("decrypt failed");
+
+    assert_eq!(message, decrypted.as_slice());
 }
