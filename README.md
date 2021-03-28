@@ -57,7 +57,7 @@ implementation:
 * [x] [Point*scalar multiplication](https://doc.libsodium.org/advanced/scalar_multiplication)
 * [x] [Zeroing memory](https://doc.libsodium.org/memory_management) with [zeroize](https://crates.io/crates/zeroize)
 * [x] [Generating random data](https://doc.libsodium.org/generating_random_data)
-* [ ] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+* [x] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream)
 * [ ] [Encrypting related message](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
 * [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)

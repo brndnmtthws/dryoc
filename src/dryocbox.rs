@@ -1,46 +1,50 @@
-//! # Public-key authenticated encryption
-//!
-//! _For secret-key based encryption, see [crate::dryocsecretbox]_.
-//!
-//! # Rustaceous API example
-//!
-//! ```
-//! use dryoc::prelude::*;
-//!
-//! let sender_keypair = KeyPair::gen();
-//! let recipient_keypair = KeyPair::gen();
-//! let nonce = BoxNonce::gen();
-//! let message = "hey";
-//!
-//! let dryocbox = DryocBox::encrypt(
-//!     &message.into(),
-//!     &nonce,
-//!     &recipient_keypair.public_key,
-//!     &sender_keypair.secret_key,
-//! )
-//! .expect("unable to encrypt");
-//!
-//! let decrypted = dryocbox
-//!     .decrypt(&nonce, &sender_keypair.public_key, &recipient_keypair.secret_key)
-//!     .expect("unable to decrypt");
-//!
-//! assert_eq!(message.as_bytes(), decrypted.as_slice());
-//! ```
+/*!
+# Public-key authenticated encryption
+
+_For secret-key based encryption, see [dryocsecretbox](crate::dryocsecretbox)_.
+
+_For stream encryption, see [dryocstream](crate::dryocstream)_.
+
+# Rustaceous API example
+
+```
+use dryoc::dryocbox::*;
+
+let sender_keypair = KeyPair::gen();
+let recipient_keypair = KeyPair::gen();
+let nonce = Nonce::gen();
+let message = b"hey";
+
+let dryocbox = DryocBox::encrypt(
+    message,
+    &nonce,
+    &recipient_keypair.public_key,
+    &sender_keypair.secret_key,
+)
+.expect("unable to encrypt");
+
+let decrypted = dryocbox
+    .decrypt(&nonce, &sender_keypair.public_key, &recipient_keypair.secret_key)
+    .expect("unable to decrypt");
+
+assert_eq!(message, decrypted.as_slice());
+```
+*/
 
 #[cfg(all(feature = "serde", feature = "base64"))]
 use crate::b64::{as_base64, bytearray_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_BOX_MACBYTES;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
-use crate::message::Message;
-use crate::types::{BoxMac, BoxNonce, InputBase, OutputBase, PublicKey, SecretKey};
+use crate::types::{InputBase, OutputBase};
+
+pub use crate::crypto_box::{Mac, Nonce, PublicKey, SecretKey};
+pub use crate::keypair::KeyPair;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
-
-type Nonce = BoxNonce;
 
 #[cfg_attr(
     feature = "serde",
@@ -57,7 +61,7 @@ pub struct DryocBox {
         )
     )]
     /// libsodium box authentication tag, usually prepended to each box
-    pub tag: BoxMac,
+    pub tag: Mac,
     #[cfg_attr(
         all(feature = "serde", feature = "base64"),
         serde(serialize_with = "as_base64", deserialize_with = "vec_from_base64")
@@ -70,7 +74,7 @@ impl DryocBox {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            tag: BoxMac::new(),
+            tag: Mac::new(),
             data: vec![],
         }
     }
@@ -78,7 +82,7 @@ impl DryocBox {
     /// Returns a box with an empty `tag`, and data from `data`, consuming `data`
     pub fn from_data(data: Vec<u8>) -> Self {
         Self {
-            tag: BoxMac::new(),
+            tag: Mac::new(),
             data,
         }
     }
@@ -96,14 +100,14 @@ impl DryocBox {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
-            tag: BoxMac::new(),
+            tag: Mac::new(),
             data,
         }
     }
 
     /// Returns a new box with `data` and `tag` copied from `input` and `tag`
     /// respectively
-    pub fn with_data_and_mac(tag: &BoxMac, input: &InputBase) -> Self {
+    pub fn with_data_and_mac(tag: &Mac, input: &InputBase) -> Self {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
@@ -115,14 +119,14 @@ impl DryocBox {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt(
-        message: &Message,
+        message: &InputBase,
         nonce: &Nonce,
         recipient_public_key: &PublicKey,
         sender_secret_key: &SecretKey,
     ) -> Result<Self, Error> {
         use crate::crypto_box::*;
         let dryocbox =
-            crypto_box_detached(&message.0, nonce, &recipient_public_key, &sender_secret_key)?;
+            crypto_box_detached(message, nonce, &recipient_public_key, &sender_secret_key)?;
 
         Ok(dryocbox)
     }
@@ -210,7 +214,6 @@ mod tests {
     fn test_dryocbox() {
         for i in 0..20 {
             use crate::keypair::*;
-            use crate::types::BoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
@@ -219,12 +222,12 @@ mod tests {
             let keypair_recipient = KeyPair::gen();
             let keypair_sender_copy = keypair_sender.clone();
             let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = BoxNonce::gen();
+            let nonce = Nonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
             let dryocbox = DryocBox::encrypt(
-                &message.into(),
+                message.as_bytes(),
                 &nonce,
                 &keypair_recipient.public_key,
                 &keypair_sender.secret_key,
@@ -270,7 +273,6 @@ mod tests {
     fn test_decrypt_failure() {
         for i in 0..20 {
             use crate::keypair::*;
-            use crate::types::BoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
@@ -279,12 +281,12 @@ mod tests {
             let keypair_recipient = KeyPair::gen();
             let keypair_sender_copy = keypair_sender.clone();
             let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = BoxNonce::gen();
+            let nonce = Nonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
             let dryocbox = DryocBox::encrypt(
-                &message.into(),
+                message.as_bytes(),
                 &nonce,
                 &keypair_recipient.public_key,
                 &keypair_sender.secret_key,
@@ -328,12 +330,11 @@ mod tests {
     fn test_decrypt_failure_empty() {
         for _ in 0..20 {
             use crate::keypair::*;
-            use crate::types::BoxNonce;
 
             let invalid_key = KeyPair::gen();
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
-            let nonce = BoxNonce::gen();
+            let nonce = Nonce::gen();
 
             let dryocbox = DryocBox::from_data("lol".as_bytes().into());
             dryocbox
@@ -363,7 +364,7 @@ mod tests {
             assert_eq!(&dryocbox.data, &data1_copy);
 
             let data1 = data1_copy.clone();
-            let tag = BoxMac::new();
+            let tag = Mac::new();
             let dryocbox = DryocBox::with_data_and_mac(&tag, &data1);
             assert_eq!(&dryocbox.data, &data1_copy);
             assert_eq!(dryocbox.tag.as_slice(), &[0u8; CRYPTO_BOX_MACBYTES]);

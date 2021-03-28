@@ -1,9 +1,11 @@
-use crate::constants::*;
+use crate::constants::CRYPTO_BOX_SEEDBYTES;
+use crate::crypto_box::{PublicKey, SecretKey};
 use crate::crypto_core::crypto_core_hsalsa20;
 use crate::crypto_hash::crypto_hash_sha512;
-use crate::keypair::*;
+use crate::crypto_secretbox::Key;
+use crate::keypair::KeyPair;
 use crate::scalarmult_curve25519::*;
-use crate::types::*;
+use crate::types::InputBase;
 
 use rand_core::OsRng;
 use x25519_dalek::PublicKey as DalekPublicKey;
@@ -13,7 +15,7 @@ use zeroize::Zeroize;
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(
     public_key: &PublicKey,
     secret_key: &SecretKey,
-) -> SecretBoxKey {
+) -> Key {
     let sk = DalekSecretKey::from(secret_key.as_slice().to_owned());
     let pk = DalekPublicKey::from(public_key.as_slice().to_owned());
 

@@ -1,14 +1,14 @@
 #[test]
 fn test_dryocbox() {
-    use dryoc::prelude::*;
+    use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::gen();
     let recipient_keypair = KeyPair::gen();
-    let nonce = BoxNonce::gen();
-    let message = "hey";
+    let nonce = Nonce::gen();
+    let message = b"hey";
 
     let dryocbox = DryocBox::encrypt(
-        &message.into(),
+        message,
         &nonce,
         &recipient_keypair.public_key.clone(),
         &sender_keypair.secret_key.clone(),
@@ -23,38 +23,38 @@ fn test_dryocbox() {
         )
         .expect("unable to decrypt");
 
-    assert_eq!(message.as_bytes(), decrypted.as_slice());
+    assert_eq!(message, decrypted.as_slice());
 }
 
 #[test]
 fn test_dryocsecretbox() {
-    use dryoc::prelude::*;
+    use dryoc::dryocsecretbox::*;
 
-    let secret_key = SecretBoxKey::gen();
-    let nonce = SecretBoxNonce::gen();
-    let message = "hey";
+    let secret_key = Key::gen();
+    let nonce = Nonce::gen();
+    let message = b"hey";
 
-    let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
+    let dryocsecretbox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
 
     let decrypted = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
 
-    assert_eq!(message.as_bytes(), decrypted.as_slice());
+    assert_eq!(message, decrypted.as_slice());
 }
 
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocbox_serde() {
-    use dryoc::prelude::*;
+    use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::gen();
     let recipient_keypair = KeyPair::gen();
-    let nonce = BoxNonce::gen();
-    let message = "hey";
+    let nonce = Nonce::gen();
+    let message = b"hey friend";
 
     let dryocbox = DryocBox::encrypt(
-        &message.into(),
+        message,
         &nonce,
         &recipient_keypair.public_key,
         &sender_keypair.secret_key,
@@ -73,18 +73,18 @@ fn test_dryocbox_serde() {
         )
         .expect("decrypt failed");
 
-    assert_eq!(message.as_bytes(), decrypted);
+    assert_eq!(message, decrypted);
 }
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocsecretbox_serde() {
-    use dryoc::prelude::*;
+    use dryoc::dryocsecretbox::*;
 
-    let secret_key = SecretBoxKey::gen();
-    let nonce = SecretBoxNonce::gen();
-    let message = "hey";
+    let secret_key = Key::gen();
+    let nonce = Nonce::gen();
+    let message = b"hey buddy bro";
 
-    let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
+    let dryocsecretbox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
 
     let json = serde_json::to_string(&dryocsecretbox).expect("doesn't serialize");
 
@@ -94,12 +94,12 @@ fn test_dryocsecretbox_serde() {
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
 
-    assert_eq!(message.as_bytes(), decrypted.as_slice());
+    assert_eq!(message, decrypted.as_slice());
 }
 
 #[test]
 fn test_streams() {
-    use dryoc::prelude::*;
+    use dryoc::crypto_secretstream_xchacha20poly1305::*;
     let message1 = b"Arbitrary data to encrypt";
     let message2 = b"split into";
     let message3 = b"three messages";
@@ -108,22 +108,19 @@ fn test_streams() {
     let key = crypto_secretstream_xchacha20poly1305_keygen();
 
     // Create stream push state
-    let mut state = SecretStreamXchacha20poly1305State::new();
+    let mut state = State::new();
     let header = crypto_secretstream_xchacha20poly1305_init_push(&mut state, &key);
 
     // Encrypt a series of messages
-    let c1 =
-        crypto_secretstream_xchacha20poly1305_push(&mut state, message1, None, StreamTag::MESSAGE)
-            .expect("Encrypt failed");
-    let c2 =
-        crypto_secretstream_xchacha20poly1305_push(&mut state, message2, None, StreamTag::MESSAGE)
-            .expect("Encrypt failed");
-    let c3 =
-        crypto_secretstream_xchacha20poly1305_push(&mut state, message3, None, StreamTag::FINAL)
-            .expect("Encrypt failed");
+    let c1 = crypto_secretstream_xchacha20poly1305_push(&mut state, message1, None, Tag::MESSAGE)
+        .expect("Encrypt failed");
+    let c2 = crypto_secretstream_xchacha20poly1305_push(&mut state, message2, None, Tag::MESSAGE)
+        .expect("Encrypt failed");
+    let c3 = crypto_secretstream_xchacha20poly1305_push(&mut state, message3, None, Tag::FINAL)
+        .expect("Encrypt failed");
 
     // Create stream pull state, using the same key as above with a new state.
-    let mut state = SecretStreamXchacha20poly1305State::new();
+    let mut state = State::new();
     crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &&header, &key);
 
     // Decrypt the stream of messages
@@ -138,7 +135,42 @@ fn test_streams() {
     assert_eq!(message2, m2.as_slice());
     assert_eq!(message3, m3.as_slice());
 
-    assert_eq!(tag1, StreamTag::MESSAGE);
-    assert_eq!(tag2, StreamTag::MESSAGE);
-    assert_eq!(tag3, StreamTag::FINAL);
+    assert_eq!(tag1, Tag::MESSAGE);
+    assert_eq!(tag2, Tag::MESSAGE);
+    assert_eq!(tag3, Tag::FINAL);
+}
+
+#[test]
+fn test_streams_rustaceous() {
+    use dryoc::dryocstream::*;
+    let message1 = b"Arbitrary data to encrypt";
+    let message2 = b"split into";
+    let message3 = b"three messages";
+
+    let key = Key::gen();
+
+    let (mut push_stream, header) = DryocStream::init_push(&key);
+    let c1 = push_stream
+        .encrypt(message1, None, Tag::MESSAGE)
+        .expect("Encrypt failed");
+    let c2 = push_stream
+        .encrypt(message2, None, Tag::MESSAGE)
+        .expect("Encrypt failed");
+    let c3 = push_stream
+        .encrypt(message3, None, Tag::FINAL)
+        .expect("Encrypt failed");
+
+    let mut pull_stream = DryocStream::init_pull(&key, &header);
+
+    let (m1, tag1) = pull_stream.decrypt(&c1, None).expect("Decrypt failed");
+    let (m2, tag2) = pull_stream.decrypt(&c2, None).expect("Decrypt failed");
+    let (m3, tag3) = pull_stream.decrypt(&c3, None).expect("Decrypt failed");
+
+    assert_eq!(message1, m1.as_slice());
+    assert_eq!(message2, m2.as_slice());
+    assert_eq!(message3, m3.as_slice());
+
+    assert_eq!(tag1, Tag::MESSAGE);
+    assert_eq!(tag2, Tag::MESSAGE);
+    assert_eq!(tag3, Tag::FINAL);
 }

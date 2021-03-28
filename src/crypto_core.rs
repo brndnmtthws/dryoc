@@ -12,11 +12,13 @@ pub fn crypto_scalarmult_base(n: &[u8; CRYPTO_SCALARMULT_BYTES]) -> [u8; CRYPTO_
     crypto_scalarmult_curve25519_base(n)
 }
 
+#[inline]
 fn round(x: &mut u32, y: &mut u32, z: &mut u32, rot: u32) {
     *x = x.wrapping_add(*y);
     *z = (*z ^ *x).rotate_left(rot);
 }
 
+#[inline]
 fn quarterround(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
     round(a, b, d, 16);
     round(c, d, b, 12);

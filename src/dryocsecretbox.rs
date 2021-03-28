@@ -1,38 +1,41 @@
-//! # Secret-key authenticated encryption
-//!
-//! _For public-key based encryption, see [crate::dryocbox]_.
-//!
-//! # Rustaceous API example
-//!
-//! ```
-//! use dryoc::prelude::*;
-//!
-//! let secret_key = SecretBoxKey::gen();
-//! let nonce = SecretBoxNonce::gen();
-//! let message = "hey";
-//!
-//! let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
-//!
-//! let decrypted = dryocsecretbox
-//!     .decrypt(&nonce, &secret_key)
-//!     .expect("unable to decrypt");
-//!
-//! assert_eq!(message.as_bytes(), decrypted.as_slice());
-//! ```
+/*!
+# Secret-key authenticated encryption
+
+_For public-key based encryption, see [dryocbox](crate::dryocbox)_.
+
+_For stream encryption, see [dryocstream](crate::dryocstream)_.
+
+# Rustaceous API example
+
+```
+use dryoc::dryocsecretbox::*;
+
+let secret_key = Key::gen();
+let nonce = Nonce::gen();
+let message = b"hey";
+
+let dryocsecretbox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+
+let decrypted = dryocsecretbox
+    .decrypt(&nonce, &secret_key)
+    .expect("unable to decrypt");
+
+assert_eq!(message, decrypted.as_slice());
+```
+*/
 
 #[cfg(all(feature = "serde", feature = "base64"))]
 use crate::b64::{as_base64, bytearray_from_base64, vec_from_base64};
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
-use crate::message::Message;
-use crate::types::{InputBase, OutputBase, SecretBoxKey, SecretBoxMac, SecretBoxNonce};
+
+pub use crate::crypto_secretbox::{Key, Mac, Nonce};
+pub use crate::types::{InputBase, OutputBase};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use zeroize::Zeroize;
-
-type Nonce = SecretBoxNonce;
 
 #[cfg_attr(
     feature = "serde",
@@ -49,7 +52,7 @@ pub struct DryocSecretBox {
         )
     )]
     /// libsodium box authentication tag, usually prepended to each box
-    pub tag: SecretBoxMac,
+    pub tag: Mac,
     #[cfg_attr(
         all(feature = "serde", feature = "base64"),
         serde(serialize_with = "as_base64", deserialize_with = "vec_from_base64")
@@ -62,7 +65,7 @@ impl DryocSecretBox {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            tag: SecretBoxMac::new(),
+            tag: Mac::new(),
             data: vec![],
         }
     }
@@ -70,13 +73,13 @@ impl DryocSecretBox {
     /// Returns a box with an empty `tag`, and data from `data`, consuming `data`
     pub fn from_data(data: Vec<u8>) -> Self {
         Self {
-            tag: SecretBoxMac::new(),
+            tag: Mac::new(),
             data,
         }
     }
 
     /// Returns a new box with `tag` and `data`, consuming both
-    pub fn from_data_and_mac(tag: SecretBoxMac, data: Vec<u8>) -> Self {
+    pub fn from_data_and_mac(tag: Mac, data: Vec<u8>) -> Self {
         Self { tag, data }
     }
 
@@ -85,14 +88,14 @@ impl DryocSecretBox {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
-            tag: SecretBoxMac::new(),
+            tag: Mac::new(),
             data,
         }
     }
 
     /// Returns a new box with `data` and `tag` copied from `input` and `tag`
     /// respectively
-    pub fn with_data_and_mac(tag: &SecretBoxMac, input: &InputBase) -> Self {
+    pub fn with_data_and_mac(tag: &Mac, input: &InputBase) -> Self {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
@@ -103,14 +106,14 @@ impl DryocSecretBox {
 
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocSecretBox] with ciphertext and tag
-    pub fn encrypt(message: &Message, nonce: &Nonce, secret_key: &SecretBoxKey) -> Self {
+    pub fn encrypt(message: &InputBase, nonce: &Nonce, secret_key: &Key) -> Self {
         use crate::crypto_secretbox::crypto_secretbox_detached;
-        crypto_secretbox_detached(&message.0, nonce, &secret_key)
+        crypto_secretbox_detached(message, nonce, &secret_key)
     }
 
     /// Decrypts `ciphertext` using `recipient_secret_key` and
     /// `sender_public_key`, returning a new [DryocSecretBox] with decrypted message
-    pub fn decrypt(&self, nonce: &Nonce, secret_key: &SecretBoxKey) -> Result<OutputBase, Error> {
+    pub fn decrypt(&self, nonce: &Nonce, secret_key: &Key) -> Result<OutputBase, Error> {
         use crate::crypto_secretbox::crypto_secretbox_open_detached;
         let dryocsecretbox =
             crypto_secretbox_open_detached(&self.tag, &self.data, nonce, &secret_key)?;
@@ -173,17 +176,16 @@ mod tests {
     fn test_dryocbox() {
         for i in 0..20 {
             use crate::dryocsecretbox::*;
-            use crate::types::SecretBoxNonce;
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key, Nonce as SONonce};
+            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
-            let secret_key = SecretBoxKey::gen();
-            let nonce = SecretBoxNonce::gen();
+            let secret_key = Key::gen();
+            let nonce = Nonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
-            let dryocsecretbox = DryocSecretBox::encrypt(&message.into(), &nonce, &secret_key);
+            let dryocsecretbox = DryocSecretBox::encrypt(message.as_bytes(), &nonce, &secret_key);
 
             let ciphertext = dryocsecretbox.clone().into_vec();
             assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
@@ -193,14 +195,14 @@ mod tests {
             let so_ciphertext = secretbox::seal(
                 &message_copy.as_bytes(),
                 &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &Key::from_slice(secret_key.as_slice()).unwrap(),
+                &SOKey::from_slice(secret_key.as_slice()).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,
                 &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &Key::from_slice(secret_key.as_slice()).unwrap(),
+                &SOKey::from_slice(secret_key.as_slice()).unwrap(),
             )
             .expect("decrypt failed");
 

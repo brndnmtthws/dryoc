@@ -1,5 +1,5 @@
 use crate::constants::CRYPTO_BOX_SECRETKEYBYTES;
-use crate::types::{PublicKey, SecretKey};
+use crate::crypto_box::{PublicKey, SecretKey};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ impl KeyPair {
         let public_key = crypto_scalarmult_base(secret_key.as_slice());
         Self {
             public_key: public_key.into(),
-            secret_key: secret_key,
+            secret_key,
         }
     }
 

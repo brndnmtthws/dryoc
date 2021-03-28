@@ -1,9 +1,9 @@
 /*!
 # dryoc: Don't Roll Your Own Crypto™️
 
-A pure-Rust implementation of [libsodium](https://libsodium.gitbook.io/doc/),
-intended to be 100% compatible with a mostly interchangeable API, and have
-limited dependencies.
+Dryoc is a pure-Rust implementation of
+[libsodium](https://libsodium.gitbook.io/doc/), intended to be 100%
+compatible with a mostly interchangeable API, and have limited dependencies.
 
 This library includes both a _classic_ API, which is very similar to the
 original libsodium API, and _Rustaceous_ API with Rust-specific features.
@@ -19,6 +19,7 @@ feelings about using the Classic API.
 | Secret-key authenticated box | [dryocsecretbox] | [crypto_secretbox]                      | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox)                |
 | Streaming encryption         | [dryocstream]    | [crypto_secretstream_xchacha20poly1305] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream)             |
 | Public-key authenticated box | [dryocbox]       | [crypto_box]                            | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
+
 # Using Serde
 
 This crate includes optional [Serde](https://serde.rs/) support which can be
@@ -69,9 +70,6 @@ pub mod dryocsecretbox;
 pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
-/// # Message wrapper
-pub mod message;
-pub mod prelude;
 /// # Random number generation utilities
 pub mod rng;
 /// # Base type definitions

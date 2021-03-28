@@ -1,4 +1,3 @@
-use crate::constants::*;
 use crate::error;
 use crate::rng::copy_randombytes;
 
@@ -225,25 +224,3 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for ByteArray<LENGTH> {
 pub type OutputBase = Vec<u8>;
 /// A type alias used for generic byte array inputs.
 pub type InputBase = [u8];
-
-/// Container for crypto box message authentication code.
-pub type BoxMac = ByteArray<CRYPTO_BOX_MACBYTES>;
-/// Container for crypto secret box message authentication code.
-pub type SecretBoxMac = ByteArray<CRYPTO_SECRETBOX_MACBYTES>;
-
-/// A nonce for crypto boxes.
-pub type BoxNonce = ByteArray<CRYPTO_BOX_NONCEBYTES>;
-/// A public key for public key authenticated crypto boxes.
-pub type PublicKey = ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
-/// A secret key for public key authenticated crypto boxes.
-pub type SecretKey = ByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
-
-/// A nonce for secret key authenticated boxes.
-pub type SecretBoxNonce = ByteArray<CRYPTO_BOX_NONCEBYTES>;
-/// A secret for secret key authenticated boxes.
-pub type SecretBoxKey = ByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
-
-/// A secret for authenticated secret streams.
-pub type SecretStreamKey = ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
-/// A nonce for authenticated secret streams.
-pub type SecretstreamNonce = ByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;

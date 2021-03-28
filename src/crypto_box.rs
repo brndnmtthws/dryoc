@@ -7,7 +7,7 @@
 //! # Classic API example
 //!
 //! ```
-//! use dryoc::prelude::*;
+//! use dryoc::crypto_box::*;
 //! use std::convert::TryInto;
 //!
 //! // Create a random sender keypair
@@ -17,7 +17,7 @@
 //! let keypair_recipient = crypto_box_keypair();
 //!
 //! // Generate a random nonce
-//! let nonce = BoxNonce::gen();
+//! let nonce = Nonce::gen();
 //!
 //! let message = "hello".as_bytes();
 //! // Encrypt message
@@ -48,11 +48,19 @@ use crate::crypto_secretbox_impl::*;
 use crate::dryocbox::DryocBox;
 use crate::error::Error;
 use crate::keypair::*;
-use crate::types::{BoxMac, BoxNonce, InputBase, OutputBase, PublicKey, SecretBoxKey, SecretKey};
+use crate::types::{ByteArray, InputBase, OutputBase};
 
 use zeroize::Zeroize;
 
-type Nonce = BoxNonce;
+/// Container for crypto box message authentication code.
+pub type Mac = ByteArray<CRYPTO_BOX_MACBYTES>;
+
+/// A nonce for crypto boxes.
+pub type Nonce = ByteArray<CRYPTO_BOX_NONCEBYTES>;
+/// A public key for public key authenticated crypto boxes.
+pub type PublicKey = ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
+/// A secret key for public key authenticated crypto boxes.
+pub type SecretKey = ByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
 
 /// Generates a public/secret key pair using OS provided data using
 /// [rand_core::OsRng].
@@ -71,7 +79,7 @@ pub fn crypto_box_seed_keypair(seed: &InputBase) -> KeyPair {
 /// Resulting shared secret can be used with the precalculation interface.
 ///
 /// Compatible with libsodium's `crypto_box_beforenm`.
-pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> SecretBoxKey {
+pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Key {
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
@@ -81,17 +89,13 @@ pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Se
 pub fn crypto_box_detached_afternm(
     message: &InputBase,
     nonce: &Nonce,
-    key: &SecretBoxKey,
+    key: &Key,
 ) -> Result<DryocBox, Error> {
     Ok(crypto_secretbox_detached(message, nonce, key).into())
 }
 
 /// In-place variant of [`crypto_box_detached_afternm`].
-pub fn crypto_box_detached_afternm_inplace(
-    dryocbox: &mut DryocBox,
-    nonce: &Nonce,
-    key: &SecretBoxKey,
-) {
+pub fn crypto_box_detached_afternm_inplace(dryocbox: &mut DryocBox, nonce: &Nonce, key: &Key) {
     crypto_secretbox_detached_inplace(&mut dryocbox.tag, &mut dryocbox.data, nonce, key);
 }
 
@@ -192,20 +196,20 @@ pub fn crypto_box_easy_inplace(
 ///
 /// Compatible with libsodium's `crypto_box_open_detached_afternm`.
 pub fn crypto_box_open_detached_afternm(
-    mac: &BoxMac,
+    mac: &Mac,
     ciphertext: &InputBase,
     nonce: &Nonce,
-    key: &SecretBoxKey,
+    key: &Key,
 ) -> Result<OutputBase, Error> {
     crypto_secretbox_open_detached(mac, ciphertext, nonce, key)
 }
 
 /// In-place variant of [crypto_box_open_detached_afternm].
 pub fn crypto_box_open_detached_afternm_inplace(
-    mac: &BoxMac,
+    mac: &Mac,
     ciphertext: &mut Vec<u8>,
     nonce: &Nonce,
-    key: &SecretBoxKey,
+    key: &Key,
 ) -> Result<(), Error> {
     crypto_secretbox_open_detached_inplace(mac, ciphertext, nonce, key)
 }
@@ -214,7 +218,7 @@ pub fn crypto_box_open_detached_afternm_inplace(
 ///
 /// Compatible with libsodium's `crypto_box_open_detached`.
 pub fn crypto_box_open_detached(
-    mac: &BoxMac,
+    mac: &Mac,
     ciphertext: &InputBase,
     nonce: &Nonce,
     recipient_public_key: &PublicKey,
@@ -231,7 +235,7 @@ pub fn crypto_box_open_detached(
 
 /// In-place variant of [crypto_box_open_detached].
 pub fn crypto_box_open_detached_inplace(
-    mac: &BoxMac,
+    mac: &Mac,
     ciphertext: &mut Vec<u8>,
     nonce: &Nonce,
     recipient_public_key: &PublicKey,
@@ -264,7 +268,7 @@ pub fn crypto_box_open_easy(
         )))
     } else {
         use std::convert::TryInto;
-        let mac: BoxMac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
+        let mac: Mac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
 
         crypto_box_open_detached(
             &mac,
@@ -293,7 +297,7 @@ pub fn crypto_box_open_easy_inplace(
         )))
     } else {
         use std::convert::TryInto;
-        let mac: BoxMac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
+        let mac: Mac = ciphertext[0..CRYPTO_BOX_MACBYTES].try_into()?;
 
         ciphertext.rotate_left(CRYPTO_BOX_MACBYTES);
         ciphertext.resize(ciphertext.len() - CRYPTO_BOX_MACBYTES, 0);
@@ -443,12 +447,11 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
         for _ in 0..20 {
-            use crate::types::BoxNonce;
             use base64::encode;
 
             let keypair_sender = crypto_box_keypair();
             let keypair_recipient = crypto_box_keypair();
-            let nonce = BoxNonce::gen();
+            let nonce = Nonce::gen();
 
             let mut ciphertext: Vec<u8> = vec![];
 
