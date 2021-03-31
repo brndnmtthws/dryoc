@@ -1,8 +1,8 @@
-use std::convert::TryInto;
-
 use crate::constants::CRYPTO_SCALARMULT_BYTES;
 use crate::scalarmult_curve25519::crypto_scalarmult_curve25519_base;
 use crate::types::OutputBase;
+use crate::utils::load32_le;
+
 use generic_array::GenericArray;
 
 /// Computes the public key for a previously generated secret key.
@@ -52,18 +52,18 @@ pub fn crypto_core_hchacha20(
         mut x14,
         mut x15,
     ) = (
-        u32::from_le_bytes(key[0..4].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[4..8].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[8..12].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[12..16].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[16..20].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[20..24].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[24..28].try_into().expect("key size invalid")),
-        u32::from_le_bytes(key[28..32].try_into().expect("key size invalid")),
-        u32::from_le_bytes(input[0..4].try_into().expect("input size invalid")),
-        u32::from_le_bytes(input[4..8].try_into().expect("input size invalid")),
-        u32::from_le_bytes(input[8..12].try_into().expect("input size invalid")),
-        u32::from_le_bytes(input[12..16].try_into().expect("input size invalid")),
+        load32_le(&key[0..4]),
+        load32_le(&key[4..8]),
+        load32_le(&key[8..12]),
+        load32_le(&key[12..16]),
+        load32_le(&key[16..20]),
+        load32_le(&key[20..24]),
+        load32_le(&key[24..28]),
+        load32_le(&key[28..32]),
+        load32_le(&input[0..4]),
+        load32_le(&input[4..8]),
+        load32_le(&input[8..12]),
+        load32_le(&input[12..16]),
     );
 
     for _ in 0..10 {
@@ -110,13 +110,14 @@ mod tests {
 
     #[test]
     fn test_crypto_scalarmult_base() {
+        use crate::types::*;
         use base64::encode;
         for _ in 0..20 {
             use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
 
             let keypair = crypto_box_keypair();
 
-            let public_key = crypto_scalarmult_base(keypair.secret_key.as_slice());
+            let public_key = crypto_scalarmult_base(keypair.secret_key.as_ref());
 
             assert_eq!(keypair.public_key.as_slice(), &public_key);
 

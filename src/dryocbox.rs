@@ -32,14 +32,14 @@ assert_eq!(message, decrypted.as_slice());
 */
 
 #[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::{as_base64, bytearray_from_base64, vec_from_base64};
+use crate::b64::*;
 use crate::constants::CRYPTO_BOX_MACBYTES;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
-use crate::types::{InputBase, OutputBase};
 
 pub use crate::crypto_box::{Mac, Nonce, PublicKey, SecretKey};
 pub use crate::keypair::KeyPair;
+pub use crate::types::*;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -53,18 +53,11 @@ use zeroize::Zeroize;
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box
 pub struct DryocBox {
-    #[cfg_attr(
-        all(feature = "serde", feature = "base64"),
-        serde(
-            serialize_with = "as_base64",
-            deserialize_with = "bytearray_from_base64"
-        )
-    )]
     /// libsodium box authentication tag, usually prepended to each box
     pub tag: Mac,
     #[cfg_attr(
         all(feature = "serde", feature = "base64"),
-        serde(serialize_with = "as_base64", deserialize_with = "vec_from_base64")
+        serde(serialize_with = "as_base64", deserialize_with = "from_base64")
     )]
     /// libsodium box message or ciphertext, depending on state
     pub data: Vec<u8>,
@@ -74,7 +67,7 @@ impl DryocBox {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            tag: Mac::new(),
+            tag: Mac::default(),
             data: vec![],
         }
     }
@@ -82,7 +75,7 @@ impl DryocBox {
     /// Returns a box with an empty `tag`, and data from `data`, consuming `data`
     pub fn from_data(data: Vec<u8>) -> Self {
         Self {
-            tag: Mac::new(),
+            tag: Mac::default(),
             data,
         }
     }
@@ -100,7 +93,7 @@ impl DryocBox {
         let mut data: Vec<u8> = vec![];
         data.extend_from_slice(input);
         Self {
-            tag: Mac::new(),
+            tag: Mac::default(),
             data,
         }
     }
@@ -364,7 +357,7 @@ mod tests {
             assert_eq!(&dryocbox.data, &data1_copy);
 
             let data1 = data1_copy.clone();
-            let tag = Mac::new();
+            let tag = Mac::default();
             let dryocbox = DryocBox::with_data_and_mac(&tag, &data1);
             assert_eq!(&dryocbox.data, &data1_copy);
             assert_eq!(dryocbox.tag.as_slice(), &[0u8; CRYPTO_BOX_MACBYTES]);

@@ -9,10 +9,11 @@ For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-k
 
 ```
 use dryoc::rng::randombytes_buf;
-use dryoc::crypto_secretbox::{Nonce, crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy};
+use dryoc::crypto_secretbox::{Nonce, crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy, Key};
 use dryoc::constants::CRYPTO_SECRETBOX_NONCEBYTES;
+use dryoc::types::*;
 
-let key = crypto_secretbox_keygen();
+let key: Key = crypto_secretbox_keygen();
 let nonce = Nonce::gen();
 
 let message = "I Love Doge!";
@@ -33,18 +34,21 @@ use crate::constants::{
 use crate::crypto_secretbox_impl::*;
 use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
-use crate::types::{ByteArray, InputBase, OutputBase};
+use crate::types::*;
 
 /// Container for crypto secret box message authentication code.
-pub type Mac = ByteArray<CRYPTO_SECRETBOX_MACBYTES>;
+pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 /// A nonce for secret key authenticated boxes.
-pub type Nonce = ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
+pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
 /// A secret for secret key authenticated boxes.
-pub type Key = ByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
+pub type Key = StackByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
 
 /// Generates a random key using [crate::rng::copy_randombytes].
-pub fn crypto_secretbox_keygen() -> Key {
-    Key::gen()
+pub fn crypto_secretbox_keygen<K>() -> K
+where
+    K: NewByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
+{
+    K::gen()
 }
 
 /// Detached version of [crypto_secretbox_easy].

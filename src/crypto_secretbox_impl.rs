@@ -1,9 +1,9 @@
-use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::crypto_secretbox::{Key, Mac, Nonce};
 use crate::error::Error;
+use crate::poly1305::Poly1305;
+use crate::types::*;
 
 use generic_array::GenericArray;
-use poly1305::{universal_hash::NewUniversalHash, Poly1305};
 use salsa20::{
     cipher::{NewStreamCipher, SyncStreamCipher},
     XSalsa20,
@@ -25,16 +25,18 @@ pub(crate) fn crypto_secretbox_detached_inplace(
         &GenericArray::from_slice(nonce.as_slice()),
     );
 
-    let mut mac_key = poly1305::Key::default();
-    cipher.apply_keystream(&mut *mac_key);
+    let mut mac_key = crate::poly1305::Key::new();
+    cipher.apply_keystream(&mut mac_key);
 
-    let computed_mac = Poly1305::new(&mac_key);
+    let mut computed_mac = Poly1305::new(&mac_key);
 
     mac_key.zeroize();
 
     cipher.apply_keystream(data.as_mut_slice());
 
-    let computed_mac = computed_mac.compute_unpadded(data.as_slice()).into_bytes();
+    computed_mac.update(data.as_slice());
+    let computed_mac = computed_mac.finish();
+
     mac.copy_from_slice(&computed_mac);
 }
 
@@ -52,17 +54,14 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
         &GenericArray::from_slice(nonce.as_slice()),
     );
 
-    let mut mac_key = poly1305::Key::default();
-    cipher.apply_keystream(&mut *mac_key);
+    let mut mac_key = crate::poly1305::Key::new();
+    cipher.apply_keystream(&mut mac_key);
 
-    let computed_mac = Poly1305::new(&mac_key);
-
+    let mut computed_mac = Poly1305::new(&mac_key);
     mac_key.zeroize();
 
-    let computed_mac: [u8; CRYPTO_SECRETBOX_MACBYTES] = computed_mac
-        .compute_unpadded(data.as_slice())
-        .into_bytes()
-        .into();
+    computed_mac.update(data.as_slice());
+    let computed_mac = computed_mac.finish();
 
     cipher.apply_keystream(data.as_mut_slice());
 

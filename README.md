@@ -5,6 +5,8 @@
 dryoc is a pure-Rust implementation of the excellent
 [libsodium](https://github.com/jedisct1/libsodium) library.
 
+![Granny says no](dryoc.png)
+
 The purpose of this project is to provide a pure-Rust, mostly drop-in
 replacement for libsodium. This library has nearly the same ergonomics as
 libsodium (referred to in dryoc as the _Classic_ API), so that people
@@ -19,11 +21,6 @@ secret key authenticated cryptography.
 Not all features from libsodium are implemented here, such as advanced "under
 the hood" features of libsodium. For those specific features, it's
 recommended you rely on other crates directly.
-
-This project prefers to rely on existing well-known implementations of
-cryptographic functions where possible, rather than succumbing to NIH
-syndrome. This library leverages existing vetted projects in the Rust
-ecosystem to provide high quality and easy to use cryptography.
 
 Additionally, this crate provides exceptionally safe cryptography thanks to
 Rust's safety features. The Rustaceous API is designed designed to make it
@@ -50,8 +47,8 @@ dryoc = {version = "0.2", features = ["serde", "base64", "simd_backend"]
 ## Features
 
 * Many libsodium implemented with both Classic and Rustaceous API
+* Protected memory handling
 * [Serde](https://serde.rs/) support, including optional base64 encoding (with `features = ["serde", "base64"]`)
-* SIMD optimizations, nightly only (with `features = ["simd_backend"]`)
 
 ## Project status
 
@@ -64,6 +61,7 @@ implementation:
 * [x] [Zeroing memory](https://doc.libsodium.org/memory_management) with [zeroize](https://crates.io/crates/zeroize)
 * [x] [Generating random data](https://doc.libsodium.org/generating_random_data)
 * [x] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+* [x] [Memory locking](https://doc.libsodium.org/memory_management) (currently Linux-only)
 * [ ] [Encrypting related message](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
 * [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
@@ -80,7 +78,6 @@ plan to implement them:
 
 * [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate)
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
-* [Memory locking](https://doc.libsodium.org/memory_management) (use [secrets](https://crates.io/crates/secrets) crate)
 * [Advanced features](https://doc.libsodium.org/advanced):
   * [SHA-2](https://doc.libsodium.org/advanced/sha-2_hash_function) (use [sha2](https://crates.io/crates/sha2) crate)
   * [HMAC-SHA-2](https://doc.libsodium.org/advanced/hmac-sha2) (use [hmac](https://crates.io/crates/hmac) crate)

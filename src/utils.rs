@@ -18,6 +18,24 @@ pub(crate) fn xor_buf(out: &mut [u8], in_: &[u8]) {
     }
 }
 
+#[inline]
+pub(crate) fn load64_le(bytes: &[u8]) -> u64 {
+    let mut r = 0u64;
+    for (i, &b) in bytes[0..8].iter().enumerate() {
+        r |= (b as u64) << (8 * i);
+    }
+    r
+}
+
+#[inline]
+pub(crate) fn load32_le(bytes: &[u8]) -> u32 {
+    let mut r = 0u32;
+    for (i, &b) in bytes[0..4].iter().enumerate() {
+        r |= (b as u32) << (8 * i);
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

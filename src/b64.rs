@@ -1,4 +1,3 @@
-use crate::types::ByteArray;
 use serde::{Deserialize, Deserializer, Serializer};
 
 pub(crate) fn as_base64<T, S>(key: &T, serializer: S) -> Result<S::Ok, S::Error>
@@ -9,7 +8,7 @@ where
     serializer.serialize_str(&base64::encode(key.as_ref()))
 }
 
-pub(crate) fn vec_from_base64<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+pub(crate) fn from_base64<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -18,23 +17,24 @@ where
         .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
 }
 
-pub(crate) fn bytearray_from_base64<'de, D, const LENGTH: usize>(
+#[cfg(feature = "nightly")]
+pub(crate) fn protected_from_base64<'de, D>(
     deserializer: D,
-) -> Result<ByteArray<LENGTH>, D::Error>
+) -> Result<Vec<u8, crate::protected::PageAlignedAllocator>, D::Error>
 where
     D: Deserializer<'de>,
 {
     use serde::de::Error;
-    String::deserialize(deserializer)
-        .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
-        .map(|vec| {
-            let mut out = ByteArray::<LENGTH>::new();
-            out.as_mut_slice().copy_from_slice(&vec);
-            out
-        })
+    String::deserialize(deserializer).and_then(|input| {
+        let mut buffer =
+            Vec::with_capacity_in(input.len() * 4 / 3, crate::protected::PageAlignedAllocator);
+        base64::decode_config_slice(input, base64::STANDARD, &mut buffer)
+            .map(|_| buffer)
+            .map_err(|err| Error::custom(err.to_string()))
+    })
 }
 
-pub(crate) fn slice_from_base64<'de, D, const LENGTH: usize>(
+pub(crate) fn stackbytearray_from_base64<'de, D, const LENGTH: usize>(
     deserializer: D,
 ) -> Result<[u8; LENGTH], D::Error>
 where
@@ -48,4 +48,55 @@ where
             out.copy_from_slice(&vec);
             out
         })
+}
+
+#[cfg(all(feature = "serde", not(feature = "base64")))]
+impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ByteArrayVisitor<const LENGTH: usize>;
+
+        impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
+            type Value = StackByteArray<LENGTH>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "sequence")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut arr = StackByteArray::<LENGTH>::new();
+                let mut idx: usize = 0;
+
+                while let Some(elem) = seq.next_element()? {
+                    if idx < LENGTH {
+                        arr[idx] = elem;
+                        idx += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                Ok(StackByteArray)
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if v.len() != LENGTH {
+                    return Err(de::Error::invalid_length(v.len(), &stringify!(LENGTH)));
+                }
+                let mut arr = StackByteArray::<LENGTH>::new();
+                arr.copy_from_slice(v);
+                Ok(arr)
+            }
+        }
+
+        deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
+    }
 }

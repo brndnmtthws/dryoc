@@ -1,3 +1,5 @@
+use std::vec;
+
 #[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
@@ -100,45 +102,81 @@ fn test_dryocsecretbox_serde() {
 
 #[test]
 fn test_streams() {
+    use dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
     use dryoc::crypto_secretstream_xchacha20poly1305::*;
+    use dryoc::dryocstream::Tag;
     let message1 = b"Arbitrary data to encrypt";
     let message2 = b"split into";
     let message3 = b"three messages";
 
     // Generate a key
-    let key = crypto_secretstream_xchacha20poly1305_keygen();
+    let mut key = Key::default();
+    crypto_secretstream_xchacha20poly1305_keygen(&mut key);
 
     // Create stream push state
     let mut state = State::new();
-    let header = crypto_secretstream_xchacha20poly1305_init_push(&mut state, &key);
+    let mut header = Header::default();
+    crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
 
+    let (mut c1, mut c2, mut c3) = (
+        vec![0u8; message1.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+        vec![0u8; message2.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+        vec![0u8; message3.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+    );
     // Encrypt a series of messages
-    let c1 = crypto_secretstream_xchacha20poly1305_push(&mut state, message1, None, Tag::MESSAGE)
-        .expect("Encrypt failed");
-    let c2 = crypto_secretstream_xchacha20poly1305_push(&mut state, message2, None, Tag::MESSAGE)
-        .expect("Encrypt failed");
-    let c3 = crypto_secretstream_xchacha20poly1305_push(&mut state, message3, None, Tag::FINAL)
-        .expect("Encrypt failed");
+    crypto_secretstream_xchacha20poly1305_push(
+        &mut state,
+        &mut c1,
+        message1,
+        None,
+        Tag::MESSAGE.bits(),
+    )
+    .expect("Encrypt failed");
+    // Encrypt a series of messages
+    crypto_secretstream_xchacha20poly1305_push(
+        &mut state,
+        &mut c2,
+        message2,
+        None,
+        Tag::MESSAGE.bits(),
+    )
+    .expect("Encrypt failed");
+    // Encrypt a series of messages
+    crypto_secretstream_xchacha20poly1305_push(
+        &mut state,
+        &mut c3,
+        message3,
+        None,
+        Tag::FINAL.bits(),
+    )
+    .expect("Encrypt failed");
 
     // Create stream pull state, using the same key as above with a new state.
     let mut state = State::new();
-    crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &&header, &key);
+    crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
+
+    let (mut m1, mut m2, mut m3) = (
+        vec![0u8; message1.len()],
+        vec![0u8; message2.len()],
+        vec![0u8; message3.len()],
+    );
+    let (mut tag1, mut tag2, mut tag3) = (0u8, 0u8, 0u8);
 
     // Decrypt the stream of messages
-    let (m1, tag1) =
-        crypto_secretstream_xchacha20poly1305_pull(&mut state, &c1, None).expect("Decrypt failed");
-    let (m2, tag2) =
-        crypto_secretstream_xchacha20poly1305_pull(&mut state, &c2, None).expect("Decrypt failed");
-    let (m3, tag3) =
-        crypto_secretstream_xchacha20poly1305_pull(&mut state, &c3, None).expect("Decrypt failed");
+    crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m1, &mut tag1, &c1, None)
+        .expect("Decrypt failed");
+    crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m2, &mut tag2, &c2, None)
+        .expect("Decrypt failed");
+    crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m3, &mut tag3, &c3, None)
+        .expect("Decrypt failed");
 
     assert_eq!(message1, m1.as_slice());
     assert_eq!(message2, m2.as_slice());
     assert_eq!(message3, m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE);
-    assert_eq!(tag2, Tag::MESSAGE);
-    assert_eq!(tag3, Tag::FINAL);
+    assert_eq!(tag1, Tag::MESSAGE.bits());
+    assert_eq!(tag2, Tag::MESSAGE.bits());
+    assert_eq!(tag3, Tag::FINAL.bits());
 }
 
 #[test]
@@ -150,22 +188,22 @@ fn test_streams_rustaceous() {
 
     let key = Key::gen();
 
-    let (mut push_stream, header) = DryocStream::init_push(&key);
-    let c1 = push_stream
-        .encrypt(message1, None, Tag::MESSAGE)
+    let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+    let c1: Vec<u8> = push_stream
+        .push(message1, None, Tag::MESSAGE)
         .expect("Encrypt failed");
-    let c2 = push_stream
-        .encrypt(message2, None, Tag::MESSAGE)
+    let c2: Vec<u8> = push_stream
+        .push(message2, None, Tag::MESSAGE)
         .expect("Encrypt failed");
-    let c3 = push_stream
-        .encrypt(message3, None, Tag::FINAL)
+    let c3: Vec<u8> = push_stream
+        .push(message3, None, Tag::FINAL)
         .expect("Encrypt failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
 
-    let (m1, tag1) = pull_stream.decrypt(&c1, None).expect("Decrypt failed");
-    let (m2, tag2) = pull_stream.decrypt(&c2, None).expect("Decrypt failed");
-    let (m3, tag3) = pull_stream.decrypt(&c3, None).expect("Decrypt failed");
+    let (m1, tag1): (Vec<u8>, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");
+    let (m2, tag2): (Vec<u8>, Tag) = pull_stream.pull(&c2, None).expect("Decrypt failed");
+    let (m3, tag3): (Vec<u8>, Tag) = pull_stream.pull(&c3, None).expect("Decrypt failed");
 
     assert_eq!(message1, m1.as_slice());
     assert_eq!(message2, m2.as_slice());

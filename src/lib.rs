@@ -9,12 +9,17 @@ dependencies.
 ## Features
 
 The importart features of dryoc are:
-* it's 100% pure Rust
-* free of unsafe code (except when some optimizations are enabled, which are disabled by default)
+* 100% pure Rust
+* mostly free of unsafe code[^2]
+* free of corporate or governmental influence
 * automatic safety features such as zeroization of data structures
-* covers most common use cases for safe encryption
+* proper protected memory support, with the API designed such that it's hard to
+  accidentally unprotect your memory
+* it's designed to be especially difficult to use incorrectly (with the
+  Rustaceous API)
 * provides full compatibility with libsodium and implements most of its key functions
-* it's designed to be difficult to use incorrectly (with the Rustaceous API)
+* covers most common use cases for safe encryption
+* available for commercial use under the [LGPL-3.0 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 
 # APIs
 
@@ -25,13 +30,17 @@ preferences. The Rustaceous API is a wrapper around the underlying classic
 API.
 
 It's recommended that you use the Rustaceous API unless you have strong
-feelings about using the Classic API.
+feelings about using the Classic API. The classic API includes some pitfalls
+and traps that are also present in the original libsodium API, and unless
+you're extra careful you could make mistakes. With the Rustaceous API, you'd
+have to try really hard to do things wrong.
 
 | Feature                      | Rustaceous API   | Classic API                             | Libsodium Docs                                                                            |
 |------------------------------|------------------|-----------------------------------------|-------------------------------------------------------------------------------------------|
 | Secret-key authenticated box | [dryocsecretbox] | [crypto_secretbox]                      | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox)                |
 | Streaming encryption         | [dryocstream]    | [crypto_secretstream_xchacha20poly1305] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream)             |
 | Public-key authenticated box | [dryocbox]       | [crypto_box]                            | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
+| Protected memory             | [protected]      | N/A                                     | [Link](https://doc.libsodium.org/memory_management)                                       |
 
 # Using Serde
 
@@ -43,10 +52,7 @@ necessary if they already include optimized storage for binary types.
 
 # Security notes
 
-This crate has not been audited, but some of the underlying implementations
-have received some auditing, such as the [poly1305] crate. Notably, only the
-non-AVX2 backend has been audited. Thus, don't enable AVX2 if you're
-paranoid, and avoid non-ARM and non-Intel microarchitectures.
+This crate has not been audited by any 3rd parties.
 
 With that out of the way, the deterministic nature of cryptography and
 extensive testing used in this crate means it's relatively safe to use,
@@ -56,22 +62,21 @@ features provided by the Rust language.
 
 [^1]: Not actually trademarked.
 
+[^2]: The protected memory features described in [protected] require custom
+memory allocation and system calls, which are unsafe in Rust.
+
 */
 
-#![warn(missing_docs)]
-
-#[cfg(feature = "serde")]
-extern crate serde;
-
-#[cfg(all(feature = "serde", feature = "base64"))]
-extern crate base64;
-
+// #![warn(missing_docs)]
+// #[cfg_attr(features = "nightly", feature(allocator_api))]
+#![feature(allocator_api)]
 #[macro_use]
 mod error;
 #[cfg(all(feature = "serde", feature = "base64"))]
 mod b64;
 mod crypto_box_impl;
 mod crypto_secretbox_impl;
+mod poly1305;
 mod scalarmult_curve25519;
 
 /// # Ciphertext wrapper
@@ -92,6 +97,8 @@ pub mod dryocsecretbox;
 pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
+#[cfg(feature = "nightly")]
+pub mod protected;
 /// # Random number generation utilities
 pub mod rng;
 /// # Base type definitions

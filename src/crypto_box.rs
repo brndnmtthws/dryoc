@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use dryoc::crypto_box::*;
-//! use std::convert::TryInto;
+//! use dryoc::types::*;
 //!
 //! // Create a random sender keypair
 //! let keypair_sender = crypto_box_keypair();
@@ -48,19 +48,19 @@ use crate::crypto_secretbox_impl::*;
 use crate::dryocbox::DryocBox;
 use crate::error::Error;
 use crate::keypair::*;
-use crate::types::{ByteArray, InputBase, OutputBase};
+use crate::types::{InputBase, OutputBase, StackByteArray};
 
 use zeroize::Zeroize;
 
 /// Container for crypto box message authentication code.
-pub type Mac = ByteArray<CRYPTO_BOX_MACBYTES>;
+pub type Mac = StackByteArray<CRYPTO_BOX_MACBYTES>;
 
 /// A nonce for crypto boxes.
-pub type Nonce = ByteArray<CRYPTO_BOX_NONCEBYTES>;
+pub type Nonce = StackByteArray<CRYPTO_BOX_NONCEBYTES>;
 /// A public key for public key authenticated crypto boxes.
-pub type PublicKey = ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
+pub type PublicKey = StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
 /// A secret key for public key authenticated crypto boxes.
-pub type SecretKey = ByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
+pub type SecretKey = StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
 
 /// Generates a public/secret key pair using OS provided data using
 /// [rand_core::OsRng].
@@ -155,7 +155,7 @@ pub fn crypto_box_easy(
         let dryocbox =
             crypto_box_detached(message, nonce, recipient_public_key, sender_secret_key)?;
         let mut ciphertext = Vec::new();
-        ciphertext.extend_from_slice(dryocbox.tag.as_slice());
+        ciphertext.extend_from_slice(&dryocbox.tag);
         ciphertext.extend(dryocbox.data);
         Ok(ciphertext)
     }
@@ -186,7 +186,7 @@ pub fn crypto_box_easy_inplace(
         // Rotate everything to the right
         ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
         // Copy mac into ciphertext
-        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(dryocbox.tag.as_slice());
+        ciphertext[..CRYPTO_BOX_MACBYTES].copy_from_slice(&dryocbox.tag);
 
         Ok(ciphertext)
     }
@@ -312,7 +312,7 @@ pub fn crypto_box_open_easy_inplace(
             Err(err) => {
                 ciphertext.resize(ciphertext.len() + CRYPTO_BOX_MACBYTES, 0);
                 ciphertext.rotate_right(CRYPTO_BOX_MACBYTES);
-                ciphertext[0..CRYPTO_BOX_MACBYTES].copy_from_slice(mac.as_slice());
+                ciphertext[0..CRYPTO_BOX_MACBYTES].copy_from_slice(&mac);
                 Err(err)
             }
             Ok(()) => Ok(()),
@@ -328,6 +328,7 @@ mod tests {
     #[test]
     fn test_crypto_box_easy() {
         for i in 0..20 {
+            use crate::types::*;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
@@ -377,6 +378,7 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace() {
         for i in 0..20 {
+            use crate::types::*;
             use base64::encode;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
@@ -428,6 +430,7 @@ mod tests {
 
     #[test]
     fn test_crypto_box_easy_invalid() {
+        use crate::types::NewByteArray;
         for _ in 0..20 {
             let keypair_sender = crypto_box_keypair();
             let keypair_recipient = crypto_box_keypair();
@@ -446,6 +449,7 @@ mod tests {
     }
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
+        use crate::types::NewByteArray;
         for _ in 0..20 {
             use base64::encode;
 
