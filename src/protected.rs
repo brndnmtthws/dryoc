@@ -67,61 +67,98 @@ pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockM
 }
 
 fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
-    use libc::mlock;
-    let ret = unsafe { mlock(data.as_ptr() as *const c_void, data.len()) };
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
+    #[cfg(unix)]
+    {
+        use libc::mlock;
+        let ret = unsafe { mlock(data.as_ptr() as *const c_void, data.len()) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(windows)]
+    {
+        unimplemented!()
     }
 }
 
 fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
-    use libc::munlock;
-    let ret = unsafe { munlock(data.as_ptr() as *const c_void, data.len()) };
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
+    #[cfg(unix)]
+    {
+        use libc::munlock;
+        let ret = unsafe { munlock(data.as_ptr() as *const c_void, data.len()) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(windows)]
+    {
+        unimplemented!()
     }
 }
 
 fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
-    use libc::mprotect as c_mprotect;
-    use libc::PROT_READ;
-    let ret = unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_READ) };
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
+    #[cfg(unix)]
+    {
+        use libc::mprotect as c_mprotect;
+        use libc::PROT_READ;
+        let ret =
+            unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_READ) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(windows)]
+    {
+        unimplemented!()
     }
 }
 
 fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
-    use libc::mprotect as c_mprotect;
-    use libc::{PROT_READ, PROT_WRITE};
-    let ret = unsafe {
-        c_mprotect(
-            data.as_mut_ptr() as *mut c_void,
-            data.len() - 1,
-            PROT_READ | PROT_WRITE,
-        )
-    };
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
+    #[cfg(unix)]
+    {
+        use libc::mprotect as c_mprotect;
+        use libc::{PROT_READ, PROT_WRITE};
+        let ret = unsafe {
+            c_mprotect(
+                data.as_mut_ptr() as *mut c_void,
+                data.len() - 1,
+                PROT_READ | PROT_WRITE,
+            )
+        };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(windows)]
+    {
+        unimplemented!()
     }
 }
 
 fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
-    use libc::mprotect as c_mprotect;
-    use libc::PROT_NONE;
-    let ret = unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_NONE) };
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
+    #[cfg(unix)]
+    {
+        use libc::mprotect as c_mprotect;
+        use libc::PROT_NONE;
+        let ret =
+            unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_NONE) };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(windows)]
+    {
+        unimplemented!()
     }
 }
 
