@@ -444,7 +444,7 @@ unsafe impl Allocator for PageAlignedAllocator {
         };
         #[cfg(windows)]
         let out = {
-            use winapi::um::memoryapi::VirtualLock;
+            use winapi::um::memoryapi::VirtualAlloc;
             use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
             unsafe { VirtualAlloc(ptr::null(), size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) }
         };
