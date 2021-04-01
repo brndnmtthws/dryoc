@@ -359,7 +359,7 @@ fn get_pagesize() -> usize {
     }
     #[cfg(windows)]
     {
-        use winapi::um::sysinfoapi::*;
+        use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
         let mut si = SYSTEM_INFO::default();
         unsafe { GetSystemInfo(&mut si) };
         si.dwPageSize as usize
