@@ -50,12 +50,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --features $FEATURES
+          args: --features ${{ env.FEATURES }}
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features $FEATURES
+          args: --features ${{ env.FEATURES }}
       - name: Rustfmt
         uses: actions-rs/cargo@v1
         with:
@@ -65,4 +65,4 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --features $FEATURES -- -D warnings
+          args: --features ${{ env.FEATURES }} -- -D warnings
