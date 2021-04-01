@@ -114,7 +114,14 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(windows)]
     {
-        unimplemented!()
+        use winapi::shared::minwindef::LPVOID;
+        use winapi::um::memoryapi::VirtualUnock;
+
+        let res = unsafe { VirtualUnock(data.as_ptr() as LPVOID, data.len()) };
+        match res {
+            1 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
+        }
     }
 }
 
@@ -170,7 +177,18 @@ fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(windows)]
     {
-        unimplemented!()
+        use winapi::shared::minwindef::{DWORD, LPVOID};
+        use winapi::um::memoryapi::VirtualProtect;
+        use winapi::um::winnt::PAGE_NOACCESS;
+
+        let old: DWORD = 0;
+
+        let res =
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_NOACCESS, &old) };
+        match res {
+            1 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
+        }
     }
 }
 
