@@ -861,17 +861,11 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Drop for Pr
     fn drop(&mut self) {
         if self.a.as_slice().len() > 0 {
             dryoc_mprotect_readwrite(self.a.as_mut_slice())
-                .map_err(|err| {
-                    eprintln!("mprotect_readwrite error on drop = {:?}", err);
-                    panic!("mprotect");
-                })
+                .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
                 .ok();
             self.a.zeroize();
             dryoc_munlock(self.a.as_mut_slice())
-                .map_err(|err| {
-                    eprintln!("dryoc_munlock error on drop = {:?}", err);
-                    panic!("munlock");
-                })
+                .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
                 .ok();
         }
     }
