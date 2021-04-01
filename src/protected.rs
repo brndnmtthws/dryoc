@@ -65,14 +65,14 @@ pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockM
     l: PhantomData<LM>,
 }
 
-fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
+fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         #[cfg(target_os = "linux")]
         {
             // tell the kernel not to include this memory in a core dump
             use libc::{madvise, MADV_DONTDUMP};
-            madvise(data.as_ptr() as *const c_void, data.len(), MADV_DONTDUMP);
+            madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DONTDUMP);
         }
 
         use libc::{c_void, mlock as c_mlock};
@@ -95,14 +95,14 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
     }
 }
 
-fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
+fn dryoc_munlock(data: &mut [u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         #[cfg(target_os = "linux")]
         {
             // undo MADV_DONTDUMP
             use libc::{madvise, MADV_DODUMP};
-            madvise(data.as_ptr() as *const c_void, data.len(), MADV_DODUMP);
+            madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DODUMP);
         }
 
         use libc::{c_void, munlock as c_munlock};
@@ -223,7 +223,7 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Unlock<A, P
             p: PhantomData,
             l: PhantomData,
         };
-        dryoc_munlock(self.a.as_slice())?;
+        dryoc_munlock(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
         Ok(new)
@@ -237,7 +237,7 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> Lock<A, PM> for Protected
             p: PhantomData,
             l: PhantomData,
         };
-        dryoc_mlock(self.a.as_slice())?;
+        dryoc_mlock(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
         Ok(new)
@@ -850,7 +850,7 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Drop for Pr
                 })
                 .ok();
             self.a.zeroize();
-            dryoc_munlock(self.a.as_slice())
+            dryoc_munlock(self.a.as_mut_slice())
                 .map_err(|err| {
                     eprintln!("dryoc_munlock error on drop = {:?}", err);
                     panic!("munlock");
