@@ -25,7 +25,7 @@ x25519-dalek = "1.1"
 zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
-winapi = "0.3"
+winapi = {version = "0.3", features = ["minwindef", "memoryapi"]}
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
