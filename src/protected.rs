@@ -342,83 +342,97 @@ pub struct PageAlignedAllocator;
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<ptr::NonNull<[u8]>, AllocError> {
-        use libc::{posix_memalign, sysconf, _SC_PAGE_SIZE};
-        let pagesize = unsafe { sysconf(_SC_PAGE_SIZE) } as usize;
-        let mut out = ptr::null_mut();
+        #[cfg(unix)]
+        {
+            use libc::{posix_memalign, sysconf, _SC_PAGE_SIZE};
+            let pagesize = unsafe { sysconf(_SC_PAGE_SIZE) } as usize;
+            let mut out = ptr::null_mut();
 
-        // allocate full pages, in addition to an extra page at the start and
-        // end which will remain locked with no access permitted.
-        let size = layout.size() + (pagesize - layout.size() % pagesize) + 2 * pagesize;
-        let ret = unsafe { posix_memalign(&mut out, pagesize as usize, size) };
-        if ret != 0 {
-            Err(AllocError)
-        } else {
-            let slice = unsafe {
-                std::slice::from_raw_parts_mut(
-                    out.offset(pagesize as isize) as *mut u8,
-                    layout.size(),
-                )
-            };
-            // lock the pages at the fore of the region
-            let fore_protected_region =
-                unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
-            dryoc_mlock(fore_protected_region)
-                .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
-                .ok();
-            dryoc_mprotect_noaccess(fore_protected_region)
-                .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
-                .ok();
+            // allocate full pages, in addition to an extra page at the start and
+            // end which will remain locked with no access permitted.
+            let size = layout.size() + (pagesize - layout.size() % pagesize) + 2 * pagesize;
+            let ret = unsafe { posix_memalign(&mut out, pagesize as usize, size) };
+            if ret != 0 {
+                Err(AllocError)
+            } else {
+                let slice = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        out.offset(pagesize as isize) as *mut u8,
+                        layout.size(),
+                    )
+                };
+                // lock the pages at the fore of the region
+                let fore_protected_region =
+                    unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
+                dryoc_mlock(fore_protected_region)
+                    .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
+                    .ok();
+                dryoc_mprotect_noaccess(fore_protected_region)
+                    .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
+                    .ok();
 
-            // lock the pages at the aft of the region
-            let aft_protected_region_start =
-                layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
-            let aft_protected_region = unsafe {
-                std::slice::from_raw_parts_mut(
-                    (out.offset(aft_protected_region_start as isize)) as *mut u8,
-                    pagesize,
-                )
-            };
-            dryoc_mlock(aft_protected_region)
-                .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
-                .ok();
-            dryoc_mprotect_noaccess(aft_protected_region)
-                .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
-                .ok();
-            unsafe { Ok(ptr::NonNull::new_unchecked(slice)) }
+                // lock the pages at the aft of the region
+                let aft_protected_region_start =
+                    layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
+                let aft_protected_region = unsafe {
+                    std::slice::from_raw_parts_mut(
+                        (out.offset(aft_protected_region_start as isize)) as *mut u8,
+                        pagesize,
+                    )
+                };
+                dryoc_mlock(aft_protected_region)
+                    .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
+                    .ok();
+                dryoc_mprotect_noaccess(aft_protected_region)
+                    .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
+                    .ok();
+                unsafe { Ok(ptr::NonNull::new_unchecked(slice)) }
+            }
+        }
+        #[cfg(windows)]
+        {
+            unimplemented!()
         }
     }
     #[inline]
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
-        use libc::{sysconf, _SC_PAGE_SIZE};
-        let pagesize = sysconf(_SC_PAGE_SIZE) as usize;
+        #[cfg(unix)]
+        {
+            use libc::{sysconf, _SC_PAGE_SIZE};
+            let pagesize = sysconf(_SC_PAGE_SIZE) as usize;
 
-        let ptr = ptr.as_ptr().offset(-(pagesize as isize));
+            let ptr = ptr.as_ptr().offset(-(pagesize as isize));
 
-        // unlock the fore protected region
-        let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
-        dryoc_munlock(fore_protected_region)
-            .map_err(|err| eprintln!("mlock error = {:?}", err))
-            .ok();
-        dryoc_mprotect_readwrite(fore_protected_region)
-            .map_err(|err| eprintln!("mprotect error = {:?}", err))
-            .ok();
+            // unlock the fore protected region
+            let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
+            dryoc_munlock(fore_protected_region)
+                .map_err(|err| eprintln!("mlock error = {:?}", err))
+                .ok();
+            dryoc_mprotect_readwrite(fore_protected_region)
+                .map_err(|err| eprintln!("mprotect error = {:?}", err))
+                .ok();
 
-        // unlock the aft protected region
-        let aft_protected_region_start =
-            layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
-        let aft_protected_region = std::slice::from_raw_parts_mut(
-            (ptr.offset(aft_protected_region_start as isize)) as *mut u8,
-            pagesize,
-        );
+            // unlock the aft protected region
+            let aft_protected_region_start =
+                layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
+            let aft_protected_region = std::slice::from_raw_parts_mut(
+                (ptr.offset(aft_protected_region_start as isize)) as *mut u8,
+                pagesize,
+            );
 
-        dryoc_munlock(aft_protected_region)
-            .map_err(|err| eprintln!("mlock error = {:?}", err))
-            .ok();
-        dryoc_mprotect_readwrite(aft_protected_region)
-            .map_err(|err| eprintln!("mprotect error = {:?}", err))
-            .ok();
+            dryoc_munlock(aft_protected_region)
+                .map_err(|err| eprintln!("mlock error = {:?}", err))
+                .ok();
+            dryoc_mprotect_readwrite(aft_protected_region)
+                .map_err(|err| eprintln!("mprotect error = {:?}", err))
+                .ok();
 
-        libc::free(ptr as *mut libc::c_void)
+            libc::free(ptr as *mut libc::c_void)
+        }
+        #[cfg(windows)]
+        {
+            unimplemented!()
+        }
     }
 }
 
