@@ -155,8 +155,14 @@ fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
-        let res =
-            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READONLY, &mut old) };
+        let res = unsafe {
+            VirtualProtect(
+                data.as_ptr() as LPVOID,
+                data.len() - 1,
+                PAGE_READONLY,
+                &mut old,
+            )
+        };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -191,7 +197,7 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
         let res = unsafe {
             VirtualProtect(
                 data.as_ptr() as LPVOID,
-                data.len(),
+                data.len() - 1,
                 PAGE_READWRITE,
                 &mut old,
             )
@@ -222,8 +228,14 @@ fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
-        let res =
-            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_NOACCESS, &mut old) };
+        let res = unsafe {
+            VirtualProtect(
+                data.as_ptr() as LPVOID,
+                data.len() - 1,
+                PAGE_NOACCESS,
+                &mut old,
+            )
+        };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
