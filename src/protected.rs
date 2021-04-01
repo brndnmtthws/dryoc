@@ -119,9 +119,9 @@ fn dryoc_munlock(data: &mut [u8]) -> Result<(), std::io::Error> {
     #[cfg(windows)]
     {
         use winapi::shared::minwindef::LPVOID;
-        use winapi::um::memoryapi::VirtualUnock;
+        use winapi::um::memoryapi::VirtualUnlock;
 
-        let res = unsafe { VirtualUnock(data.as_ptr() as LPVOID, data.len()) };
+        let res = unsafe { VirtualUnlock(data.as_ptr() as LPVOID, data.len()) };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
