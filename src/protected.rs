@@ -5,6 +5,13 @@ Provides access to the memory locking system calls, such as `mlock()` and
 `mprotect()` on UNIX-like systems, `VirtualLock()` and `VirtualProtect()` on
 Windows. Similar to libsodium's `sodium_mlock` and `sodium_mprotect_*`
 functions.
+
+The protected memory features use the new [Allocator] API, which requires
+nightly Rust. This crate must be built with the `nightly` feature flag
+enabled to activate these features.
+
+For details on the [Allocator] API, see:
+<https://github.com/rust-lang/rust/issues/32838>
  */
 use crate::error;
 use crate::rng::copy_randombytes;
