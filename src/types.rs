@@ -4,41 +4,17 @@ use crate::rng::copy_randombytes;
 #[cfg(feature = "nightly")]
 pub use crate::protected::*;
 
-#[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::*;
+#[cfg(any(feature = "serde", feature = "base64"))]
+pub use crate::bytes_serde::*;
 
 use std::convert::TryFrom;
 use zeroize::Zeroize;
 
-#[cfg(all(feature = "serde", not(feature = "base64")))]
-use serde::{
-    de::{self, SeqAccess, Visitor},
-    Deserializer, Serializer,
-};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-
-/// A generic stack-allocated byte array for working with data, with optional
-/// [Serde](https://serde.rs) features.
-#[cfg_attr(
-    all(feature = "serde", feature = "base64"),
-    derive(Zeroize, Debug, PartialEq, Clone, Serialize, Deserialize)
-)]
-#[cfg_attr(
-    not(all(feature = "serde", feature = "base64")),
-    derive(Zeroize, Debug, PartialEq, Clone)
-)]
+/// A stack-allocated fixed-length byte array for working with data, with
+/// optional [Serde](https://serde.rs) features.
+#[derive(Zeroize, Debug, PartialEq, Clone)]
 #[zeroize(drop)]
-pub struct StackByteArray<const LENGTH: usize>(
-    #[cfg_attr(
-        all(feature = "serde", feature = "base64"),
-        serde(
-            serialize_with = "as_base64",
-            deserialize_with = "stackbytearray_from_base64"
-        )
-    )]
-    [u8; LENGTH],
-);
+pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
 
 pub trait NewByteArray<const LENGTH: usize> {
     fn gen() -> Self;
@@ -252,68 +228,7 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
     }
 }
 
-#[cfg(all(feature = "serde", not(feature = "base64")))]
-impl<const LENGTH: usize> Serialize for StackByteArray<LENGTH> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(self.as_slice())
-    }
-}
-
-#[cfg(all(feature = "serde", not(feature = "base64")))]
-impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct ByteArrayVisitor<const LENGTH: usize>;
-
-        impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
-            type Value = StackByteArray<LENGTH>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "sequence")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut arr = StackByteArray::<LENGTH>::new();
-                let mut idx: usize = 0;
-
-                while let Some(elem) = seq.next_element()? {
-                    if idx < LENGTH {
-                        arr[idx] = elem;
-                        idx += 1;
-                    } else {
-                        break;
-                    }
-                }
-
-                Ok(arr)
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                if v.len() != LENGTH {
-                    return Err(de::Error::invalid_length(v.len(), &stringify!(LENGTH)));
-                }
-                let mut arr = StackByteArray::<LENGTH>::new();
-                arr.copy_from_slice(v);
-                Ok(arr)
-            }
-        }
-
-        deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
-    }
-}
-
-/// A type alias used for generic byte array outputs.
+/// A type alias used for byte array outputs.
 pub type OutputBase = Vec<u8>;
-/// A type alias used for generic byte slice inputs.
+/// A type alias used for byte slice inputs.
 pub type InputBase = [u8];

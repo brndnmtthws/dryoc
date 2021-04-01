@@ -25,7 +25,7 @@ assert_eq!(message, decrypted.as_slice());
 */
 
 #[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::{as_base64, from_base64};
+use crate::bytes_serde::{as_base64, from_base64};
 use crate::constants::CRYPTO_SECRETBOX_MACBYTES;
 use crate::error::Error;
 

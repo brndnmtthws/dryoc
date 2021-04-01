@@ -81,11 +81,11 @@ impl Mode for Pull {}
 pub type Key = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
 /// A nonce for authenticated secret streams.
 pub type Nonce = StackByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
-/// Container for stream header data
+/// Container for stream header data.
 pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 
 #[cfg(any(feature = "nightly", doc))]
-#[doc(cfg(feature = "nightly"))]
+#[cfg_attr(feature = "nightly", doc(cfg(feature = "nightly")))]
 /// Type aliases for using protected memory with [DryocStream].
 pub mod protected {
     use crate::constants::{
@@ -366,7 +366,7 @@ mod tests {
         let mut pull_stream = DryocStream::init_pull(&key, &header);
 
         // Set secret key memory to no-access
-        let key = key.mprotect_noaccess().expect("mprotect");
+        let _key = key.mprotect_noaccess().expect("mprotect");
 
         // Decrypt the encrypted messages, type annotations required
         let (m1, tag1): (Vec<u8>, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");

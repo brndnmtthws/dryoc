@@ -71,8 +71,8 @@ memory allocation and system calls, which are unsafe in Rust.
 #![cfg_attr(feature = "nightly", feature(allocator_api, doc_cfg))]
 #[macro_use]
 mod error;
-#[cfg(all(feature = "serde", feature = "base64"))]
-mod b64;
+#[cfg(feature = "serde")]
+mod bytes_serde;
 mod crypto_box_impl;
 mod crypto_secretbox_impl;
 mod poly1305;
@@ -97,7 +97,7 @@ pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
 #[cfg(any(feature = "nightly", doc))]
-#[doc(cfg(feature = "nightly"))]
+#[cfg_attr(feature = "nightly", doc(cfg(feature = "nightly")))]
 pub mod protected;
 /// # Random number generation utilities
 pub mod rng;

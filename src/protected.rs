@@ -11,24 +11,15 @@ use crate::rng::copy_randombytes;
 use crate::types::*;
 
 #[cfg(all(feature = "serde", feature = "base64"))]
-use crate::b64::*;
-
-use std::convert::TryFrom;
-use zeroize::Zeroize;
-
-#[cfg(all(feature = "serde", not(feature = "base64")))]
-use serde::{
-    de::{self, SeqAccess, Visitor},
-    Deserializer, Serializer,
-};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use crate::bytes_serde::*;
 
 use libc::c_void;
 use std::alloc::{AllocError, Allocator, Layout};
+use std::convert::TryFrom;
 use std::convert::{AsMut, AsRef};
 use std::marker::PhantomData;
 use std::ptr;
+use zeroize::Zeroize;
 
 pub trait ProtectMode {}
 pub struct ReadOnly {}
@@ -341,27 +332,17 @@ unsafe impl Allocator for PageAlignedAllocator {
     }
 }
 
-/// A generic stack-allocated byte array for working with data, with optional
-/// [Serde](https://serde.rs) features.
-#[cfg_attr(
-    all(feature = "serde", feature = "base64"),
-    derive(Zeroize, Debug, PartialEq, Clone, Serialize, Deserialize)
-)]
-#[cfg_attr(
-    not(all(feature = "serde", feature = "base64")),
-    derive(Zeroize, Debug, PartialEq, Clone)
-)]
+/// A heap allocated fixed-length byte array for working with protected memory
+/// regions, with optional [Serde](https://serde.rs) features.
+#[derive(Zeroize, Debug, PartialEq, Clone)]
 #[zeroize(drop)]
-pub struct ProtectedByteArray<const LENGTH: usize>(
-    #[cfg_attr(
-        all(feature = "serde", feature = "base64"),
-        serde(
-            serialize_with = "as_base64",
-            deserialize_with = "protected_from_base64"
-        )
-    )]
-    Vec<u8, PageAlignedAllocator>,
-);
+pub struct ProtectedByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
+
+/// A heap allocated fixed-length byte array for working with protected memory
+/// regions, with optional [Serde](https://serde.rs) features.
+#[derive(Zeroize, Debug, PartialEq, Clone)]
+#[zeroize(drop)]
+pub struct ProtectedBytes(Vec<u8, PageAlignedAllocator>);
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
     /// Returns a new byte array filled with random data.
