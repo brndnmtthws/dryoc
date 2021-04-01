@@ -138,7 +138,18 @@ fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(windows)]
     {
-        unimplemented!()
+        use winapi::shared::minwindef::{DWORD, LPVOID};
+        use winapi::um::memoryapi::VirtualProtect;
+        use winapi::um::winnt::PAGE_READONLY;
+
+        let old: DWORD = 0;
+
+        let res =
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READONLY, &old) };
+        match res {
+            1 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
+        }
     }
 }
 
@@ -160,7 +171,18 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(windows)]
     {
-        unimplemented!()
+        use winapi::shared::minwindef::{DWORD, LPVOID};
+        use winapi::um::memoryapi::VirtualProtect;
+        use winapi::um::winnt::PAGE_READWRITE;
+
+        let old: DWORD = 0;
+
+        let res =
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READWRITE, &old) };
+        match res {
+            1 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
+        }
     }
 }
 
