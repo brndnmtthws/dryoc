@@ -36,7 +36,7 @@ jobs:
             features: simd_backend
     runs-on: ${{ matrix.os }}
     env:
-      FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0}',nightly, matrix.features) }}
+      FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust toolchain
