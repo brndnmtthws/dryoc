@@ -6,7 +6,6 @@ Provides access to the memory locking system calls, such as `mlock()` and
 Windows. Similar to libsodium's `sodium_mlock` and `sodium_mprotect_*`
 functions.
  */
-
 use crate::error;
 use crate::rng::copy_randombytes;
 use crate::types::*;
@@ -31,68 +30,35 @@ use std::convert::{AsMut, AsRef};
 use std::marker::PhantomData;
 use std::ptr;
 
-pub enum _PM {
-    RO,
-    RW,
-    NA,
-}
-pub trait ProtectMode {
-    fn mode() -> _PM;
-}
+pub trait ProtectMode {}
 pub struct ReadOnly {}
 pub struct ReadWrite {}
 pub struct NoAccess {}
 
-impl ProtectMode for ReadOnly {
-    fn mode() -> _PM {
-        _PM::RO
-    }
-}
-impl ProtectMode for ReadWrite {
-    fn mode() -> _PM {
-        _PM::RW
-    }
-}
-impl ProtectMode for NoAccess {
-    fn mode() -> _PM {
-        _PM::NA
-    }
-}
+impl ProtectMode for ReadOnly {}
+impl ProtectMode for ReadWrite {}
+impl ProtectMode for NoAccess {}
 
-pub enum _LM {
-    L,
-    U,
-}
-pub trait LockMode {
-    fn mode() -> _LM;
-}
+pub trait LockMode {}
 pub struct Locked {}
 pub struct Unlocked {}
-impl LockMode for Locked {
-    fn mode() -> _LM {
-        _LM::L
-    }
-}
-impl LockMode for Unlocked {
-    fn mode() -> _LM {
-        _LM::U
-    }
-}
+impl LockMode for Locked {}
+impl LockMode for Unlocked {}
 
-trait Lock<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
+pub trait Lock<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
     fn mlock(self) -> Result<Protected<A, PM, Locked>, std::io::Error>;
 }
-trait Unlock<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
+pub trait Unlock<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
     fn munlock(self) -> Result<Protected<A, PM, Unlocked>, std::io::Error>;
 }
 
-trait ProtectReadOnly<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
+pub trait ProtectReadOnly<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
     fn mprotect_readonly(self) -> Result<Protected<A, ReadOnly, LM>, std::io::Error>;
 }
-trait ProtectReadWrite<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
+pub trait ProtectReadWrite<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
     fn mprotect_readwrite(self) -> Result<Protected<A, ReadWrite, LM>, std::io::Error>;
 }
-trait ProtectNoAccess<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
+pub trait ProtectNoAccess<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
     fn mprotect_noaccess(self) -> Result<Protected<A, NoAccess, LM>, std::io::Error>;
 }
 
@@ -412,15 +378,27 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> Bytes for ProtectedByteArray<LENGTH> {
-    fn as_slice(&self) -> &[u8] {
-        &self.0
+impl<const LENGTH: usize> ProtectedByteArray<LENGTH> {
+    /// Returns a new byte array filled with random data.
+    pub fn gen_locked(
+    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
+        let mut res = Self::default().mlock()?;
+        copy_randombytes(res.as_mut_slice());
+        Ok(res)
+    }
+    /// Returns a new byte array from `other`. Panics if sizes do not match.
+    pub fn from_slice_locked(
+        other: &[u8],
+    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
+        let mut res = Self::default().mlock()?;
+        res.as_mut_array().copy_from_slice(other);
+        Ok(res)
     }
 }
 
-impl<const LENGTH: usize> ProtectedByteArray<LENGTH> {
-    fn resize(&mut self, length: usize, value: u8) {
-        self.0.resize(length, value);
+impl<const LENGTH: usize> Bytes for ProtectedByteArray<LENGTH> {
+    fn as_slice(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -557,12 +535,94 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for ProtectedByteArray<LENGTH> {
     }
 }
 
+impl<const LENGTH: usize> ByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
+    fn as_array(&self) -> &[u8; LENGTH] {
+        // this is safe for fixed-length arrays
+        let ptr = self.0.as_ptr() as *const [u8; LENGTH];
+        unsafe { &*ptr }
+    }
+}
+
+impl<const LENGTH: usize> MutByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
+    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+        // this is safe for fixed-length arrays
+        let ptr = self.0.as_ptr() as *mut [u8; LENGTH];
+        unsafe { &mut *ptr }
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<ProtectedByteArray<LENGTH>, ReadOnly, Unlocked>
+{
+    fn as_array(&self) -> &[u8; LENGTH] {
+        self.a.as_array()
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<ProtectedByteArray<LENGTH>, ReadOnly, Locked>
+{
+    fn as_array(&self) -> &[u8; LENGTH] {
+        self.a.as_array()
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked>
+{
+    fn as_array(&self) -> &[u8; LENGTH] {
+        self.a.as_array()
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>
+{
+    fn as_array(&self) -> &[u8; LENGTH] {
+        self.a.as_array()
+    }
+}
+
+impl<const LENGTH: usize> MutByteArray<LENGTH>
+    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>
+{
+    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+        self.a.as_mut_array()
+    }
+}
+
+impl<const LENGTH: usize> MutByteArray<LENGTH>
+    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked>
+{
+    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+        self.a.as_mut_array()
+    }
+}
+
+impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
+    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>
+{
+    fn as_mut(&mut self) -> &mut [u8; LENGTH] {
+        self.a.as_mut()
+    }
+}
+
+impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
+    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked>
+{
+    fn as_mut(&mut self) -> &mut [u8; LENGTH] {
+        self.a.as_mut()
+    }
+}
+
 impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Drop for Protected<A, PM, LM> {
     fn drop(&mut self) {
-        // self.mprotect_readwrite();
+        dryoc_mprotect_readwrite(self.a.as_mut_slice())
+            .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
+            .ok();
         self.a.zeroize();
         dryoc_munlock(self.a.as_slice())
-            .map_err(|err| eprintln!("mlock error = {:?}", err))
+            .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
             .ok();
     }
 }

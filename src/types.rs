@@ -1,6 +1,9 @@
 use crate::error;
 use crate::rng::copy_randombytes;
 
+#[cfg(feature = "nightly")]
+pub use crate::protected::*;
+
 #[cfg(all(feature = "serde", feature = "base64"))]
 use crate::b64::*;
 
@@ -50,9 +53,7 @@ pub trait Bytes: AsRef<[u8]> {
     fn as_slice(&self) -> &[u8];
 }
 
-pub trait MutByteArray<const LENGTH: usize>:
-    NewByteArray<LENGTH> + ByteArray<LENGTH> + AsMut<[u8; LENGTH]>
-{
+pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + AsMut<[u8; LENGTH]> {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH];
 }
 
