@@ -90,7 +90,7 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         let res = unsafe { VirtualLock(data.as_ptr() as LPVOID, data.len()) };
         match res {
             1 => Ok(()),
-            0 => Err(std::io::Error::last_os_error()),
+            _ => Err(std::io::Error::last_os_error()),
         }
     }
 }
