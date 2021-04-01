@@ -95,11 +95,11 @@ pub mod protected {
     use crate::protected::*;
 
     /// A secret for authenticated secret streams.
-    pub type Key = ProtectedByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
+    pub type Key = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
     /// A nonce for authenticated secret streams.
-    pub type Nonce = ProtectedByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
+    pub type Nonce = HeapByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
     /// Container for stream header data.
-    pub type Header = ProtectedByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
+    pub type Header = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 }
 bitflags! {
     /// Message tag definitions
@@ -171,7 +171,7 @@ impl DryocStream<Push> {
     }
     /// Encrypts `message` for this stream with `associated_data` and `tag`,
     /// returning the ciphertext.
-    pub fn push<Input: Bytes, Output: MutBytes + Default + ResizeableBytes>(
+    pub fn push<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(
         &mut self,
         message: &Input,
         associated_data: Option<&Input>,
@@ -216,7 +216,7 @@ impl DryocStream<Pull> {
     }
     /// Decrypts `ciphertext` for this stream with `associated_data`, returning
     /// the decrypted message and tag.
-    pub fn pull<Input: Bytes, Output: MutBytes + Default + ResizeableBytes>(
+    pub fn pull<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(
         &mut self,
         ciphertext: &Input,
         associated_data: Option<&Input>,
@@ -349,7 +349,7 @@ mod tests {
         let key = key.mprotect_noaccess().expect("mprotect");
 
         // Encrypt a series of messages
-        let c1: Vec<u8> = push_stream
+        let c1: LockedBytes = push_stream
             .push(message1, None, Tag::MESSAGE)
             .expect("Encrypt failed");
         let c2: Vec<u8> = push_stream
@@ -369,9 +369,9 @@ mod tests {
         let _key = key.mprotect_noaccess().expect("mprotect");
 
         // Decrypt the encrypted messages, type annotations required
-        let (m1, tag1): (Vec<u8>, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");
-        let (m2, tag2): (Vec<u8>, Tag) = pull_stream.pull(&c2, None).expect("Decrypt failed");
-        let (m3, tag3): (Vec<u8>, Tag) = pull_stream.pull(&c3, None).expect("Decrypt failed");
+        let (m1, tag1): (LockedBytes, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");
+        let (m2, tag2): (LockedBytes, Tag) = pull_stream.pull(&c2, None).expect("Decrypt failed");
+        let (m3, tag3): (LockedBytes, Tag) = pull_stream.pull(&c3, None).expect("Decrypt failed");
 
         assert_eq!(message1, m1.as_slice());
         assert_eq!(message2, m2.as_slice());

@@ -37,8 +37,8 @@ pub trait MutBytes: Bytes + AsMut<[u8]> {
     fn as_mut_slice(&mut self) -> &mut [u8];
 }
 
-pub trait ResizeableBytes {
-    fn resize(&mut self, length: usize, value: u8);
+pub trait ResizableBytes {
+    fn resize(&mut self, new_len: usize, value: u8);
 }
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
@@ -86,9 +86,9 @@ impl MutBytes for Vec<u8> {
     }
 }
 
-impl ResizeableBytes for Vec<u8> {
-    fn resize(&mut self, length: usize, value: u8) {
-        self.resize(length, value);
+impl ResizableBytes for Vec<u8> {
+    fn resize(&mut self, new_len: usize, value: u8) {
+        self.resize(new_len, value);
     }
 }
 

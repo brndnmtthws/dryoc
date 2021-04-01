@@ -1,7 +1,7 @@
 #[cfg(feature = "base64")]
 mod b64 {
     use crate::types::{Bytes, StackByteArray};
-    use serde::de::{Error, SeqAccess, Visitor};
+    use serde::de::{Error, Visitor};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     impl<const LENGTH: usize> Serialize for StackByteArray<LENGTH> {
@@ -57,41 +57,8 @@ mod b64 {
     where
         D: Deserializer<'de>,
     {
-        use serde::de::Error;
         String::deserialize(deserializer)
             .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
-    }
-
-    pub(crate) fn protected_from_base64<'de, D>(
-        deserializer: D,
-    ) -> Result<Vec<u8, crate::protected::PageAlignedAllocator>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de::Error;
-        String::deserialize(deserializer).and_then(|input| {
-            let mut buffer =
-                Vec::with_capacity_in(input.len() * 4 / 3, crate::protected::PageAlignedAllocator);
-            base64::decode_config_slice(input, base64::STANDARD, &mut buffer)
-                .map(|_| buffer)
-                .map_err(|err| Error::custom(err.to_string()))
-        })
-    }
-
-    pub(crate) fn stackbytearray_from_base64<'de, D, const LENGTH: usize>(
-        deserializer: D,
-    ) -> Result<[u8; LENGTH], D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de::Error;
-        String::deserialize(deserializer)
-            .and_then(|string| base64::decode(string).map_err(|err| Error::custom(err.to_string())))
-            .map(|vec| {
-                let mut out = [0u8; LENGTH];
-                out.copy_from_slice(&vec);
-                out
-            })
     }
 }
 

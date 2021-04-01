@@ -31,7 +31,7 @@ assert_eq!(message, decrypted.as_slice());
 ```
 */
 
-#[cfg(all(feature = "serde", feature = "base64"))]
+#[cfg(any(feature = "serde", feature = "base64"))]
 use crate::bytes_serde::*;
 use crate::constants::CRYPTO_BOX_MACBYTES;
 use crate::dryocsecretbox::DryocSecretBox;

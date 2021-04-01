@@ -39,6 +39,11 @@ impl LockMode for Unlocked {}
 pub trait Lock<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
     fn mlock(self) -> Result<Protected<A, PM, Locked>, std::io::Error>;
 }
+
+pub trait Lockable<A: Zeroize + MutBytes + Default> {
+    fn mlock(self) -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
+}
+
 pub trait Unlock<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
     fn munlock(self) -> Result<Protected<A, PM, Unlocked>, std::io::Error>;
 }
@@ -82,9 +87,9 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
-    use libc::mprotect;
+    use libc::mprotect as c_mprotect;
     use libc::PROT_READ;
-    let ret = unsafe { mprotect(data.as_mut_ptr() as *mut c_void, data.len(), PROT_READ) };
+    let ret = unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_READ) };
     if ret == 0 {
         Ok(())
     } else {
@@ -93,12 +98,12 @@ fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
-    use libc::mprotect;
+    use libc::mprotect as c_mprotect;
     use libc::{PROT_READ, PROT_WRITE};
     let ret = unsafe {
-        mprotect(
+        c_mprotect(
             data.as_mut_ptr() as *mut c_void,
-            data.len(),
+            data.len() - 1,
             PROT_READ | PROT_WRITE,
         )
     };
@@ -110,9 +115,9 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
-    use libc::mprotect;
+    use libc::mprotect as c_mprotect;
     use libc::PROT_NONE;
-    let ret = unsafe { mprotect(data.as_mut_ptr() as *mut c_void, data.len(), PROT_NONE) };
+    let ret = unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_NONE) };
     if ret == 0 {
         Ok(())
     } else {
@@ -226,9 +231,15 @@ impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadW
     }
 }
 
-impl<const LENGTH: usize> From<StackByteArray<LENGTH>> for ProtectedByteArray<LENGTH> {
+impl Default for Protected<HeapBytes, ReadWrite, Locked> {
+    fn default() -> Self {
+        HeapBytes::new_locked().expect("mlock failed in default")
+    }
+}
+
+impl<const LENGTH: usize> From<StackByteArray<LENGTH>> for HeapByteArray<LENGTH> {
     fn from(other: StackByteArray<LENGTH>) -> Self {
-        let mut r = ProtectedByteArray::<LENGTH>::default();
+        let mut r = HeapByteArray::<LENGTH>::default();
         let mut s = other;
         r.copy_from_slice(s.as_slice());
         s.zeroize();
@@ -240,8 +251,8 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     /// Locks a [StackByteArray], consuming it, and returning a [Protected] wrapper.
     pub fn mlock(
         self,
-    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
-        let protected = Protected::<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked> {
+    ) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
+        let protected = Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked> {
             a: self.into(),
             p: PhantomData,
             l: PhantomData,
@@ -254,8 +265,8 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     /// Locks a [StackByteArray], consuming it, and returning a [Protected] wrapper.
     pub fn mprotect_readonly(
         self,
-    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadOnly, Locked>, std::io::Error> {
-        let protected = Protected::<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked> {
+    ) -> Result<Protected<HeapByteArray<LENGTH>, ReadOnly, Locked>, std::io::Error> {
+        let protected = Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked> {
             a: self.into(),
             p: PhantomData,
             l: PhantomData,
@@ -264,12 +275,22 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> ProtectedByteArray<LENGTH> {
-    /// Locks a [ProtectedByteArray], and returns a [Protected] wrapper.
-    pub fn mlock(
-        self,
-    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
-        let protected = Protected::<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked> {
+impl<const LENGTH: usize> Lockable<HeapByteArray<LENGTH>> for HeapByteArray<LENGTH> {
+    /// Locks a [HeapByteArray], and returns a [Protected] wrapper.
+    fn mlock(self) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
+        let protected = Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked> {
+            a: self,
+            p: PhantomData,
+            l: PhantomData,
+        };
+        protected.mlock()
+    }
+}
+
+impl Lockable<HeapBytes> for HeapBytes {
+    /// Locks a [HeapBytes], and returns a [Protected] wrapper.
+    fn mlock(self) -> Result<Protected<HeapBytes, ReadWrite, Locked>, std::io::Error> {
+        let protected = Protected::<HeapBytes, ReadWrite, Unlocked> {
             a: self,
             p: PhantomData,
             l: PhantomData,
@@ -287,26 +308,44 @@ unsafe impl Allocator for PageAlignedAllocator {
         use libc::{posix_memalign, sysconf, _SC_PAGE_SIZE};
         let pagesize = unsafe { sysconf(_SC_PAGE_SIZE) } as usize;
         let mut out = ptr::null_mut();
-        // allocate full pages, in addition to an extra page at the end which will remain locked
-        let size = layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
+
+        // allocate full pages, in addition to an extra page at the start and
+        // end which will remain locked with no access permitted.
+        let size = layout.size() + (pagesize - layout.size() % pagesize) + 2 * pagesize;
         let ret = unsafe { posix_memalign(&mut out, pagesize as usize, size) };
         if ret != 0 {
             Err(AllocError)
         } else {
-            let slice = unsafe { std::slice::from_raw_parts_mut(out as *mut u8, layout.size()) };
-            // lock the page at the end of the region
-            let protected_region_start = layout.size() + (pagesize - layout.size() % pagesize);
-            let protected_region = unsafe {
+            let slice = unsafe {
                 std::slice::from_raw_parts_mut(
-                    (out.offset(protected_region_start as isize)) as *mut u8,
+                    out.offset(pagesize as isize) as *mut u8,
+                    layout.size(),
+                )
+            };
+            // lock the pages at the fore of the region
+            let fore_protected_region =
+                unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
+            dryoc_mlock(fore_protected_region)
+                .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
+                .ok();
+            dryoc_mprotect_noaccess(fore_protected_region)
+                .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
+                .ok();
+
+            // lock the pages at the aft of the region
+            let aft_protected_region_start =
+                layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
+            let aft_protected_region = unsafe {
+                std::slice::from_raw_parts_mut(
+                    (out.offset(aft_protected_region_start as isize)) as *mut u8,
                     pagesize,
                 )
             };
-            dryoc_mlock(protected_region)
-                .map_err(|err| eprintln!("mlock error = {:?}", err))
+            dryoc_mlock(aft_protected_region)
+                .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
                 .ok();
-            dryoc_mprotect_noaccess(protected_region)
-                .map_err(|err| eprintln!("mprotect error = {:?}", err))
+            dryoc_mprotect_noaccess(aft_protected_region)
+                .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
                 .ok();
             unsafe { Ok(ptr::NonNull::new_unchecked(slice)) }
         }
@@ -315,36 +354,58 @@ unsafe impl Allocator for PageAlignedAllocator {
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         use libc::{sysconf, _SC_PAGE_SIZE};
         let pagesize = sysconf(_SC_PAGE_SIZE) as usize;
-        // unlock the protected region
-        let protected_region_start = layout.size() + (pagesize - layout.size() % pagesize);
-        let protected_region = std::slice::from_raw_parts_mut(
-            (ptr.as_ptr().offset(protected_region_start as isize)) as *mut u8,
-            pagesize,
-        );
-        dryoc_munlock(protected_region)
+
+        let ptr = ptr.as_ptr().offset(-(pagesize as isize));
+
+        // unlock the fore protected region
+        let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
+        dryoc_munlock(fore_protected_region)
             .map_err(|err| eprintln!("mlock error = {:?}", err))
             .ok();
-        dryoc_mprotect_readwrite(protected_region)
+        dryoc_mprotect_readwrite(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
             .ok();
 
-        libc::free(ptr.as_ptr() as *mut libc::c_void)
+        // unlock the aft protected region
+        let aft_protected_region_start =
+            layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
+        let aft_protected_region = std::slice::from_raw_parts_mut(
+            (ptr.offset(aft_protected_region_start as isize)) as *mut u8,
+            pagesize,
+        );
+
+        dryoc_munlock(aft_protected_region)
+            .map_err(|err| eprintln!("mlock error = {:?}", err))
+            .ok();
+        dryoc_mprotect_readwrite(aft_protected_region)
+            .map_err(|err| eprintln!("mprotect error = {:?}", err))
+            .ok();
+
+        libc::free(ptr as *mut libc::c_void)
     }
 }
 
-/// A heap allocated fixed-length byte array for working with protected memory
-/// regions, with optional [Serde](https://serde.rs) features.
+/// A heap-allocated fixed-length byte array, using the
+/// [page-aligned allocator](PageAlignedAllocator). Required for working with
+/// protected memory regions. Wraps a [Vec] with custom [Allocator]
+/// implementation.
 #[derive(Zeroize, Debug, PartialEq, Clone)]
 #[zeroize(drop)]
-pub struct ProtectedByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
+pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 
-/// A heap allocated fixed-length byte array for working with protected memory
-/// regions, with optional [Serde](https://serde.rs) features.
+/// A heap-allocated resizable byte array, using the
+/// [page-aligned allocator](PageAlignedAllocator). Required for working with
+/// protected memory regions. Wraps a [Vec] with custom [Allocator]
+/// implementation.
 #[derive(Zeroize, Debug, PartialEq, Clone)]
 #[zeroize(drop)]
-pub struct ProtectedBytes(Vec<u8, PageAlignedAllocator>);
+pub struct HeapBytes(Vec<u8, PageAlignedAllocator>);
 
-impl<const LENGTH: usize> NewByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
+pub type LockedBytes = Protected<HeapBytes, ReadWrite, Locked>;
+pub type LockedReadOnlyBytes = Protected<HeapBytes, ReadOnly, Locked>;
+pub type LockedNoAccessBytes = Protected<HeapBytes, NoAccess, Locked>;
+
+impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
     /// Returns a new byte array filled with random data.
     fn gen() -> Self {
         let mut res = Self::default();
@@ -359,33 +420,68 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> ProtectedByteArray<LENGTH> {
-    /// Returns a new byte array filled with random data.
-    pub fn gen_locked(
-    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
+pub trait NewLocked<A: Zeroize + MutBytes + Default + Lockable<A>> {
+    fn new_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
+    fn gen_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
+    fn from_slice_locked(other: &[u8]) -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
+}
+
+impl<A: Zeroize + MutBytes + Default + Lockable<A>> NewLocked<A> for A {
+    /// Returns a new locked byte array.
+    fn new_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
+        Self::default().mlock()
+    }
+    /// Returns a new locked byte array filled with random data.
+    fn gen_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
         let mut res = Self::default().mlock()?;
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
-    /// Returns a new byte array from `other`. Panics if sizes do not match.
-    pub fn from_slice_locked(
+    /// Returns a new locked byte array from `other`. Panics if sizes do not match.
+    fn from_slice_locked(
         other: &[u8],
-    ) -> Result<Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
+    ) -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
         let mut res = Self::default().mlock()?;
-        res.as_mut_array().copy_from_slice(other);
+        res.as_mut_slice().copy_from_slice(other);
         Ok(res)
     }
 }
 
-impl<const LENGTH: usize> Bytes for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> Bytes for HeapByteArray<LENGTH> {
     fn as_slice(&self) -> &[u8] {
         &self.0
     }
 }
 
-impl<const LENGTH: usize> MutBytes for ProtectedByteArray<LENGTH> {
+impl Bytes for HeapBytes {
+    fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const LENGTH: usize> MutBytes for HeapByteArray<LENGTH> {
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.0.as_mut_slice()
+    }
+}
+
+impl MutBytes for HeapBytes {
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+}
+
+impl ResizableBytes for HeapBytes {
+    fn resize(&mut self, new_len: usize, value: u8) {
+        self.0.resize(new_len, value);
+    }
+}
+
+impl<A: Zeroize + MutBytes + Default + ResizableBytes, LM: LockMode> ResizableBytes
+    for Protected<A, ReadWrite, LM>
+{
+    fn resize(&mut self, new_len: usize, value: u8) {
+        self.a.resize(new_len, value);
     }
 }
 
@@ -395,35 +491,45 @@ impl<A: Zeroize + MutBytes + Default, LM: LockMode> MutBytes for Protected<A, Re
     }
 }
 
-impl<const LENGTH: usize> ProtectedByteArray<LENGTH> {}
-
-impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8; LENGTH] {
         let arr = self.0.as_ptr() as *const [u8; LENGTH];
         unsafe { &*arr }
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         let arr = self.0.as_mut_ptr() as *mut [u8; LENGTH];
         unsafe { &mut *arr }
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsRef<[u8]> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> std::convert::AsRef<[u8]> for HeapByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsMut<[u8]> for ProtectedByteArray<LENGTH> {
+impl std::convert::AsRef<[u8]> for HeapBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl<const LENGTH: usize> std::convert::AsMut<[u8]> for HeapByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.0.as_mut()
     }
 }
 
-impl<const LENGTH: usize> std::ops::Deref for ProtectedByteArray<LENGTH> {
+impl std::convert::AsMut<[u8]> for HeapBytes {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
+impl<const LENGTH: usize> std::ops::Deref for HeapByteArray<LENGTH> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -431,20 +537,20 @@ impl<const LENGTH: usize> std::ops::Deref for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> std::ops::DerefMut for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> std::ops::DerefMut for HeapByteArray<LENGTH> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const LENGTH: usize> std::ops::Index<usize> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> std::ops::Index<usize> for HeapByteArray<LENGTH> {
     type Output = u8;
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
     }
 }
-impl<const LENGTH: usize> std::ops::IndexMut<usize> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> std::ops::IndexMut<usize> for HeapByteArray<LENGTH> {
     #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.0[index]
@@ -453,14 +559,14 @@ impl<const LENGTH: usize> std::ops::IndexMut<usize> for ProtectedByteArray<LENGT
 
 macro_rules! impl_index {
     ($range:ty) => {
-        impl<const LENGTH: usize> std::ops::Index<$range> for ProtectedByteArray<LENGTH> {
+        impl<const LENGTH: usize> std::ops::Index<$range> for HeapByteArray<LENGTH> {
             type Output = [u8];
             #[inline]
             fn index(&self, index: $range) -> &Self::Output {
                 &self.0[index]
             }
         }
-        impl<const LENGTH: usize> std::ops::IndexMut<$range> for ProtectedByteArray<LENGTH> {
+        impl<const LENGTH: usize> std::ops::IndexMut<$range> for HeapByteArray<LENGTH> {
             #[inline]
             fn index_mut(&mut self, index: $range) -> &mut Self::Output {
                 &mut self.0[index]
@@ -476,7 +582,7 @@ impl_index!(std::ops::RangeInclusive<usize>);
 impl_index!(std::ops::RangeTo<usize>);
 impl_index!(std::ops::RangeToInclusive<usize>);
 
-impl<const LENGTH: usize> Default for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> Default for HeapByteArray<LENGTH> {
     fn default() -> Self {
         let mut v = Vec::new_in(PageAlignedAllocator);
         v.resize(LENGTH, 0);
@@ -484,7 +590,13 @@ impl<const LENGTH: usize> Default for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> From<&[u8; LENGTH]> for ProtectedByteArray<LENGTH> {
+impl Default for HeapBytes {
+    fn default() -> Self {
+        Self(Vec::new_in(PageAlignedAllocator))
+    }
+}
+
+impl<const LENGTH: usize> From<&[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn from(src: &[u8; LENGTH]) -> Self {
         let mut arr = Self::default();
         arr.0.copy_from_slice(src);
@@ -492,13 +604,13 @@ impl<const LENGTH: usize> From<&[u8; LENGTH]> for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> From<[u8; LENGTH]> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> From<[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn from(src: [u8; LENGTH]) -> Self {
         Self::from(&src)
     }
 }
 
-impl<const LENGTH: usize> TryFrom<&[u8]> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> TryFrom<&[u8]> for HeapByteArray<LENGTH> {
     type Error = error::Error;
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
@@ -516,7 +628,7 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> ByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> ByteArray<LENGTH> for HeapByteArray<LENGTH> {
     fn as_array(&self) -> &[u8; LENGTH] {
         // this is safe for fixed-length arrays
         let ptr = self.0.as_ptr() as *const [u8; LENGTH];
@@ -524,7 +636,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> MutByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
+impl<const LENGTH: usize> MutByteArray<LENGTH> for HeapByteArray<LENGTH> {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         // this is safe for fixed-length arrays
         let ptr = self.0.as_ptr() as *mut [u8; LENGTH];
@@ -533,7 +645,21 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for ProtectedByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<ProtectedByteArray<LENGTH>, ReadOnly, Unlocked>
+    for Protected<HeapByteArray<LENGTH>, ReadOnly, Unlocked>
+{
+    fn as_array(&self) -> &[u8; LENGTH] {
+        self.a.as_array()
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH> for Protected<HeapByteArray<LENGTH>, ReadOnly, Locked> {
+    fn as_array(&self) -> &[u8; LENGTH] {
+        self.a.as_array()
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
     fn as_array(&self) -> &[u8; LENGTH] {
         self.a.as_array()
@@ -541,23 +667,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<ProtectedByteArray<LENGTH>, ReadOnly, Locked>
-{
-    fn as_array(&self) -> &[u8; LENGTH] {
-        self.a.as_array()
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked>
-{
-    fn as_array(&self) -> &[u8; LENGTH] {
-        self.a.as_array()
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
     fn as_array(&self) -> &[u8; LENGTH] {
         self.a.as_array()
@@ -565,7 +675,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH>
-    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         self.a.as_mut_array()
@@ -573,7 +683,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH>
-    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         self.a.as_mut_array()
@@ -581,7 +691,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
-    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         self.a.as_mut()
@@ -589,7 +699,7 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
 }
 
 impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
-    for Protected<ProtectedByteArray<LENGTH>, ReadWrite, Unlocked>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         self.a.as_mut()
@@ -598,13 +708,21 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
 
 impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Drop for Protected<A, PM, LM> {
     fn drop(&mut self) {
-        dryoc_mprotect_readwrite(self.a.as_mut_slice())
-            .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
-            .ok();
-        self.a.zeroize();
-        dryoc_munlock(self.a.as_slice())
-            .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-            .ok();
+        if self.a.as_slice().len() > 0 {
+            dryoc_mprotect_readwrite(self.a.as_mut_slice())
+                .map_err(|err| {
+                    eprintln!("mprotect_readwrite error on drop = {:?}", err);
+                    panic!("mprotect");
+                })
+                .ok();
+            self.a.zeroize();
+            dryoc_munlock(self.a.as_slice())
+                .map_err(|err| {
+                    eprintln!("dryoc_munlock error on drop = {:?}", err);
+                    panic!("munlock");
+                })
+                .ok();
+        }
     }
 }
 
