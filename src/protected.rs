@@ -438,11 +438,15 @@ lazy_static! {
     };
 }
 
+fn _page_round(size: usize, pagesize: usize) -> usize {
+    size + (pagesize - size % pagesize)
+}
+
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<ptr::NonNull<[u8]>, AllocError> {
         let pagesize = *PAGESIZE;
-        let size = layout.size() + 3 * pagesize;
+        let size = _page_round(layout.size(), pagesize) + 2 * pagesize;
         #[cfg(unix)]
         let out = {
             use libc::posix_memalign;
@@ -471,13 +475,6 @@ unsafe impl Allocator for PageAlignedAllocator {
             }
         };
 
-        let slice = unsafe {
-            std::slice::from_raw_parts_mut(
-                out.offset(2 * pagesize as isize) as *mut u8,
-                layout.size(),
-            )
-        };
-
         // lock the pages at the fore of the region
         let fore_protected_region =
             unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
@@ -486,23 +483,28 @@ unsafe impl Allocator for PageAlignedAllocator {
             .ok();
 
         // lock the pages at the aft of the region
-        let aft_protected_region_start = size - pagesize;
+        let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
         let aft_protected_region = unsafe {
             std::slice::from_raw_parts_mut(
-                (out.offset(aft_protected_region_start as isize)) as *mut u8,
+                (out.offset(aft_protected_region_offset as isize)) as *mut u8,
                 pagesize,
             )
         };
         dryoc_mprotect_noaccess(aft_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
             .ok();
+
+        let slice = unsafe {
+            std::slice::from_raw_parts_mut(out.offset(pagesize as isize) as *mut u8, layout.size())
+        };
+
         unsafe { Ok(ptr::NonNull::new_unchecked(slice)) }
     }
     #[inline]
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         let pagesize = *PAGESIZE;
 
-        let ptr = ptr.as_ptr().offset(-(2 * pagesize as isize));
+        let ptr = ptr.as_ptr().offset(-(pagesize as isize));
 
         // unlock the fore protected region
         let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
@@ -511,10 +513,9 @@ unsafe impl Allocator for PageAlignedAllocator {
             .ok();
 
         // unlock the aft protected region
-        let aft_protected_region_start =
-            layout.size() + (pagesize - layout.size() % pagesize) + pagesize;
+        let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
         let aft_protected_region = std::slice::from_raw_parts_mut(
-            (ptr.offset(aft_protected_region_start as isize)) as *mut u8,
+            (ptr.offset(aft_protected_region_offset as isize)) as *mut u8,
             pagesize,
         );
 
