@@ -146,10 +146,10 @@ fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
         use winapi::um::memoryapi::VirtualProtect;
         use winapi::um::winnt::PAGE_READONLY;
 
-        let old: DWORD = 0;
+        let mut old: DWORD = 0;
 
         let res =
-            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READONLY, &old) };
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READONLY, &mut old) };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -179,10 +179,16 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
         use winapi::um::memoryapi::VirtualProtect;
         use winapi::um::winnt::PAGE_READWRITE;
 
-        let old: DWORD = 0;
+        let mut old: DWORD = 0;
 
-        let res =
-            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READWRITE, &old) };
+        let res = unsafe {
+            VirtualProtect(
+                data.as_ptr() as LPVOID,
+                data.len(),
+                PAGE_READWRITE,
+                &mut old,
+            )
+        };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -207,10 +213,10 @@ fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
         use winapi::um::memoryapi::VirtualProtect;
         use winapi::um::winnt::PAGE_NOACCESS;
 
-        let old: DWORD = 0;
+        let mut old: DWORD = 0;
 
         let res =
-            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_NOACCESS, &old) };
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_NOACCESS, &mut old) };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
