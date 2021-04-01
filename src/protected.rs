@@ -72,7 +72,9 @@ fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
         {
             // tell the kernel not to include this memory in a core dump
             use libc::{madvise, MADV_DONTDUMP};
-            madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DONTDUMP);
+            unsafe {
+                madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DONTDUMP);
+            }
         }
 
         use libc::{c_void, mlock as c_mlock};
@@ -102,7 +104,9 @@ fn dryoc_munlock(data: &mut [u8]) -> Result<(), std::io::Error> {
         {
             // undo MADV_DONTDUMP
             use libc::{madvise, MADV_DODUMP};
-            madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DODUMP);
+            unsafe {
+                madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DODUMP);
+            }
         }
 
         use libc::{c_void, munlock as c_munlock};
