@@ -30,6 +30,7 @@ winapi = {version = "0.3", features = [
   "impl-default",
   "memoryapi",
   "minwindef",
+  "std",
   "sysinfoapi",
   "winnt",
 ]}
