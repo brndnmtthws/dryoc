@@ -13,7 +13,6 @@ use crate::types::*;
 #[cfg(all(feature = "serde", feature = "base64"))]
 use crate::bytes_serde::*;
 
-use libc::c_void;
 use std::alloc::{AllocError, Allocator, Layout};
 use std::convert::TryFrom;
 use std::convert::{AsMut, AsRef};
@@ -69,29 +68,48 @@ pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockM
 fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
-        use libc::mlock;
-        let ret = unsafe { mlock(data.as_ptr() as *const c_void, data.len()) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        #[cfg(target_os = "linux")]
+        {
+            // tell the kernel not to include this memory in a core dump
+            use libc::{madvise, MADV_DONTDUMP};
+            madvise(data.as_ptr() as *const c_void, data.len(), MADV_DONTDUMP);
+        }
+
+        use libc::{c_void, mlock as c_mlock};
+        let ret = unsafe { c_mlock(data.as_ptr() as *const c_void, data.len()) };
+        match ret {
+            0 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
         }
     }
     #[cfg(windows)]
     {
-        unimplemented!()
+        use winapi::shared::minwindef::LPVOID;
+        use winapi::um::memoryapi::VirtualLock;
+
+        let res = unsafe { VirtualLock(data.as_ptr() as LPVOID, data.len()) };
+        match res {
+            1 => Ok(()),
+            0 => Err(std::io::Error::last_os_error()),
+        }
     }
 }
 
 fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
-        use libc::munlock;
-        let ret = unsafe { munlock(data.as_ptr() as *const c_void, data.len()) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        #[cfg(target_os = "linux")]
+        {
+            // undo MADV_DONTDUMP
+            use libc::{madvise, MADV_DODUMP};
+            madvise(data.as_ptr() as *const c_void, data.len(), MADV_DODUMP);
+        }
+
+        use libc::{c_void, munlock as c_munlock};
+        let ret = unsafe { c_munlock(data.as_ptr() as *const c_void, data.len()) };
+        match ret {
+            0 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
         }
     }
     #[cfg(windows)]
@@ -103,14 +121,12 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
 fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
-        use libc::mprotect as c_mprotect;
-        use libc::PROT_READ;
+        use libc::{c_void, mprotect as c_mprotect, PROT_READ};
         let ret =
             unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_READ) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        match ret {
+            0 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
         }
     }
     #[cfg(windows)]
@@ -122,8 +138,7 @@ fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
 fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
-        use libc::mprotect as c_mprotect;
-        use libc::{PROT_READ, PROT_WRITE};
+        use libc::{c_void, mprotect as c_mprotect, PROT_READ, PROT_WRITE};
         let ret = unsafe {
             c_mprotect(
                 data.as_mut_ptr() as *mut c_void,
@@ -131,10 +146,9 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
                 PROT_READ | PROT_WRITE,
             )
         };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        match ret {
+            0 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
         }
     }
     #[cfg(windows)]
@@ -146,14 +160,12 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
 fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
-        use libc::mprotect as c_mprotect;
-        use libc::PROT_NONE;
+        use libc::{c_void, mprotect as c_mprotect, PROT_NONE};
         let ret =
             unsafe { c_mprotect(data.as_mut_ptr() as *mut c_void, data.len() - 1, PROT_NONE) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        match ret {
+            0 => Ok(()),
+            _ => Err(std::io::Error::last_os_error()),
         }
     }
     #[cfg(windows)]
@@ -339,13 +351,28 @@ impl Lockable<HeapBytes> for HeapBytes {
 #[derive(Clone)]
 pub struct PageAlignedAllocator;
 
+fn get_pagesize() -> usize {
+    #[cfg(unix)]
+    {
+        use libc::{sysconf, _SC_PAGE_SIZE};
+        unsafe { sysconf(_SC_PAGE_SIZE) as usize }
+    }
+    #[cfg(windows)]
+    {
+        use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
+        let mut si = SYSTEM_INFO::default();
+        unsafe { GetSystemInfo(&mut si) };
+        si.dwPageSize as usize
+    }
+}
+
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<ptr::NonNull<[u8]>, AllocError> {
         #[cfg(unix)]
         {
-            use libc::{posix_memalign, sysconf, _SC_PAGE_SIZE};
-            let pagesize = unsafe { sysconf(_SC_PAGE_SIZE) } as usize;
+            use libc::posix_memalign;
+            let pagesize = get_pagesize();
             let mut out = ptr::null_mut();
 
             // allocate full pages, in addition to an extra page at the start and
@@ -361,6 +388,7 @@ unsafe impl Allocator for PageAlignedAllocator {
                         layout.size(),
                     )
                 };
+
                 // lock the pages at the fore of the region
                 let fore_protected_region =
                     unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
@@ -398,8 +426,7 @@ unsafe impl Allocator for PageAlignedAllocator {
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         #[cfg(unix)]
         {
-            use libc::{sysconf, _SC_PAGE_SIZE};
-            let pagesize = sysconf(_SC_PAGE_SIZE) as usize;
+            let pagesize = get_pagesize();
 
             let ptr = ptr.as_ptr().offset(-(pagesize as isize));
 
@@ -528,8 +555,21 @@ impl ResizableBytes for HeapBytes {
     }
 }
 
-impl<A: Zeroize + MutBytes + Default + ResizableBytes, LM: LockMode> ResizableBytes
-    for Protected<A, ReadWrite, LM>
+impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBytes
+    for Protected<A, ReadWrite, Locked>
+{
+    fn resize(&mut self, new_len: usize, value: u8) {
+        // because it's locked, we'll do a swaparoo here instead of a plain resize
+        let mut new = A::new_locked().expect("resize failed");
+        new.a.resize(new_len, value);
+        let len_to_copy = std::cmp::min(new_len, self.a.as_slice().len());
+        new.a.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
+        std::mem::swap(&mut new.a, &mut self.a);
+    }
+}
+
+impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBytes
+    for Protected<A, ReadWrite, Unlocked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
         self.a.resize(new_len, value);
