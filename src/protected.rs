@@ -20,6 +20,7 @@ use crate::types::*;
 #[cfg(all(feature = "serde", feature = "base64"))]
 use crate::bytes_serde::*;
 
+use lazy_static::lazy_static;
 use std::alloc::{AllocError, Allocator, Layout};
 use std::convert::TryFrom;
 use std::convert::{AsMut, AsRef};
@@ -420,26 +421,28 @@ impl Lockable<HeapBytes> for HeapBytes {
 #[derive(Clone)]
 pub struct PageAlignedAllocator;
 
-fn get_pagesize() -> usize {
-    #[cfg(unix)]
-    {
-        use libc::{sysconf, _SC_PAGE_SIZE};
-        unsafe { sysconf(_SC_PAGE_SIZE) as usize }
-    }
-    #[cfg(windows)]
-    {
-        use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
-        let mut si = SYSTEM_INFO::default();
-        unsafe { GetSystemInfo(&mut si) };
-        si.dwPageSize as usize
-    }
+lazy_static! {
+    static ref PAGESIZE: usize = {
+        #[cfg(unix)]
+        {
+            use libc::{sysconf, _SC_PAGE_SIZE};
+            unsafe { sysconf(_SC_PAGE_SIZE) as usize }
+        }
+        #[cfg(windows)]
+        {
+            use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
+            let mut si = SYSTEM_INFO::default();
+            unsafe { GetSystemInfo(&mut si) };
+            si.dwPageSize as usize
+        }
+    };
 }
 
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<ptr::NonNull<[u8]>, AllocError> {
-        let pagesize = get_pagesize();
-        let size = layout.size() + (pagesize - layout.size() % pagesize) + 2 * pagesize;
+        let pagesize = *PAGESIZE;
+        let size = layout.size() + 3 * pagesize;
         #[cfg(unix)]
         let out = {
             use libc::posix_memalign;
@@ -469,7 +472,10 @@ unsafe impl Allocator for PageAlignedAllocator {
         };
 
         let slice = unsafe {
-            std::slice::from_raw_parts_mut(out.offset(pagesize as isize) as *mut u8, layout.size())
+            std::slice::from_raw_parts_mut(
+                out.offset(2 * pagesize as isize) as *mut u8,
+                layout.size(),
+            )
         };
 
         // lock the pages at the fore of the region
@@ -494,9 +500,9 @@ unsafe impl Allocator for PageAlignedAllocator {
     }
     #[inline]
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
-        let pagesize = get_pagesize();
+        let pagesize = *PAGESIZE;
 
-        let ptr = ptr.as_ptr().offset(-(pagesize as isize));
+        let ptr = ptr.as_ptr().offset(-(2 * pagesize as isize));
 
         // unlock the fore protected region
         let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
