@@ -446,7 +446,14 @@ unsafe impl Allocator for PageAlignedAllocator {
         let out = {
             use winapi::um::memoryapi::VirtualAlloc;
             use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
-            unsafe { VirtualAlloc(ptr::null(), size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE) }
+            unsafe {
+                VirtualAlloc(
+                    ptr::null_mut(),
+                    size,
+                    MEM_COMMIT | MEM_RESERVE,
+                    PAGE_READWRITE,
+                )
+            }
         };
 
         let slice = unsafe {
