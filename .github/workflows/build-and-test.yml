@@ -53,6 +53,8 @@ jobs:
           args: --features ${{ env.FEATURES }}
       - name: Test
         uses: actions-rs/cargo@v1
+        env:
+          RUST_BACKTRACE: 1
         with:
           command: test
           args: --features ${{ env.FEATURES }}
