@@ -469,30 +469,24 @@ unsafe impl Allocator for PageAlignedAllocator {
         };
 
         let slice = unsafe {
-            std::slice::from_raw_parts_mut(out.offset(pagesize as isize) as *mut u8, size)
+            std::slice::from_raw_parts_mut(out.offset(pagesize as isize) as *mut u8, layout.size())
         };
 
         // lock the pages at the fore of the region
         let fore_protected_region =
             unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
-        dryoc_mlock(fore_protected_region)
-            .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
-            .ok();
         dryoc_mprotect_noaccess(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
             .ok();
 
         // lock the pages at the aft of the region
-        let aft_protected_region_start = size + (pagesize - size % pagesize) + pagesize;
+        let aft_protected_region_start = size - pagesize;
         let aft_protected_region = unsafe {
             std::slice::from_raw_parts_mut(
                 (out.offset(aft_protected_region_start as isize)) as *mut u8,
                 pagesize,
             )
         };
-        dryoc_mlock(aft_protected_region)
-            .map_err(|err| eprintln!("mlock error = {:?}, in allocator", err))
-            .ok();
         dryoc_mprotect_noaccess(aft_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
             .ok();
@@ -506,9 +500,6 @@ unsafe impl Allocator for PageAlignedAllocator {
 
         // unlock the fore protected region
         let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
-        dryoc_munlock(fore_protected_region)
-            .map_err(|err| eprintln!("mlock error = {:?}", err))
-            .ok();
         dryoc_mprotect_readwrite(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
             .ok();
@@ -521,9 +512,6 @@ unsafe impl Allocator for PageAlignedAllocator {
             pagesize,
         );
 
-        dryoc_munlock(aft_protected_region)
-            .map_err(|err| eprintln!("mlock error = {:?}", err))
-            .ok();
         dryoc_mprotect_readwrite(aft_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
             .ok();
