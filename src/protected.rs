@@ -510,7 +510,7 @@ unsafe impl Allocator for PageAlignedAllocator {
         {
             use winapi::shared::minwindef::LPVOID;
             use winapi::um::memoryapi::VirtualFree;
-            use winapi::um::winnt::{MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE};
+            use winapi::um::winnt::MEM_RELEASE;
             unsafe { VirtualFree(ptr as LPVOID, 0, MEM_RELEASE) };
         }
     }
