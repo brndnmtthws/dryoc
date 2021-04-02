@@ -78,16 +78,20 @@ mod int {
         ReadWrite,
         NoAccess,
     }
+
+    pub(super) struct InternalData<A> {
+        pub(super) a: A,
+        pub(super) lm: LockMode,
+        pub(super) pm: ProtectMode,
+    }
 }
 
 /// Holds a protected region of memory. Does not implement traits such as [Copy],
 /// [Clone], or [std::fmt::Debug].
 pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
-    a: A,
+    i: Option<int::InternalData<A>>,
     p: PhantomData<PM>,
     l: PhantomData<LM>,
-    lm: int::LockMode,
-    pm: int::ProtectMode,
 }
 
 fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
@@ -281,43 +285,68 @@ fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
     }
 }
 
+impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Protected<A, PM, LM> {
+    fn new() -> Self {
+        Self {
+            i: None,
+            p: PhantomData,
+            l: PhantomData,
+        }
+    }
+    fn new_with(a: A) -> Self {
+        Self {
+            i: Some(int::InternalData {
+                a,
+                lm: int::LockMode::Unlocked,
+                pm: int::ProtectMode::ReadWrite,
+            }),
+            p: PhantomData,
+            l: PhantomData,
+        }
+    }
+    fn swap_some_or_err<F, OPM: ProtectMode, OLM: LockMode>(
+        &mut self,
+        f: F,
+    ) -> Result<Protected<A, OPM, OLM>, std::io::Error>
+    where
+        F: Fn(&mut int::InternalData<A>) -> Result<Protected<A, OPM, OLM>, std::io::Error>,
+    {
+        match &mut self.i {
+            Some(d) => {
+                let mut new = f(d)?;
+                // swap into new struct
+                std::mem::swap(&mut new.i, &mut self.i);
+                Ok(new)
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unexpected empty internal struct",
+            )),
+        }
+    }
+}
+
 impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Unlock<A, PM>
     for Protected<A, PM, LM>
 {
     fn munlock(mut self) -> Result<Protected<A, PM, Unlocked>, std::io::Error> {
-        let mut new = Protected::<A, PM, Unlocked> {
-            a: A::default(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: int::LockMode::Unlocked,
-            pm: self.pm.clone(),
-        };
-        dryoc_munlock(self.a.as_mut_slice())?;
-        // swap into new struct
-        std::mem::swap(&mut new.a, &mut self.a);
-        // memory in old (swapped) array is unlocked & RW
-        self.lm = int::LockMode::Unlocked;
-        self.pm = int::ProtectMode::ReadWrite;
-        Ok(new)
+        self.swap_some_or_err(|old| {
+            dryoc_munlock(old.a.as_mut_slice())?;
+            // update internal state
+            old.lm = int::LockMode::Unlocked;
+            Ok(Protected::<A, PM, Unlocked>::new())
+        })
     }
 }
 
 impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> Lock<A, PM> for Protected<A, PM, Unlocked> {
     fn mlock(mut self) -> Result<Protected<A, PM, Locked>, std::io::Error> {
-        let mut new = Protected::<A, PM, Locked> {
-            a: A::default(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: int::LockMode::Locked,
-            pm: self.pm.clone(),
-        };
-        dryoc_mlock(self.a.as_mut_slice())?;
-        // swap into new struct
-        std::mem::swap(&mut new.a, &mut self.a);
-        // memory in old (swapped) array is unlocked & RW
-        self.lm = int::LockMode::Unlocked;
-        self.pm = int::ProtectMode::ReadWrite;
-        Ok(new)
+        self.swap_some_or_err(|old| {
+            dryoc_mlock(old.a.as_mut_slice())?;
+            // update internal state
+            old.lm = int::LockMode::Locked;
+            Ok(Protected::<A, PM, Locked>::new())
+        })
     }
 }
 
@@ -325,20 +354,12 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
     for Protected<A, PM, LM>
 {
     fn mprotect_readonly(mut self) -> Result<Protected<A, ReadOnly, LM>, std::io::Error> {
-        let mut new = Protected::<A, ReadOnly, LM> {
-            a: A::default(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: self.lm.clone(),
-            pm: int::ProtectMode::ReadOnly,
-        };
-        dryoc_mprotect_readonly(self.a.as_mut_slice())?;
-        // swap into new struct
-        std::mem::swap(&mut new.a, &mut self.a);
-        // memory in old (swapped) array is unlocked & RW
-        self.lm = int::LockMode::Unlocked;
-        self.pm = int::ProtectMode::ReadWrite;
-        Ok(new)
+        self.swap_some_or_err(|old| {
+            dryoc_mprotect_readonly(old.a.as_mut_slice())?;
+            // update internal state
+            old.pm = int::ProtectMode::ReadOnly;
+            Ok(Protected::<A, ReadOnly, LM>::new())
+        })
     }
 }
 
@@ -346,20 +367,12 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
     for Protected<A, PM, LM>
 {
     fn mprotect_readwrite(mut self) -> Result<Protected<A, ReadWrite, LM>, std::io::Error> {
-        let mut new = Protected::<A, ReadWrite, LM> {
-            a: A::default(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: self.lm.clone(),
-            pm: int::ProtectMode::ReadWrite,
-        };
-        dryoc_mprotect_readwrite(self.a.as_mut_slice())?;
-        // swap into new struct
-        std::mem::swap(&mut new.a, &mut self.a);
-        // memory in old (swapped) array is unlocked & RW
-        self.lm = int::LockMode::Unlocked;
-        self.pm = int::ProtectMode::ReadWrite;
-        Ok(new)
+        self.swap_some_or_err(|old| {
+            dryoc_mprotect_readwrite(old.a.as_mut_slice())?;
+            // update internal state
+            old.pm = int::ProtectMode::ReadWrite;
+            Ok(Protected::<A, ReadWrite, LM>::new())
+        })
     }
 }
 
@@ -367,20 +380,12 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> ProtectNoAccess<A, PM>
     for Protected<A, PM, Unlocked>
 {
     fn mprotect_noaccess(mut self) -> Result<Protected<A, NoAccess, Unlocked>, std::io::Error> {
-        let mut new = Protected::<A, NoAccess, Unlocked> {
-            a: A::default(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: self.lm.clone(),
-            pm: int::ProtectMode::NoAccess,
-        };
-        dryoc_mprotect_noaccess(self.a.as_mut_slice())?;
-        // swap into new struct
-        std::mem::swap(&mut new.a, &mut self.a);
-        // memory in old (swapped) array is unlocked & RW
-        self.lm = int::LockMode::Unlocked;
-        self.pm = int::ProtectMode::ReadWrite;
-        Ok(new)
+        self.swap_some_or_err(|old| {
+            dryoc_mprotect_noaccess(old.a.as_mut_slice())?;
+            // update internal state
+            old.pm = int::ProtectMode::NoAccess;
+            Ok(Protected::<A, NoAccess, Unlocked>::new())
+        })
     }
 }
 
@@ -388,7 +393,7 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> AsRef<[u8]>
     for Protected<A, PM, LM>
 {
     fn as_ref(&self) -> &[u8] {
-        self.a.as_ref()
+        self.i.as_ref().unwrap().a.as_ref()
     }
 }
 
@@ -396,19 +401,19 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> AsMut<[u8]>
     for Protected<A, PM, LM>
 {
     fn as_mut(&mut self) -> &mut [u8] {
-        self.a.as_mut()
+        self.i.as_mut().unwrap().a.as_mut()
     }
 }
 
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
     fn as_slice(&self) -> &[u8] {
-        self.a.as_slice()
+        self.i.as_ref().unwrap().a.as_slice()
     }
 }
 
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
     fn as_slice(&self) -> &[u8] {
-        self.a.as_slice()
+        self.i.as_ref().unwrap().a.as_slice()
     }
 }
 
@@ -433,58 +438,31 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     pub fn mlock(
         self,
     ) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
-        let protected = Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked> {
-            a: self.into(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: int::LockMode::Unlocked,
-            pm: int::ProtectMode::ReadWrite,
-        };
-        protected.mlock()
+        Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked>::new_with(self.into()).mlock()
     }
 }
 
 impl<const LENGTH: usize> StackByteArray<LENGTH> {
-    /// Locks a [StackByteArray], consuming it, and returning a [Protected] wrapper.
+    /// Returns a readonly protected [StackByteArray].
     pub fn mprotect_readonly(
         self,
-    ) -> Result<Protected<HeapByteArray<LENGTH>, ReadOnly, Locked>, std::io::Error> {
-        let protected = Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked> {
-            a: self.into(),
-            p: PhantomData,
-            l: PhantomData,
-            lm: int::LockMode::Unlocked,
-            pm: int::ProtectMode::ReadWrite,
-        };
-        protected.mlock().and_then(|p| p.mprotect_readonly())
+    ) -> Result<Protected<HeapByteArray<LENGTH>, ReadOnly, Unlocked>, std::io::Error> {
+        Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked>::new_with(self.into())
+            .mprotect_readonly()
     }
 }
 
 impl<const LENGTH: usize> Lockable<HeapByteArray<LENGTH>> for HeapByteArray<LENGTH> {
     /// Locks a [HeapByteArray], and returns a [Protected] wrapper.
     fn mlock(self) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
-        let protected = Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked> {
-            a: self,
-            p: PhantomData,
-            l: PhantomData,
-            lm: int::LockMode::Unlocked,
-            pm: int::ProtectMode::ReadWrite,
-        };
-        protected.mlock()
+        Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked>::new_with(self).mlock()
     }
 }
 
 impl Lockable<HeapBytes> for HeapBytes {
     /// Locks a [HeapBytes], and returns a [Protected] wrapper.
     fn mlock(self) -> Result<Protected<HeapBytes, ReadWrite, Locked>, std::io::Error> {
-        let protected = Protected::<HeapBytes, ReadWrite, Unlocked> {
-            a: self,
-            p: PhantomData,
-            l: PhantomData,
-            lm: int::LockMode::Unlocked,
-            pm: int::ProtectMode::ReadWrite,
-        };
-        protected.mlock()
+        Protected::<HeapBytes, ReadWrite, Unlocked>::new_with(self).mlock()
     }
 }
 
@@ -703,15 +681,22 @@ impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBy
     for Protected<A, ReadWrite, Locked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
-        // because it's locked, we'll do a swaparoo here instead of a plain resize
-        let mut new = A::default();
-        new.resize(new_len, value);
-        // need to actually lock the memory now
-        let mut locked = new.mlock().expect("unable to lock on resize");
-        let len_to_copy = std::cmp::min(new_len, self.a.as_slice().len());
-        locked.a.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
-        std::mem::swap(&mut locked.a, &mut self.a);
-        // when dropped, the old region will unlock automatically in Drop
+        match &mut self.i {
+            Some(d) => {
+                // because it's locked, we'll do a swaparoo here instead of a plain resize
+                let mut new = A::default();
+                // resize the new array
+                new.resize(new_len, value);
+                // need to actually lock the memory now, because it was previously locked
+                let mut locked = new.mlock().expect("unable to lock on resize");
+                let len_to_copy = std::cmp::min(new_len, d.a.as_slice().len());
+                locked.i.as_mut().unwrap().a.as_mut_slice()[..len_to_copy]
+                    .copy_from_slice(&d.a.as_slice()[..len_to_copy]);
+                std::mem::swap(&mut locked.i, &mut self.i);
+                // when dropped, the old region will unlock automatically in Drop
+            }
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -719,13 +704,19 @@ impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBy
     for Protected<A, ReadWrite, Unlocked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
-        self.a.resize(new_len, value);
+        match &mut self.i {
+            Some(d) => d.a.resize(new_len, value),
+            None => panic!("invalid array"),
+        }
     }
 }
 
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> MutBytes for Protected<A, ReadWrite, LM> {
     fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.a.as_mut_slice()
+        match &mut self.i {
+            Some(d) => d.a.as_mut_slice(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -886,13 +877,19 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadOnly, Unlocked>
 {
     fn as_array(&self) -> &[u8; LENGTH] {
-        self.a.as_array()
+        match &self.i {
+            Some(d) => d.a.as_array(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for Protected<HeapByteArray<LENGTH>, ReadOnly, Locked> {
     fn as_array(&self) -> &[u8; LENGTH] {
-        self.a.as_array()
+        match &self.i {
+            Some(d) => d.a.as_array(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -900,7 +897,10 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
     fn as_array(&self) -> &[u8; LENGTH] {
-        self.a.as_array()
+        match &self.i {
+            Some(d) => d.a.as_array(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -908,7 +908,10 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
     fn as_array(&self) -> &[u8; LENGTH] {
-        self.a.as_array()
+        match &self.i {
+            Some(d) => d.a.as_array(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -916,7 +919,10 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        self.a.as_mut_array()
+        match &mut self.i {
+            Some(d) => d.a.as_mut_array(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -924,7 +930,10 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        self.a.as_mut_array()
+        match &mut self.i {
+            Some(d) => d.a.as_mut_array(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -932,7 +941,10 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
-        self.a.as_mut()
+        match &mut self.i {
+            Some(d) => d.a.as_mut(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
@@ -940,24 +952,34 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
-        self.a.as_mut()
+        match &mut self.i {
+            Some(d) => d.a.as_mut(),
+            None => panic!("invalid array"),
+        }
     }
 }
 
 impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Drop for Protected<A, PM, LM> {
     fn drop(&mut self) {
-        if self.a.as_slice().len() > 0 {
-            if self.pm != int::ProtectMode::ReadWrite {
-                dryoc_mprotect_readwrite(self.a.as_mut_slice())
-                    .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
-                    .ok();
+        match &mut self.i {
+            Some(d) => {
+                if d.a.as_slice().len() > 0 {
+                    if d.pm != int::ProtectMode::ReadWrite {
+                        dryoc_mprotect_readwrite(d.a.as_mut_slice())
+                            .map_err(|err| {
+                                eprintln!("mprotect_readwrite error on drop = {:?}", err)
+                            })
+                            .ok();
+                    }
+                    d.a.zeroize();
+                    if d.lm == int::LockMode::Locked {
+                        dryoc_munlock(d.a.as_mut_slice())
+                            .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
+                            .ok();
+                    }
+                }
             }
-            self.a.zeroize();
-            if self.lm == int::LockMode::Locked {
-                dryoc_munlock(self.a.as_mut_slice())
-                    .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-                    .ok();
-            }
+            None => (),
         }
     }
 }
