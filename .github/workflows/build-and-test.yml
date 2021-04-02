@@ -58,13 +58,13 @@ jobs:
         with:
           command: test
           args: --features ${{ env.FEATURES }}
-      # - name: Rustfmt
-      #   uses: actions-rs/cargo@v1
-      #   with:
-      #     command: fmt
-      #     args: --all -- --check
-      # - name: Clippy
-      #   uses: actions-rs/cargo@v1
-      #   with:
-      #     command: clippy
-      #     args: --features ${{ env.FEATURES }} -- -D warnings
+      - name: Rustfmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --features ${{ env.FEATURES }} -- -D warnings

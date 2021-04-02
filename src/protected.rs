@@ -711,6 +711,7 @@ impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBy
         let len_to_copy = std::cmp::min(new_len, self.a.as_slice().len());
         locked.a.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
         std::mem::swap(&mut locked.a, &mut self.a);
+        // when dropped, the old region will unlock automatically in Drop
     }
 }
 
