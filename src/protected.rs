@@ -65,12 +65,29 @@ pub trait ProtectNoAccess<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: 
     fn mprotect_noaccess(self) -> Result<Protected<A, NoAccess, LM>, std::io::Error>;
 }
 
+mod int {
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) enum LockMode {
+        Locked,
+        Unlocked,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) enum ProtectMode {
+        ReadOnly,
+        ReadWrite,
+        NoAccess,
+    }
+}
+
 /// Holds a protected region of memory. Does not implement traits such as [Copy],
 /// [Clone], or [std::fmt::Debug].
 pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
     a: A,
     p: PhantomData<PM>,
     l: PhantomData<LM>,
+    lm: int::LockMode,
+    pm: int::ProtectMode,
 }
 
 fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
@@ -252,6 +269,8 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Unlock<A, P
             a: A::default(),
             p: PhantomData,
             l: PhantomData,
+            lm: int::LockMode::Unlocked,
+            pm: self.pm.clone(),
         };
         dryoc_munlock(self.a.as_mut_slice())?;
         // swap into new struct
@@ -266,6 +285,8 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> Lock<A, PM> for Protected
             a: A::default(),
             p: PhantomData,
             l: PhantomData,
+            lm: int::LockMode::Locked,
+            pm: self.pm.clone(),
         };
         dryoc_mlock(self.a.as_mut_slice())?;
         // swap into new struct
@@ -282,6 +303,8 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
             a: A::default(),
             p: PhantomData,
             l: PhantomData,
+            lm: self.lm.clone(),
+            pm: int::ProtectMode::ReadOnly,
         };
         dryoc_mprotect_readonly(self.a.as_mut_slice())?;
         // swap into new struct
@@ -298,6 +321,8 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
             a: A::default(),
             p: PhantomData,
             l: PhantomData,
+            lm: self.lm.clone(),
+            pm: int::ProtectMode::ReadWrite,
         };
         dryoc_mprotect_readwrite(self.a.as_mut_slice())?;
         // swap into new struct
@@ -314,6 +339,8 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectNoAc
             a: A::default(),
             p: PhantomData,
             l: PhantomData,
+            lm: self.lm.clone(),
+            pm: int::ProtectMode::NoAccess,
         };
         dryoc_mprotect_noaccess(self.a.as_mut_slice())?;
         // swap into new struct
@@ -375,6 +402,8 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
             a: self.into(),
             p: PhantomData,
             l: PhantomData,
+            lm: int::LockMode::Unlocked,
+            pm: int::ProtectMode::ReadWrite,
         };
         protected.mlock()
     }
@@ -389,6 +418,8 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
             a: self.into(),
             p: PhantomData,
             l: PhantomData,
+            lm: int::LockMode::Unlocked,
+            pm: int::ProtectMode::ReadWrite,
         };
         protected.mlock().and_then(|p| p.mprotect_readonly())
     }
@@ -401,6 +432,8 @@ impl<const LENGTH: usize> Lockable<HeapByteArray<LENGTH>> for HeapByteArray<LENG
             a: self,
             p: PhantomData,
             l: PhantomData,
+            lm: int::LockMode::Unlocked,
+            pm: int::ProtectMode::ReadWrite,
         };
         protected.mlock()
     }
@@ -413,6 +446,8 @@ impl Lockable<HeapBytes> for HeapBytes {
             a: self,
             p: PhantomData,
             l: PhantomData,
+            lm: int::LockMode::Unlocked,
+            pm: int::ProtectMode::ReadWrite,
         };
         protected.mlock()
     }
@@ -874,13 +909,17 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
 impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Drop for Protected<A, PM, LM> {
     fn drop(&mut self) {
         if self.a.as_slice().len() > 0 {
-            dryoc_mprotect_readwrite(self.a.as_mut_slice())
-                .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
-                .ok();
+            if self.pm != int::ProtectMode::ReadWrite {
+                dryoc_mprotect_readwrite(self.a.as_mut_slice())
+                    .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
+                    .ok();
+            }
             self.a.zeroize();
-            dryoc_munlock(self.a.as_mut_slice())
-                .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-                .ok();
+            if self.lm == int::LockMode::Locked {
+                dryoc_munlock(self.a.as_mut_slice())
+                    .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
+                    .ok();
+            }
         }
     }
 }
