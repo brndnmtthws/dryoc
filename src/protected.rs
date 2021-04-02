@@ -1022,12 +1022,17 @@ mod tests {
     #[test]
     fn test_allocator() {
         let mut vec: Vec<i32, _> = Vec::new_in(PageAlignedAllocator);
+
         vec.push(1);
         vec.push(2);
         vec.push(3);
 
+        for i in 0..5000 {
+            vec.push(i);
+        }
+
         vec.resize(5, 0);
 
-        assert_eq!([1, 2, 3, 0, 0], vec.as_slice());
+        assert_eq!([1, 2, 3, 0, 1], vec.as_slice());
     }
 }
