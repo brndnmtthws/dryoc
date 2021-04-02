@@ -275,6 +275,9 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Unlock<A, P
         dryoc_munlock(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
+        // memory in old (swapped) array is unlocked & RW
+        self.lm = int::LockMode::Unlocked;
+        self.pm = int::ProtectMode::ReadWrite;
         Ok(new)
     }
 }
@@ -291,6 +294,9 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> Lock<A, PM> for Protected
         dryoc_mlock(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
+        // memory in old (swapped) array is unlocked & RW
+        self.lm = int::LockMode::Unlocked;
+        self.pm = int::ProtectMode::ReadWrite;
         Ok(new)
     }
 }
@@ -309,6 +315,9 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
         dryoc_mprotect_readonly(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
+        // memory in old (swapped) array is unlocked & RW
+        self.lm = int::LockMode::Unlocked;
+        self.pm = int::ProtectMode::ReadWrite;
         Ok(new)
     }
 }
@@ -327,6 +336,9 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
         dryoc_mprotect_readwrite(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
+        // memory in old (swapped) array is unlocked & RW
+        self.lm = int::LockMode::Unlocked;
+        self.pm = int::ProtectMode::ReadWrite;
         Ok(new)
     }
 }
@@ -345,6 +357,9 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectNoAc
         dryoc_mprotect_noaccess(self.a.as_mut_slice())?;
         // swap into new struct
         std::mem::swap(&mut new.a, &mut self.a);
+        // memory in old (swapped) array is unlocked & RW
+        self.lm = int::LockMode::Unlocked;
+        self.pm = int::ProtectMode::ReadWrite;
         Ok(new)
     }
 }
