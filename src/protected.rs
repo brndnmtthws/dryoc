@@ -91,6 +91,10 @@ pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockM
 }
 
 fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
+    if data.is_empty() {
+        // no-op
+        return Ok(());
+    }
     #[cfg(unix)]
     {
         #[cfg(target_os = "linux")]
@@ -123,6 +127,10 @@ fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_munlock(data: &mut [u8]) -> Result<(), std::io::Error> {
+    if data.is_empty() {
+        // no-op
+        return Ok(());
+    }
     #[cfg(unix)]
     {
         #[cfg(target_os = "linux")]
@@ -155,6 +163,10 @@ fn dryoc_munlock(data: &mut [u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
+    if data.is_empty() {
+        // no-op
+        return Ok(());
+    }
     #[cfg(unix)]
     {
         use libc::{c_void, mprotect as c_mprotect, PROT_READ};
@@ -189,6 +201,10 @@ fn dryoc_mprotect_readonly(data: &mut [u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
+    if data.is_empty() {
+        // no-op
+        return Ok(());
+    }
     #[cfg(unix)]
     {
         use libc::{c_void, mprotect as c_mprotect, PROT_READ, PROT_WRITE};
@@ -228,6 +244,10 @@ fn dryoc_mprotect_readwrite(data: &mut [u8]) -> Result<(), std::io::Error> {
 }
 
 fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
+    if data.is_empty() {
+        // no-op
+        return Ok(());
+    }
     #[cfg(unix)]
     {
         use libc::{c_void, mprotect as c_mprotect, PROT_NONE};
@@ -684,11 +704,13 @@ impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBy
 {
     fn resize(&mut self, new_len: usize, value: u8) {
         // because it's locked, we'll do a swaparoo here instead of a plain resize
-        let mut new = A::new_locked().expect("resize failed");
-        new.a.resize(new_len, value);
+        let mut new = A::default();
+        new.resize(new_len, value);
+        // need to actually lock the memory now
+        let mut locked = new.mlock().expect("unable to lock on resize");
         let len_to_copy = std::cmp::min(new_len, self.a.as_slice().len());
-        new.a.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
-        std::mem::swap(&mut new.a, &mut self.a);
+        locked.a.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
+        std::mem::swap(&mut locked.a, &mut self.a);
     }
 }
 
