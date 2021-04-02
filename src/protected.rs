@@ -13,20 +13,19 @@ enabled to activate these features.
 For details on the [Allocator] API, see:
 <https://github.com/rust-lang/rust/issues/32838>
  */
-use crate::error;
-use crate::rng::copy_randombytes;
-use crate::types::*;
+use std::alloc::{AllocError, Allocator, Layout};
+use std::convert::{AsMut, AsRef, TryFrom};
+use std::marker::PhantomData;
+use std::ptr;
+
+use lazy_static::lazy_static;
+use zeroize::Zeroize;
 
 #[cfg(all(feature = "serde", feature = "base64"))]
 use crate::bytes_serde::*;
-
-use lazy_static::lazy_static;
-use std::alloc::{AllocError, Allocator, Layout};
-use std::convert::TryFrom;
-use std::convert::{AsMut, AsRef};
-use std::marker::PhantomData;
-use std::ptr;
-use zeroize::Zeroize;
+use crate::error;
+use crate::rng::copy_randombytes;
+use crate::types::*;
 
 pub trait ProtectMode {}
 pub struct ReadOnly {}
@@ -86,8 +85,8 @@ mod int {
     }
 }
 
-/// Holds a protected region of memory. Does not implement traits such as [Copy],
-/// [Clone], or [std::fmt::Debug].
+/// Holds a protected region of memory. Does not implement traits such as
+/// [Copy], [Clone], or [std::fmt::Debug].
 pub struct Protected<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
     i: Option<int::InternalData<A>>,
     p: PhantomData<PM>,
@@ -293,6 +292,7 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Protected<A
             l: PhantomData,
         }
     }
+
     fn new_with(a: A) -> Self {
         Self {
             i: Some(int::InternalData {
@@ -304,6 +304,7 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> Protected<A
             l: PhantomData,
         }
     }
+
     fn swap_some_or_err<F, OPM: ProtectMode, OLM: LockMode>(
         &mut self,
         f: F,
@@ -397,13 +398,13 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> AsRef<[u8]>
     }
 }
 
-impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> AsMut<[u8]>
-    for Protected<A, PM, LM>
-{
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.i.as_mut().unwrap().a.as_mut()
-    }
-}
+// impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode>
+// AsMut<[u8]>     for Protected<A, PM, LM>
+// {
+//     fn as_mut(&mut self) -> &mut [u8] {
+//         self.i.as_mut().unwrap().a.as_mut()
+//     }
+// }
 
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
     fn as_slice(&self) -> &[u8] {
@@ -414,12 +415,6 @@ impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadO
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
-    }
-}
-
-impl Default for Protected<HeapBytes, ReadWrite, Locked> {
-    fn default() -> Self {
-        HeapBytes::new_locked().expect("mlock failed in default")
     }
 }
 
@@ -434,7 +429,8 @@ impl<const LENGTH: usize> From<StackByteArray<LENGTH>> for HeapByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> StackByteArray<LENGTH> {
-    /// Locks a [StackByteArray], consuming it, and returning a [Protected] wrapper.
+    /// Locks a [StackByteArray], consuming it, and returning a [Protected]
+    /// wrapper.
     pub fn mlock(
         self,
     ) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
@@ -548,6 +544,7 @@ unsafe impl Allocator for PageAlignedAllocator {
 
         unsafe { Ok(ptr::NonNull::new_unchecked(slice)) }
     }
+
     #[inline]
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         let pagesize = *PAGESIZE;
@@ -606,12 +603,17 @@ pub type LockedReadOnlyBytes = Protected<HeapBytes, ReadOnly, Locked>;
 pub type LockedNoAccessBytes = Protected<HeapBytes, NoAccess, Locked>;
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
+    fn new() -> Self {
+        Self::default()
+    }
+
     /// Returns a new byte array filled with random data.
     fn gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
         res
     }
+
     /// Returns a new byte array from `other`. Panics if sizes do not match.
     fn from_slice(other: &[u8]) -> Self {
         let mut res = Self::default();
@@ -631,13 +633,16 @@ impl<A: Zeroize + MutBytes + Default + Lockable<A>> NewLocked<A> for A {
     fn new_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
         Self::default().mlock()
     }
+
     /// Returns a new locked byte array filled with random data.
     fn gen_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
         let mut res = Self::default().mlock()?;
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
-    /// Returns a new locked byte array from `other`. Panics if sizes do not match.
+
+    /// Returns a new locked byte array from `other`. Panics if sizes do not
+    /// match.
     fn from_slice_locked(
         other: &[u8],
     ) -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
@@ -693,7 +698,8 @@ impl<A: Zeroize + MutBytes + Default + ResizableBytes + Lockable<A>> ResizableBy
                 locked.i.as_mut().unwrap().a.as_mut_slice()[..len_to_copy]
                     .copy_from_slice(&d.a.as_slice()[..len_to_copy]);
                 std::mem::swap(&mut locked.i, &mut self.i);
-                // when dropped, the old region will unlock automatically in Drop
+                // when dropped, the old region will unlock automatically in
+                // Drop
             }
             None => panic!("invalid array"),
         }
@@ -774,6 +780,7 @@ impl<const LENGTH: usize> std::ops::DerefMut for HeapByteArray<LENGTH> {
 
 impl<const LENGTH: usize> std::ops::Index<usize> for HeapByteArray<LENGTH> {
     type Output = u8;
+
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
@@ -790,6 +797,7 @@ macro_rules! impl_index {
     ($range:ty) => {
         impl<const LENGTH: usize> std::ops::Index<$range> for HeapByteArray<LENGTH> {
             type Output = [u8];
+
             #[inline]
             fn index(&self, index: $range) -> &Self::Output {
                 &self.0[index]
@@ -816,6 +824,14 @@ impl<const LENGTH: usize> Default for HeapByteArray<LENGTH> {
         let mut v = Vec::new_in(PageAlignedAllocator);
         v.resize(LENGTH, 0);
         Self(v)
+    }
+}
+
+impl<A: MutBytes + Zeroize + Default + Lockable<A> + NewLocked<A>> Default
+    for Protected<A, ReadWrite, Locked>
+{
+    fn default() -> Self {
+        A::new_locked().expect("mlock failed")
     }
 }
 

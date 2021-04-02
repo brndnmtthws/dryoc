@@ -86,6 +86,11 @@ assert_eq!(tag3, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL);
 ```
 */
 
+use std::convert::TryInto;
+
+use subtle::ConstantTimeEq;
+use zeroize::Zeroize;
+
 use crate::constants::{
     CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES,
@@ -96,14 +101,11 @@ use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES,
     CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
-use crate::crypto_core::crypto_core_hchacha20;
+use crate::crypto_core::{crypto_core_hchacha20, HChaCha20Input, HChaCha20Key};
 use crate::error::*;
 use crate::rng::copy_randombytes;
 use crate::types::*;
 use crate::utils::{increment_bytes, xor_buf};
-
-use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
 
 /// A secret for authenticated secret streams.
 pub type Key = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES];
@@ -157,11 +159,12 @@ fn _crypto_secretstream_xchacha20poly1305_counter_reset(state: &mut State) {
     counter[0] = 1;
 }
 
-/// Initializes a push stream into `state` using `key` and returns a stream header.
-/// The stream header can be used to initialize a pull stream using the same key
-/// (i.e., using [crypto_secretstream_xchacha20poly1305_init_pull]).
+/// Initializes a push stream into `state` using `key` and returns a stream
+/// header. The stream header can be used to initialize a pull stream using the
+/// same key (i.e., using [crypto_secretstream_xchacha20poly1305_init_pull]).
 ///
-/// Compatible with libsodium's `crypto_secretstream_xchacha20poly1305_init_push`.
+/// Compatible with libsodium's
+/// `crypto_secretstream_xchacha20poly1305_init_push`.
 pub fn crypto_secretstream_xchacha20poly1305_init_push(
     state: &mut State,
     header: &mut Header,
@@ -169,7 +172,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
 ) {
     copy_randombytes(header);
 
-    let k = crypto_core_hchacha20(&header[..16], key, None);
+    let k: HChaCha20Key = crypto_core_hchacha20(header[..16].as_array(), key, None);
     // Copy key into state
     state.k.copy_from_slice(&k);
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
@@ -182,16 +185,18 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
     );
 }
 
-/// Initializes a pull stream from `header` into `state` using `key` and returns a stream header.
-/// The stream header can be generated using [crypto_secretstream_xchacha20poly1305_init_push].
+/// Initializes a pull stream from `header` into `state` using `key` and returns
+/// a stream header. The stream header can be generated using
+/// [crypto_secretstream_xchacha20poly1305_init_push].
 ///
-/// Compatible with libsodium's `crypto_secretstream_xchacha20poly1305_init_pull`.
+/// Compatible with libsodium's
+/// `crypto_secretstream_xchacha20poly1305_init_pull`.
 pub fn crypto_secretstream_xchacha20poly1305_init_pull(
     state: &mut State,
     header: &Header,
     key: &Key,
 ) {
-    let k = crypto_core_hchacha20(&header[0..16], key, None);
+    let k: HChaCha20Key = crypto_core_hchacha20(header[0..16].as_array(), key, None);
     state.k.copy_from_slice(&k);
 
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
@@ -206,7 +211,8 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
 
 /// Manually rekeys a stream.
 ///
-/// Compatible with libsodium's `crypto_secretstream_xchacha20poly1305_init_push`.
+/// Compatible with libsodium's
+/// `crypto_secretstream_xchacha20poly1305_init_push`.
 pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
     use chacha20::cipher::{NewStreamCipher, SyncStreamCipher};
     use chacha20::{ChaCha20, Key, Nonce};
@@ -244,13 +250,14 @@ pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
 pub fn crypto_secretstream_xchacha20poly1305_push(
     state: &mut State,
     ciphertext: &mut [u8],
-    message: &InputBase,
-    associated_data: Option<&InputBase>,
+    message: &[u8],
+    associated_data: Option<&[u8]>,
     tag: u8,
 ) -> Result<(), Error> {
-    use crate::poly1305::Poly1305;
     use chacha20::cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
     use chacha20::{ChaCha20, Key, Nonce};
+
+    use crate::poly1305::Poly1305;
 
     let _pad0 = [0u8; 16];
 
@@ -354,9 +361,10 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     ciphertext: &[u8],
     associated_data: Option<&[u8]>,
 ) -> Result<usize, Error> {
-    use crate::poly1305::Poly1305;
     use chacha20::cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
     use chacha20::{ChaCha20, Key, Nonce};
+
+    use crate::poly1305::Poly1305;
 
     let _pad0 = [0u8; 16];
 
@@ -450,8 +458,9 @@ mod tests {
 
     #[test]
     fn test_sizes() {
-        use crate::constants::*;
         use static_assertions::*;
+
+        use crate::constants::*;
 
         const_assert!(
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES
@@ -482,8 +491,6 @@ mod tests {
 
     #[test]
     fn test_secretstream_basic_push() {
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-        use crate::dryocstream::Tag;
         use base64::encode;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
@@ -491,6 +498,9 @@ mod tests {
             crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
             crypto_secretstream_xchacha20poly1305_state,
         };
+
+        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+        use crate::dryocstream::Tag;
 
         let mut key = Key::default();
         crypto_secretstream_xchacha20poly1305_keygen(&mut key);
@@ -595,12 +605,13 @@ mod tests {
 
     #[test]
     fn test_rekey() {
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
         use base64::encode;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_rekey as so_crypto_secretstream_xchacha20poly1305_rekey,
             crypto_secretstream_xchacha20poly1305_state,
         };
+
+        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
 
         let mut key = Key::default();
         crypto_secretstream_xchacha20poly1305_keygen(&mut key);
@@ -628,8 +639,6 @@ mod tests {
 
     #[test]
     fn test_secretstream_lots_of_messages_push() {
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-        use crate::dryocstream::Tag;
         use base64::encode;
         use libc::{c_uchar, c_ulonglong};
         use libsodium_sys::{
@@ -637,6 +646,9 @@ mod tests {
             crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
             crypto_secretstream_xchacha20poly1305_state,
         };
+
+        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+        use crate::dryocstream::Tag;
 
         let mut key = Key::default();
         crypto_secretstream_xchacha20poly1305_keygen(&mut key);
@@ -731,7 +743,6 @@ mod tests {
 
     #[test]
     fn test_secretstream_basic_pull() {
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
         use base64::encode;
         use libc::c_ulonglong;
         use libsodium_sys::{
@@ -739,6 +750,8 @@ mod tests {
             crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
             crypto_secretstream_xchacha20poly1305_state,
         };
+
+        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
 
         let mut key = Key::default();
         crypto_secretstream_xchacha20poly1305_keygen(&mut key);
@@ -798,8 +811,6 @@ mod tests {
 
     #[test]
     fn test_secretstream_lots_of_messages_pull() {
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-        use crate::dryocstream::Tag;
         use base64::encode;
         use libc::c_ulonglong;
         use libsodium_sys::{
@@ -807,6 +818,9 @@ mod tests {
             crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
             crypto_secretstream_xchacha20poly1305_state,
         };
+
+        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+        use crate::dryocstream::Tag;
 
         let mut key = Key::default();
         crypto_secretstream_xchacha20poly1305_keygen(&mut key);

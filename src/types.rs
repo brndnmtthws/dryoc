@@ -1,14 +1,13 @@
-use crate::error;
-use crate::rng::copy_randombytes;
+use std::convert::TryFrom;
 
-#[cfg(feature = "nightly")]
-pub use crate::protected::*;
+use zeroize::Zeroize;
 
 #[cfg(any(feature = "serde", feature = "base64"))]
 pub use crate::bytes_serde::*;
-
-use std::convert::TryFrom;
-use zeroize::Zeroize;
+use crate::error;
+#[cfg(feature = "nightly")]
+pub use crate::protected::*;
+use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
 /// optional [Serde](https://serde.rs) features.
@@ -17,6 +16,7 @@ use zeroize::Zeroize;
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
 
 pub trait NewByteArray<const LENGTH: usize> {
+    fn new() -> Self;
     fn gen() -> Self;
     fn from_slice(other: &[u8]) -> Self;
 }
@@ -29,11 +29,11 @@ pub trait Bytes: AsRef<[u8]> {
     fn as_slice(&self) -> &[u8];
 }
 
-pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + AsMut<[u8; LENGTH]> {
+pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH];
 }
 
-pub trait MutBytes: Bytes + AsMut<[u8]> {
+pub trait MutBytes: Bytes {
     fn as_mut_slice(&mut self) -> &mut [u8];
 }
 
@@ -42,12 +42,18 @@ pub trait ResizableBytes {
 }
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
+    /// Returns a new empty (but allocated) byte array.
+    fn new() -> Self {
+        Self::default()
+    }
+
     /// Returns a new byte array filled with random data.
     fn gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
         res
     }
+
     /// Returns a new byte array from `other`. Panics if sizes do not match.
     fn from_slice(other: &[u8]) -> Self {
         let mut res = Self::default();
@@ -71,6 +77,54 @@ impl<const LENGTH: usize> Bytes for StackByteArray<LENGTH> {
 impl<const LENGTH: usize> MutByteArray<LENGTH> for StackByteArray<LENGTH> {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         &mut self.0
+    }
+}
+
+impl<const LENGTH: usize> MutBytes for StackByteArray<LENGTH> {
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+}
+
+impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
+    /// Returns a new empty (but allocated) byte array as a [Vec].
+    fn new() -> Self {
+        vec![0u8; LENGTH]
+    }
+
+    /// Returns a new byte array filled with random data.
+    fn gen() -> Self {
+        let mut res = <Self as NewByteArray<LENGTH>>::new();
+        copy_randombytes(&mut res);
+        res
+    }
+
+    /// Returns a new byte array from `other`. Panics if sizes do not match.
+    fn from_slice(other: &[u8]) -> Self {
+        let mut res = <Self as NewByteArray<LENGTH>>::new();
+        res.copy_from_slice(other);
+        res
+    }
+}
+
+impl<const LENGTH: usize> NewByteArray<LENGTH> for [u8; LENGTH] {
+    /// Returns a new empty (but allocated) byte array as a [Vec].
+    fn new() -> Self {
+        [0u8; LENGTH]
+    }
+
+    /// Returns a new byte array filled with random data.
+    fn gen() -> Self {
+        let mut res = <Self as NewByteArray<LENGTH>>::new();
+        copy_randombytes(&mut res);
+        res
+    }
+
+    /// Returns a new byte array from `other`. Panics if sizes do not match.
+    fn from_slice(other: &[u8]) -> Self {
+        let mut res = <Self as NewByteArray<LENGTH>>::new();
+        res.copy_from_slice(other);
+        res
     }
 }
 
@@ -101,6 +155,44 @@ impl Bytes for [u8] {
 impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
     fn as_slice(&self) -> &[u8] {
         self
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
+    fn as_array(&self) -> &[u8; LENGTH] {
+        &self
+    }
+}
+
+/// Provided for convenience. Panics if the input array size doesn't match
+/// `LENGTH`.
+impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
+    fn as_array(&self) -> &[u8; LENGTH] {
+        if self.len() < LENGTH {
+            panic!(
+                "invalid slice length {}, expecting at least {}",
+                self.len(),
+                LENGTH
+            );
+        }
+        let arr = self.as_ptr() as *const [u8; LENGTH];
+        unsafe { &*arr }
+    }
+}
+
+/// Provided for convenience. Panics if the input array size doesn't match
+/// `LENGTH`.
+impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
+    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+        if self.len() < LENGTH {
+            panic!(
+                "invalid slice length {}, expecting at least {}",
+                self.len(),
+                LENGTH
+            );
+        }
+        let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
+        unsafe { &mut *arr }
     }
 }
 
@@ -153,6 +245,7 @@ impl<const LENGTH: usize> std::ops::DerefMut for StackByteArray<LENGTH> {
 
 impl<const LENGTH: usize> std::ops::Index<usize> for StackByteArray<LENGTH> {
     type Output = u8;
+
     #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
@@ -169,6 +262,7 @@ macro_rules! impl_index {
     ($range:ty) => {
         impl<const LENGTH: usize> std::ops::Index<$range> for StackByteArray<LENGTH> {
             type Output = [u8];
+
             #[inline]
             fn index(&self, index: $range) -> &Self::Output {
                 &self.0[index]
@@ -227,8 +321,3 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
         }
     }
 }
-
-/// A type alias used for byte array outputs.
-pub type OutputBase = Vec<u8>;
-/// A type alias used for byte slice inputs.
-pub type InputBase = [u8];

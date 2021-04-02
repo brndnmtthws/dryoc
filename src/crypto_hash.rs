@@ -58,8 +58,9 @@ mod tests {
 
     #[test]
     fn test_crypto_hash_sha512() {
-        use crate::rng::randombytes_buf;
         use sodiumoxide::crypto::hash;
+
+        use crate::rng::randombytes_buf;
 
         let r = randombytes_buf(64);
 
@@ -71,8 +72,9 @@ mod tests {
 
     #[test]
     fn test_sha512() {
-        use crate::rng::randombytes_buf;
         use sodiumoxide::crypto::hash;
+
+        use crate::rng::randombytes_buf;
 
         let mut their_state = hash::State::new();
         let mut our_state = HashSha512::new();
@@ -91,8 +93,9 @@ mod tests {
 
     #[test]
     fn test_crypto_hash_sha512_update() {
-        use crate::rng::randombytes_buf;
         use sodiumoxide::crypto::hash;
+
+        use crate::rng::randombytes_buf;
 
         let mut their_state = hash::State::new();
         let mut our_state = crypto_hash_sha512_init();

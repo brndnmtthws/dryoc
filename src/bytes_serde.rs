@@ -1,8 +1,9 @@
 #[cfg(feature = "base64")]
 mod b64 {
-    use crate::types::{Bytes, StackByteArray};
     use serde::de::{Error, Visitor};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::types::{Bytes, StackByteArray};
 
     impl<const LENGTH: usize> Serialize for StackByteArray<LENGTH> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -67,9 +68,10 @@ pub(crate) use b64::*;
 
 #[cfg(not(feature = "base64"))]
 mod no_b64 {
-    use crate::types::{Bytes, StackByteArray};
     use serde::de::{Error, SeqAccess, Visitor};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::types::{Bytes, StackByteArray};
 
     impl<const LENGTH: usize> Serialize for StackByteArray<LENGTH> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

@@ -10,7 +10,7 @@ For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-k
 ```
 use dryoc::rng::randombytes_buf;
 use dryoc::crypto_secretbox::{Nonce, crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy, Key};
-use dryoc::constants::CRYPTO_SECRETBOX_NONCEBYTES;
+use dryoc::constants::{CRYPTO_SECRETBOX_NONCEBYTES, CRYPTO_SECRETBOX_MACBYTES};
 use dryoc::types::*;
 
 let key: Key = crypto_secretbox_keygen();
@@ -19,10 +19,12 @@ let nonce = Nonce::gen();
 let message = "I Love Doge!";
 
 // Encrypt
-let ciphertext = crypto_secretbox_easy(message.as_bytes(), &nonce, &key).unwrap();
+let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
+crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key).expect("encrypt failed");
 
 // Decrypt
-let decrypted = crypto_secretbox_open_easy(&ciphertext, &nonce, &key).unwrap();
+let mut decrypted = vec![0u8; ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES];
+crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key).expect("decrypt failed");
 
 assert_eq!(decrypted, message.as_bytes());
 ```
@@ -32,16 +34,15 @@ use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
 use crate::crypto_secretbox_impl::*;
-use crate::dryocsecretbox::DryocSecretBox;
 use crate::error::Error;
 use crate::types::*;
 
 /// Container for crypto secret box message authentication code.
-pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
+pub type Mac = [u8; CRYPTO_SECRETBOX_MACBYTES];
 /// A nonce for secret key authenticated boxes.
-pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
+pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
 /// A secret for secret key authenticated boxes.
-pub type Key = StackByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
+pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
 
 /// Generates a random key using [crate::rng::copy_randombytes].
 pub fn crypto_secretbox_keygen<K>() -> K
@@ -54,63 +55,64 @@ where
 /// Detached version of [crypto_secretbox_easy].
 ///
 /// Compatible with libsodium's `crypto_secretbox_detached`.
-pub fn crypto_secretbox_detached(message: &InputBase, nonce: &Nonce, key: &Key) -> DryocSecretBox {
-    let mut dryocsecretbox = DryocSecretBox::with_data(message);
-
-    crypto_secretbox_detached_inplace(
-        &mut dryocsecretbox.tag,
-        &mut dryocsecretbox.data,
-        nonce,
-        key,
-    );
-
-    dryocsecretbox
+pub fn crypto_secretbox_detached(
+    ciphertext: &mut [u8],
+    mac: &mut Mac,
+    message: &[u8],
+    nonce: &Nonce,
+    key: &Key,
+) {
+    ciphertext[..message.len()].copy_from_slice(message);
+    crypto_secretbox_detached_inplace(ciphertext, mac, nonce, key);
 }
 
 /// Detached version of [crypto_secretbox_open_easy].
 ///
 /// Compatible with libsodium's `crypto_secretbox_open_detached`.
 pub fn crypto_secretbox_open_detached(
+    message: &mut [u8],
     mac: &Mac,
-    ciphertext: &InputBase,
+    ciphertext: &[u8],
     nonce: &Nonce,
     key: &Key,
-) -> Result<OutputBase, Error> {
-    let mut dryocsecretbox = DryocSecretBox::with_data_and_mac(mac, ciphertext);
-
-    crypto_secretbox_open_detached_inplace(
-        &dryocsecretbox.tag,
-        &mut dryocsecretbox.data,
-        nonce,
-        key,
-    )?;
-
-    Ok(dryocsecretbox.data)
+) -> Result<(), Error> {
+    let c_len = ciphertext.len();
+    message[..c_len].copy_from_slice(ciphertext);
+    crypto_secretbox_open_detached_inplace(message, mac, nonce, key)
 }
 
 /// Encrypts `message` with `nonce` and `key`.
 ///
 /// Compatible with libsodium's `crypto_secretbox_easy`.
 pub fn crypto_secretbox_easy(
-    message: &InputBase,
+    ciphertext: &mut [u8],
+    message: &[u8],
     nonce: &Nonce,
     key: &Key,
-) -> Result<OutputBase, Error> {
-    let dryocsecretbox = crypto_secretbox_detached(message, nonce, key);
-    let mut ciphertext = Vec::new();
-    ciphertext.extend_from_slice(dryocsecretbox.tag.as_slice());
-    ciphertext.extend(dryocsecretbox.data);
-    Ok(ciphertext)
+) -> Result<(), Error> {
+    let mut mac = Mac::default();
+    crypto_secretbox_detached(
+        &mut ciphertext[CRYPTO_SECRETBOX_MACBYTES..],
+        &mut mac,
+        message,
+        nonce,
+        key,
+    );
+
+    ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&mac);
+
+    Ok(())
 }
 
 /// Decrypts `ciphertext` with `nonce` and `key`.
 ///
 /// Compatible with libsodium's `crypto_secretbox_open_easy`.
 pub fn crypto_secretbox_open_easy(
-    ciphertext: &InputBase,
+    message: &mut [u8],
+    ciphertext: &[u8],
     nonce: &Nonce,
     key: &Key,
-) -> Result<OutputBase, Error> {
+) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_SECRETBOX_MACBYTES {
         Err(dryoc_error!(format!(
             "Impossibly small box ({} < {}",
@@ -118,47 +120,35 @@ pub fn crypto_secretbox_open_easy(
             CRYPTO_SECRETBOX_MACBYTES
         )))
     } else {
-        use std::convert::TryInto;
-        let mac: Mac = ciphertext[0..CRYPTO_SECRETBOX_MACBYTES].try_into()?;
-
-        crypto_secretbox_open_detached(&mac, &ciphertext[CRYPTO_SECRETBOX_MACBYTES..], nonce, key)
+        let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
+        let mac = mac.as_array();
+        crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
     }
 }
 
 /// Encrypts `message` with `nonce` and `key` in-place, without allocating
 /// additional memory for the ciphertext.
 pub fn crypto_secretbox_easy_inplace(
-    message: Vec<u8>,
+    data: &mut [u8],
     nonce: &Nonce,
     key: &Key,
-) -> Result<OutputBase, Error> {
-    let mut dryocsecretbox = DryocSecretBox::from_data(message);
+) -> Result<(), Error> {
+    data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
+    let (mac, data) = data.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
+    let mac = mac.as_mut_array();
 
-    crypto_secretbox_detached_inplace(
-        &mut dryocsecretbox.tag,
-        &mut dryocsecretbox.data,
-        nonce,
-        key,
-    );
+    crypto_secretbox_detached_inplace(data, mac, nonce, key);
 
-    let mut ciphertext = dryocsecretbox.data;
-    // Resize to prepend mac
-    ciphertext.resize(ciphertext.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
-    // Rotate everything to the right
-    ciphertext.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
-    // Copy mac into ciphertext
-    ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(dryocsecretbox.tag.as_slice());
-
-    Ok(ciphertext)
+    Ok(())
 }
 
 /// Decrypts `ciphertext` with `nonce` and `key` in-place, without allocating
 /// additional memory for the message.
 pub fn crypto_secretbox_open_easy_inplace(
-    ciphertext: Vec<u8>,
+    ciphertext: &mut [u8],
     nonce: &Nonce,
     key: &Key,
-) -> Result<OutputBase, Error> {
+) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_SECRETBOX_MACBYTES {
         Err(dryoc_error!(format!(
             "Impossibly small box ({} < {}",
@@ -166,24 +156,14 @@ pub fn crypto_secretbox_open_easy_inplace(
             CRYPTO_SECRETBOX_MACBYTES
         )))
     } else {
-        use std::convert::TryInto;
-        let mac: Mac = ciphertext[0..CRYPTO_SECRETBOX_MACBYTES].try_into()?;
+        let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
+        let mac = mac.as_array();
 
-        let mut dryocsecretbox = DryocSecretBox::from_data_and_mac(mac, ciphertext);
+        crypto_secretbox_open_detached_inplace(data, &mac, nonce, key)?;
 
-        dryocsecretbox.data.rotate_left(CRYPTO_SECRETBOX_MACBYTES);
-        dryocsecretbox
-            .data
-            .resize(dryocsecretbox.data.len() - CRYPTO_SECRETBOX_MACBYTES, 0);
+        ciphertext.rotate_left(CRYPTO_SECRETBOX_MACBYTES);
 
-        crypto_secretbox_open_detached_inplace(
-            &dryocsecretbox.tag,
-            &mut dryocsecretbox.data,
-            nonce,
-            key,
-        )?;
-
-        Ok(dryocsecretbox.data)
+        Ok(())
     }
 }
 
@@ -196,27 +176,31 @@ mod tests {
         for i in 0..20 {
             use base64::encode;
             use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key, Nonce as SONonce};
+            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
-            let key = crypto_secretbox_keygen();
-            let nonce: Nonce = Nonce::gen();
+            let key: Key = crypto_secretbox_keygen();
+            let nonce = Nonce::gen();
 
             let words = vec!["love Doge".to_string(); i];
             let message = words.join(" <3 ");
 
-            let ciphertext = crypto_secretbox_easy(message.as_bytes(), &nonce, &key).unwrap();
+            let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
+            crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key)
+                .expect("encrypt failed");
             let so_ciphertext = secretbox::seal(
                 message.as_bytes(),
-                &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &Key::from_slice(key.as_slice()).unwrap(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&key).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
-            let decrypted = crypto_secretbox_open_easy(&ciphertext, &nonce, &key).unwrap();
+            let mut decrypted = vec![0u8; message.len()];
+            crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key)
+                .expect("decrypt failed");
             let so_decrypted = secretbox::open(
                 &ciphertext,
-                &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &Key::from_slice(key.as_slice()).unwrap(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&key).unwrap(),
             )
             .unwrap();
 
@@ -239,20 +223,24 @@ mod tests {
             let message: Vec<u8> = words.join(" <3 ").into();
             let message_copy = message.clone();
 
-            let ciphertext = crypto_secretbox_easy_inplace(message, &nonce, &key).unwrap();
+            let mut ciphertext = message.clone();
+            ciphertext.resize(message.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
+            crypto_secretbox_easy_inplace(&mut ciphertext, &nonce, &key).expect("encrypt failed");
             let so_ciphertext = secretbox::seal(
                 &message_copy,
-                &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &SOKey::from_slice(key.as_slice()).unwrap(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&key).unwrap(),
             );
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
-            let ciphertext_copy = ciphertext.clone();
-            let decrypted = crypto_secretbox_open_easy_inplace(ciphertext, &nonce, &key).unwrap();
+            let mut decrypted = ciphertext.clone();
+            crypto_secretbox_open_easy_inplace(&mut decrypted, &nonce, &key)
+                .expect("decrypt failed");
+            decrypted.resize(ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES, 0);
             let so_decrypted = secretbox::open(
-                &ciphertext_copy,
-                &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &SOKey::from_slice(key.as_slice()).unwrap(),
+                &ciphertext,
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&key).unwrap(),
             )
             .expect("decrypt failed");
 

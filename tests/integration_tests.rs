@@ -36,7 +36,7 @@ fn test_dryocsecretbox() {
     let nonce = Nonce::gen();
     let message = b"hey";
 
-    let dryocsecretbox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
 
     let decrypted = dryocsecretbox
         .decrypt(&nonce, &secret_key)
@@ -87,11 +87,11 @@ fn test_dryocsecretbox_serde() {
     let nonce = Nonce::gen();
     let message = b"hey buddy bro";
 
-    let dryocsecretbox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
 
     let json = serde_json::to_string(&dryocsecretbox).expect("doesn't serialize");
 
-    let dryocsecretbox: DryocSecretBox = serde_json::from_str(&json).unwrap();
+    let dryocsecretbox: VecBox = serde_json::from_str(&json).unwrap();
 
     let decrypted = dryocsecretbox
         .decrypt(&nonce, &secret_key)
@@ -255,7 +255,11 @@ fn test_dryocbox_serde_known_good() {
 
     let json = serde_json::to_string(&dryocbox).expect("doesn't serialize");
 
-    assert_eq!(json, "{\"tag\":[105,111,140,72,164,126,195,203,17,25,161,50,61,65,22,82],\"data\":[183,35,105,8,103,239,207,9,37,137]}");
+    assert_eq!(
+        json,
+        "{\"tag\":[105,111,140,72,164,126,195,203,17,25,161,50,61,65,22,82],\"data\":[183,35,105,\
+         8,103,239,207,9,37,137]}"
+    );
 
     let dryocbox: DryocBox = serde_json::from_str(&json).unwrap();
 

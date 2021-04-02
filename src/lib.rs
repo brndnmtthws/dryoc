@@ -35,12 +35,12 @@ and traps that are also present in the original libsodium API, and unless
 you're extra careful you could make mistakes. With the Rustaceous API, you'd
 have to try really hard to do things wrong.
 
-| Feature                      | Rustaceous API   | Classic API                             | Libsodium Docs                                                                            |
-|------------------------------|------------------|-----------------------------------------|-------------------------------------------------------------------------------------------|
-| Secret-key authenticated box | [dryocsecretbox] | [crypto_secretbox]                      | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox)                |
-| Streaming encryption         | [dryocstream]    | [crypto_secretstream_xchacha20poly1305] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream)             |
-| Public-key authenticated box | [dryocbox]       | [crypto_box]                            | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
-| Protected memory             | [protected]      | N/A                                     | [Link](https://doc.libsodium.org/memory_management)                                       |
+| Feature                        | Rustaceous API   | Classic API                             | Libsodium Docs                                                                            |
+|--------------------------------|------------------|-----------------------------------------|-------------------------------------------------------------------------------------------|
+| Secret-key authenticated boxes | [dryocsecretbox] | [crypto_secretbox]                      | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox)                |
+| Streaming encryption           | [dryocstream]    | [crypto_secretstream_xchacha20poly1305] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream)             |
+| Public-key authenticated boxes | [dryocbox]       | [crypto_box]                            | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
+| Protected memory[^3]           | [protected]      | N/A                                     | [Link](https://doc.libsodium.org/memory_management)                                       |
 
 # Using Serde
 
@@ -65,10 +65,12 @@ features provided by the Rust language.
 [^2]: The protected memory features described in [protected] require custom
 memory allocation and system calls, which are unsafe in Rust.
 
+[^3]: Currently only available on nightly Rust, with the `nightly` feature flag enabled.
+
 */
 
 #![warn(missing_docs)]
-#![cfg_attr(feature = "nightly", feature(allocator_api, doc_cfg))]
+#![cfg_attr(any(feature = "nightly", doc), feature(allocator_api, doc_cfg))]
 #[macro_use]
 mod error;
 #[cfg(feature = "serde")]
@@ -78,8 +80,6 @@ mod crypto_secretbox_impl;
 mod poly1305;
 mod scalarmult_curve25519;
 
-/// # Ciphertext wrapper
-pub mod ciphertext;
 /// # Constant value definitions
 pub mod constants;
 pub mod crypto_box;
@@ -97,7 +97,7 @@ pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
 #[cfg(any(feature = "nightly", doc))]
-#[cfg_attr(feature = "nightly", doc(cfg(feature = "nightly")))]
+#[doc(cfg(feature = "nightly"))]
 pub mod protected;
 /// # Random number generation utilities
 pub mod rng;

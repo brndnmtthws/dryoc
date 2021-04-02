@@ -1,9 +1,16 @@
-use crate::constants::CRYPTO_SCALARMULT_BYTES;
+use generic_array::GenericArray;
+
+use crate::constants::{
+    CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_CORE_HCHACHA20_KEYBYTES,
+    CRYPTO_CORE_HCHACHA20_OUTPUTBYTES, CRYPTO_SCALARMULT_BYTES,
+};
 use crate::scalarmult_curve25519::crypto_scalarmult_curve25519_base;
-use crate::types::OutputBase;
+use crate::types::*;
 use crate::utils::load32_le;
 
-use generic_array::GenericArray;
+pub type HChaCha20Input = StackByteArray<CRYPTO_CORE_HCHACHA20_INPUTBYTES>;
+pub type HChaCha20Key = StackByteArray<CRYPTO_CORE_HCHACHA20_KEYBYTES>;
+pub type HChaCha20Output = StackByteArray<CRYPTO_CORE_HCHACHA20_OUTPUTBYTES>;
 
 /// Computes the public key for a previously generated secret key.
 ///
@@ -29,11 +36,17 @@ fn quarterround(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
 /// Implements the HChaCha20 function.
 ///
 /// Compatible with libsodium's `crypto_core_hchacha20`.
-pub fn crypto_core_hchacha20(
-    input: &[u8],
-    key: &[u8],
+pub fn crypto_core_hchacha20<
+    Input: ByteArray<CRYPTO_CORE_HCHACHA20_INPUTBYTES>,
+    Key: ByteArray<CRYPTO_CORE_HCHACHA20_KEYBYTES>,
+    Output: MutBytes + NewByteArray<CRYPTO_CORE_HCHACHA20_OUTPUTBYTES>,
+>(
+    input: &Input,
+    key: &Key,
     constants: Option<(u32, u32, u32, u32)>,
-) -> OutputBase {
+) -> Output {
+    let input = input.as_array();
+    let key = key.as_array();
     assert_eq!(input.len(), 16);
     assert_eq!(key.len(), 32);
     let (mut x0, mut x1, mut x2, mut x3) =
@@ -77,15 +90,18 @@ pub fn crypto_core_hchacha20(
         quarterround(&mut x3, &mut x4, &mut x9, &mut x14);
     }
 
-    let mut out = vec![0u8; 32];
-    out[0..4].copy_from_slice(&x0.to_le_bytes());
-    out[4..8].copy_from_slice(&x1.to_le_bytes());
-    out[8..12].copy_from_slice(&x2.to_le_bytes());
-    out[12..16].copy_from_slice(&x3.to_le_bytes());
-    out[16..20].copy_from_slice(&x12.to_le_bytes());
-    out[20..24].copy_from_slice(&x13.to_le_bytes());
-    out[24..28].copy_from_slice(&x14.to_le_bytes());
-    out[28..32].copy_from_slice(&x15.to_le_bytes());
+    let mut out = Output::new();
+
+    let arr = out.as_mut_slice();
+    arr[0..4].copy_from_slice(&x0.to_le_bytes());
+    arr[4..8].copy_from_slice(&x1.to_le_bytes());
+    arr[8..12].copy_from_slice(&x2.to_le_bytes());
+    arr[12..16].copy_from_slice(&x3.to_le_bytes());
+    arr[16..20].copy_from_slice(&x12.to_le_bytes());
+    arr[20..24].copy_from_slice(&x13.to_le_bytes());
+    arr[24..28].copy_from_slice(&x14.to_le_bytes());
+    arr[28..32].copy_from_slice(&x15.to_le_bytes());
+
     out
 }
 
@@ -110,18 +126,17 @@ mod tests {
 
     #[test]
     fn test_crypto_scalarmult_base() {
-        use crate::types::*;
         use base64::encode;
         for _ in 0..20 {
             use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
 
             let keypair = crypto_box_keypair();
 
-            let public_key = crypto_scalarmult_base(keypair.secret_key.as_ref());
+            let public_key = crypto_scalarmult_base(&keypair.secret_key);
 
-            assert_eq!(keypair.public_key.as_slice(), &public_key);
+            assert_eq!(&keypair.public_key, &public_key);
 
-            let ge = scalarmult_base(&Scalar::from_slice(keypair.secret_key.as_slice()).unwrap());
+            let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key).unwrap());
 
             assert_eq!(encode(ge.as_ref()), encode(public_key));
         }
@@ -129,9 +144,10 @@ mod tests {
 
     #[test]
     fn test_crypto_core_hchacha20() {
-        use crate::rng::copy_randombytes;
         use base64::encode;
         use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
+
+        use crate::rng::copy_randombytes;
 
         for _ in 0..10 {
             let mut key = [0u8; 32];
@@ -139,7 +155,7 @@ mod tests {
             copy_randombytes(&mut key);
             copy_randombytes(&mut data);
 
-            let out = crypto_core_hchacha20(&data, &key, None);
+            let out: Vec<u8> = crypto_core_hchacha20(&data, &key, None);
 
             let mut so_out = [0u8; 32];
             unsafe {

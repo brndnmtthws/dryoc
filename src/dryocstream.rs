@@ -48,6 +48,9 @@ assert_eq!(tag3, Tag::FINAL);
 ```
 */
 
+use bitflags::bitflags;
+use zeroize::Zeroize;
+
 use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES,
@@ -61,11 +64,7 @@ use crate::crypto_secretstream_xchacha20poly1305::{
     crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_rekey, State,
 };
 use crate::error::Error;
-
 pub use crate::types::*;
-
-use bitflags::bitflags;
-use zeroize::Zeroize;
 
 /// Stream mode marker trait
 pub trait Mode {}
@@ -88,11 +87,8 @@ pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYT
 #[cfg_attr(feature = "nightly", doc(cfg(feature = "nightly")))]
 /// Type aliases for using protected memory with [DryocStream].
 pub mod protected {
-    use crate::constants::{
-        CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,
-        CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES, CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
-    };
-    use crate::protected::*;
+    use super::*;
+    pub use crate::protected::*;
 
     /// A secret for authenticated secret streams.
     pub type Key = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
@@ -101,6 +97,7 @@ pub mod protected {
     /// Container for stream header data.
     pub type Header = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 }
+
 bitflags! {
     /// Message tag definitions
     pub struct Tag: u8 {
@@ -169,6 +166,7 @@ impl DryocStream<Push> {
             header,
         )
     }
+
     /// Encrypts `message` for this stream with `associated_data` and `tag`,
     /// returning the ciphertext.
     pub fn push<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(
@@ -214,6 +212,7 @@ impl DryocStream<Pull> {
             phantom: std::marker::PhantomData,
         }
     }
+
     /// Decrypts `ciphertext` for this stream with `associated_data`, returning
     /// the decrypted message and tag.
     pub fn pull<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(

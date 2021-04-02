@@ -1,7 +1,7 @@
+use zeroize::Zeroize;
+
 use crate::types::*;
 use crate::utils::load64_le;
-
-use zeroize::Zeroize;
 
 const BLOCK_SIZE: usize = 16;
 
@@ -56,6 +56,7 @@ impl Poly1305 {
 
         state
     }
+
     pub fn update(&mut self, input: &[u8]) {
         let mut m = input;
         if !self.buffer.is_empty() {
@@ -85,6 +86,7 @@ impl Poly1305 {
             self.buffer.extend_from_slice(&m[full_blocks_end..]);
         }
     }
+
     fn blocks(&mut self, input: &[u8], partial: bool) {
         let hibit = if partial {
             0u64
@@ -149,6 +151,7 @@ impl Poly1305 {
         self.h[1] = h1;
         self.h[2] = h2;
     }
+
     pub fn finish(&mut self) -> [u8; 16] {
         /* process any remaining block */
         if !self.buffer.is_empty() {
@@ -363,9 +366,10 @@ mod tests {
 
     #[test]
     fn test_libsodium() {
-        use crate::rng::copy_randombytes;
         use rand_core::{OsRng, RngCore};
         use sodiumoxide::crypto::onetimeauth::poly1305::{authenticate, Key as SOKey};
+
+        use crate::rng::copy_randombytes;
 
         let key = Key::gen();
 
