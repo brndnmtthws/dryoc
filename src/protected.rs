@@ -61,8 +61,8 @@ pub trait ProtectReadOnly<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: 
 pub trait ProtectReadWrite<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
     fn mprotect_readwrite(self) -> Result<Protected<A, ReadWrite, LM>, std::io::Error>;
 }
-pub trait ProtectNoAccess<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> {
-    fn mprotect_noaccess(self) -> Result<Protected<A, NoAccess, LM>, std::io::Error>;
+pub trait ProtectNoAccess<A: Zeroize + MutBytes + Default, PM: ProtectMode> {
+    fn mprotect_noaccess(self) -> Result<Protected<A, NoAccess, Unlocked>, std::io::Error>;
 }
 
 mod int {
@@ -343,11 +343,11 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectRead
     }
 }
 
-impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> ProtectNoAccess<A, PM, LM>
-    for Protected<A, PM, LM>
+impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> ProtectNoAccess<A, PM>
+    for Protected<A, PM, Unlocked>
 {
-    fn mprotect_noaccess(mut self) -> Result<Protected<A, NoAccess, LM>, std::io::Error> {
-        let mut new = Protected::<A, NoAccess, LM> {
+    fn mprotect_noaccess(mut self) -> Result<Protected<A, NoAccess, Unlocked>, std::io::Error> {
+        let mut new = Protected::<A, NoAccess, Unlocked> {
             a: A::default(),
             p: PhantomData,
             l: PhantomData,

@@ -345,8 +345,12 @@ mod tests {
         // Initialize the push side, type annotations required on return type
         let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
 
-        // Set secret key memory to no-access
-        let key = key.mprotect_noaccess().expect("mprotect");
+        // Set secret key memory to no-access, but it must be unlocked first
+        let key = key
+            .munlock()
+            .expect("munlock")
+            .mprotect_noaccess()
+            .expect("mprotect");
 
         // Encrypt a series of messages
         let c1: LockedBytes = push_stream
