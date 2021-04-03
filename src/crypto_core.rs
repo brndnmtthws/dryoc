@@ -39,7 +39,7 @@ fn quarterround(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
 pub fn crypto_core_hchacha20<
     Input: ByteArray<CRYPTO_CORE_HCHACHA20_INPUTBYTES>,
     Key: ByteArray<CRYPTO_CORE_HCHACHA20_KEYBYTES>,
-    Output: MutBytes + NewByteArray<CRYPTO_CORE_HCHACHA20_OUTPUTBYTES>,
+    Output: NewByteArray<CRYPTO_CORE_HCHACHA20_OUTPUTBYTES>,
 >(
     input: &Input,
     key: &Key,

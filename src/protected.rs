@@ -401,11 +401,19 @@ impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadO
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
     }
+
+    fn len(&self) -> usize {
+        self.i.as_ref().unwrap().a.len()
+    }
 }
 
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
+    }
+
+    fn len(&self) -> usize {
+        self.i.as_ref().unwrap().a.len()
     }
 }
 
@@ -593,26 +601,6 @@ pub type LockedBytes = Protected<HeapBytes, ReadWrite, Locked>;
 pub type LockedReadOnlyBytes = Protected<HeapBytes, ReadOnly, Locked>;
 pub type LockedNoAccessBytes = Protected<HeapBytes, NoAccess, Locked>;
 
-impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns a new byte array filled with random data.
-    fn gen() -> Self {
-        let mut res = Self::default();
-        copy_randombytes(&mut res.0);
-        res
-    }
-
-    /// Returns a new byte array from `other`. Panics if sizes do not match.
-    fn from_slice(other: &[u8]) -> Self {
-        let mut res = Self::default();
-        res.copy_from_slice(other);
-        res
-    }
-}
-
 pub trait NewLocked<A: Zeroize + MutBytes + Default + Lockable<A>> {
     fn new_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
     fn gen_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
@@ -647,11 +635,19 @@ impl<const LENGTH: usize> Bytes for HeapByteArray<LENGTH> {
     fn as_slice(&self) -> &[u8] {
         &self.0
     }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 impl Bytes for HeapBytes {
     fn as_slice(&self) -> &[u8] {
         &self.0
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -659,11 +655,32 @@ impl<const LENGTH: usize> MutBytes for HeapByteArray<LENGTH> {
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.0.as_mut_slice()
     }
+
+    fn copy_from_slice(&mut self, other: &[u8]) {
+        self.0.copy_from_slice(other)
+    }
+}
+
+impl NewBytes for HeapBytes {
+    fn new() -> Self {
+        HeapBytes::default()
+    }
+
+    fn from_slice(other: &[u8]) -> Self {
+        let mut r = Self::new();
+        r.resize(other.len(), 0);
+        r.copy_from_slice(other);
+        r
+    }
 }
 
 impl MutBytes for HeapBytes {
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.0.as_mut_slice()
+    }
+
+    fn copy_from_slice(&mut self, other: &[u8]) {
+        self.0.copy_from_slice(other)
     }
 }
 
@@ -712,6 +729,13 @@ impl<A: Zeroize + MutBytes + Default, LM: LockMode> MutBytes for Protected<A, Re
     fn as_mut_slice(&mut self) -> &mut [u8] {
         match &mut self.i {
             Some(d) => d.a.as_mut_slice(),
+            None => panic!("invalid array"),
+        }
+    }
+
+    fn copy_from_slice(&mut self, other: &[u8]) {
+        match &mut self.i {
+            Some(d) => d.a.copy_from_slice(other),
             None => panic!("invalid array"),
         }
     }
@@ -784,7 +808,7 @@ impl<const LENGTH: usize> std::ops::IndexMut<usize> for HeapByteArray<LENGTH> {
     }
 }
 
-macro_rules! impl_index {
+macro_rules! impl_index_heapbytearray {
     ($range:ty) => {
         impl<const LENGTH: usize> std::ops::Index<$range> for HeapByteArray<LENGTH> {
             type Output = [u8];
@@ -803,12 +827,12 @@ macro_rules! impl_index {
     };
 }
 
-impl_index!(std::ops::Range<usize>);
-impl_index!(std::ops::RangeFull);
-impl_index!(std::ops::RangeFrom<usize>);
-impl_index!(std::ops::RangeInclusive<usize>);
-impl_index!(std::ops::RangeTo<usize>);
-impl_index!(std::ops::RangeToInclusive<usize>);
+impl_index_heapbytearray!(std::ops::Range<usize>);
+impl_index_heapbytearray!(std::ops::RangeFull);
+impl_index_heapbytearray!(std::ops::RangeFrom<usize>);
+impl_index_heapbytearray!(std::ops::RangeInclusive<usize>);
+impl_index_heapbytearray!(std::ops::RangeTo<usize>);
+impl_index_heapbytearray!(std::ops::RangeToInclusive<usize>);
 
 impl<const LENGTH: usize> Default for HeapByteArray<LENGTH> {
     fn default() -> Self {
@@ -825,6 +849,47 @@ impl<A: MutBytes + Zeroize + Default + Lockable<A> + NewLocked<A>> Default
         A::new_locked().expect("mlock failed")
     }
 }
+
+impl std::ops::Index<usize> for HeapBytes {
+    type Output = u8;
+
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+impl std::ops::IndexMut<usize> for HeapBytes {
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+macro_rules! impl_index_heapbytes {
+    ($range:ty) => {
+        impl std::ops::Index<$range> for HeapBytes {
+            type Output = [u8];
+
+            #[inline]
+            fn index(&self, index: $range) -> &Self::Output {
+                &self.0[index]
+            }
+        }
+        impl std::ops::IndexMut<$range> for HeapBytes {
+            #[inline]
+            fn index_mut(&mut self, index: $range) -> &mut Self::Output {
+                &mut self.0[index]
+            }
+        }
+    };
+}
+
+impl_index_heapbytes!(std::ops::Range<usize>);
+impl_index_heapbytes!(std::ops::RangeFull);
+impl_index_heapbytes!(std::ops::RangeFrom<usize>);
+impl_index_heapbytes!(std::ops::RangeInclusive<usize>);
+impl_index_heapbytes!(std::ops::RangeTo<usize>);
+impl_index_heapbytes!(std::ops::RangeToInclusive<usize>);
 
 impl Default for HeapBytes {
     fn default() -> Self {
@@ -869,6 +934,26 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for HeapByteArray<LENGTH> {
         // this is safe for fixed-length arrays
         let ptr = self.0.as_ptr() as *const [u8; LENGTH];
         unsafe { &*ptr }
+    }
+}
+
+impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a new byte array filled with random data.
+    fn gen() -> Self {
+        let mut res = Self::default();
+        copy_randombytes(&mut res.0);
+        res
+    }
+
+    /// Returns a new byte array from `other`. Panics if sizes do not match.
+    fn from_slice(other: &[u8]) -> Self {
+        let mut res = Self::default();
+        res.copy_from_slice(other);
+        res
     }
 }
 

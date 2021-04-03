@@ -29,8 +29,6 @@ assert_eq!(message, decrypted.as_slice());
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[cfg(all(feature = "serde", feature = "base64"))]
-use crate::bytes_serde::{as_base64, from_base64};
 use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
@@ -69,7 +67,7 @@ pub mod protected {
 
 #[cfg_attr(
     feature = "serde",
-    derive(Serialize, Deserialize, Zeroize, Clone, Debug)
+    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box
@@ -125,15 +123,20 @@ impl<
     }
 }
 
-impl<Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default, Data: Bytes>
-    DryocSecretBox<Mac, Data>
-{
-    /// Returns a box with an empty `tag`, and data from `data`, consuming
-    /// `data`
-    pub fn from_data(data: Data) -> Self {
-        Self {
-            tag: Mac::default(),
-            data,
+impl<'a, Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes> DryocSecretBox<Mac, Data> {
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
+        if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
+            Err(dryoc_error!(format!(
+                "bytes of len {} less than expected minimum of {}",
+                bytes.len(),
+                CRYPTO_SECRETBOX_MACBYTES
+            )))
+        } else {
+            let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
+            Ok(Self {
+                tag: Mac::from_slice(tag),
+                data: Data::from_slice(data),
+            })
         }
     }
 }
@@ -391,8 +394,15 @@ mod tests {
             copy_randombytes(data1.as_mut_slice());
             let data1_copy = data1.clone();
 
-            let dryocsecretbox: VecBox = DryocSecretBox::from_data(data1);
-            assert_eq!(&dryocsecretbox.data, &data1_copy);
+            let dryocsecretbox: VecBox = DryocSecretBox::from_bytes(&data1).expect("ok");
+            assert_eq!(
+                dryocsecretbox.data.as_slice(),
+                &data1_copy[CRYPTO_SECRETBOX_MACBYTES..]
+            );
+            assert_eq!(
+                dryocsecretbox.tag.as_slice(),
+                &data1_copy[..CRYPTO_SECRETBOX_MACBYTES]
+            );
 
             let data1 = data1_copy.clone();
             let dryocsecretbox: VecBox = DryocSecretBox::with_data(&data1);

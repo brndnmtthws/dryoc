@@ -160,9 +160,15 @@ pub fn crypto_box_easy(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
+    if ciphertext.len() < CRYPTO_BOX_MACBYTES {
         Err(dryoc_error!(format!(
-            "Message length {} exceeds max message length {}",
+            "ciphertext length {} less than minimum {}",
+            ciphertext.len(),
+            CRYPTO_BOX_MACBYTES
+        )))
+    } else if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
+        Err(dryoc_error!(format!(
+            "message length {} exceeds max message length {}",
             message.len(),
             CRYPTO_BOX_MESSAGEBYTES_MAX
         )))

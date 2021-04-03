@@ -19,7 +19,6 @@ jobs:
           - nightly
         features:
           - serde
-          - serde,base64
           - simd_backend
           - default
         os:
