@@ -86,8 +86,6 @@ assert_eq!(tag3, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL);
 ```
 */
 
-use std::convert::TryInto;
-
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -101,7 +99,7 @@ use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES,
     CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
-use crate::crypto_core::{crypto_core_hchacha20, HChaCha20Input, HChaCha20Key};
+use crate::crypto_core::{crypto_core_hchacha20, HChaCha20Key};
 use crate::error::*;
 use crate::rng::copy_randombytes;
 use crate::types::*;

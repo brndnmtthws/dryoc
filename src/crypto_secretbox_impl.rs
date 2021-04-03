@@ -5,7 +5,6 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::crypto_secretbox::{Key, Mac, Nonce};
-use crate::dryocstream::ByteArray;
 use crate::error::Error;
 use crate::poly1305::Poly1305;
 use crate::types::*;

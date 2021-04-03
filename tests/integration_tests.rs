@@ -9,7 +9,7 @@ fn test_dryocbox() {
     let nonce = Nonce::gen();
     let message = b"hey";
 
-    let dryocbox = DryocBox::encrypt(
+    let dryocbox = DryocBox::encrypt_to_vecbox(
         message,
         &nonce,
         &recipient_keypair.public_key.clone(),
@@ -18,7 +18,7 @@ fn test_dryocbox() {
     .expect("unable to encrypt");
 
     let decrypted = dryocbox
-        .decrypt(
+        .decrypt_to_vec(
             &nonce,
             &sender_keypair.public_key,
             &recipient_keypair.secret_key,
@@ -38,7 +38,7 @@ fn test_dryocsecretbox() {
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
 
-    let decrypted = dryocsecretbox
+    let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
 
@@ -47,7 +47,7 @@ fn test_dryocsecretbox() {
 
 #[cfg(feature = "serde")]
 #[test]
-fn test_dryocbox_serde() {
+fn test_dryocbox_serde_json() {
     use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::gen();
@@ -55,7 +55,7 @@ fn test_dryocbox_serde() {
     let nonce = Nonce::gen();
     let message = b"hey friend";
 
-    let dryocbox = DryocBox::encrypt(
+    let dryocbox: VecBox = DryocBox::encrypt(
         message,
         &nonce,
         &recipient_keypair.public_key,
@@ -65,9 +65,9 @@ fn test_dryocbox_serde() {
 
     let json = serde_json::to_string(&dryocbox).expect("doesn't serialize");
 
-    let dryocbox: DryocBox = serde_json::from_str(&json).unwrap();
+    let dryocbox: VecBox = serde_json::from_str(&json).unwrap();
 
-    let decrypted = dryocbox
+    let decrypted: Vec<u8> = dryocbox
         .decrypt(
             &nonce,
             &sender_keypair.public_key,
@@ -80,7 +80,7 @@ fn test_dryocbox_serde() {
 
 #[cfg(feature = "serde")]
 #[test]
-fn test_dryocsecretbox_serde() {
+fn test_dryocsecretbox_serde_json() {
     use dryoc::dryocsecretbox::*;
 
     let secret_key = Key::gen();
@@ -93,13 +93,67 @@ fn test_dryocsecretbox_serde() {
 
     let dryocsecretbox: VecBox = serde_json::from_str(&json).unwrap();
 
-    let decrypted = dryocsecretbox
+    let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
 
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "serde")]
+#[test]
+fn test_dryocbox_serde_bincode() {
+    use dryoc::dryocbox::*;
+
+    let sender_keypair = KeyPair::gen();
+    let recipient_keypair = KeyPair::gen();
+    let nonce = Nonce::gen();
+    let message = b"hey friend";
+
+    let dryocbox: VecBox = DryocBox::encrypt(
+        message,
+        &nonce,
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("unable to encrypt");
+
+    let encoded = bincode::serialize(&dryocbox).expect("doesn't serialize");
+
+    let dryocbox: VecBox = bincode::deserialize(&encoded).unwrap();
+
+    let decrypted: Vec<u8> = dryocbox
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("decrypt failed");
+
+    assert_eq!(message, decrypted.as_slice());
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_dryocsecretbox_serde_bincode() {
+    use dryoc::dryocsecretbox::*;
+
+    let secret_key = Key::gen();
+    let nonce = Nonce::gen();
+    let message = b"hey buddy bro";
+
+    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+
+    let encoded = bincode::serialize(&dryocsecretbox).expect("doesn't serialize");
+
+    let dryocsecretbox: VecBox = bincode::deserialize(&encoded).unwrap();
+
+    let decrypted: Vec<u8> = dryocsecretbox
+        .decrypt(&nonce, &secret_key)
+        .expect("unable to decrypt");
+
+    assert_eq!(message, decrypted.as_slice());
+}
 #[test]
 fn test_streams() {
     use dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
@@ -305,7 +359,7 @@ fn test_dryocbox_serde_known_good() {
     ]);
     let message = b"hey friend";
 
-    let dryocbox = DryocBox::encrypt(
+    let dryocbox: VecBox = DryocBox::encrypt(
         message,
         &nonce,
         &recipient_keypair.public_key,
@@ -320,9 +374,9 @@ fn test_dryocbox_serde_known_good() {
         "{\"tag\":\"aW+MSKR+w8sRGaEyPUEWUg==\",\"data\":\"tyNpCGfvzwkliQ==\"}"
     );
 
-    let dryocbox: DryocBox = serde_json::from_str(&json).unwrap();
+    let dryocbox: VecBox = serde_json::from_str(&json).unwrap();
 
-    let decrypted = dryocbox
+    let decrypted: Vec<u8> = dryocbox
         .decrypt(
             &nonce,
             &sender_keypair.public_key,

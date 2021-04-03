@@ -397,15 +397,6 @@ impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode> AsRef<[u8]>
         self.i.as_ref().unwrap().a.as_ref()
     }
 }
-
-// impl<A: Zeroize + MutBytes + Default, PM: ProtectMode, LM: LockMode>
-// AsMut<[u8]>     for Protected<A, PM, LM>
-// {
-//     fn as_mut(&mut self) -> &mut [u8] {
-//         self.i.as_mut().unwrap().a.as_mut()
-//     }
-// }
-
 impl<A: Zeroize + MutBytes + Default, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()

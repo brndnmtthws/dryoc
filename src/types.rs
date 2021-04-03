@@ -21,7 +21,7 @@ pub trait NewByteArray<const LENGTH: usize> {
     fn from_slice(other: &[u8]) -> Self;
 }
 
-pub trait ByteArray<const LENGTH: usize> {
+pub trait ByteArray<const LENGTH: usize>: Bytes {
     fn as_array(&self) -> &[u8; LENGTH];
 }
 
@@ -29,7 +29,7 @@ pub trait Bytes: AsRef<[u8]> {
     fn as_slice(&self) -> &[u8];
 }
 
-pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> {
+pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + MutBytes {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH];
 }
 
@@ -152,9 +152,27 @@ impl Bytes for [u8] {
     }
 }
 
+impl Bytes for &[u8] {
+    fn as_slice(&self) -> &[u8] {
+        self
+    }
+}
+
+impl Bytes for &mut [u8] {
+    fn as_slice(&self) -> &[u8] {
+        self
+    }
+}
+
 impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
     fn as_slice(&self) -> &[u8] {
         self
+    }
+}
+
+impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
+    fn as_slice(&self) -> &[u8] {
+        *self
     }
 }
 
@@ -166,6 +184,20 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
 
 /// Provided for convenience. Panics if the input array size doesn't match
 /// `LENGTH`.
+impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
+    fn as_array(&self) -> &[u8; LENGTH] {
+        if self.len() < LENGTH {
+            panic!(
+                "invalid slice length {}, expecting at least {}",
+                self.len(),
+                LENGTH
+            );
+        }
+        let arr = self.as_ptr() as *const [u8; LENGTH];
+        unsafe { &*arr }
+    }
+}
+
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
     fn as_array(&self) -> &[u8; LENGTH] {
         if self.len() < LENGTH {
@@ -180,8 +212,6 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
     }
 }
 
-/// Provided for convenience. Panics if the input array size doesn't match
-/// `LENGTH`.
 impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         if self.len() < LENGTH {
@@ -193,6 +223,12 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
         }
         let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
         unsafe { &mut *arr }
+    }
+}
+
+impl MutBytes for [u8] {
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self
     }
 }
 

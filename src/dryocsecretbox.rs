@@ -15,10 +15,10 @@ let nonce = Nonce::gen();
 let message = b"hey";
 
 // Must specify return type
-let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
 
 let decrypted = dryocsecretbox
-    .decrypt(&nonce, &secret_key)
+    .decrypt_to_vec(&nonce, &secret_key)
     .expect("unable to decrypt");
 
 assert_eq!(message, decrypted.as_slice());
@@ -48,7 +48,7 @@ pub type Key = StackByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
 #[doc(cfg(feature = "nightly"))]
 /// Type aliases for using protected memory with [DryocSecretBox].
 pub mod protected {
-    use super::{DryocSecretBox, *};
+    use super::*;
     pub use crate::protected::*;
 
     /// A secret for authenticated secret streams.
@@ -58,15 +58,17 @@ pub mod protected {
     /// Container for crypto secret box message authentication code.
     pub type Mac = HeapByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-    pub type LockedKey = Protected<Key, ReadWrite, Locked>;
+    pub type LockedRWData = Protected<HeapBytes, ReadWrite, Locked>;
+    pub type LockedROData = Protected<HeapBytes, ReadOnly, Locked>;
+    pub type NoAccessData = Protected<HeapBytes, NoAccess, Unlocked>;
+    pub type LockedRWKey = Protected<Key, ReadWrite, Locked>;
     pub type LockedROKey = Protected<Key, ReadOnly, Locked>;
     pub type NoAccessKey = Protected<Key, NoAccess, Unlocked>;
-    pub type LockedNonce = Protected<Key, ReadWrite, Locked>;
-    pub type LockedMac = Protected<Key, ReadWrite, Locked>;
+    pub type LockedRWNonce = Protected<Nonce, ReadWrite, Locked>;
+    pub type LockedRWMac = Protected<Mac, ReadWrite, Locked>;
 
-    pub type HeapBox = DryocSecretBox<Mac, HeapBytes>;
-    pub type LockedBox =
-        DryocSecretBox<Protected<Mac, ReadWrite, Locked>, Protected<HeapBytes, ReadWrite, Locked>>;
+    pub type VecBox = DryocSecretBox<Mac, HeapBytes>;
+    pub type LockedBox = DryocSecretBox<LockedRWMac, LockedBytes>;
 }
 
 #[cfg_attr(
@@ -75,22 +77,17 @@ pub mod protected {
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box
-pub struct DryocSecretBox<
-    Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default,
-    Data: MutBytes + Default + ResizableBytes,
-> {
+pub struct DryocSecretBox<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> {
     /// libsodium box authentication tag, usually prepended to each box
     tag: Mac,
     /// libsodium box message or ciphertext, depending on state
     data: Data,
 }
 
-pub type VecBox = DryocSecretBox<StackByteArray<CRYPTO_SECRETBOX_MACBYTES>, Vec<u8>>;
+pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 
-impl<
-    Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default,
-    Data: MutBytes + Default + ResizableBytes,
-> DryocSecretBox<Mac, Data>
+impl<Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default, Data: Bytes + Default>
+    DryocSecretBox<Mac, Data>
 {
     /// Returns an empty box
     pub fn new() -> Self {
@@ -99,21 +96,13 @@ impl<
             data: Data::default(),
         }
     }
+}
 
-    /// Returns a box with an empty `tag`, and data from `data`, consuming
-    /// `data`
-    pub fn from_data(data: Data) -> Self {
-        Self {
-            tag: Mac::default(),
-            data,
-        }
-    }
-
-    /// Returns a new box with `tag` and `data`, consuming both
-    pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
-        Self { tag, data }
-    }
-
+impl<
+    Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default,
+    Data: MutBytes + ResizableBytes + Default,
+> DryocSecretBox<Mac, Data>
+{
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocSecretBox] with ciphertext and tag
     pub fn encrypt<
@@ -138,24 +127,48 @@ impl<
 
         new
     }
+}
 
+impl<Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default, Data: Bytes>
+    DryocSecretBox<Mac, Data>
+{
+    /// Returns a box with an empty `tag`, and data from `data`, consuming
+    /// `data`
+    pub fn from_data(data: Data) -> Self {
+        Self {
+            tag: Mac::default(),
+            data,
+        }
+    }
+}
+
+impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac, Data> {
+    /// Returns a new box with `tag` and `data`, consuming both
+    pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
+        Self { tag, data }
+    }
+}
+
+impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac, Data> {
     /// Decrypts `ciphertext` using `recipient_secret_key` and
     /// `sender_public_key`, returning a new [DryocSecretBox] with decrypted
     /// message
     pub fn decrypt<
+        Output: Default + ResizableBytes + MutBytes,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
         Key: ByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
     >(
         &self,
         nonce: &Nonce,
         secret_key: &Key,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Output, Error> {
         use crate::crypto_secretbox::crypto_secretbox_open_detached;
 
-        let mut message = vec![0u8; self.data.as_slice().len()];
+        let mut message = Output::default();
+        message.resize(self.data.as_slice().len(), 0);
 
         crypto_secretbox_open_detached(
-            &mut message,
+            message.as_mut_slice(),
             self.tag.as_array(),
             self.data.as_slice(),
             nonce.as_array(),
@@ -174,7 +187,38 @@ impl<
     }
 }
 
-impl<Mac: MutByteArray<CRYPTO_SECRETBOX_MACBYTES> + Default> DryocSecretBox<Mac, Vec<u8>> {
+impl DryocSecretBox<Mac, Vec<u8>> {
+    pub fn new_vecbox() -> Self {
+        Self::new()
+    }
+
+    /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
+    /// and returns a new [DryocSecretBox] with ciphertext and tag
+    pub fn encrypt_to_vecbox<
+        Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
+        Key: ByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
+    >(
+        message: &[u8],
+        nonce: &Nonce,
+        secret_key: &Key,
+    ) -> Self {
+        Self::encrypt(message, nonce, secret_key)
+    }
+
+    /// Decrypts `ciphertext` using `recipient_secret_key` and
+    /// `sender_public_key`, returning a new [DryocSecretBox] with decrypted
+    /// message
+    pub fn decrypt_to_vec<
+        Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
+        Key: ByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
+    >(
+        &self,
+        nonce: &Nonce,
+        secret_key: &Key,
+    ) -> Result<Vec<u8>, Error> {
+        self.decrypt(nonce, secret_key)
+    }
+
     /// Consumes this box and returns it as a Vec
     pub fn into_vec(mut self) -> Vec<u8> {
         self.data
@@ -236,6 +280,11 @@ mod tests {
 
         assert_eq!(all_eq(&dryocsecretbox.tag, 0), true);
         assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
+
+        let dryocsecretbox = DryocSecretBox::new_vecbox();
+
+        assert_eq!(all_eq(&dryocsecretbox.tag, 0), true);
+        assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
     }
 
     #[test]
@@ -282,8 +331,55 @@ mod tests {
             )
             .expect("decrypt failed");
 
+            let m = DryocSecretBox::decrypt::<Vec<u8>, Nonce, Key>(
+                &dryocsecretbox,
+                &nonce,
+                &secret_key,
+            )
+            .expect("decrypt failed");
+            assert_eq!(m, message_copy.as_bytes());
+            assert_eq!(m, so_decrypted);
+        }
+    }
+
+    #[test]
+    fn test_dryocbox_vec() {
+        for i in 0..20 {
+            use base64::encode;
+            use sodiumoxide::crypto::secretbox;
+            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+
+            use crate::dryocsecretbox::*;
+
+            let secret_key = Key::gen();
+            let nonce = Nonce::gen();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+            let message_copy = message.clone();
+            let dryocsecretbox =
+                DryocSecretBox::encrypt_to_vecbox(message.as_bytes(), &nonce, &secret_key);
+
+            let ciphertext = dryocsecretbox.clone().into_vec();
+            assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
+
+            let ciphertext_copy = ciphertext.clone();
+
+            let so_ciphertext = secretbox::seal(
+                &message_copy.as_bytes(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&secret_key).unwrap(),
+            );
+            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+
+            let so_decrypted = secretbox::open(
+                &ciphertext_copy,
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&secret_key).unwrap(),
+            )
+            .expect("decrypt failed");
+
             let m = dryocsecretbox
-                .decrypt(&nonce, &secret_key)
+                .decrypt_to_vec(&nonce, &secret_key)
                 .expect("decrypt failed");
             assert_eq!(m, message_copy.as_bytes());
             assert_eq!(m, so_decrypted);
@@ -353,11 +449,12 @@ mod tests {
             )
             .expect("decrypt failed");
 
-            let m = dryocsecretbox
+            let m: LockedBytes = dryocsecretbox
                 .decrypt(&nonce, &secret_key)
                 .expect("decrypt failed");
-            assert_eq!(m, message_copy.as_bytes());
-            assert_eq!(m, so_decrypted);
+
+            assert_eq!(m.as_slice(), message_copy.as_bytes());
+            assert_eq!(m.as_slice(), so_decrypted);
         }
     }
 }
