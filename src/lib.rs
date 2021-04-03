@@ -70,7 +70,10 @@ memory allocation and system calls, which are unsafe in Rust.
 */
 
 #![warn(missing_docs)]
-#![cfg_attr(any(feature = "nightly", doc), feature(allocator_api, doc_cfg))]
+#![cfg_attr(
+    any(feature = "nightly", all(feature = "nightly", doc)),
+    feature(allocator_api, doc_cfg)
+)]
 #[macro_use]
 mod error;
 #[cfg(feature = "serde")]
@@ -97,7 +100,7 @@ pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
 #[cfg(any(feature = "nightly", doc))]
-#[doc(cfg(feature = "nightly"))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected;
 /// # Random number generation utilities
 pub mod rng;

@@ -55,7 +55,7 @@ pub type Nonce = StackByteArray<CRYPTO_BOX_NONCEBYTES>;
 pub type Mac = StackByteArray<CRYPTO_BOX_MACBYTES>;
 
 #[cfg(any(feature = "nightly", doc))]
-#[doc(cfg(feature = "nightly"))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 /// Type aliases for using protected memory with [DryocSecretBox].
 pub mod protected {
     use super::*;

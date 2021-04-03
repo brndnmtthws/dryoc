@@ -56,3 +56,7 @@ nightly = []
 simd_backend = ["curve25519-dalek/simd_backend", "sha2/asm"]
 u32_backend = ["x25519-dalek/u32_backend"]
 u64_backend = ["x25519-dalek/u64_backend"]
+
+[package.metadata.docs.rs]
+# docs.rs uses nightly, enable feature flag to get all the docs
+features = ["nightly"]
