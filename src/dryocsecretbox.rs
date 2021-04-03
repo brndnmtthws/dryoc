@@ -58,17 +58,13 @@ pub mod protected {
     /// Container for crypto secret box message authentication code.
     pub type Mac = HeapByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-    pub type LockedRWData = Protected<HeapBytes, ReadWrite, Locked>;
-    pub type LockedROData = Protected<HeapBytes, ReadOnly, Locked>;
-    pub type NoAccessData = Protected<HeapBytes, NoAccess, Unlocked>;
-    pub type LockedRWKey = Protected<Key, ReadWrite, Locked>;
-    pub type LockedROKey = Protected<Key, ReadOnly, Locked>;
+    pub type LockedReadWriteKey = Protected<Key, ReadWrite, Locked>;
+    pub type LockedReadOnlyKey = Protected<Key, ReadOnly, Locked>;
     pub type NoAccessKey = Protected<Key, NoAccess, Unlocked>;
-    pub type LockedRWNonce = Protected<Nonce, ReadWrite, Locked>;
-    pub type LockedRWMac = Protected<Mac, ReadWrite, Locked>;
+    pub type LockedReadWriteNonce = Protected<Nonce, ReadWrite, Locked>;
+    pub type LockedReadWriteMac = Protected<Mac, ReadWrite, Locked>;
 
-    pub type VecBox = DryocSecretBox<Mac, HeapBytes>;
-    pub type LockedBox = DryocSecretBox<LockedRWMac, LockedBytes>;
+    pub type LockedBox = DryocSecretBox<LockedReadWriteMac, LockedBytes>;
 }
 
 #[cfg_attr(

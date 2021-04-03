@@ -71,14 +71,12 @@ pub mod protected {
     pub type Mac = HeapByteArray<CRYPTO_BOX_MACBYTES>;
 
     pub type LockedSecretKey = Protected<SecretKey, ReadWrite, Locked>;
-    pub type LockedROSecretKey = Protected<SecretKey, ReadOnly, Locked>;
+    pub type LockedReadOnlySecretKey = Protected<SecretKey, ReadOnly, Locked>;
     pub type NoAccessSecretKey = Protected<SecretKey, NoAccess, Unlocked>;
     pub type LockedNonce = Protected<Nonce, ReadWrite, Locked>;
     pub type LockedMac = Protected<Mac, ReadWrite, Locked>;
 
-    pub type HeapBox = DryocBox<Mac, HeapBytes>;
-    pub type LockedBox =
-        DryocBox<Protected<Mac, ReadWrite, Locked>, Protected<HeapBytes, ReadWrite, Locked>>;
+    pub type LockedBox = DryocBox<LockedMac, LockedBytes>;
 }
 
 #[cfg_attr(
@@ -96,9 +94,7 @@ pub struct DryocBox<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> {
 
 pub type VecBox = DryocBox<StackByteArray<CRYPTO_BOX_MACBYTES>, Vec<u8>>;
 
-impl<Mac: MutByteArray<CRYPTO_BOX_MACBYTES> + Default, Data: MutBytes + Default + ResizableBytes>
-    DryocBox<Mac, Data>
-{
+impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Default, Data: Bytes + Default> DryocBox<Mac, Data> {
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
@@ -106,21 +102,11 @@ impl<Mac: MutByteArray<CRYPTO_BOX_MACBYTES> + Default, Data: MutBytes + Default 
             data: Data::default(),
         }
     }
+}
 
-    /// Returns a box with an empty `tag`, and data from `data`, consuming
-    /// `data`
-    pub fn from_data(data: Data) -> Self {
-        Self {
-            tag: Mac::default(),
-            data,
-        }
-    }
-
-    /// Returns a new box with `tag` and `data`, consuming both
-    pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
-        Self { tag, data }
-    }
-
+impl<Mac: MutByteArray<CRYPTO_BOX_MACBYTES> + Default, Data: MutBytes + Default + ResizableBytes>
+    DryocBox<Mac, Data>
+{
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt<
@@ -148,6 +134,24 @@ impl<Mac: MutByteArray<CRYPTO_BOX_MACBYTES> + Default, Data: MutBytes + Default 
         )?;
 
         Ok(dryocbox)
+    }
+}
+
+impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Default, Data: Bytes> DryocBox<Mac, Data> {
+    /// Returns a box with an empty `tag`, and data from `data`, consuming
+    /// `data`
+    pub fn from_data(data: Data) -> Self {
+        Self {
+            tag: Mac::default(),
+            data,
+        }
+    }
+}
+
+impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
+    /// Returns a new box with `tag` and `data`, consuming both
+    pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
+        Self { tag, data }
     }
 }
 
