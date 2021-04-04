@@ -83,7 +83,7 @@ pub type Nonce = StackByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
 /// Container for stream header data.
 pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 
-#[cfg(any(feature = "nightly", doc))]
+#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 /// Type aliases for using protected memory with [DryocStream].
 pub mod protected {

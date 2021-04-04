@@ -42,7 +42,7 @@ pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
 /// A secret for secret key authenticated boxes.
 pub type Key = StackByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
 
-#[cfg(any(feature = "nightly", doc))]
+#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 /// Type aliases for using protected memory with [DryocSecretBox].
 pub mod protected {
@@ -432,6 +432,7 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
     #[cfg(feature = "nightly")]
     #[test]
     fn test_dryocbox_locked() {

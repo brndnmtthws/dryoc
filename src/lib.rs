@@ -95,7 +95,7 @@ pub mod dryocsecretbox;
 pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
-#[cfg(any(feature = "nightly", doc))]
+#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected;
 /// # Random number generation utilities
