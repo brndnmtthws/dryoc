@@ -58,4 +58,4 @@ u64_backend = ["x25519-dalek/u64_backend"]
 
 [package.metadata.docs.rs]
 # docs.rs uses nightly, enable feature flag to get all the docs
-features = ["nightly"]
+features = ["nightly", "serde"]
