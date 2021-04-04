@@ -276,25 +276,27 @@ fn test_dryocbox_serde_known_good() {
     use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::from_slices(
-        [
+        &[
             19, 102, 68, 158, 243, 5, 191, 249, 31, 150, 224, 99, 131, 223, 250, 86, 183, 59, 12,
             207, 166, 197, 248, 213, 150, 17, 186, 94, 179, 184, 168, 31,
         ],
-        [
+        &[
             32, 93, 215, 217, 145, 250, 115, 60, 43, 161, 237, 154, 192, 46, 239, 131, 101, 167,
             229, 195, 16, 170, 88, 53, 253, 30, 21, 29, 150, 214, 140, 64,
         ],
-    );
+    )
+    .expect("sender keypair failed");
     let recipient_keypair = KeyPair::from_slices(
-        [
+        &[
             203, 213, 109, 27, 115, 197, 227, 35, 161, 27, 73, 179, 181, 104, 237, 253, 207, 206,
             186, 108, 254, 67, 246, 221, 47, 60, 68, 37, 148, 169, 242, 109,
         ],
-        [
+        &[
             0, 209, 170, 57, 221, 216, 185, 113, 114, 217, 32, 72, 65, 99, 132, 187, 137, 68, 72,
             19, 14, 237, 37, 220, 77, 172, 148, 163, 106, 5, 201, 101,
         ],
-    );
+    )
+    .expect("recipient keypair failed");
     let nonce = Nonce::try_from(&[
         52, 53, 237, 208, 81, 208, 57, 122, 253, 6, 222, 28, 25, 157, 13, 108, 28, 38, 41, 60, 242,
         45, 126, 101,
@@ -350,8 +352,43 @@ fn test_dryocsecretbox_protected() {
     let dryocsecretbox: protected::LockedBox =
         DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
-    let decrypted: Vec<u8> = dryocsecretbox
+    let decrypted: protected::LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)
+        .expect("decrypt failed");
+
+    assert_eq!(message.as_slice(), decrypted.as_slice());
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_dryocbox_protected() {
+    use dryoc::dryocbox::*;
+    use dryoc::protected::*;
+
+    let sender_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
+    let recipient_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
+
+    let nonce = protected::Nonce::gen_locked()
+        .and_then(|s| s.mprotect_readonly())
+        .expect("nonce failed");
+
+    let message = HeapBytes::from_slice_into_locked(b"Secret message from Santa Claus")
+        .expect("unable to lock");
+
+    let dryocbox: protected::LockedBox = DryocBox::encrypt(
+        &message,
+        &nonce,
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("encrypt failed");
+
+    let decrypted: protected::LockedBytes = dryocbox
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
         .expect("decrypt failed");
 
     assert_eq!(message.as_slice(), decrypted.as_slice());

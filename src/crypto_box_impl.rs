@@ -27,20 +27,25 @@ pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(
     result.into()
 }
 
-pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair() -> KeyPair {
+pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair() -> (PublicKey, SecretKey) {
     let secret_key = DalekSecretKey::new(OsRng);
     let public_key = DalekPublicKey::from(&secret_key);
 
-    KeyPair::from_slices(public_key.to_bytes(), secret_key.to_bytes())
+    (public_key.to_bytes(), secret_key.to_bytes())
 }
 
-pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed: &[u8]) -> KeyPair {
+pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair(
+    seed: &[u8],
+) -> (PublicKey, SecretKey) {
     let mut hash = crypto_hash_sha512(seed);
 
     let mut secret_key = [0u8; CRYPTO_BOX_SEEDBYTES];
+    let mut public_key = [0u8; CRYPTO_BOX_SEEDBYTES];
     secret_key.copy_from_slice(&hash[0..CRYPTO_BOX_SEEDBYTES]);
 
     hash.zeroize();
 
-    KeyPair::from_slices(crypto_scalarmult_curve25519_base(&secret_key), secret_key)
+    crypto_scalarmult_curve25519_base(&mut public_key, &secret_key);
+
+    (public_key, secret_key)
 }

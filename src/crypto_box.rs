@@ -13,10 +13,10 @@ use dryoc::types::*;
 use dryoc::constants::CRYPTO_BOX_MACBYTES;
 
 // Create a random sender keypair
-let keypair_sender = crypto_box_keypair();
+let (sender_pk, sender_sk) = crypto_box_keypair();
 
 // Create a random recipient keypair
-let keypair_recipient = crypto_box_keypair();
+let (recipient_pk, recipient_sk) = crypto_box_keypair();
 
 // Generate a random nonce
 let nonce = Nonce::gen();
@@ -28,8 +28,8 @@ crypto_box_easy(
     &mut ciphertext,
     message,
     &nonce,
-    &keypair_recipient.public_key,
-    &keypair_sender.secret_key,
+    &recipient_pk,
+    &sender_sk,
 )
 .expect("encrypt failed");
 
@@ -39,8 +39,8 @@ crypto_box_open_easy(
     &mut decrypted_message,
     &ciphertext,
     &nonce,
-    &keypair_sender.public_key,
-    &keypair_recipient.secret_key,
+    &sender_pk,
+    &recipient_sk,
 )
 .expect("decrypt failed");
 
@@ -55,7 +55,6 @@ use crate::crypto_box_impl::*;
 use crate::crypto_secretbox::*;
 use crate::crypto_secretbox_impl::*;
 use crate::error::Error;
-use crate::keypair::*;
 use crate::types::*;
 
 /// Container for crypto box message authentication code.
@@ -70,14 +69,14 @@ pub type SecretKey = [u8; CRYPTO_BOX_SECRETKEYBYTES];
 
 /// Generates a public/secret key pair using OS provided data using
 /// [rand_core::OsRng].
-pub fn crypto_box_keypair() -> KeyPair {
+pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_keypair()
 }
 
 /// Deterministically derives a keypair from `seed`.
 ///
 /// Compatible with libsodium's `crypto_box_seed_keypair`.
-pub fn crypto_box_seed_keypair(seed: &[u8]) -> KeyPair {
+pub fn crypto_box_seed_keypair(seed: &[u8]) -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed)
 }
 
@@ -350,8 +349,8 @@ mod tests {
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
-            let keypair_sender = crypto_box_keypair();
-            let keypair_recipient = crypto_box_keypair();
+            let (sender_pk, sender_sk) = crypto_box_keypair();
+            let (recipient_pk, recipient_sk) = crypto_box_keypair();
             let nonce = Nonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
@@ -360,16 +359,16 @@ mod tests {
                 &mut ciphertext,
                 message.as_bytes(),
                 &nonce,
-                &keypair_recipient.public_key,
-                &keypair_sender.secret_key,
+                &recipient_pk,
+                &sender_sk,
             )
             .expect("encrypt failed");
 
             let so_ciphertext = box_::seal(
                 message.as_bytes(),
                 &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+                &SecretKey::from_slice(&sender_sk).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
@@ -379,15 +378,15 @@ mod tests {
                 &mut m,
                 ciphertext.as_slice(),
                 &nonce,
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
+                &sender_pk,
+                &recipient_sk,
             )
             .expect("decrypt failed");
             let so_m = box_::open(
                 ciphertext.as_slice(),
                 &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+                &SecretKey::from_slice(&sender_sk).unwrap(),
             )
             .unwrap();
 
@@ -403,8 +402,8 @@ mod tests {
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
-            let keypair_sender = crypto_box_keypair();
-            let keypair_recipient = crypto_box_keypair();
+            let (sender_pk, sender_sk) = crypto_box_keypair();
+            let (recipient_pk, recipient_sk) = crypto_box_keypair();
             let nonce = Nonce::gen();
             let words = vec!["hello1".to_string(); i];
             let message: Vec<u8> = words.join(" :D ").as_bytes().to_vec();
@@ -412,37 +411,27 @@ mod tests {
 
             let mut ciphertext = message.clone();
             ciphertext.resize(message.len() + CRYPTO_BOX_MACBYTES, 0);
-            crypto_box_easy_inplace(
-                &mut ciphertext,
-                &nonce,
-                &keypair_recipient.public_key,
-                &keypair_sender.secret_key,
-            )
-            .expect("encrypt failed");
+            crypto_box_easy_inplace(&mut ciphertext, &nonce, &recipient_pk, &sender_sk)
+                .expect("encrypt failed");
             let so_ciphertext = box_::seal(
                 message_copy.as_slice(),
                 &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+                &SecretKey::from_slice(&sender_sk).unwrap(),
             );
 
             assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
 
             let mut ciphertext_clone = ciphertext.clone();
-            crypto_box_open_easy_inplace(
-                &mut ciphertext_clone,
-                &nonce,
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
-            )
-            .expect("decrypt failed");
+            crypto_box_open_easy_inplace(&mut ciphertext_clone, &nonce, &sender_pk, &recipient_sk)
+                .expect("decrypt failed");
             ciphertext_clone.resize(message.len(), 0);
 
             let so_m = box_::open(
                 ciphertext.as_slice(),
                 &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender.secret_key).unwrap(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+                &SecretKey::from_slice(&sender_sk).unwrap(),
             )
             .expect("decrypt failed");
 
@@ -454,21 +443,15 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_invalid() {
         for _ in 0..20 {
-            let keypair_sender = crypto_box_keypair();
-            let keypair_recipient = crypto_box_keypair();
+            let (sender_pk, sender_sk) = crypto_box_keypair();
+            let (recipient_pk, recipient_sk) = crypto_box_keypair();
             let nonce = Nonce::gen();
 
             let mut ciphertext: Vec<u8> = vec![];
             let message: Vec<u8> = vec![];
 
-            crypto_box_open_easy(
-                &mut ciphertext,
-                &message,
-                &nonce,
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
-            )
-            .expect_err("expected an error");
+            crypto_box_open_easy(&mut ciphertext, &message, &nonce, &sender_pk, &recipient_sk)
+                .expect_err("expected an error");
         }
     }
     #[test]
@@ -476,31 +459,21 @@ mod tests {
         for _ in 0..20 {
             use base64::encode;
 
-            let keypair_sender = crypto_box_keypair();
-            let keypair_recipient = crypto_box_keypair();
+            let (sender_pk, sender_sk) = crypto_box_keypair();
+            let (recipient_pk, recipient_sk) = crypto_box_keypair();
             let nonce = Nonce::gen();
 
             let mut ciphertext: Vec<u8> = vec![];
 
-            crypto_box_open_easy_inplace(
-                &mut ciphertext,
-                &nonce,
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
-            )
-            .expect_err("expected an error");
+            crypto_box_open_easy_inplace(&mut ciphertext, &nonce, &sender_pk, &recipient_sk)
+                .expect_err("expected an error");
 
             ciphertext.resize(1024, 0);
             copy_randombytes(ciphertext.as_mut_slice());
             let ciphertext_copy = ciphertext.clone();
 
-            crypto_box_open_easy_inplace(
-                &mut ciphertext,
-                &nonce,
-                &keypair_sender.public_key,
-                &keypair_recipient.secret_key,
-            )
-            .expect_err("expected an error");
+            crypto_box_open_easy_inplace(&mut ciphertext, &nonce, &sender_pk, &recipient_sk)
+                .expect_err("expected an error");
 
             assert_eq!(ciphertext.len(), ciphertext_copy.len());
             assert_eq!(
@@ -518,11 +491,11 @@ mod tests {
         for _ in 0..10 {
             let seed = randombytes_buf(CRYPTO_BOX_SEEDBYTES);
 
-            let keypair = crypto_box_seed_keypair(&seed);
+            let (pk, sk) = crypto_box_seed_keypair(&seed);
             let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());
 
-            assert_eq!(encode(&keypair.public_key), encode(so_pk.as_ref()));
-            assert_eq!(encode(&keypair.secret_key), encode(so_sk.as_ref()));
+            assert_eq!(encode(&pk), encode(so_pk.as_ref()));
+            assert_eq!(encode(&sk), encode(so_sk.as_ref()));
         }
     }
 }

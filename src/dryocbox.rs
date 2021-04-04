@@ -40,39 +40,45 @@ use crate::constants::{
     CRYPTO_BOX_SECRETKEYBYTES,
 };
 use crate::error::*;
-pub use crate::keypair::KeyPair;
 pub use crate::types::*;
 
 /// A secret for authenticated secret streams.
-pub type SecretKey = StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
-/// A secret for authenticated secret streams.
 pub type PublicKey = StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
+/// A secret for authenticated secret streams.
+pub type SecretKey = StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
 /// A nonce for authenticated secret streams.
 pub type Nonce = StackByteArray<CRYPTO_BOX_NONCEBYTES>;
 /// Container for crypto secret box message authentication code.
 pub type Mac = StackByteArray<CRYPTO_BOX_MACBYTES>;
+pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 /// Type aliases for using protected memory with [DryocSecretBox].
 pub mod protected {
     use super::*;
+    pub use crate::keypair::protected::*;
     pub use crate::protected::*;
 
     /// A secret for authenticated secret streams.
-    pub type SecretKey = HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
-    /// A secret for authenticated secret streams.
     pub type PublicKey = HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
+    /// A secret for authenticated secret streams.
+    pub type SecretKey = HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
     /// A nonce for authenticated secret streams.
     pub type Nonce = HeapByteArray<CRYPTO_BOX_NONCEBYTES>;
     /// Container for crypto secret box message authentication code.
     pub type Mac = HeapByteArray<CRYPTO_BOX_MACBYTES>;
 
+    pub type LockedPublicKey = Protected<PublicKey, ReadWrite, Locked>;
+    pub type LockedReadOnlyPublicKey = Protected<PublicKey, ReadOnly, Locked>;
+    pub type NoAccessPublicKey = Protected<PublicKey, NoAccess, Unlocked>;
     pub type LockedSecretKey = Protected<SecretKey, ReadWrite, Locked>;
     pub type LockedReadOnlySecretKey = Protected<SecretKey, ReadOnly, Locked>;
     pub type NoAccessSecretKey = Protected<SecretKey, NoAccess, Unlocked>;
     pub type LockedNonce = Protected<Nonce, ReadWrite, Locked>;
     pub type LockedMac = Protected<Mac, ReadWrite, Locked>;
+
+    pub type LockedKeyPair = crate::keypair::KeyPair<LockedPublicKey, LockedSecretKey>;
 
     pub type LockedBox = DryocBox<LockedMac, LockedBytes>;
 }
@@ -107,6 +113,7 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> Dr
     /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt<
         Message: Bytes + ?Sized,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
@@ -175,9 +182,10 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
     /// Decrypts `ciphertext` using `recipient_secret_key` and
     /// `sender_public_key`, returning a new [DryocBox] with decrypted message
     pub fn decrypt<
-        Output: ResizableBytes + NewBytes,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        Output: ResizableBytes + NewBytes,
     >(
         &self,
         nonce: &Nonce,
@@ -312,8 +320,6 @@ mod tests {
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
-            use crate::keypair::*;
-
             let keypair_sender = KeyPair::gen();
             let keypair_recipient = KeyPair::gen();
             let keypair_sender_copy = keypair_sender.clone();
@@ -374,8 +380,6 @@ mod tests {
                 Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
             };
 
-            use crate::keypair::*;
-
             let keypair_sender = KeyPair::gen();
             let keypair_recipient = KeyPair::gen();
             let keypair_sender_copy = keypair_sender.clone();
@@ -408,7 +412,7 @@ mod tests {
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
 
-            DryocBox::decrypt::<Vec<u8>, crate::crypto_box::PublicKey, crate::crypto_box::SecretKey>(
+            DryocBox::decrypt::<Nonce, PublicKey, SecretKey, Vec<u8>>(
                 &dryocbox,
                 &nonce,
                 &invalid_key_copy_1.public_key,
@@ -437,13 +441,18 @@ mod tests {
 
             let dryocbox: VecBox =
                 DryocBox::from_bytes(b"trollolllololololollollolololololol").expect("ok");
-            DryocBox::decrypt::<Vec<u8>, crate::crypto_box::PublicKey, crate::crypto_box::SecretKey>(
+            DryocBox::decrypt::<
+                Nonce,
+                crate::crypto_box::PublicKey,
+                crate::crypto_box::SecretKey,
+                Vec<u8>,
+            >(
                 &dryocbox,
-                    &nonce,
-                    &invalid_key_copy_1.public_key,
-                    &invalid_key_copy_2.secret_key,
-                )
-                .expect_err("hmm");
+                &nonce,
+                &invalid_key_copy_1.public_key,
+                &invalid_key_copy_2.secret_key,
+            )
+            .expect_err("hmm");
         }
     }
 

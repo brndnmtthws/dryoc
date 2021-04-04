@@ -15,8 +15,11 @@ pub type HChaCha20Output = StackByteArray<CRYPTO_CORE_HCHACHA20_OUTPUTBYTES>;
 /// Computes the public key for a previously generated secret key.
 ///
 /// Compatible with libsodium's `crypto_scalarmult_base`.
-pub fn crypto_scalarmult_base(n: &[u8; CRYPTO_SCALARMULT_BYTES]) -> [u8; CRYPTO_SCALARMULT_BYTES] {
-    crypto_scalarmult_curve25519_base(n)
+pub fn crypto_scalarmult_base(
+    out: &mut [u8; CRYPTO_SCALARMULT_BYTES],
+    n: &[u8; CRYPTO_SCALARMULT_BYTES],
+) {
+    crypto_scalarmult_curve25519_base(out, n)
 }
 
 #[inline]
@@ -130,13 +133,14 @@ mod tests {
         for _ in 0..20 {
             use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
 
-            let keypair = crypto_box_keypair();
+            let (pk, sk) = crypto_box_keypair();
 
-            let public_key = crypto_scalarmult_base(&keypair.secret_key);
+            let mut public_key = [0u8; CRYPTO_SCALARMULT_BYTES];
+            crypto_scalarmult_base(&mut &mut public_key, &sk);
 
-            assert_eq!(&keypair.public_key, &public_key);
+            assert_eq!(&pk, &public_key);
 
-            let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key).unwrap());
+            let ge = scalarmult_base(&Scalar::from_slice(&sk).unwrap());
 
             assert_eq!(encode(ge.as_ref()), encode(public_key));
         }
