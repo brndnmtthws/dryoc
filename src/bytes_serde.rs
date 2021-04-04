@@ -62,7 +62,7 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
     }
 }
 
-#[cfg(any(feature = "nightly", doc))]
+#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 mod protected {
     use super::*;
     use crate::protected::*;
@@ -132,5 +132,5 @@ mod protected {
     }
 }
 
-#[cfg(any(feature = "nightly", doc))]
+#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 pub use protected::*;
