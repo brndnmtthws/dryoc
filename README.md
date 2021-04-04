@@ -76,12 +76,12 @@ implementation:
 The following libsodium features are not implemented, and there's no
 plan to implement them:
 
-* [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate)
+* [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate instead)
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
 * [Advanced features](https://doc.libsodium.org/advanced):
-  * [SHA-2](https://doc.libsodium.org/advanced/sha-2_hash_function) (use [sha2](https://crates.io/crates/sha2) crate)
-  * [HMAC-SHA-2](https://doc.libsodium.org/advanced/hmac-sha2) (use [hmac](https://crates.io/crates/hmac) crate)
-  * [Scrypt](https://doc.libsodium.org/advanced/scrypt) (use [scrypt](https://crates.io/crates/scrypt) crate)
+  * [SHA-2](https://doc.libsodium.org/advanced/sha-2_hash_function) (use [sha2](https://crates.io/crates/sha2) crate instead)
+  * [HMAC-SHA-2](https://doc.libsodium.org/advanced/hmac-sha2) (use [hmac](https://crates.io/crates/hmac) crate instead)
+  * [Scrypt](https://doc.libsodium.org/advanced/scrypt) (use [scrypt](https://crates.io/crates/scrypt) crate instead)
   * [Ed25519 to Curve25519](https://doc.libsodium.org/advanced/ed25519-curve25519) (use [dalek.rs](https://dalek.rs/))
   * [Finite field arithmetic](https://doc.libsodium.org/advanced/point-arithmetic) (use [dalek.rs](https://dalek.rs/))
 
