@@ -58,6 +58,7 @@ jobs:
           command: test
           args: --features ${{ env.FEATURES }}
       - name: Rustfmt
+        if: ${{ matrix.rust == 'nightly' }}
         uses: actions-rs/cargo@v1
         with:
           command: fmt
