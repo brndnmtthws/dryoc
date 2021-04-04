@@ -271,6 +271,8 @@ fn test_streams_rustaceous() {
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocbox_serde_known_good() {
+    use std::convert::TryFrom;
+
     use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::from_slices(
@@ -293,10 +295,11 @@ fn test_dryocbox_serde_known_good() {
             19, 14, 237, 37, 220, 77, 172, 148, 163, 106, 5, 201, 101,
         ],
     );
-    let nonce = Nonce::from_slice(&[
+    let nonce = Nonce::try_from(&[
         52, 53, 237, 208, 81, 208, 57, 122, 253, 6, 222, 28, 25, 157, 13, 108, 28, 38, 41, 60, 242,
         45, 126, 101,
-    ]);
+    ])
+    .expect("nonce");
     let message = b"hey friend";
 
     let dryocbox: VecBox = DryocBox::encrypt(
@@ -341,14 +344,14 @@ fn test_dryocsecretbox_protected() {
         .and_then(|s| s.mprotect_readonly())
         .expect("nonce failed");
 
-    let message = LockedBytes::from_slice_locked(b"Secret messega").expect("unable to lock");
+    let message = HeapBytes::from_slice_into_locked(b"Secret messega").expect("unable to lock");
 
     let dryocsecretbox: protected::LockedBox =
-        DryocSecretBox::encrypt(message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("decrypt failed");
 
-    assert_eq!(message, decrypted.as_slice());
+    assert_eq!(message.as_slice(), decrypted.as_slice());
 }

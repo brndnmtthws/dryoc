@@ -51,25 +51,25 @@ pub struct Unlocked {}
 impl LockMode for Locked {}
 impl LockMode for Unlocked {}
 
-pub trait Lock<A: Zeroize + Bytes, PM: ProtectMode> {
+pub trait Lock<A: Zeroize + MutBytes, PM: ProtectMode> {
     fn mlock(self) -> Result<Protected<A, PM, Locked>, std::io::Error>;
 }
 
-pub trait Lockable<A: Zeroize + Bytes> {
+pub trait Lockable<A: Zeroize + MutBytes> {
     fn mlock(self) -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
 }
 
-pub trait Unlock<A: Zeroize + Bytes, PM: ProtectMode> {
+pub trait Unlock<A: Zeroize + MutBytes, PM: ProtectMode> {
     fn munlock(self) -> Result<Protected<A, PM, Unlocked>, std::io::Error>;
 }
 
-pub trait ProtectReadOnly<A: Zeroize + Bytes, PM: ProtectMode, LM: LockMode> {
+pub trait ProtectReadOnly<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
     fn mprotect_readonly(self) -> Result<Protected<A, ReadOnly, LM>, std::io::Error>;
 }
-pub trait ProtectReadWrite<A: Zeroize + Bytes, PM: ProtectMode, LM: LockMode> {
+pub trait ProtectReadWrite<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
     fn mprotect_readwrite(self) -> Result<Protected<A, ReadWrite, LM>, std::io::Error>;
 }
-pub trait ProtectNoAccess<A: Zeroize + Bytes, PM: ProtectMode> {
+pub trait ProtectNoAccess<A: Zeroize + MutBytes, PM: ProtectMode> {
     fn mprotect_noaccess(self) -> Result<Protected<A, NoAccess, Unlocked>, std::io::Error>;
 }
 
@@ -96,7 +96,7 @@ mod int {
 
 /// Holds a protected region of memory. Does not implement traits such as
 /// [Copy], [Clone], or [std::fmt::Debug].
-pub struct Protected<A: Zeroize + Bytes, PM: ProtectMode, LM: LockMode> {
+pub struct Protected<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
     i: Option<int::InternalData<A>>,
     p: PhantomData<PM>,
     l: PhantomData<LM>,
@@ -293,7 +293,7 @@ fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
     }
 }
 
-impl<A: Zeroize + Bytes, PM: ProtectMode, LM: LockMode> Protected<A, PM, LM> {
+impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> Protected<A, PM, LM> {
     fn new() -> Self {
         Self {
             i: None,
@@ -395,19 +395,19 @@ impl<A: Zeroize + MutBytes, PM: ProtectMode> ProtectNoAccess<A, PM> for Protecte
     }
 }
 
-impl<A: Zeroize + Bytes, LM: LockMode> AsRef<[u8]> for Protected<A, ReadOnly, LM> {
-    fn as_ref(&self) -> &[u8] {
-        self.i.as_ref().unwrap().a.as_ref()
-    }
-}
+// impl<A: Zeroize + MutBytes, LM: LockMode> AsRef<[u8]> for Protected<A,
+// ReadOnly, LM> {     fn as_ref(&self) -> &[u8] {
+//         self.i.as_ref().unwrap().a.as_ref()
+//     }
+// }
 
-impl<A: Zeroize + Bytes, LM: LockMode> AsRef<[u8]> for Protected<A, ReadWrite, LM> {
-    fn as_ref(&self) -> &[u8] {
-        self.i.as_ref().unwrap().a.as_ref()
-    }
-}
+// impl<A: Zeroize + MutBytes, LM: LockMode> AsRef<[u8]> for Protected<A,
+// ReadWrite, LM> {     fn as_ref(&self) -> &[u8] {
+//         self.i.as_ref().unwrap().a.as_ref()
+//     }
+// }
 
-impl<A: Zeroize + Bytes, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
+impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
     }
@@ -417,7 +417,7 @@ impl<A: Zeroize + Bytes, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
     }
 }
 
-impl<A: Zeroize + Bytes, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
+impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
     }
@@ -429,7 +429,7 @@ impl<A: Zeroize + Bytes, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
 
 impl<const LENGTH: usize> From<StackByteArray<LENGTH>> for HeapByteArray<LENGTH> {
     fn from(other: StackByteArray<LENGTH>) -> Self {
-        let mut r = HeapByteArray::<LENGTH>::new();
+        let mut r = HeapByteArray::<LENGTH>::new_byte_array();
         let mut s = other;
         r.copy_from_slice(s.as_slice());
         s.zeroize();
@@ -614,28 +614,55 @@ pub type LockedNoAccessBytes = Protected<HeapBytes, NoAccess, Locked>;
 pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     fn new_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
     fn gen_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
-    fn from_slice_locked(other: &[u8]) -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
+}
+
+pub trait NewLockedFromSlice<A: Zeroize + NewBytes + Lockable<A>> {
+    fn from_slice_into_locked(
+        other: &[u8],
+    ) -> Result<Protected<A, ReadWrite, Locked>, crate::error::Error>;
 }
 
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
     /// Returns a new locked byte array.
     fn new_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
-        Self::new().mlock()
+        Self::new_bytes().mlock()
     }
 
     /// Returns a new locked byte array filled with random data.
     fn gen_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
-        let mut res = Self::new().mlock()?;
+        let mut res = Self::new_bytes().mlock()?;
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
+}
 
+impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A> for A {
     /// Returns a new locked byte array from `other`. Panics if sizes do not
     /// match.
-    fn from_slice_locked(
+    fn from_slice_into_locked(
         other: &[u8],
-    ) -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
-        let mut res = Self::new().mlock()?;
+    ) -> Result<Protected<Self, ReadWrite, Locked>, crate::error::Error> {
+        let mut res = Self::new_bytes().mlock()?;
+        res.resize(other.len(), 0);
+        res.as_mut_slice().copy_from_slice(other);
+        Ok(res)
+    }
+}
+
+impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByteArray<LENGTH> {
+    /// Returns a new locked byte array from `other`. Panics if sizes do not
+    /// match.
+    fn from_slice_into_locked(
+        other: &[u8],
+    ) -> Result<Protected<Self, ReadWrite, Locked>, crate::error::Error> {
+        if other.len() != LENGTH {
+            return Err(dryoc_error!(format!(
+                "slice length {} doesn't match expected {}",
+                other.len(),
+                LENGTH
+            )));
+        }
+        let mut res = Self::new_bytes().mlock()?;
         res.as_mut_slice().copy_from_slice(other);
         Ok(res)
     }
@@ -684,15 +711,8 @@ impl<const LENGTH: usize> MutBytes for HeapByteArray<LENGTH> {
 // }
 
 impl NewBytes for HeapBytes {
-    fn new() -> Self {
+    fn new_bytes() -> Self {
         Self::default()
-    }
-
-    fn from_slice(other: &[u8]) -> Self {
-        let mut r = Self::new();
-        r.resize(other.len(), 0);
-        r.copy_from_slice(other);
-        r
     }
 }
 
@@ -719,7 +739,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
         match &mut self.i {
             Some(d) => {
                 // because it's locked, we'll do a swaparoo here instead of a plain resize
-                let mut new = A::new();
+                let mut new = A::new_bytes();
                 // resize the new array
                 new.resize(new_len, value);
                 // need to actually lock the memory now, because it was previously locked
@@ -747,7 +767,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
     }
 }
 
-impl<A: Zeroize + Bytes, LM: LockMode> MutBytes for Protected<A, ReadWrite, LM> {
+impl<A: Zeroize + MutBytes, LM: LockMode> MutBytes for Protected<A, ReadWrite, LM> {
     fn as_mut_slice(&mut self) -> &mut [u8] {
         match &mut self.i {
             Some(d) => d.a.as_mut_slice(),
@@ -951,6 +971,14 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for HeapByteArray<LENGTH> {
     }
 }
 
+impl From<&[u8]> for HeapBytes {
+    fn from(src: &[u8]) -> Self {
+        let mut arr = Self::default();
+        arr.0.copy_from_slice(src);
+        arr
+    }
+}
+
 impl<const LENGTH: usize> ByteArray<LENGTH> for HeapByteArray<LENGTH> {
     fn as_array(&self) -> &[u8; LENGTH] {
         // this is safe for fixed-length arrays
@@ -959,8 +987,53 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for HeapByteArray<LENGTH> {
     }
 }
 
+impl<const LENGTH: usize> NewBytes for HeapByteArray<LENGTH> {
+    fn new_bytes() -> Self {
+        Self::default()
+    }
+}
+
+impl NewBytes for Protected<HeapBytes, ReadWrite, Locked> {
+    fn new_bytes() -> Self {
+        match HeapBytes::new_locked() {
+            Ok(r) => r,
+            Err(err) => panic!("Error creating locked bytes: {:?}", err),
+        }
+    }
+}
+
+impl<const LENGTH: usize> NewBytes for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked> {
+    fn new_bytes() -> Self {
+        match HeapByteArray::<LENGTH>::new_locked() {
+            Ok(r) => r,
+            Err(err) => panic!("Error creating locked bytes: {:?}", err),
+        }
+    }
+}
+
+impl<const LENGTH: usize> NewByteArray<LENGTH>
+    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
+{
+    fn new_byte_array() -> Self {
+        match HeapByteArray::<LENGTH>::new_locked() {
+            Ok(r) => r,
+            Err(err) => panic!("Error creating locked bytes: {:?}", err),
+        }
+    }
+
+    fn gen() -> Self {
+        match HeapByteArray::<LENGTH>::new_locked() {
+            Ok(mut r) => {
+                copy_randombytes(r.as_mut_slice());
+                r
+            }
+            Err(err) => panic!("Error creating locked bytes: {:?}", err),
+        }
+    }
+}
+
 impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
-    fn new() -> Self {
+    fn new_byte_array() -> Self {
         Self::default()
     }
 
@@ -968,13 +1041,6 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
     fn gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
-        res
-    }
-
-    /// Returns a new byte array from `other`. Panics if sizes do not match.
-    fn from_slice(other: &[u8]) -> Self {
-        let mut res = Self::default();
-        res.copy_from_slice(other);
         res
     }
 }

@@ -106,11 +106,11 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> Dr
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt<
-        Message: Bytes,
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Default,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Default,
+        Message: Bytes + ?Sized,
+        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
-        message: Message,
+        message: &Message,
         nonce: &Nonce,
         recipient_public_key: &PublicKey,
         sender_secret_key: &SecretKey,
@@ -149,7 +149,7 @@ impl<
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
             Ok(Self {
-                tag: Mac::try_from(tag)?,
+                tag: Mac::try_from(tag).map_err(|e| dryoc_error!("invalid tag"))?,
                 data: Data::from(data),
             })
         }
@@ -219,11 +219,11 @@ impl DryocBox<Mac, Vec<u8>> {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt_to_vecbox<
-        Message: Bytes,
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Default,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Default,
+        Message: Bytes + ?Sized,
+        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
-        message: Message,
+        message: &Message,
         nonce: &Nonce,
         recipient_public_key: &PublicKey,
         sender_secret_key: &SecretKey,
@@ -234,8 +234,8 @@ impl DryocBox<Mac, Vec<u8>> {
     /// Decrypts `ciphertext` using `recipient_secret_key` and
     /// `sender_public_key`, returning a new [DryocBox] with decrypted message
     pub fn decrypt_to_vec<
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Default,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Default,
+        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
         &self,
         nonce: &Nonce,
@@ -254,15 +254,15 @@ impl DryocBox<Mac, Vec<u8>> {
     }
 }
 
-impl<'a, Mac: ByteArray<CRYPTO_BOX_MACBYTES> + From<&'a [u8]>, Data: Bytes + From<&'a [u8]>>
+impl<'a, Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes + ResizableBytes + From<&'a [u8]>>
     DryocBox<Mac, Data>
 {
     /// Returns a new box with `data` and `tag`, with data copied from `input`
     /// and `tag` consumed.
-    pub fn with_data_and_mac(tag: &'a [u8], data: &'a [u8]) -> Self {
+    pub fn with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
         Self {
-            tag: Mac::from(tag),
-            data: Data::from(data),
+            tag,
+            data: input.into(),
         }
     }
 }
@@ -450,6 +450,8 @@ mod tests {
     #[test]
     fn test_copy() {
         for _ in 0..20 {
+            use std::convert::TryFrom;
+
             use crate::rng::*;
 
             let mut data1: Vec<u8> = vec![0u8; 1024];
@@ -462,7 +464,8 @@ mod tests {
 
             let data1 = data1_copy.clone();
             let (tag, data) = data1.split_at(CRYPTO_BOX_MACBYTES);
-            let dryocbox: VecBox = DryocBox::with_data_and_mac(tag, data);
+            let dryocbox: VecBox =
+                DryocBox::with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
             assert_eq!(dryocbox.data.as_slice(), &data1_copy[CRYPTO_BOX_MACBYTES..]);
             assert_eq!(dryocbox.tag.as_array(), &data1_copy[..CRYPTO_BOX_MACBYTES]);
         }

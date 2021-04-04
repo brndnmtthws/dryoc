@@ -25,8 +25,8 @@ impl KeyPair {
     /// Creates a new, unititialized keypair
     pub fn new() -> Self {
         Self {
-            public_key: PublicKey::new(),
-            secret_key: SecretKey::new(),
+            public_key: PublicKey::new_byte_array(),
+            secret_key: SecretKey::new_byte_array(),
         }
     }
 

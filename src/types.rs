@@ -16,7 +16,7 @@ pub trait ByteArray<const LENGTH: usize>: Bytes {
     fn as_array(&self) -> &[u8; LENGTH];
 }
 
-pub trait Bytes: AsRef<[u8]> {
+pub trait Bytes {
     fn as_slice(&self) -> &[u8];
     fn len(&self) -> usize;
 }
@@ -25,7 +25,7 @@ pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + MutBytes {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH];
 }
 
-pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> {
+pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> + NewBytes {
     fn new_byte_array() -> Self;
     fn gen() -> Self;
 }
@@ -56,6 +56,12 @@ impl<const LENGTH: usize> Bytes for StackByteArray<LENGTH> {
 
     fn len(&self) -> usize {
         self.0.len()
+    }
+}
+
+impl<const LENGTH: usize> NewBytes for StackByteArray<LENGTH> {
+    fn new_bytes() -> Self {
+        Self::default()
     }
 }
 
@@ -95,7 +101,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
 
     /// Returns a new byte array filled with random data.
     fn gen() -> Self {
-        let mut res = Self::new_byte_array();
+        let mut res = vec![0u8; LENGTH];
         copy_randombytes(&mut res);
         res
     }
@@ -107,10 +113,17 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
         unsafe { &mut *arr }
     }
 }
+
 impl<const LENGTH: usize> ByteArray<LENGTH> for Vec<u8> {
     fn as_array(&self) -> &[u8; LENGTH] {
         let arr = self.as_ptr() as *const [u8; LENGTH];
         unsafe { &*arr }
+    }
+}
+
+impl<const LENGTH: usize> NewBytes for [u8; LENGTH] {
+    fn new_bytes() -> Self {
+        [0u8; LENGTH]
     }
 }
 
