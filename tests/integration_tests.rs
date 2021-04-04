@@ -331,6 +331,7 @@ fn test_dryocbox_serde_known_good() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "nightly")]
 #[test]
 fn test_dryocsecretbox_protected() {
     use dryoc::dryocsecretbox::*;
