@@ -123,7 +123,12 @@ impl<
     }
 }
 
-impl<'a, Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes> DryocSecretBox<Mac, Data> {
+impl<
+    'a,
+    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + std::convert::TryFrom<&'a [u8]>,
+    Data: Bytes + From<&'a [u8]>,
+> DryocSecretBox<Mac, Data>
+{
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
             Err(dryoc_error!(format!(
@@ -134,8 +139,8 @@ impl<'a, Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes> DryocSecr
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
             Ok(Self {
-                tag: Mac::from_slice(tag),
-                data: Data::from_slice(data),
+                tag: Mac::try_from(tag)?,
+                data: Data::from(data),
             })
         }
     }
@@ -428,6 +433,7 @@ mod tests {
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
             use crate::dryocsecretbox::*;
+            use crate::protected::*;
 
             let secret_key = protected::Key::gen_locked().expect("gen failed");
             let nonce = protected::Nonce::gen_locked().expect("gen failed");

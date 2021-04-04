@@ -334,6 +334,8 @@ mod tests {
     #[cfg(feature = "nightly")]
     #[test]
     fn test_protected_memory() {
+        use crate::protected::*;
+
         let message1 = b"Arbitrary data to encrypt";
         let message2 = b"split into";
         let message3 = b"three messages";

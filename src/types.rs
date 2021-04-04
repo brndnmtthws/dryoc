@@ -4,9 +4,6 @@ use zeroize::Zeroize;
 
 #[cfg(any(feature = "serde", feature = "base64"))]
 pub use crate::bytes_serde::*;
-use crate::error::{self, Error};
-#[cfg(feature = "nightly")]
-pub use crate::protected::*;
 use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
@@ -29,9 +26,8 @@ pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + MutBytes {
 }
 
 pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> {
-    fn new() -> Self;
+    fn new_byte_array() -> Self;
     fn gen() -> Self;
-    fn from_slice(other: &[u8]) -> Self;
 }
 
 pub trait MutBytes: Bytes {
@@ -39,9 +35,8 @@ pub trait MutBytes: Bytes {
     fn copy_from_slice(&mut self, other: &[u8]);
 }
 
-pub trait NewBytes: MutBytes + ResizableBytes {
-    fn new() -> Self;
-    fn from_slice(other: &[u8]) -> Self;
+pub trait NewBytes: MutBytes {
+    fn new_bytes() -> Self;
 }
 
 pub trait ResizableBytes {
@@ -65,8 +60,7 @@ impl<const LENGTH: usize> Bytes for StackByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
-    /// Returns a new empty (but allocated) byte array.
-    fn new() -> Self {
+    fn new_byte_array() -> Self {
         Self::default()
     }
 
@@ -74,13 +68,6 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
     fn gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
-        res
-    }
-
-    /// Returns a new byte array from `other`. Panics if sizes do not match.
-    fn from_slice(other: &[u8]) -> Self {
-        let mut res = Self::default();
-        res.copy_from_slice(other);
         res
     }
 }
@@ -102,22 +89,14 @@ impl<const LENGTH: usize> MutBytes for StackByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
-    /// Returns a new empty (but allocated) byte array as a [Vec].
-    fn new() -> Self {
+    fn new_byte_array() -> Self {
         vec![0u8; LENGTH]
     }
 
     /// Returns a new byte array filled with random data.
     fn gen() -> Self {
-        let mut res = <Self as NewByteArray<LENGTH>>::new();
+        let mut res = Self::new_byte_array();
         copy_randombytes(&mut res);
-        res
-    }
-
-    /// Returns a new byte array from `other`. Panics if sizes do not match.
-    fn from_slice(other: &[u8]) -> Self {
-        let mut res = <Self as NewByteArray<LENGTH>>::new();
-        res.copy_from_slice(other);
         res
     }
 }
@@ -136,22 +115,14 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for Vec<u8> {
 }
 
 impl<const LENGTH: usize> NewByteArray<LENGTH> for [u8; LENGTH] {
-    /// Returns a new empty (but allocated) byte array as a [Vec].
-    fn new() -> Self {
+    fn new_byte_array() -> Self {
         [0u8; LENGTH]
     }
 
     /// Returns a new byte array filled with random data.
     fn gen() -> Self {
-        let mut res = <Self as NewByteArray<LENGTH>>::new();
+        let mut res = Self::new_byte_array();
         copy_randombytes(&mut res);
-        res
-    }
-
-    /// Returns a new byte array from `other`. Panics if sizes do not match.
-    fn from_slice(other: &[u8]) -> Self {
-        let mut res = <Self as NewByteArray<LENGTH>>::new();
-        res.copy_from_slice(other);
         res
     }
 }
@@ -183,14 +154,8 @@ impl Bytes for Vec<u8> {
 }
 
 impl NewBytes for Vec<u8> {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn from_slice(other: &[u8]) -> Self {
-        let mut r = Self::default();
-        r.extend_from_slice(other);
-        r
+    fn new_bytes() -> Self {
+        vec![]
     }
 }
 
@@ -428,8 +393,8 @@ impl<const LENGTH: usize> From<[u8; LENGTH]> for StackByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
-    type Error = error::Error;
+impl<'a, const LENGTH: usize> TryFrom<&'a [u8]> for StackByteArray<LENGTH> {
+    type Error = crate::error::Error;
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
         if src.len() != LENGTH {

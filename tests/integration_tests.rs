@@ -327,3 +327,28 @@ fn test_dryocbox_serde_known_good() {
 
     assert_eq!(message, decrypted.as_slice());
 }
+
+#[test]
+fn test_dryocsecretbox_protected() {
+    use dryoc::dryocsecretbox::*;
+    use dryoc::protected::*;
+
+    let secret_key = protected::Key::gen_locked()
+        .and_then(|s| s.mprotect_readonly())
+        .expect("key failed");
+
+    let nonce = protected::Nonce::gen_locked()
+        .and_then(|s| s.mprotect_readonly())
+        .expect("nonce failed");
+
+    let message = LockedBytes::from_slice_locked(b"Secret messega").expect("unable to lock");
+
+    let dryocsecretbox: protected::LockedBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key);
+
+    let decrypted: Vec<u8> = dryocsecretbox
+        .decrypt(&nonce, &secret_key)
+        .expect("decrypt failed");
+
+    assert_eq!(message, decrypted.as_slice());
+}

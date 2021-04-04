@@ -123,7 +123,7 @@ mod protected {
                 where
                     E: Error,
                 {
-                    Ok(HeapBytes::from_slice(v))
+                    Ok(HeapBytes::from(v))
                 }
             }
 

@@ -35,13 +35,11 @@ assert_eq!(message, decrypted.as_slice());
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-#[cfg(any(feature = "serde", feature = "base64"))]
-use crate::bytes_serde::*;
 use crate::constants::{
     CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES, CRYPTO_BOX_PUBLICKEYBYTES,
     CRYPTO_BOX_SECRETKEYBYTES,
 };
-use crate::error::Error;
+use crate::error::*;
 pub use crate::keypair::KeyPair;
 pub use crate::types::*;
 
@@ -98,13 +96,13 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes> DryocBox<Mac, Data>
     /// Returns an empty box
     pub fn new() -> Self {
         Self {
-            tag: Mac::new(),
-            data: Data::new(),
+            tag: Mac::new_byte_array(),
+            data: Data::new_bytes(),
         }
     }
 }
 
-impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes> DryocBox<Mac, Data> {
+impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> DryocBox<Mac, Data> {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag
     pub fn encrypt<
@@ -135,8 +133,13 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes> DryocBox<Mac, Data>
     }
 }
 
-impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes> DryocBox<Mac, Data> {
-    pub fn from_bytes<'a>(bytes: &[u8]) -> Result<Self, Error> {
+impl<
+    'a,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + std::convert::TryFrom<&'a [u8]>,
+    Data: Bytes + From<&'a [u8]>,
+> DryocBox<Mac, Data>
+{
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_MACBYTES {
             Err(dryoc_error!(format!(
                 "bytes of len {} less than expected minimum of {}",
@@ -146,8 +149,8 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes> DryocBox<Mac, Data>
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
             Ok(Self {
-                tag: Mac::from_slice(tag),
-                data: Data::from_slice(data),
+                tag: Mac::try_from(tag)?,
+                data: Data::from(data),
             })
         }
     }
@@ -158,15 +161,23 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
     pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
         Self { tag, data }
     }
+
+    /// Copies this box into a new Vec
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(self.tag.as_slice());
+        data.extend(self.data.as_slice());
+        data
+    }
 }
 
 impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
     /// Decrypts `ciphertext` using `recipient_secret_key` and
     /// `sender_public_key`, returning a new [DryocBox] with decrypted message
     pub fn decrypt<
-        Output: Default + ResizableBytes + MutBytes,
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Default,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Default,
+        Output: ResizableBytes + NewBytes,
+        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
         &self,
         nonce: &Nonce,
@@ -175,7 +186,7 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
     ) -> Result<Output, Error> {
         use crate::crypto_box::*;
 
-        let mut message = Output::default();
+        let mut message = Output::new_bytes();
         message.resize(self.data.as_slice().len(), 0);
 
         crypto_box_open_detached(
@@ -190,16 +201,8 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
         Ok(message)
     }
 
-    /// Copies this box into a new Vec
-    pub fn to_vec(&self) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(self.tag.as_slice());
-        data.extend(self.data.as_slice());
-        data
-    }
-
-    pub fn to_bytes<Bytes: NewBytes>(&self) -> Bytes {
-        let mut data = Bytes::new();
+    pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
+        let mut data = Bytes::new_bytes();
         data.resize(self.tag.len() + self.data.len(), 0);
         let s = data.as_mut_slice();
         s[..CRYPTO_BOX_MACBYTES].copy_from_slice(self.tag.as_slice());
@@ -251,13 +254,15 @@ impl DryocBox<Mac, Vec<u8>> {
     }
 }
 
-impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes> DryocBox<Mac, Data> {
+impl<'a, Mac: ByteArray<CRYPTO_BOX_MACBYTES> + From<&'a [u8]>, Data: Bytes + From<&'a [u8]>>
+    DryocBox<Mac, Data>
+{
     /// Returns a new box with `data` and `tag`, with data copied from `input`
     /// and `tag` consumed.
-    pub fn with_data_and_mac(tag: &[u8], data: &[u8]) -> Self {
+    pub fn with_data_and_mac(tag: &'a [u8], data: &'a [u8]) -> Self {
         Self {
-            tag: Mac::from_slice(tag),
-            data: Data::from_slice(data),
+            tag: Mac::from(tag),
+            data: Data::from(data),
         }
     }
 }

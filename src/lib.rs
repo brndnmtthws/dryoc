@@ -8,18 +8,17 @@ dependencies.
 
 ## Features
 
-The importart features of dryoc are:
 * 100% pure Rust
 * mostly free of unsafe code[^2]
 * free of corporate or governmental influence
-* automatic safety features such as zeroization of data structures
-* proper protected memory support, with the API designed such that it's hard to
+* automatic safety features such as zeroization of data structures (via [Drop])
+* protected memory support, with the API designed such that it's hard to
   accidentally unprotect your memory
 * it's designed to be especially difficult to use incorrectly (with the
   Rustaceous API)
-* provides full compatibility with libsodium and implements most of its key functions
-* covers most common use cases for safe encryption
-* available for commercial use under the [LGPL-3.0 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
+* provides full compatibility with libsodium, and implements most of its functions
+* covers common use cases for safe encryption
+* available under the [LGPL-3.0 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 
 # APIs
 
@@ -45,10 +44,7 @@ have to try really hard to do things wrong.
 # Using Serde
 
 This crate includes optional [Serde](https://serde.rs/) support which can be
-enabled with the `serde` feature flag. When using text-based formats, such as
-JSON or YAML, it's recommended you enable the `base64` feature as well, which
-encodes binary fields as base64. For binary formats, this may not be
-necessary if they already include optimized storage for binary types.
+enabled with the `serde` feature flag.
 
 # Security notes
 

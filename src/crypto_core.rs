@@ -90,7 +90,7 @@ pub fn crypto_core_hchacha20<
         quarterround(&mut x3, &mut x4, &mut x9, &mut x14);
     }
 
-    let mut out = Output::new();
+    let mut out = Output::new_byte_array();
 
     let arr = out.as_mut_slice();
     arr[0..4].copy_from_slice(&x0.to_le_bytes());
