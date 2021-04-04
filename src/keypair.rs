@@ -104,6 +104,7 @@ impl<
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected {
+
     use super::*;
     use crate::protected::*;
 
@@ -123,11 +124,42 @@ pub mod protected {
 
         /// Returns a new locked byte array filled with random data.
         pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
+            use crate::crypto_core::crypto_scalarmult_base;
             use crate::rng::copy_randombytes;
 
             let mut res = Self::new_locked_keypair()?;
             copy_randombytes(res.secret_key.as_mut_slice());
+
+            crypto_scalarmult_base(res.public_key.as_mut_array(), res.secret_key.as_array());
+
             Ok(res)
+        }
+    }
+
+    impl
+        KeyPair<
+            Protected<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, ReadOnly, Locked>,
+            Protected<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>, ReadOnly, Locked>,
+        >
+    {
+        /// Returns a new locked byte array filled with random data.
+        pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+            use crate::crypto_core::crypto_scalarmult_base;
+            use crate::rng::copy_randombytes;
+
+            let mut public_key = HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?;
+            let mut secret_key = HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?;
+
+            copy_randombytes(secret_key.as_mut_slice());
+            crypto_scalarmult_base(public_key.as_mut_array(), secret_key.as_array());
+
+            let public_key = public_key.mprotect_readonly()?;
+            let secret_key = secret_key.mprotect_readonly()?;
+
+            Ok(Self {
+                public_key,
+                secret_key,
+            })
         }
     }
 }

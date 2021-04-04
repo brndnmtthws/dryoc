@@ -50,6 +50,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for StackByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> Bytes for StackByteArray<LENGTH> {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         &self.0
     }
@@ -79,12 +80,14 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH> for StackByteArray<LENGTH> {
+    #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         &mut self.0
     }
 }
 
 impl<const LENGTH: usize> MutBytes for StackByteArray<LENGTH> {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         &mut self.0
     }
@@ -108,6 +111,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
+    #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         let arr = self.as_ptr() as *mut [u8; LENGTH];
         unsafe { &mut *arr }
@@ -115,6 +119,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for Vec<u8> {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         let arr = self.as_ptr() as *const [u8; LENGTH];
         unsafe { &*arr }
@@ -141,12 +146,14 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for [u8; LENGTH] {
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8; LENGTH] {
+    #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         self
     }
 }
 
 impl<const LENGTH: usize> MutBytes for [u8; LENGTH] {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self
     }
@@ -157,10 +164,12 @@ impl<const LENGTH: usize> MutBytes for [u8; LENGTH] {
 }
 
 impl Bytes for Vec<u8> {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self.as_slice()
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
@@ -173,6 +182,7 @@ impl NewBytes for Vec<u8> {
 }
 
 impl MutBytes for Vec<u8> {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.as_mut_slice()
     }
@@ -189,56 +199,67 @@ impl ResizableBytes for Vec<u8> {
 }
 
 impl Bytes for [u8] {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
 }
 
 impl Bytes for &[u8] {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
 }
 
 impl Bytes for &mut [u8] {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
 }
 
 impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
 }
 
 impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         *self
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(*self)
     }
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         &self
     }
@@ -247,6 +268,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
 /// Provided for convenience. Panics if the input array size doesn't match
 /// `LENGTH`.
 impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         if self.len() < LENGTH {
             panic!(
@@ -261,6 +283,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         if self.len() < LENGTH {
             panic!(
@@ -289,6 +312,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
 }
 
 impl MutBytes for [u8] {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self
     }

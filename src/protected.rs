@@ -408,20 +408,24 @@ impl<A: Zeroize + MutBytes, PM: ProtectMode> ProtectNoAccess<A, PM> for Protecte
 // }
 
 impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.i.as_ref().unwrap().a.len()
     }
 }
 
 impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.i.as_ref().unwrap().a.len()
     }
@@ -614,12 +618,16 @@ pub type LockedNoAccessBytes = Protected<HeapBytes, NoAccess, Locked>;
 pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     fn new_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
     fn gen_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
+    fn gen_readonly_locked() -> Result<Protected<A, ReadOnly, Locked>, std::io::Error>;
 }
 
 pub trait NewLockedFromSlice<A: Zeroize + NewBytes + Lockable<A>> {
     fn from_slice_into_locked(
         other: &[u8],
     ) -> Result<Protected<A, ReadWrite, Locked>, crate::error::Error>;
+    fn from_slice_into_locked_readonly(
+        other: &[u8],
+    ) -> Result<Protected<A, ReadOnly, Locked>, crate::error::Error>;
 }
 
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
@@ -634,6 +642,11 @@ impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
+
+    /// Returns a new locked byte array filled with random data.
+    fn gen_readonly_locked() -> Result<Protected<Self, ReadOnly, Locked>, std::io::Error> {
+        Self::gen_locked().and_then(|s| s.mprotect_readonly())
+    }
 }
 
 impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A> for A {
@@ -646,6 +659,15 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A>
         res.resize(other.len(), 0);
         res.as_mut_slice().copy_from_slice(other);
         Ok(res)
+    }
+
+    /// Returns a new locked byte array from `other`. Panics if sizes do not
+    /// match.
+    fn from_slice_into_locked_readonly(
+        other: &[u8],
+    ) -> Result<Protected<Self, ReadOnly, Locked>, crate::error::Error> {
+        Self::from_slice_into_locked(other)
+            .and_then(|s| s.mprotect_readonly().map_err(|err| err.into()))
     }
 }
 
@@ -666,29 +688,41 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
         res.as_mut_slice().copy_from_slice(other);
         Ok(res)
     }
+
+    fn from_slice_into_locked_readonly(
+        other: &[u8],
+    ) -> Result<Protected<Self, ReadOnly, Locked>, crate::error::Error> {
+        Self::from_slice_into_locked(other)
+            .and_then(|s| s.mprotect_readonly().map_err(|err| err.into()))
+    }
 }
 
 impl<const LENGTH: usize> Bytes for HeapByteArray<LENGTH> {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         &self.0
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.0.len()
     }
 }
 
 impl Bytes for HeapBytes {
+    #[inline]
     fn as_slice(&self) -> &[u8] {
         &self.0
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.0.len()
     }
 }
 
 impl<const LENGTH: usize> MutBytes for HeapByteArray<LENGTH> {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.0.as_mut_slice()
     }
@@ -717,6 +751,7 @@ impl NewBytes for HeapBytes {
 }
 
 impl MutBytes for HeapBytes {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.0.as_mut_slice()
     }
@@ -768,6 +803,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
 }
 
 impl<A: Zeroize + MutBytes, LM: LockMode> MutBytes for Protected<A, ReadWrite, LM> {
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         match &mut self.i {
             Some(d) => d.a.as_mut_slice(),
@@ -980,6 +1016,7 @@ impl From<&[u8]> for HeapBytes {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for HeapByteArray<LENGTH> {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         // this is safe for fixed-length arrays
         let ptr = self.0.as_ptr() as *const [u8; LENGTH];
@@ -1056,6 +1093,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for HeapByteArray<LENGTH> {
 impl<const LENGTH: usize> ByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadOnly, Unlocked>
 {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         match &self.i {
             Some(d) => d.a.as_array(),
@@ -1065,6 +1103,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for Protected<HeapByteArray<LENGTH>, ReadOnly, Locked> {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         match &self.i {
             Some(d) => d.a.as_array(),
@@ -1076,6 +1115,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for Protected<HeapByteArray<LENGTH>,
 impl<const LENGTH: usize> ByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         match &self.i {
             Some(d) => d.a.as_array(),
@@ -1087,6 +1127,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 impl<const LENGTH: usize> ByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         match &self.i {
             Some(d) => d.a.as_array(),
@@ -1098,6 +1139,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 impl<const LENGTH: usize> MutByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
 {
+    #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         match &mut self.i {
             Some(d) => d.a.as_mut_array(),
@@ -1109,6 +1151,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
 impl<const LENGTH: usize> MutByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
 {
+    #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         match &mut self.i {
             Some(d) => d.a.as_mut_array(),
