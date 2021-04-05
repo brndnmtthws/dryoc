@@ -106,12 +106,13 @@ impl<
 pub mod protected {
 
     use super::*;
+    use crate::protected::t::*;
     use crate::protected::*;
 
     impl
         KeyPair<
-            Protected<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, ReadWrite, Locked>,
-            Protected<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>, ReadWrite, Locked>,
+            Locked<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>,
+            Locked<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
         >
     {
         /// Returns a new locked byte array.
@@ -138,8 +139,8 @@ pub mod protected {
 
     impl
         KeyPair<
-            Protected<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, ReadOnly, Locked>,
-            Protected<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>, ReadOnly, Locked>,
+            LockedRO<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>,
+            LockedRO<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
         >
     {
         /// Returns a new locked byte array filled with random data.

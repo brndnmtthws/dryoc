@@ -23,7 +23,7 @@ use dryoc::protected::*;
 
  */
 use std::alloc::{AllocError, Allocator, Layout};
-use std::convert::{AsMut, AsRef, TryFrom};
+use std::convert::{AsMut, TryFrom};
 use std::marker::PhantomData;
 use std::ptr;
 
@@ -35,43 +35,6 @@ use crate::bytes_serde::*;
 use crate::error;
 use crate::rng::copy_randombytes;
 use crate::types::*;
-
-pub trait ProtectMode {}
-pub struct ReadOnly {}
-pub struct ReadWrite {}
-pub struct NoAccess {}
-
-impl ProtectMode for ReadOnly {}
-impl ProtectMode for ReadWrite {}
-impl ProtectMode for NoAccess {}
-
-pub trait LockMode {}
-pub struct Locked {}
-pub struct Unlocked {}
-impl LockMode for Locked {}
-impl LockMode for Unlocked {}
-
-pub trait Lock<A: Zeroize + MutBytes, PM: ProtectMode> {
-    fn mlock(self) -> Result<Protected<A, PM, Locked>, std::io::Error>;
-}
-
-pub trait Lockable<A: Zeroize + MutBytes> {
-    fn mlock(self) -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
-}
-
-pub trait Unlock<A: Zeroize + MutBytes, PM: ProtectMode> {
-    fn munlock(self) -> Result<Protected<A, PM, Unlocked>, std::io::Error>;
-}
-
-pub trait ProtectReadOnly<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
-    fn mprotect_readonly(self) -> Result<Protected<A, ReadOnly, LM>, std::io::Error>;
-}
-pub trait ProtectReadWrite<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
-    fn mprotect_readwrite(self) -> Result<Protected<A, ReadWrite, LM>, std::io::Error>;
-}
-pub trait ProtectNoAccess<A: Zeroize + MutBytes, PM: ProtectMode> {
-    fn mprotect_noaccess(self) -> Result<Protected<A, NoAccess, Unlocked>, std::io::Error>;
-}
 
 mod int {
     #[derive(Clone, Debug, PartialEq)]
@@ -94,9 +57,66 @@ mod int {
     }
 }
 
+mod traits {
+    pub trait ProtectMode {}
+    pub struct ReadOnly {}
+    pub struct ReadWrite {}
+    pub struct NoAccess {}
+
+    impl ProtectMode for ReadOnly {}
+    impl ProtectMode for ReadWrite {}
+    impl ProtectMode for NoAccess {}
+
+    pub trait LockMode {}
+    pub struct Locked {}
+    pub struct Unlocked {}
+    impl LockMode for Locked {}
+    impl LockMode for Unlocked {}
+}
+
+pub trait Lock<A: Zeroize + MutBytes, PM: traits::ProtectMode> {
+    fn mlock(self) -> Result<Protected<A, PM, traits::Locked>, std::io::Error>;
+}
+
+pub trait Lockable<A: Zeroize + MutBytes> {
+    fn mlock(self) -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+}
+
+pub trait Unlock<A: Zeroize + MutBytes, PM: traits::ProtectMode> {
+    fn munlock(self) -> Result<Protected<A, PM, traits::Unlocked>, std::io::Error>;
+}
+
+pub trait ProtectReadOnly<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode> {
+    fn mprotect_readonly(self) -> Result<Protected<A, traits::ReadOnly, LM>, std::io::Error>;
+}
+pub trait ProtectReadWrite<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode> {
+    fn mprotect_readwrite(self) -> Result<Protected<A, traits::ReadWrite, LM>, std::io::Error>;
+}
+pub trait ProtectNoAccess<A: Zeroize + MutBytes, PM: traits::ProtectMode> {
+    fn mprotect_noaccess(
+        self,
+    ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, std::io::Error>;
+}
+
+pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
+    fn new_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+    fn gen_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+    fn gen_readonly_locked()
+    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
+}
+
+pub trait NewLockedFromSlice<A: Zeroize + NewBytes + Lockable<A>> {
+    fn from_slice_into_locked(
+        other: &[u8],
+    ) -> Result<Protected<A, traits::ReadWrite, traits::Locked>, crate::error::Error>;
+    fn from_slice_into_locked_readonly(
+        other: &[u8],
+    ) -> Result<Protected<A, traits::ReadOnly, traits::Locked>, crate::error::Error>;
+}
+
 /// Holds a protected region of memory. Does not implement traits such as
 /// [Copy], [Clone], or [std::fmt::Debug].
-pub struct Protected<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
+pub struct Protected<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode> {
     i: Option<int::InternalData<A>>,
     p: PhantomData<PM>,
     l: PhantomData<LM>,
@@ -104,13 +124,15 @@ pub struct Protected<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
 
 /// Short-hand type aliases for protected types.
 pub mod t {
-    pub type Locked<T> = super::Protected<T, super::ReadWrite, super::Locked>;
-    pub type LockedRO<T> = super::Protected<T, super::ReadOnly, super::Locked>;
-    pub type NoAccess<T> = super::Protected<T, super::NoAccess, super::Unlocked>;
-    pub type Unlocked<T> = super::Protected<T, super::ReadWrite, super::Unlocked>;
-    pub type UnlockedRO<T> = super::Protected<T, super::ReadOnly, super::Unlocked>;
+    pub type Locked<T> = super::Protected<T, super::traits::ReadWrite, super::traits::Locked>;
+    pub type LockedRO<T> = super::Protected<T, super::traits::ReadOnly, super::traits::Locked>;
+    pub type NoAccess<T> = super::Protected<T, super::traits::NoAccess, super::traits::Unlocked>;
+    pub type Unlocked<T> = super::Protected<T, super::traits::ReadWrite, super::traits::Unlocked>;
+    pub type UnlockedRO<T> = super::Protected<T, super::traits::ReadOnly, super::traits::Unlocked>;
     pub type LockedBytes = Locked<super::HeapBytes>;
 }
+
+pub use t::*;
 
 fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
     if data.is_empty() {
@@ -303,7 +325,7 @@ fn dryoc_mprotect_noaccess(data: &mut [u8]) -> Result<(), std::io::Error> {
     }
 }
 
-impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> Protected<A, PM, LM> {
+impl<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode> Protected<A, PM, LM> {
     fn new() -> Self {
         Self {
             i: None,
@@ -324,7 +346,7 @@ impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> Protected<A, PM, LM> 
         }
     }
 
-    fn swap_some_or_err<F, OPM: ProtectMode, OLM: LockMode>(
+    fn swap_some_or_err<F, OPM: traits::ProtectMode, OLM: traits::LockMode>(
         &mut self,
         f: F,
     ) -> Result<Protected<A, OPM, OLM>, std::io::Error>
@@ -346,61 +368,69 @@ impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> Protected<A, PM, LM> 
     }
 }
 
-impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> Unlock<A, PM> for Protected<A, PM, LM> {
-    fn munlock(mut self) -> Result<Protected<A, PM, Unlocked>, std::io::Error> {
+impl<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode> Unlock<A, PM>
+    for Protected<A, PM, LM>
+{
+    fn munlock(mut self) -> Result<Protected<A, PM, traits::Unlocked>, std::io::Error> {
         self.swap_some_or_err(|old| {
             dryoc_munlock(old.a.as_mut_slice())?;
             // update internal state
             old.lm = int::LockMode::Unlocked;
-            Ok(Protected::<A, PM, Unlocked>::new())
+            Ok(Protected::<A, PM, traits::Unlocked>::new())
         })
     }
 }
 
-impl<A: Zeroize + MutBytes + Default, PM: ProtectMode> Lock<A, PM> for Protected<A, PM, Unlocked> {
-    fn mlock(mut self) -> Result<Protected<A, PM, Locked>, std::io::Error> {
+impl<A: Zeroize + MutBytes + Default, PM: traits::ProtectMode> Lock<A, PM>
+    for Protected<A, PM, traits::Unlocked>
+{
+    fn mlock(mut self) -> Result<Protected<A, PM, traits::Locked>, std::io::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mlock(old.a.as_mut_slice())?;
             // update internal state
             old.lm = int::LockMode::Locked;
-            Ok(Protected::<A, PM, Locked>::new())
+            Ok(Protected::<A, PM, traits::Locked>::new())
         })
     }
 }
 
-impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> ProtectReadOnly<A, PM, LM>
-    for Protected<A, PM, LM>
+impl<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode>
+    ProtectReadOnly<A, PM, LM> for Protected<A, PM, LM>
 {
-    fn mprotect_readonly(mut self) -> Result<Protected<A, ReadOnly, LM>, std::io::Error> {
+    fn mprotect_readonly(mut self) -> Result<Protected<A, traits::ReadOnly, LM>, std::io::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mprotect_readonly(old.a.as_mut_slice())?;
             // update internal state
             old.pm = int::ProtectMode::ReadOnly;
-            Ok(Protected::<A, ReadOnly, LM>::new())
+            Ok(Protected::<A, traits::ReadOnly, LM>::new())
         })
     }
 }
 
-impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> ProtectReadWrite<A, PM, LM>
-    for Protected<A, PM, LM>
+impl<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode>
+    ProtectReadWrite<A, PM, LM> for Protected<A, PM, LM>
 {
-    fn mprotect_readwrite(mut self) -> Result<Protected<A, ReadWrite, LM>, std::io::Error> {
+    fn mprotect_readwrite(mut self) -> Result<Protected<A, traits::ReadWrite, LM>, std::io::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mprotect_readwrite(old.a.as_mut_slice())?;
             // update internal state
             old.pm = int::ProtectMode::ReadWrite;
-            Ok(Protected::<A, ReadWrite, LM>::new())
+            Ok(Protected::<A, traits::ReadWrite, LM>::new())
         })
     }
 }
 
-impl<A: Zeroize + MutBytes, PM: ProtectMode> ProtectNoAccess<A, PM> for Protected<A, PM, Unlocked> {
-    fn mprotect_noaccess(mut self) -> Result<Protected<A, NoAccess, Unlocked>, std::io::Error> {
+impl<A: Zeroize + MutBytes, PM: traits::ProtectMode> ProtectNoAccess<A, PM>
+    for Protected<A, PM, traits::Unlocked>
+{
+    fn mprotect_noaccess(
+        mut self,
+    ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, std::io::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mprotect_noaccess(old.a.as_mut_slice())?;
             // update internal state
             old.pm = int::ProtectMode::NoAccess;
-            Ok(Protected::<A, NoAccess, Unlocked>::new())
+            Ok(Protected::<A, traits::NoAccess, traits::Unlocked>::new())
         })
     }
 }
@@ -417,7 +447,7 @@ impl<A: Zeroize + MutBytes, PM: ProtectMode> ProtectNoAccess<A, PM> for Protecte
 //     }
 // }
 
-impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
+impl<A: Zeroize + MutBytes, LM: traits::LockMode> Bytes for Protected<A, traits::ReadOnly, LM> {
     #[inline]
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
@@ -429,7 +459,7 @@ impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadOnly, LM> {
     }
 }
 
-impl<A: Zeroize + MutBytes, LM: LockMode> Bytes for Protected<A, ReadWrite, LM> {
+impl<A: Zeroize + MutBytes, LM: traits::LockMode> Bytes for Protected<A, traits::ReadWrite, LM> {
     #[inline]
     fn as_slice(&self) -> &[u8] {
         self.i.as_ref().unwrap().a.as_slice()
@@ -456,8 +486,12 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     /// wrapper.
     pub fn mlock(
         self,
-    ) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
-        Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked>::new_with(self.into()).mlock()
+    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>, std::io::Error>
+    {
+        Protected::<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>::new_with(
+            self.into(),
+        )
+        .mlock()
     }
 }
 
@@ -465,23 +499,32 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     /// Returns a readonly protected [StackByteArray].
     pub fn mprotect_readonly(
         self,
-    ) -> Result<Protected<HeapByteArray<LENGTH>, ReadOnly, Unlocked>, std::io::Error> {
-        Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked>::new_with(self.into())
-            .mprotect_readonly()
+    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Unlocked>, std::io::Error>
+    {
+        Protected::<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>::new_with(
+            self.into(),
+        )
+        .mprotect_readonly()
     }
 }
 
 impl<const LENGTH: usize> Lockable<HeapByteArray<LENGTH>> for HeapByteArray<LENGTH> {
     /// Locks a [HeapByteArray], and returns a [Protected] wrapper.
-    fn mlock(self) -> Result<Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>, std::io::Error> {
-        Protected::<HeapByteArray<LENGTH>, ReadWrite, Unlocked>::new_with(self).mlock()
+    fn mlock(
+        self,
+    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>, std::io::Error>
+    {
+        Protected::<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>::new_with(self)
+            .mlock()
     }
 }
 
 impl Lockable<HeapBytes> for HeapBytes {
     /// Locks a [HeapBytes], and returns a [Protected] wrapper.
-    fn mlock(self) -> Result<Protected<HeapBytes, ReadWrite, Locked>, std::io::Error> {
-        Protected::<HeapBytes, ReadWrite, Unlocked>::new_with(self).mlock()
+    fn mlock(
+        self,
+    ) -> Result<Protected<HeapBytes, traits::ReadWrite, traits::Locked>, std::io::Error> {
+        Protected::<HeapBytes, traits::ReadWrite, traits::Unlocked>::new_with(self).mlock()
     }
 }
 
@@ -621,36 +664,22 @@ pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 #[zeroize(drop)]
 pub struct HeapBytes(Vec<u8, PageAlignedAllocator>);
 
-pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
-    fn new_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
-    fn gen_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;
-    fn gen_readonly_locked() -> Result<Protected<A, ReadOnly, Locked>, std::io::Error>;
-}
-
-pub trait NewLockedFromSlice<A: Zeroize + NewBytes + Lockable<A>> {
-    fn from_slice_into_locked(
-        other: &[u8],
-    ) -> Result<Protected<A, ReadWrite, Locked>, crate::error::Error>;
-    fn from_slice_into_locked_readonly(
-        other: &[u8],
-    ) -> Result<Protected<A, ReadOnly, Locked>, crate::error::Error>;
-}
-
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
     /// Returns a new locked byte array.
-    fn new_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
+    fn new_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
         Self::new_bytes().mlock()
     }
 
     /// Returns a new locked byte array filled with random data.
-    fn gen_locked() -> Result<Protected<Self, ReadWrite, Locked>, std::io::Error> {
+    fn gen_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
         let mut res = Self::new_bytes().mlock()?;
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
 
     /// Returns a new locked byte array filled with random data.
-    fn gen_readonly_locked() -> Result<Protected<Self, ReadOnly, Locked>, std::io::Error> {
+    fn gen_readonly_locked()
+    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, std::io::Error> {
         Self::gen_locked().and_then(|s| s.mprotect_readonly())
     }
 }
@@ -660,7 +689,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A>
     /// match.
     fn from_slice_into_locked(
         other: &[u8],
-    ) -> Result<Protected<Self, ReadWrite, Locked>, crate::error::Error> {
+    ) -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, crate::error::Error> {
         let mut res = Self::new_bytes().mlock()?;
         res.resize(other.len(), 0);
         res.as_mut_slice().copy_from_slice(other);
@@ -671,7 +700,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A>
     /// match.
     fn from_slice_into_locked_readonly(
         other: &[u8],
-    ) -> Result<Protected<Self, ReadOnly, Locked>, crate::error::Error> {
+    ) -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, crate::error::Error> {
         Self::from_slice_into_locked(other)
             .and_then(|s| s.mprotect_readonly().map_err(|err| err.into()))
     }
@@ -682,7 +711,7 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
     /// match.
     fn from_slice_into_locked(
         other: &[u8],
-    ) -> Result<Protected<Self, ReadWrite, Locked>, crate::error::Error> {
+    ) -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, crate::error::Error> {
         if other.len() != LENGTH {
             return Err(dryoc_error!(format!(
                 "slice length {} doesn't match expected {}",
@@ -697,7 +726,7 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
 
     fn from_slice_into_locked_readonly(
         other: &[u8],
-    ) -> Result<Protected<Self, ReadOnly, Locked>, crate::error::Error> {
+    ) -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, crate::error::Error> {
         Self::from_slice_into_locked(other)
             .and_then(|s| s.mprotect_readonly().map_err(|err| err.into()))
     }
@@ -774,7 +803,7 @@ impl ResizableBytes for HeapBytes {
 }
 
 impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
-    for Protected<A, ReadWrite, Locked>
+    for Protected<A, traits::ReadWrite, traits::Locked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
         match &mut self.i {
@@ -798,7 +827,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
 }
 
 impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
-    for Protected<A, ReadWrite, Unlocked>
+    for Protected<A, traits::ReadWrite, traits::Unlocked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
         match &mut self.i {
@@ -808,7 +837,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
     }
 }
 
-impl<A: Zeroize + MutBytes, LM: LockMode> MutBytes for Protected<A, ReadWrite, LM> {
+impl<A: Zeroize + MutBytes, LM: traits::LockMode> MutBytes for Protected<A, traits::ReadWrite, LM> {
     #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
         match &mut self.i {
@@ -927,7 +956,7 @@ impl<const LENGTH: usize> Default for HeapByteArray<LENGTH> {
 }
 
 impl<A: Zeroize + NewBytes + Lockable<A> + NewLocked<A>> Default
-    for Protected<A, ReadWrite, Locked>
+    for Protected<A, traits::ReadWrite, traits::Locked>
 {
     fn default() -> Self {
         A::new_locked().expect("mlock failed")
@@ -1036,7 +1065,7 @@ impl<const LENGTH: usize> NewBytes for HeapByteArray<LENGTH> {
     }
 }
 
-impl NewBytes for Protected<HeapBytes, ReadWrite, Locked> {
+impl NewBytes for Protected<HeapBytes, traits::ReadWrite, traits::Locked> {
     fn new_bytes() -> Self {
         match HeapBytes::new_locked() {
             Ok(r) => r,
@@ -1045,7 +1074,9 @@ impl NewBytes for Protected<HeapBytes, ReadWrite, Locked> {
     }
 }
 
-impl<const LENGTH: usize> NewBytes for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked> {
+impl<const LENGTH: usize> NewBytes
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
+{
     fn new_bytes() -> Self {
         match HeapByteArray::<LENGTH>::new_locked() {
             Ok(r) => r,
@@ -1055,7 +1086,7 @@ impl<const LENGTH: usize> NewBytes for Protected<HeapByteArray<LENGTH>, ReadWrit
 }
 
 impl<const LENGTH: usize> NewByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
 {
     fn new_byte_array() -> Self {
         match HeapByteArray::<LENGTH>::new_locked() {
@@ -1097,29 +1128,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for HeapByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, ReadOnly, Unlocked>
-{
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        match &self.i {
-            Some(d) => d.a.as_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH> for Protected<HeapByteArray<LENGTH>, ReadOnly, Locked> {
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        match &self.i {
-            Some(d) => d.a.as_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Unlocked>
 {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
@@ -1131,7 +1140,31 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Locked>
+{
+    #[inline]
+    fn as_array(&self) -> &[u8; LENGTH] {
+        match &self.i {
+            Some(d) => d.a.as_array(),
+            None => panic!("invalid array"),
+        }
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>
+{
+    #[inline]
+    fn as_array(&self) -> &[u8; LENGTH] {
+        match &self.i {
+            Some(d) => d.a.as_array(),
+            None => panic!("invalid array"),
+        }
+    }
+}
+
+impl<const LENGTH: usize> ByteArray<LENGTH>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
 {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
@@ -1143,7 +1176,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
 {
     #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
@@ -1155,7 +1188,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> MutByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>
 {
     #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
@@ -1167,7 +1200,7 @@ impl<const LENGTH: usize> MutByteArray<LENGTH>
 }
 
 impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Locked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
 {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         match &mut self.i {
@@ -1178,7 +1211,7 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
 }
 
 impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
-    for Protected<HeapByteArray<LENGTH>, ReadWrite, Unlocked>
+    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>
 {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         match &mut self.i {
@@ -1188,7 +1221,9 @@ impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
     }
 }
 
-impl<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> Drop for Protected<A, PM, LM> {
+impl<A: Zeroize + MutBytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
+    for Protected<A, PM, LM>
+{
     fn drop(&mut self) {
         match &mut self.i {
             Some(d) => {
