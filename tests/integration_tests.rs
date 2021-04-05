@@ -368,7 +368,7 @@ fn test_dryocbox_protected() {
     let sender_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
     let recipient_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
 
-    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = protected::Nonce::Type::gen_readonly_locked().expect("nonce failed");
 
     let message = HeapBytes::from_slice_into_locked(b"Secret message from Santa Claus")
         .expect("unable to lock");

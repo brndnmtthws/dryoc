@@ -102,6 +102,14 @@ pub struct Protected<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
     l: PhantomData<LM>,
 }
 
+pub mod types {
+    pub type Locked<T> = super::Protected<T, super::ReadWrite, super::Locked>;
+    pub type LockedRO<T> = super::Protected<T, super::ReadOnly, super::Locked>;
+    pub type NoAccess<T> = super::Protected<T, super::NoAccess, super::Unlocked>;
+    pub type Unlocked<T> = super::Protected<T, super::ReadWrite, super::Unlocked>;
+    pub type UnlockedRO<T> = super::Protected<T, super::ReadOnly, super::Unlocked>;
+}
+
 fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
     if data.is_empty() {
         // no-op
@@ -610,10 +618,6 @@ pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 #[derive(Zeroize, Debug, PartialEq, Clone)]
 #[zeroize(drop)]
 pub struct HeapBytes(Vec<u8, PageAlignedAllocator>);
-
-pub type LockedBytes = Protected<HeapBytes, ReadWrite, Locked>;
-pub type LockedReadOnlyBytes = Protected<HeapBytes, ReadOnly, Locked>;
-pub type LockedNoAccessBytes = Protected<HeapBytes, NoAccess, Locked>;
 
 pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     fn new_locked() -> Result<Protected<A, ReadWrite, Locked>, std::io::Error>;

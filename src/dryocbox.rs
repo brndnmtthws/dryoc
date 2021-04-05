@@ -60,27 +60,12 @@ pub mod protected {
     pub use crate::keypair::protected::*;
     pub use crate::protected::*;
 
-    /// A secret for authenticated secret streams.
     pub type PublicKey = HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
-    /// A secret for authenticated secret streams.
     pub type SecretKey = HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
-    /// A nonce for authenticated secret streams.
     pub type Nonce = HeapByteArray<CRYPTO_BOX_NONCEBYTES>;
-    /// Container for crypto secret box message authentication code.
     pub type Mac = HeapByteArray<CRYPTO_BOX_MACBYTES>;
 
-    pub type LockedPublicKey = Protected<PublicKey, ReadWrite, Locked>;
-    pub type LockedReadOnlyPublicKey = Protected<PublicKey, ReadOnly, Locked>;
-    pub type NoAccessPublicKey = Protected<PublicKey, NoAccess, Unlocked>;
-    pub type LockedSecretKey = Protected<SecretKey, ReadWrite, Locked>;
-    pub type LockedReadOnlySecretKey = Protected<SecretKey, ReadOnly, Locked>;
-    pub type NoAccessSecretKey = Protected<SecretKey, NoAccess, Unlocked>;
-    pub type LockedNonce = Protected<Nonce, ReadWrite, Locked>;
-    pub type LockedMac = Protected<Mac, ReadWrite, Locked>;
-
-    pub type LockedKeyPair = crate::keypair::KeyPair<LockedPublicKey, LockedSecretKey>;
-
-    pub type LockedBox = DryocBox<LockedMac, LockedBytes>;
+    pub type LockedBox = DryocBox<, LockedBytes>;
 }
 
 #[cfg_attr(

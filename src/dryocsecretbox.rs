@@ -273,6 +273,8 @@ impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableByt
 
 #[cfg(test)]
 mod tests {
+    use protected::LockedBox;
+
     use super::*;
 
     fn all_eq<T>(t: &[T], v: T) -> bool
@@ -470,7 +472,7 @@ mod tests {
             )
             .expect("decrypt failed");
 
-            let m: LockedBytes = dryocsecretbox
+            let m: protected::LockedBytes = dryocsecretbox
                 .decrypt(&nonce, &secret_key)
                 .expect("decrypt failed");
 

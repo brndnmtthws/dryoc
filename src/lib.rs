@@ -79,6 +79,11 @@ making mistakes, however the Classic API allows one to do as one pleases.
 )]
 #[macro_use]
 mod error;
+#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[macro_use]
+pub mod protected;
+
 #[cfg(feature = "serde")]
 mod bytes_serde;
 mod crypto_box_impl;
@@ -102,9 +107,7 @@ pub mod dryocsecretbox;
 pub mod dryocstream;
 /// # Public-key tools
 pub mod keypair;
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
-pub mod protected;
+
 /// # Random number generation utilities
 pub mod rng;
 /// # Base type definitions
