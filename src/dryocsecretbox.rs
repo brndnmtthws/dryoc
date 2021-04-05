@@ -56,13 +56,7 @@ pub mod protected {
     /// Container for crypto secret box message authentication code.
     pub type Mac = HeapByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-    pub type LockedReadWriteKey = Protected<Key, ReadWrite, Locked>;
-    pub type LockedReadOnlyKey = Protected<Key, ReadOnly, Locked>;
-    pub type NoAccessKey = Protected<Key, NoAccess, Unlocked>;
-    pub type LockedReadWriteNonce = Protected<Nonce, ReadWrite, Locked>;
-    pub type LockedReadWriteMac = Protected<Mac, ReadWrite, Locked>;
-
-    pub type LockedBox = DryocSecretBox<LockedReadWriteMac, LockedBytes>;
+    pub type LockedBox = DryocSecretBox<t::Locked<Mac>, t::Locked<HeapBytes>>;
 }
 
 #[cfg_attr(
@@ -273,8 +267,6 @@ impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableByt
 
 #[cfg(test)]
 mod tests {
-    use protected::LockedBox;
-
     use super::*;
 
     fn all_eq<T>(t: &[T], v: T) -> bool
@@ -472,7 +464,7 @@ mod tests {
             )
             .expect("decrypt failed");
 
-            let m: protected::LockedBytes = dryocsecretbox
+            let m: t::LockedBytes = dryocsecretbox
                 .decrypt(&nonce, &secret_key)
                 .expect("decrypt failed");
 

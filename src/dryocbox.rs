@@ -65,7 +65,8 @@ pub mod protected {
     pub type Nonce = HeapByteArray<CRYPTO_BOX_NONCEBYTES>;
     pub type Mac = HeapByteArray<CRYPTO_BOX_MACBYTES>;
 
-    pub type LockedBox = DryocBox<, LockedBytes>;
+    pub type LockedKeyPair = crate::keypair::KeyPair<t::Locked<PublicKey>, t::Locked<SecretKey>>;
+    pub type LockedBox = DryocBox<t::Locked<Mac>, t::LockedBytes>;
 }
 
 #[cfg_attr(

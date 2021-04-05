@@ -352,7 +352,7 @@ fn test_dryocsecretbox_protected() {
     let dryocsecretbox: protected::LockedBox =
         DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
-    let decrypted: protected::LockedBytes = dryocsecretbox
+    let decrypted: t::LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("decrypt failed");
 
@@ -368,7 +368,7 @@ fn test_dryocbox_protected() {
     let sender_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
     let recipient_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
 
-    let nonce = protected::Nonce::Type::gen_readonly_locked().expect("nonce failed");
+    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
 
     let message = HeapBytes::from_slice_into_locked(b"Secret message from Santa Claus")
         .expect("unable to lock");
@@ -381,7 +381,7 @@ fn test_dryocbox_protected() {
     )
     .expect("encrypt failed");
 
-    let decrypted: protected::LockedBytes = dryocbox
+    let decrypted: t::LockedBytes = dryocbox
         .decrypt(
             &nonce,
             &sender_keypair.public_key,

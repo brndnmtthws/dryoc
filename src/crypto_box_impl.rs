@@ -8,7 +8,6 @@ use crate::crypto_core::crypto_core_hsalsa20;
 use crate::crypto_hash::crypto_hash_sha512;
 use crate::crypto_secretbox::Key;
 use crate::dryocstream::ByteArray;
-use crate::keypair::KeyPair;
 use crate::scalarmult_curve25519::*;
 
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(

@@ -358,7 +358,7 @@ mod tests {
             .expect("mprotect");
 
         // Encrypt a series of messages
-        let c1: LockedBytes = push_stream
+        let c1: t::Locked<HeapBytes> = push_stream
             .push(message1, None, Tag::MESSAGE)
             .expect("Encrypt failed");
         let c2: Vec<u8> = push_stream
@@ -378,9 +378,12 @@ mod tests {
         let _key = key.mprotect_noaccess().expect("mprotect");
 
         // Decrypt the encrypted messages, type annotations required
-        let (m1, tag1): (LockedBytes, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");
-        let (m2, tag2): (LockedBytes, Tag) = pull_stream.pull(&c2, None).expect("Decrypt failed");
-        let (m3, tag3): (LockedBytes, Tag) = pull_stream.pull(&c3, None).expect("Decrypt failed");
+        let (m1, tag1): (t::Locked<HeapBytes>, Tag) =
+            pull_stream.pull(&c1, None).expect("Decrypt failed");
+        let (m2, tag2): (t::Locked<HeapBytes>, Tag) =
+            pull_stream.pull(&c2, None).expect("Decrypt failed");
+        let (m3, tag3): (t::Locked<HeapBytes>, Tag) =
+            pull_stream.pull(&c3, None).expect("Decrypt failed");
 
         assert_eq!(message1, m1.as_slice());
         assert_eq!(message2, m2.as_slice());

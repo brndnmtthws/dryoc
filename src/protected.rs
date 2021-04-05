@@ -102,12 +102,14 @@ pub struct Protected<A: Zeroize + MutBytes, PM: ProtectMode, LM: LockMode> {
     l: PhantomData<LM>,
 }
 
-pub mod types {
+/// Short-hand type aliases for protected types.
+pub mod t {
     pub type Locked<T> = super::Protected<T, super::ReadWrite, super::Locked>;
     pub type LockedRO<T> = super::Protected<T, super::ReadOnly, super::Locked>;
     pub type NoAccess<T> = super::Protected<T, super::NoAccess, super::Unlocked>;
     pub type Unlocked<T> = super::Protected<T, super::ReadWrite, super::Unlocked>;
     pub type UnlockedRO<T> = super::Protected<T, super::ReadOnly, super::Unlocked>;
+    pub type LockedBytes = Locked<super::HeapBytes>;
 }
 
 fn dryoc_mlock(data: &mut [u8]) -> Result<(), std::io::Error> {
