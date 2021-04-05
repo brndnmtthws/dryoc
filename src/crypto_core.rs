@@ -16,10 +16,10 @@ pub type HChaCha20Output = StackByteArray<CRYPTO_CORE_HCHACHA20_OUTPUTBYTES>;
 ///
 /// Compatible with libsodium's `crypto_scalarmult_base`.
 pub fn crypto_scalarmult_base(
-    out: &mut [u8; CRYPTO_SCALARMULT_BYTES],
+    q: &mut [u8; CRYPTO_SCALARMULT_BYTES],
     n: &[u8; CRYPTO_SCALARMULT_BYTES],
 ) {
-    crypto_scalarmult_curve25519_base(out, n)
+    crypto_scalarmult_curve25519_base(q, n)
 }
 
 #[inline]
