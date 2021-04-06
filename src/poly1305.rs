@@ -42,15 +42,15 @@ impl Poly1305 {
             load64_le(&key.as_array()[8..16]),
         );
 
-        /* wiped after finalization */
+        // wiped after finalization
         state.r[0] = t0 & 0xffc0fffffff;
         state.r[1] = ((t0 >> 44) | (t1 << 20)) & 0xfffffc0ffff;
         state.r[2] = (t1 >> 24) & 0x00ffffffc0f;
 
-        /* h = 0 */
+        // h = 0
         state.h.fill(0);
 
-        /* save pad for later */
+        // save pad for later
         state.pad[0] = load64_le(&key.as_array()[16..24]);
         state.pad[1] = load64_le(&key.as_array()[24..32]);
 
@@ -91,7 +91,7 @@ impl Poly1305 {
         let hibit = if partial {
             0u64
         } else {
-            /* 1 << 128 */
+            // 1 << 128
             1u64 << 40
         };
 
@@ -107,7 +107,7 @@ impl Poly1305 {
         let s2 = r2 * (5 << 2);
 
         for m in input.chunks(BLOCK_SIZE) {
-            /* h += m[i] */
+            // h += m[i]
             let t0 = load64_le(&m[0..8]);
             let t1 = load64_le(&m[8..]);
 
@@ -119,7 +119,7 @@ impl Poly1305 {
             self.h[1] = h1;
             self.h[2] = h2;
 
-            /* h *= r */
+            // h *= r
             let d0 = mul(h0, r0) + mul(h1, s2) + mul(h2, s1);
             let mut d1 = mul(h0, r1) + mul(h1, r0) + mul(h2, s2);
             let mut d2 = mul(h0, r2) + mul(h1, r1) + mul(h2, r0);
@@ -128,7 +128,7 @@ impl Poly1305 {
             self.h[1] = h1;
             self.h[2] = h2;
 
-            /* (partial) h %= p */
+            // (partial) h %= p
             let mut c = shr(d0, 44);
             h0 = lo(d0) & 0xfffffffffff;
             d1 += c as u128;
@@ -153,7 +153,7 @@ impl Poly1305 {
     }
 
     pub fn finish(&mut self) -> [u8; 16] {
-        /* process any remaining block */
+        // process any remaining block
         if !self.buffer.is_empty() {
             self.buffer.push(1);
             if self.buffer.len() % BLOCK_SIZE != 0 {
@@ -166,7 +166,7 @@ impl Poly1305 {
             self.blocks(&self.buffer.clone(), true);
         }
 
-        /* fully carry h */
+        // fully carry h
         let mut h0 = self.h[0];
         let mut h1 = self.h[1];
         let mut h2 = self.h[2];
@@ -190,7 +190,7 @@ impl Poly1305 {
         h0 &= 0xfffffffffff;
         h1 += c;
 
-        /* compute h + -p */
+        // compute h + -p
         let mut g0 = h0.wrapping_add(5);
         c = g0 >> 44;
         g0 &= 0xfffffffffff;
@@ -199,7 +199,7 @@ impl Poly1305 {
         g1 &= 0xfffffffffff;
         let mut g2 = (h2.wrapping_add(c)).wrapping_sub(1u64 << 42);
 
-        /* select h if h < p, or h + -p if h >= p */
+        // select h if h < p, or h + -p if h >= p
         let mut mask = (g2 >> ((8 * 8) - 1)).wrapping_sub(1);
         g0 &= mask;
         g1 &= mask;
@@ -209,7 +209,7 @@ impl Poly1305 {
         h1 = (h1 & mask) | g1;
         h2 = (h2 & mask) | g2;
 
-        /* h = (h + pad) */
+        // h = (h + pad)
         let t0 = self.pad[0];
         let t1 = self.pad[1];
 
@@ -222,7 +222,7 @@ impl Poly1305 {
         h2 = h2.wrapping_add(((t1 >> 24) & 0x3ffffffffff).wrapping_add(c));
         h2 &= 0x3ffffffffff;
 
-        /* mac = h % (2^128) */
+        // mac = h % (2^128)
         h0 |= h1 << 44;
         h1 = (h1 >> 20) | (h2 << 24);
 
@@ -231,7 +231,7 @@ impl Poly1305 {
         mac[0..8].copy_from_slice(&h0.to_le_bytes());
         mac[8..16].copy_from_slice(&h1.to_le_bytes());
 
-        /* zero out the state */
+        // zero out the state
         self.zeroize();
 
         mac

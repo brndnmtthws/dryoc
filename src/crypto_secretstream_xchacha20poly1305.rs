@@ -1,90 +1,88 @@
-/*!
-# Secret stream functions
-
-Implements authenticated encrypted streams as per
-<https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream>.
-
-This API is compatible with libsodium's implementation.
-
-# Classic API example
-
-```
-use dryoc::crypto_secretstream_xchacha20poly1305::*;
-use dryoc::constants::{CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL};
-let message1 = b"Arbitrary data to encrypt";
-let message2 = b"split into";
-let message3 = b"three messages";
-
-// Generate a key
-let mut key = Key::default();
-crypto_secretstream_xchacha20poly1305_keygen(&mut key);
-
-// Create stream push state
-let mut state = State::new();
-let mut header = Header::default();
-crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
-
-let (mut c1, mut c2, mut c3) = (
-    vec![0u8; message1.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-    vec![0u8; message2.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-    vec![0u8; message3.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-);
-// Encrypt a series of messages
-crypto_secretstream_xchacha20poly1305_push(
-    &mut state,
-    &mut c1,
-    message1,
-    None,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
-)
-.expect("Encrypt failed");
-// Encrypt a series of messages
-crypto_secretstream_xchacha20poly1305_push(
-    &mut state,
-    &mut c2,
-    message2,
-    None,
-   CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
-)
-.expect("Encrypt failed");
-// Encrypt a series of messages
-crypto_secretstream_xchacha20poly1305_push(
-    &mut state,
-    &mut c3,
-    message3,
-    None,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
-)
-.expect("Encrypt failed");
-
-// Create stream pull state, using the same key as above with a new state.
-let mut state = State::new();
-crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
-
-let (mut m1, mut m2, mut m3) = (
-    vec![0u8; message1.len()],
-    vec![0u8; message2.len()],
-    vec![0u8; message3.len()],
-);
-let (mut tag1, mut tag2, mut tag3) = (0u8, 0u8, 0u8);
-
-// Decrypt the stream of messages
-crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m1, &mut tag1, &c1, None)
-    .expect("Decrypt failed");
-crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m2, &mut tag2, &c2, None)
-    .expect("Decrypt failed");
-crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m3, &mut tag3, &c3, None)
-    .expect("Decrypt failed");
-
-assert_eq!(message1, m1.as_slice());
-assert_eq!(message2, m2.as_slice());
-assert_eq!(message3, m3.as_slice());
-
-assert_eq!(tag1, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE);
-assert_eq!(tag2, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE);
-assert_eq!(tag3, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL);
-```
-*/
+//! # Secret stream functions
+//!
+//! Implements authenticated encrypted streams as per
+//! <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream>.
+//!
+//! This API is compatible with libsodium's implementation.
+//!
+//! # Classic API example
+//!
+//! ```
+//! use dryoc::crypto_secretstream_xchacha20poly1305::*;
+//! use dryoc::constants::{CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL};
+//! let message1 = b"Arbitrary data to encrypt";
+//! let message2 = b"split into";
+//! let message3 = b"three messages";
+//!
+//! Generate a key
+//! let mut key = Key::default();
+//! crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+//!
+//! Create stream push state
+//! let mut state = State::new();
+//! let mut header = Header::default();
+//! crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
+//!
+//! let (mut c1, mut c2, mut c3) = (
+//! vec![0u8; message1.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+//! vec![0u8; message2.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+//! vec![0u8; message3.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+//! );
+//! Encrypt a series of messages
+//! crypto_secretstream_xchacha20poly1305_push(
+//! &mut state,
+//! &mut c1,
+//! message1,
+//! None,
+//! CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+//! )
+//! .expect("Encrypt failed");
+//! Encrypt a series of messages
+//! crypto_secretstream_xchacha20poly1305_push(
+//! &mut state,
+//! &mut c2,
+//! message2,
+//! None,
+//! CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+//! )
+//! .expect("Encrypt failed");
+//! Encrypt a series of messages
+//! crypto_secretstream_xchacha20poly1305_push(
+//! &mut state,
+//! &mut c3,
+//! message3,
+//! None,
+//! CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
+//! )
+//! .expect("Encrypt failed");
+//!
+//! Create stream pull state, using the same key as above with a new state.
+//! let mut state = State::new();
+//! crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
+//!
+//! let (mut m1, mut m2, mut m3) = (
+//! vec![0u8; message1.len()],
+//! vec![0u8; message2.len()],
+//! vec![0u8; message3.len()],
+//! );
+//! let (mut tag1, mut tag2, mut tag3) = (0u8, 0u8, 0u8);
+//!
+//! Decrypt the stream of messages
+//! crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m1, &mut tag1, &c1, None)
+//! .expect("Decrypt failed");
+//! crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m2, &mut tag2, &c2, None)
+//! .expect("Decrypt failed");
+//! crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m3, &mut tag3, &c3, None)
+//! .expect("Decrypt failed");
+//!
+//! assert_eq!(message1, m1.as_slice());
+//! assert_eq!(message2, m2.as_slice());
+//! assert_eq!(message3, m3.as_slice());
+//!
+//! assert_eq!(tag1, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE);
+//! assert_eq!(tag2, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE);
+//! assert_eq!(tag3, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL);
+//! ```
 
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
@@ -170,7 +168,8 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
 ) {
     copy_randombytes(header);
 
-    let k: HChaCha20Key = crypto_core_hchacha20(header[..16].as_array(), key, None);
+    let mut k = HChaCha20Key::default();
+    crypto_core_hchacha20(k.as_mut_array(), header[..16].as_array(), key, None);
     // Copy key into state
     state.k.copy_from_slice(&k);
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
@@ -194,7 +193,8 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
     header: &Header,
     key: &Key,
 ) {
-    let k: HChaCha20Key = crypto_core_hchacha20(header[0..16].as_array(), key, None);
+    let mut k = HChaCha20Key::default();
+    crypto_core_hchacha20(k.as_mut_array(), header[0..16].as_array(), key, None);
     state.k.copy_from_slice(&k);
 
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);

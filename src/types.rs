@@ -12,34 +12,53 @@ use crate::rng::copy_randombytes;
 #[zeroize(drop)]
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
 
+/// Fixed-length byte array.
 pub trait ByteArray<const LENGTH: usize>: Bytes {
+    /// Returns a reference to the underlying fixed-length byte array.
     fn as_array(&self) -> &[u8; LENGTH];
 }
 
+/// Arbitrary-length array of bytes.
 pub trait Bytes {
+    /// Returns a slice of the underlying bytes.
     fn as_slice(&self) -> &[u8];
+    /// Shorthand to retrieve the underlying length of the byte array.
     fn len(&self) -> usize;
 }
 
+/// Fixed-length mutable byte array.
 pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + MutBytes {
+    /// Returns a mutable reference to the underlying fixed-length byte array.
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH];
 }
 
+/// Fixed-length byte array that can be created and initialized.
 pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> + NewBytes {
+    /// Returns a new fixed-length byte array, initialized with zeroes.
     fn new_byte_array() -> Self;
+    /// Returns a new fixed-length byte array, filled with random values.
     fn gen() -> Self;
 }
 
+/// Arbitrary-length array of mutable bytes.
 pub trait MutBytes: Bytes {
+    /// Returns a mutable slice to the underlying bytes.
     fn as_mut_slice(&mut self) -> &mut [u8];
+    /// Copies into the underlying slice from `other`. Panics if lengths do not
+    /// match.
     fn copy_from_slice(&mut self, other: &[u8]);
 }
 
+/// Arbitrary-length byte array that can be created and initialized.
 pub trait NewBytes: MutBytes {
+    /// Returns an empty, unallocated, arbitrary-length byte array.
     fn new_bytes() -> Self;
 }
 
+/// A byte array which can be resized.
 pub trait ResizableBytes {
+    /// Resizes `self` with `new_len` elements, populating new values with
+    /// `value`.
     fn resize(&mut self, new_len: usize, value: u8);
 }
 

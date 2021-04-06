@@ -1,34 +1,32 @@
-/*!
-# Authenticated encryption functions
-
-Implements libsodium's secret-key authenticated crypto boxes.
-
-For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox).
-
-# Classic API example
-
-```
-use dryoc::rng::randombytes_buf;
-use dryoc::crypto_secretbox::{Nonce, crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy, Key};
-use dryoc::constants::{CRYPTO_SECRETBOX_NONCEBYTES, CRYPTO_SECRETBOX_MACBYTES};
-use dryoc::types::*;
-
-let key: Key = crypto_secretbox_keygen();
-let nonce = Nonce::gen();
-
-let message = "I Love Doge!";
-
-// Encrypt
-let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
-crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key).expect("encrypt failed");
-
-// Decrypt
-let mut decrypted = vec![0u8; ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES];
-crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key).expect("decrypt failed");
-
-assert_eq!(decrypted, message.as_bytes());
-```
-*/
+//! # Authenticated encryption functions
+//!
+//! Implements libsodium's secret-key authenticated crypto boxes.
+//!
+//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox).
+//!
+//! # Classic API example
+//!
+//! ```
+//! use dryoc::rng::randombytes_buf;
+//! use dryoc::crypto_secretbox::{Nonce, crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy, Key};
+//! use dryoc::constants::{CRYPTO_SECRETBOX_NONCEBYTES, CRYPTO_SECRETBOX_MACBYTES};
+//! use dryoc::types::*;
+//!
+//! let key: Key = crypto_secretbox_keygen();
+//! let nonce = Nonce::gen();
+//!
+//! let message = "I Love Doge!";
+//!
+//! Encrypt
+//! let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
+//! crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key).expect("encrypt failed");
+//!
+//! Decrypt
+//! let mut decrypted = vec![0u8; ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES];
+//! crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key).expect("decrypt failed");
+//!
+//! assert_eq!(decrypted, message.as_bytes());
+//! ```
 
 use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,

@@ -64,9 +64,9 @@ impl<
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
         Ok(Self {
             public_key: PublicKey::try_from(public_key)
-                .map_err(|e| dryoc_error!("invalid public key"))?,
+                .map_err(|_e| dryoc_error!("invalid public key"))?,
             secret_key: SecretKey::try_from(secret_key)
-                .map_err(|e| dryoc_error!("invalid secret key"))?,
+                .map_err(|_e| dryoc_error!("invalid secret key"))?,
         })
     }
 }
@@ -104,9 +104,9 @@ impl<
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected {
-
+    //! #  Protected memory for [`KeyPair`]
+    //!
     use super::*;
-    use crate::protected::t::*;
     use crate::protected::*;
 
     impl

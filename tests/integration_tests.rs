@@ -336,23 +336,23 @@ fn test_dryocbox_serde_known_good() {
 #[cfg(feature = "nightly")]
 #[test]
 fn test_dryocsecretbox_protected() {
+    use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
-    use dryoc::protected::*;
 
     let secret_key = protected::Key::gen_locked()
         .and_then(|s| s.mprotect_readonly())
         .expect("key failed");
 
-    let nonce = protected::Nonce::gen_locked()
-        .and_then(|s| s.mprotect_readonly())
-        .expect("nonce failed");
+    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
 
-    let message = HeapBytes::from_slice_into_locked(b"Secret messega").expect("unable to lock");
+    let message =
+        HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
+            .expect("message failed");
 
     let dryocsecretbox: protected::LockedBox =
         DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
-    let decrypted: t::LockedBytes = dryocsecretbox
+    let decrypted: LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("decrypt failed");
 
@@ -362,18 +362,18 @@ fn test_dryocsecretbox_protected() {
 #[cfg(feature = "nightly")]
 #[test]
 fn test_dryocbox_protected() {
-    use dryoc::dryocbox::*;
-    use dryoc::protected::*;
+    use dryoc::dryocbox::protected::*;
+    use dryoc::dryocbox::DryocBox;
 
-    let sender_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
-    let recipient_keypair = protected::LockedKeyPair::gen_locked_keypair().expect("keypair");
+    let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
+    let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
 
-    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
 
     let message = HeapBytes::from_slice_into_locked(b"Secret message from Santa Claus")
         .expect("unable to lock");
 
-    let dryocbox: protected::LockedBox = DryocBox::encrypt(
+    let dryocbox: LockedBox = DryocBox::encrypt(
         &message,
         &nonce,
         &recipient_keypair.public_key,
@@ -381,7 +381,7 @@ fn test_dryocbox_protected() {
     )
     .expect("encrypt failed");
 
-    let decrypted: t::LockedBytes = dryocbox
+    let decrypted: LockedBytes = dryocbox
         .decrypt(
             &nonce,
             &sender_keypair.public_key,
@@ -390,4 +390,45 @@ fn test_dryocbox_protected() {
         .expect("decrypt failed");
 
     assert_eq!(message.as_slice(), decrypted.as_slice());
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_streams_protected() {
+    use dryoc::dryocstream::protected::*;
+    use dryoc::dryocstream::{DryocStream, Tag};
+
+    let message1 = HeapBytes::from_slice_into_readonly_locked(b"Arbitrary data to encrypt")
+        .expect("from slice failed");
+    let message2 =
+        HeapBytes::from_slice_into_readonly_locked(b"split into").expect("from slice failed");
+    let message3 =
+        HeapBytes::from_slice_into_readonly_locked(b"three messages").expect("from slice failed");
+
+    let key = Key::gen_readonly_locked().expect("key failed");
+
+    let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+    let c1: LockedBytes = push_stream
+        .push(&message1, None, Tag::MESSAGE)
+        .expect("Encrypt failed");
+    let c2: LockedBytes = push_stream
+        .push(&message2, None, Tag::MESSAGE)
+        .expect("Encrypt failed");
+    let c3: LockedBytes = push_stream
+        .push(&message3, None, Tag::FINAL)
+        .expect("Encrypt failed");
+
+    let mut pull_stream = DryocStream::init_pull(&key, &header);
+
+    let (m1, tag1): (LockedBytes, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");
+    let (m2, tag2): (LockedBytes, Tag) = pull_stream.pull(&c2, None).expect("Decrypt failed");
+    let (m3, tag3): (LockedBytes, Tag) = pull_stream.pull(&c3, None).expect("Decrypt failed");
+
+    assert_eq!(message1.as_slice(), m1.as_slice());
+    assert_eq!(message2.as_slice(), m2.as_slice());
+    assert_eq!(message3.as_slice(), m3.as_slice());
+
+    assert_eq!(tag1, Tag::MESSAGE);
+    assert_eq!(tag2, Tag::MESSAGE);
+    assert_eq!(tag3, Tag::FINAL);
 }

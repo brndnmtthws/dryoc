@@ -1,29 +1,37 @@
-/*!
-# Secret-key authenticated encryption
-
-_For public-key based encryption, see [dryocbox](crate::dryocbox)_.
-
-_For stream encryption, see [dryocstream](crate::dryocstream)_.
-
-# Rustaceous API example
-
-```
-use dryoc::dryocsecretbox::*;
-
-let secret_key = Key::gen();
-let nonce = Nonce::gen();
-let message = b"hey";
-
-// Must specify return type
-let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
-
-let decrypted = dryocsecretbox
-    .decrypt_to_vec(&nonce, &secret_key)
-    .expect("unable to decrypt");
-
-assert_eq!(message, decrypted.as_slice());
-```
-*/
+//! # Secret-key authenticated encryption
+//!
+//! _For public-key based encryption, see [`DryocBox`](crate::dryocbox). For
+//! stream encryption, see [`DryocStream`](crate::dryocstream)_.
+//!
+//! See [protected] for an example using the protected memory features with
+//! [`DryocSecretBox`].
+//!
+//! # Rustaceous API example
+//!
+//! ```
+//! use dryoc::dryocsecretbox::*;
+//!
+//! Generate a random secret key and nonce
+//! let secret_key = Key::gen();
+//! let nonce = Nonce::gen();
+//! let message = b"Why hello there";
+//!
+//! Encrypt `message`, into a Vec<u8>-based box
+//! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
+//!
+//! Convert into a libsodium-compatible box
+//! let sodium_box = dryocsecretbox.to_vec();
+//!
+//! Read the same box we just made into a new DryocBox
+//! let dryocsecretbox = DryocSecretBox::from_bytes(&sodium_box).expect("unable to load box");
+//!
+//! Decrypt the box we previously encrypted,
+//! let decrypted = dryocsecretbox
+//! .decrypt_to_vec(&nonce, &secret_key)
+//! .expect("unable to decrypt");
+//!
+//! assert_eq!(message, decrypted.as_slice());
+//! ```
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -35,28 +43,68 @@ use crate::constants::{
 use crate::error::Error;
 pub use crate::types::*;
 
-/// Container for crypto secret box message authentication code.
-pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
-/// A nonce for secret key authenticated boxes.
-pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
-/// A secret for secret key authenticated boxes.
+/// Stack-allocated secret for authenticated secret box.
 pub type Key = StackByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
+/// Stack-allocated nonce for authenticated secret box.
+pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
+/// Stack-allocated secret box message authentication code.
+pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
-/// Type aliases for using protected memory with [DryocSecretBox].
 pub mod protected {
+    //! #  Protected memory type aliases for [`DryocSecretBox`]
+    //!
+    //! This mod provides re-exports of type aliases for protected memory usage
+    //! with [`DryocSecretBox`]. These type aliases are provided for
+    //! convenience.
+    //!
+    //! ## Example
+    //!
+    //! ```
+    //! use dryoc::dryocsecretbox::DryocSecretBox;
+    //! use dryoc::dryocsecretbox::protected::*;
+    //!
+    //! Generate a random secret key, lock it, protect memory as read-only
+    //! let secret_key = Key::gen_readonly_locked()
+    //! .expect("key failed");
+    //!
+    //! Generate a random secret key, lock it, protect memory as read-only
+    //! let nonce = Nonce::gen_readonly_locked()
+    //! .expect("nonce failed");
+    //!
+    //! Load a message, lock it, protect memory as read-only
+    //! let message =
+    //! HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
+    //! .expect("message failed");
+    //!
+    //! Encrypt the message, placing the result into locked memory
+    //! let dryocsecretbox: LockedBox =
+    //! DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+    //!
+    //! Decrypt the message, placing the result into locked memory
+    //! let decrypted: LockedBytes = dryocsecretbox
+    //! .decrypt(&nonce, &secret_key)
+    //! .expect("decrypt failed");
+    //!
+    //! assert_eq!(message.as_slice(), decrypted.as_slice());
+    //! ```
     use super::*;
     pub use crate::protected::*;
+    pub use crate::types::*;
 
-    /// A secret for authenticated secret streams.
+    /// Heap-allocated, page-aligned secret for authenticated secret box, for
+    /// use with protected memory.
     pub type Key = HeapByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
-    /// A nonce for authenticated secret streams.
+    /// Heap-allocated, page-aligned nonce for authenticated secret box, for use
+    /// with protected memory.
     pub type Nonce = HeapByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
-    /// Container for crypto secret box message authentication code.
+    /// Heap-allocated, page-aligned secret box message authentication code, for
+    /// use with protected memory.
     pub type Mac = HeapByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-    pub type LockedBox = DryocSecretBox<t::Locked<Mac>, t::Locked<HeapBytes>>;
+    /// Locked [DryocSecretBox], provided as a type alias for convenience.
+    pub type LockedBox = DryocSecretBox<Locked<Mac>, LockedBytes>;
 }
 
 #[cfg_attr(
@@ -64,25 +112,15 @@ pub mod protected {
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
-/// A libsodium public-key authenticated encrypted box
+/// A public-key authenticated encrypted box, compatible with a libsodium box.
+/// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
 pub struct DryocSecretBox<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> {
-    /// libsodium box authentication tag, usually prepended to each box
     tag: Mac,
-    /// libsodium box message or ciphertext, depending on state
     data: Data,
 }
 
+/// [Vec]-based authenticated secret box.
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
-
-impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes> DryocSecretBox<Mac, Data> {
-    /// Returns an empty box
-    pub fn new() -> Self {
-        Self {
-            tag: Mac::new_byte_array(),
-            data: Data::new_bytes(),
-        }
-    }
-}
 
 impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableBytes>
     DryocSecretBox<Mac, Data>
@@ -100,7 +138,10 @@ impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableByt
     ) -> Self {
         use crate::crypto_secretbox::crypto_secretbox_detached;
 
-        let mut new = Self::new();
+        let mut new = Self {
+            tag: Mac::new_byte_array(),
+            data: Data::new_bytes(),
+        };
         new.data.resize(message.len(), 0);
 
         crypto_secretbox_detached(
@@ -121,6 +162,10 @@ impl<
     Data: Bytes + From<&'a [u8]>,
 > DryocSecretBox<Mac, Data>
 {
+    /// Initializes a [`DryocSecretBox`] from a slice. Expects the first
+    /// [`CRYPTO_SECRETBOX_MACBYTES`] bytes to contain the message
+    /// authentication tag, with the remaining bytes containing the
+    /// encrypted message.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
             Err(dryoc_error!(format!(
@@ -131,7 +176,7 @@ impl<
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
             Ok(Self {
-                tag: Mac::try_from(tag).map_err(|e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
                 data: Data::from(data),
             })
         }
@@ -184,10 +229,6 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
 }
 
 impl DryocSecretBox<Mac, Vec<u8>> {
-    pub fn new_vecbox() -> Self {
-        Self::new()
-    }
-
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocSecretBox] with ciphertext and tag
     pub fn encrypt_to_vecbox<
@@ -257,45 +298,9 @@ impl<
     }
 }
 
-impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableBytes> Default
-    for DryocSecretBox<Mac, Data>
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn all_eq<T>(t: &[T], v: T) -> bool
-    where
-        T: PartialEq,
-    {
-        t.iter().fold(true, |acc, x| acc && *x == v)
-    }
-
-    #[test]
-    fn test_new() {
-        let dryocsecretbox: VecBox = DryocSecretBox::new();
-
-        assert_eq!(all_eq(&dryocsecretbox.tag, 0), true);
-        assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
-
-        let dryocsecretbox = DryocSecretBox::new_vecbox();
-
-        assert_eq!(all_eq(&dryocsecretbox.tag, 0), true);
-        assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
-    }
-
-    #[test]
-    fn test_default() {
-        let dryocsecretbox: VecBox = DryocSecretBox::default();
-
-        assert_eq!(all_eq(dryocsecretbox.tag.as_slice(), 0), true);
-        assert_eq!(all_eq(&dryocsecretbox.data, 0), true);
-    }
 
     #[test]
     fn test_dryocbox() {
@@ -464,7 +469,7 @@ mod tests {
             )
             .expect("decrypt failed");
 
-            let m: t::LockedBytes = dryocsecretbox
+            let m: LockedBytes = dryocsecretbox
                 .decrypt(&nonce, &secret_key)
                 .expect("decrypt failed");
 

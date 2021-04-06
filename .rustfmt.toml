@@ -4,6 +4,7 @@ format_macro_matchers = true
 format_strings = true
 group_imports = "StdExternalCrate"
 imports_granularity = "Module"
+# normalize_comments = true
 reorder_impl_items = true
 unstable_features = true
 use_field_init_shorthand = true

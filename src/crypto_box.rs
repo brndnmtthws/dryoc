@@ -1,52 +1,50 @@
-/*!
-# Authenticated public-key cryptography functions
-
-Implements libsodium's public-key authenticated crypto boxes.
-
-For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption).
-
-# Classic API example
-
-```
-use dryoc::crypto_box::*;
-use dryoc::types::*;
-use dryoc::constants::CRYPTO_BOX_MACBYTES;
-
-// Create a random sender keypair
-let (sender_pk, sender_sk) = crypto_box_keypair();
-
-// Create a random recipient keypair
-let (recipient_pk, recipient_sk) = crypto_box_keypair();
-
-// Generate a random nonce
-let nonce = Nonce::gen();
-
-let message = "hello".as_bytes();
-// Encrypt message
-let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_MACBYTES];
-crypto_box_easy(
-    &mut ciphertext,
-    message,
-    &nonce,
-    &recipient_pk,
-    &sender_sk,
-)
-.expect("encrypt failed");
-
-// Decrypt message
-let mut decrypted_message = vec![0u8; ciphertext.len() - CRYPTO_BOX_MACBYTES];
-crypto_box_open_easy(
-    &mut decrypted_message,
-    &ciphertext,
-    &nonce,
-    &sender_pk,
-    &recipient_sk,
-)
-.expect("decrypt failed");
-
-assert_eq!(message, decrypted_message);
-```
-*/
+//! # Authenticated public-key cryptography functions
+//!
+//! Implements libsodium's public-key authenticated crypto boxes.
+//!
+//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption).
+//!
+//! # Classic API example
+//!
+//! ```
+//! use dryoc::crypto_box::*;
+//! use dryoc::types::*;
+//! use dryoc::constants::CRYPTO_BOX_MACBYTES;
+//!
+//! Create a random sender keypair
+//! let (sender_pk, sender_sk) = crypto_box_keypair();
+//!
+//! Create a random recipient keypair
+//! let (recipient_pk, recipient_sk) = crypto_box_keypair();
+//!
+//! Generate a random nonce
+//! let nonce = Nonce::gen();
+//!
+//! let message = "hello".as_bytes();
+//! Encrypt message
+//! let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_MACBYTES];
+//! crypto_box_easy(
+//! &mut ciphertext,
+//! message,
+//! &nonce,
+//! &recipient_pk,
+//! &sender_sk,
+//! )
+//! .expect("encrypt failed");
+//!
+//! Decrypt message
+//! let mut decrypted_message = vec![0u8; ciphertext.len() - CRYPTO_BOX_MACBYTES];
+//! crypto_box_open_easy(
+//! &mut decrypted_message,
+//! &ciphertext,
+//! &nonce,
+//! &sender_pk,
+//! &recipient_sk,
+//! )
+//! .expect("decrypt failed");
+//!
+//! assert_eq!(message, decrypted_message);
+//! ```
 
 use zeroize::Zeroize;
 
@@ -443,8 +441,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_invalid() {
         for _ in 0..20 {
-            let (sender_pk, sender_sk) = crypto_box_keypair();
-            let (recipient_pk, recipient_sk) = crypto_box_keypair();
+            let (sender_pk, _sender_sk) = crypto_box_keypair();
+            let (_recipient_pk, recipient_sk) = crypto_box_keypair();
             let nonce = Nonce::gen();
 
             let mut ciphertext: Vec<u8> = vec![];
@@ -459,8 +457,8 @@ mod tests {
         for _ in 0..20 {
             use base64::encode;
 
-            let (sender_pk, sender_sk) = crypto_box_keypair();
-            let (recipient_pk, recipient_sk) = crypto_box_keypair();
+            let (sender_pk, _sender_sk) = crypto_box_keypair();
+            let (_recipient_pk, recipient_sk) = crypto_box_keypair();
             let nonce = Nonce::gen();
 
             let mut ciphertext: Vec<u8> = vec![];
