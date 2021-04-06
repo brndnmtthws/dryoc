@@ -701,7 +701,7 @@ unsafe impl Allocator for PageAlignedAllocator {
         let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
         let aft_protected_region = unsafe {
             std::slice::from_raw_parts_mut(
-                (out.offset(aft_protected_region_offset as isize)) as *mut u8,
+                out.add(aft_protected_region_offset) as *mut u8,
                 pagesize,
             )
         };
@@ -709,9 +709,8 @@ unsafe impl Allocator for PageAlignedAllocator {
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
             .ok();
 
-        let slice = unsafe {
-            std::slice::from_raw_parts_mut(out.offset(pagesize as isize) as *mut u8, layout.size())
-        };
+        let slice =
+            unsafe { std::slice::from_raw_parts_mut(out.add(pagesize) as *mut u8, layout.size()) };
 
         dryoc_mprotect_readwrite(slice)
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
@@ -735,7 +734,7 @@ unsafe impl Allocator for PageAlignedAllocator {
         // unlock the aft protected region
         let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
         let aft_protected_region = std::slice::from_raw_parts_mut(
-            (ptr.offset(aft_protected_region_offset as isize)) as *mut u8,
+            ptr.add(aft_protected_region_offset) as *mut u8,
             pagesize,
         );
 
@@ -1373,7 +1372,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
     fn drop(&mut self) {
         match &mut self.i {
             Some(d) => {
-                if d.a.as_slice().len() > 0 {
+                if !d.a.as_slice().is_empty() {
                     if d.pm != int::ProtectMode::ReadWrite {
                         dryoc_mprotect_readwrite(d.a.as_slice())
                             .map_err(|err| {

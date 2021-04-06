@@ -246,11 +246,11 @@ pub fn crypto_box_open_detached(
 ) -> Result<(), Error> {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
-    let res = crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, &key)?;
+    crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, &key)?;
 
     key.zeroize();
 
-    Ok(res)
+    Ok(())
 }
 
 /// In-place variant of [crypto_box_open_detached].
