@@ -7,9 +7,11 @@
 //! # Classic API example
 //!
 //! ```
+//! use dryoc::constants::{CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES};
+//! use dryoc::crypto_secretbox::{
+//!     crypto_secretbox_easy, crypto_secretbox_keygen, crypto_secretbox_open_easy, Key, Nonce,
+//! };
 //! use dryoc::rng::randombytes_buf;
-//! use dryoc::crypto_secretbox::{Nonce, crypto_secretbox_keygen, crypto_secretbox_easy, crypto_secretbox_open_easy, Key};
-//! use dryoc::constants::{CRYPTO_SECRETBOX_NONCEBYTES, CRYPTO_SECRETBOX_MACBYTES};
 //! use dryoc::types::*;
 //!
 //! let key: Key = crypto_secretbox_keygen();
@@ -17,11 +19,12 @@
 //!
 //! let message = "I Love Doge!";
 //!
-//! Encrypt
+//! // Encrypt
 //! let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
-//! crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key).expect("encrypt failed");
+//! crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key)
+//!     .expect("encrypt failed");
 //!
-//! Decrypt
+//! // Decrypt
 //! let mut decrypted = vec![0u8; ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES];
 //! crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key).expect("decrypt failed");
 //!

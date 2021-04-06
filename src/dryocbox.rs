@@ -12,35 +12,39 @@
 //! ```
 //! use dryoc::dryocbox::*;
 //!
-//! Randomly generate sender/recipient keypairs
+//! // Randomly generate sender/recipient keypairs
 //! let sender_keypair = KeyPair::gen();
 //! let recipient_keypair = KeyPair::gen();
 //!
-//! Randomly generate a nonce
+//! // Randomly generate a nonce
 //! let nonce = Nonce::gen();
 //!
 //! let message = b"All that glitters is not gold";
 //!
-//! Encrypt the message into a Vec<u8>-based box.
+//! // Encrypt the message into a Vec<u8>-based box.
 //! let dryocbox = DryocBox::encrypt_to_vecbox(
-//! message,
-//! &nonce,
-//! &recipient_keypair.public_key,
-//! &sender_keypair.secret_key,
+//!     message,
+//!     &nonce,
+//!     &recipient_keypair.public_key,
+//!     &sender_keypair.secret_key,
 //! )
 //! .expect("unable to encrypt");
 //!
-//! Convert into a libsodium compatible box as a Vec<u8>
+//! // Convert into a libsodium compatible box as a Vec<u8>
 //! let sodium_box = dryocbox.to_vec();
 //!
-//! Load the libsodium box into a DryocBox
+//! // Load the libsodium box into a DryocBox
 //! let dryocbox = DryocBox::from_bytes(&sodium_box).expect("failed to read box");
 //!
-//! Decrypt the same box back to the original message, with the sender/recipient
-//! keypairs flipped.
+//! // Decrypt the same box back to the original message, with the sender/recipient
+//! // keypairs flipped.
 //! let decrypted = dryocbox
-//! .decrypt_to_vec(&nonce, &sender_keypair.public_key, &recipient_keypair.secret_key)
-//! .expect("unable to decrypt");
+//!     .decrypt_to_vec(
+//!         &nonce,
+//!         &sender_keypair.public_key,
+//!         &recipient_keypair.secret_key,
+//!     )
+//!     .expect("unable to decrypt");
 //!
 //! assert_eq!(message, decrypted.as_slice());
 //! ```

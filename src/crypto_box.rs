@@ -7,39 +7,33 @@
 //! # Classic API example
 //!
 //! ```
+//! use dryoc::constants::CRYPTO_BOX_MACBYTES;
 //! use dryoc::crypto_box::*;
 //! use dryoc::types::*;
-//! use dryoc::constants::CRYPTO_BOX_MACBYTES;
 //!
-//! Create a random sender keypair
+//! // Create a random sender keypair
 //! let (sender_pk, sender_sk) = crypto_box_keypair();
 //!
-//! Create a random recipient keypair
+//! // Create a random recipient keypair
 //! let (recipient_pk, recipient_sk) = crypto_box_keypair();
 //!
-//! Generate a random nonce
+//! // Generate a random nonce
 //! let nonce = Nonce::gen();
 //!
 //! let message = "hello".as_bytes();
-//! Encrypt message
+//! // Encrypt message
 //! let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_MACBYTES];
-//! crypto_box_easy(
-//! &mut ciphertext,
-//! message,
-//! &nonce,
-//! &recipient_pk,
-//! &sender_sk,
-//! )
-//! .expect("encrypt failed");
+//! crypto_box_easy(&mut ciphertext, message, &nonce, &recipient_pk, &sender_sk)
+//!     .expect("encrypt failed");
 //!
-//! Decrypt message
+//! // Decrypt message
 //! let mut decrypted_message = vec![0u8; ciphertext.len() - CRYPTO_BOX_MACBYTES];
 //! crypto_box_open_easy(
-//! &mut decrypted_message,
-//! &ciphertext,
-//! &nonce,
-//! &sender_pk,
-//! &recipient_sk,
+//!     &mut decrypted_message,
+//!     &ciphertext,
+//!     &nonce,
+//!     &sender_pk,
+//!     &recipient_sk,
 //! )
 //! .expect("decrypt failed");
 //!

@@ -11,24 +11,24 @@
 //! ```
 //! use dryoc::dryocsecretbox::*;
 //!
-//! Generate a random secret key and nonce
+//! // Generate a random secret key and nonce
 //! let secret_key = Key::gen();
 //! let nonce = Nonce::gen();
 //! let message = b"Why hello there";
 //!
-//! Encrypt `message`, into a Vec<u8>-based box
+//! // Encrypt `message`, into a Vec<u8>-based box
 //! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
 //!
-//! Convert into a libsodium-compatible box
+//! // Convert into a libsodium-compatible box
 //! let sodium_box = dryocsecretbox.to_vec();
 //!
-//! Read the same box we just made into a new DryocBox
+//! // Read the same box we just made into a new DryocBox
 //! let dryocsecretbox = DryocSecretBox::from_bytes(&sodium_box).expect("unable to load box");
 //!
-//! Decrypt the box we previously encrypted,
+//! // Decrypt the box we previously encrypted,
 //! let decrypted = dryocsecretbox
-//! .decrypt_to_vec(&nonce, &secret_key)
-//! .expect("unable to decrypt");
+//!     .decrypt_to_vec(&nonce, &secret_key)
+//!     .expect("unable to decrypt");
 //!
 //! assert_eq!(message, decrypted.as_slice());
 //! ```

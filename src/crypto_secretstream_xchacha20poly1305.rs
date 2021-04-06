@@ -8,72 +8,74 @@
 //! # Classic API example
 //!
 //! ```
+//! use dryoc::constants::{
+//!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+//!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
+//!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+//! };
 //! use dryoc::crypto_secretstream_xchacha20poly1305::*;
-//! use dryoc::constants::{CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL};
 //! let message1 = b"Arbitrary data to encrypt";
 //! let message2 = b"split into";
 //! let message3 = b"three messages";
 //!
-//! Generate a key
+//! // Generate a key
 //! let mut key = Key::default();
 //! crypto_secretstream_xchacha20poly1305_keygen(&mut key);
 //!
-//! Create stream push state
+//! // Create stream push state
 //! let mut state = State::new();
 //! let mut header = Header::default();
 //! crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
 //!
 //! let (mut c1, mut c2, mut c3) = (
-//! vec![0u8; message1.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-//! vec![0u8; message2.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
-//! vec![0u8; message3.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+//!     vec![0u8; message1.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+//!     vec![0u8; message2.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
+//!     vec![0u8; message3.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES],
 //! );
-//! Encrypt a series of messages
+//! // Encrypt a series of messages
 //! crypto_secretstream_xchacha20poly1305_push(
-//! &mut state,
-//! &mut c1,
-//! message1,
-//! None,
-//! CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+//!     &mut state,
+//!     &mut c1,
+//!     message1,
+//!     None,
+//!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
 //! )
 //! .expect("Encrypt failed");
-//! Encrypt a series of messages
 //! crypto_secretstream_xchacha20poly1305_push(
-//! &mut state,
-//! &mut c2,
-//! message2,
-//! None,
-//! CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+//!     &mut state,
+//!     &mut c2,
+//!     message2,
+//!     None,
+//!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
 //! )
 //! .expect("Encrypt failed");
-//! Encrypt a series of messages
 //! crypto_secretstream_xchacha20poly1305_push(
-//! &mut state,
-//! &mut c3,
-//! message3,
-//! None,
-//! CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
+//!     &mut state,
+//!     &mut c3,
+//!     message3,
+//!     None,
+//!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
 //! )
 //! .expect("Encrypt failed");
 //!
-//! Create stream pull state, using the same key as above with a new state.
+//! // Create stream pull state, using the same key as above with a new state.
 //! let mut state = State::new();
 //! crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
 //!
 //! let (mut m1, mut m2, mut m3) = (
-//! vec![0u8; message1.len()],
-//! vec![0u8; message2.len()],
-//! vec![0u8; message3.len()],
+//!     vec![0u8; message1.len()],
+//!     vec![0u8; message2.len()],
+//!     vec![0u8; message3.len()],
 //! );
 //! let (mut tag1, mut tag2, mut tag3) = (0u8, 0u8, 0u8);
 //!
-//! Decrypt the stream of messages
+//! // Decrypt the stream of messages
 //! crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m1, &mut tag1, &c1, None)
-//! .expect("Decrypt failed");
+//!     .expect("Decrypt failed");
 //! crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m2, &mut tag2, &c2, None)
-//! .expect("Decrypt failed");
+//!     .expect("Decrypt failed");
 //! crypto_secretstream_xchacha20poly1305_pull(&mut state, &mut m3, &mut tag3, &c3, None)
-//! .expect("Decrypt failed");
+//!     .expect("Decrypt failed");
 //!
 //! assert_eq!(message1, m1.as_slice());
 //! assert_eq!(message2, m2.as_slice());
