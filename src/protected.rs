@@ -549,6 +549,11 @@ impl<A: Zeroize + Bytes, LM: traits::LockMode> Bytes for Protected<A, traits::Re
     fn len(&self) -> usize {
         self.i.as_ref().unwrap().a.len()
     }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.i.as_ref().unwrap().a.is_empty()
+    }
 }
 
 impl<A: Zeroize + Bytes, LM: traits::LockMode> Bytes for Protected<A, traits::ReadWrite, LM> {
@@ -560,6 +565,11 @@ impl<A: Zeroize + Bytes, LM: traits::LockMode> Bytes for Protected<A, traits::Re
     #[inline]
     fn len(&self) -> usize {
         self.i.as_ref().unwrap().a.len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.i.as_ref().unwrap().a.is_empty()
     }
 }
 
@@ -838,6 +848,11 @@ impl<const LENGTH: usize> Bytes for HeapByteArray<LENGTH> {
     fn len(&self) -> usize {
         self.0.len()
     }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl Bytes for HeapBytes {
@@ -849,6 +864,11 @@ impl Bytes for HeapBytes {
     #[inline]
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

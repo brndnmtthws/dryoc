@@ -186,7 +186,7 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> Dr
             nonce.as_array(),
             recipient_public_key.as_array(),
             sender_secret_key.as_array(),
-        )?;
+        );
 
         Ok(dryocbox)
     }

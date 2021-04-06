@@ -24,15 +24,6 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl Error {
-    pub fn to_string(&self) -> String {
-        match self {
-            Error::Message(s) => s.clone(),
-            Error::IO(err) => err.to_string(),
-        }
-    }
-}
-
 macro_rules! dryoc_error {
     ($msg:expr) => {{ crate::error::Error::from(format!("{}, from {}:{}", $msg, file!(), line!())) }};
 }

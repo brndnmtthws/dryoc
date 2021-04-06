@@ -81,7 +81,6 @@ impl<
         use crate::crypto_core::crypto_scalarmult_base;
 
         let mut public_key = PublicKey::new_byte_array();
-        let secret_key = SecretKey::from(secret_key);
         crypto_scalarmult_base(public_key.as_mut_array(), secret_key.as_array());
 
         Self {
@@ -105,7 +104,6 @@ impl<
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected {
     //! #  Protected memory for [`KeyPair`]
-    //!
     use super::*;
     use crate::protected::*;
 

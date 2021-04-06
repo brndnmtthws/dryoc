@@ -95,8 +95,8 @@ pub fn crypto_box_detached_afternm(
     message: &[u8],
     nonce: &Nonce,
     key: &Key,
-) -> Result<(), Error> {
-    Ok(crypto_secretbox_detached(ciphertext, mac, message, nonce, key).into())
+) {
+    crypto_secretbox_detached(ciphertext, mac, message, nonce, key)
 }
 
 /// In-place variant of [`crypto_box_detached_afternm`].
@@ -106,7 +106,7 @@ pub fn crypto_box_detached_afternm_inplace(
     nonce: &Nonce,
     key: &Key,
 ) {
-    crypto_secretbox_detached_inplace(ciphertext, mac, nonce, key);
+    crypto_secretbox_detached_inplace(ciphertext, mac, nonce, key)
 }
 
 /// Detached variant of [`crypto_box_easy`].
@@ -119,14 +119,12 @@ pub fn crypto_box_detached(
     nonce: &Nonce,
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
-) -> Result<(), Error> {
+) {
     let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
 
-    crypto_box_detached_afternm(ciphertext, mac, message, nonce, &key)?;
+    crypto_box_detached_afternm(ciphertext, mac, message, nonce, &key);
 
     key.zeroize();
-
-    Ok(())
 }
 
 /// In-place variant of [crypto_box_detached]
@@ -179,7 +177,9 @@ pub fn crypto_box_easy(
             nonce,
             recipient_public_key,
             sender_secret_key,
-        )
+        );
+
+        Ok(())
     }
 }
 

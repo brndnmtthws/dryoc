@@ -24,6 +24,8 @@ pub trait Bytes {
     fn as_slice(&self) -> &[u8];
     /// Shorthand to retrieve the underlying length of the byte array.
     fn len(&self) -> usize;
+    /// Returns true if the array is empty.
+    fn is_empty(&self) -> bool;
 }
 
 /// Fixed-length mutable byte array.
@@ -63,6 +65,7 @@ pub trait ResizableBytes {
 }
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for StackByteArray<LENGTH> {
+    #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         &self.0
     }
@@ -74,8 +77,14 @@ impl<const LENGTH: usize> Bytes for StackByteArray<LENGTH> {
         &self.0
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.0.len()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -192,6 +201,11 @@ impl Bytes for Vec<u8> {
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        <[u8]>::is_empty(self)
+    }
 }
 
 impl NewBytes for Vec<u8> {
@@ -227,6 +241,11 @@ impl Bytes for [u8] {
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        <[u8]>::is_empty(self)
+    }
 }
 
 impl Bytes for &[u8] {
@@ -238,6 +257,11 @@ impl Bytes for &[u8] {
     #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(self)
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        <[u8]>::is_empty(self)
     }
 }
 
@@ -251,6 +275,11 @@ impl Bytes for &mut [u8] {
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        <[u8]>::is_empty(self)
+    }
 }
 
 impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
@@ -263,6 +292,11 @@ impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
     fn len(&self) -> usize {
         <[u8]>::len(self)
     }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        <[u8]>::is_empty(self)
+    }
 }
 
 impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
@@ -274,6 +308,11 @@ impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
     #[inline]
     fn len(&self) -> usize {
         <[u8]>::len(*self)
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        <[u8]>::is_empty(*self)
     }
 }
 
