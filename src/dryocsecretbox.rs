@@ -62,30 +62,27 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::dryocsecretbox::DryocSecretBox;
     //! use dryoc::dryocsecretbox::protected::*;
+    //! use dryoc::dryocsecretbox::DryocSecretBox;
     //!
-    //! Generate a random secret key, lock it, protect memory as read-only
-    //! let secret_key = Key::gen_readonly_locked()
-    //! .expect("key failed");
+    //! // Generate a random secret key, lock it, protect memory as read-only
+    //! let secret_key = Key::gen_readonly_locked().expect("key failed");
     //!
-    //! Generate a random secret key, lock it, protect memory as read-only
-    //! let nonce = Nonce::gen_readonly_locked()
-    //! .expect("nonce failed");
+    //! // Generate a random secret key, lock it, protect memory as read-only
+    //! let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
     //!
-    //! Load a message, lock it, protect memory as read-only
+    //! // Load a message, lock it, protect memory as read-only
     //! let message =
-    //! HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
-    //! .expect("message failed");
+    //!     HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
+    //!         .expect("message failed");
     //!
-    //! Encrypt the message, placing the result into locked memory
-    //! let dryocsecretbox: LockedBox =
-    //! DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+    //! // Encrypt the message, placing the result into locked memory
+    //! let dryocsecretbox: LockedBox = DryocSecretBox::encrypt(&message, &nonce, &secret_key);
     //!
-    //! Decrypt the message, placing the result into locked memory
+    //! // Decrypt the message, placing the result into locked memory
     //! let decrypted: LockedBytes = dryocsecretbox
-    //! .decrypt(&nonce, &secret_key)
-    //! .expect("decrypt failed");
+    //!     .decrypt(&nonce, &secret_key)
+    //!     .expect("decrypt failed");
     //!
     //! assert_eq!(message.as_slice(), decrypted.as_slice());
     //! ```

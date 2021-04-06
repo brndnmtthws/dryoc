@@ -97,35 +97,35 @@ pub mod protected {
     //! use dryoc::dryocstream::protected::*;
     //! use dryoc::dryocstream::{DryocStream, Tag};
     //!
-    //! Load some message into locked readonly memory.
+    //! // Load some message into locked readonly memory.
     //! let message1 = HeapBytes::from_slice_into_readonly_locked(b"Arbitrary data to encrypt")
-    //! .expect("from slice failed");
+    //!     .expect("from slice failed");
     //! let message2 =
-    //! HeapBytes::from_slice_into_readonly_locked(b"split into").expect("from slice failed");
+    //!     HeapBytes::from_slice_into_readonly_locked(b"split into").expect("from slice failed");
     //! let message3 =
-    //! HeapBytes::from_slice_into_readonly_locked(b"three messages").expect("from slice failed");
+    //!     HeapBytes::from_slice_into_readonly_locked(b"three messages").expect("from slice failed");
     //!
-    //! Generate a random key into locked readonly memory.
+    //! // Generate a random key into locked readonly memory.
     //! let key = Key::gen_readonly_locked().expect("key failed");
     //!
-    //! Initialize the push stream, place the header into locked memory
+    //! // Initialize the push stream, place the header into locked memory
     //! let (mut push_stream, header): (_, Locked<Header>) = DryocStream::init_push(&key);
     //!
-    //! Encrypt the set of messages, placing everything into locked memory.
+    //! // Encrypt the set of messages, placing everything into locked memory.
     //! let c1: LockedBytes = push_stream
-    //! .push(&message1, None, Tag::MESSAGE)
-    //! .expect("Encrypt failed");
+    //!     .push(&message1, None, Tag::MESSAGE)
+    //!     .expect("Encrypt failed");
     //! let c2: LockedBytes = push_stream
-    //! .push(&message2, None, Tag::MESSAGE)
-    //! .expect("Encrypt failed");
+    //!     .push(&message2, None, Tag::MESSAGE)
+    //!     .expect("Encrypt failed");
     //! let c3: LockedBytes = push_stream
-    //! .push(&message3, None, Tag::FINAL)
-    //! .expect("Encrypt failed");
+    //!     .push(&message3, None, Tag::FINAL)
+    //!     .expect("Encrypt failed");
     //!
-    //! Initialized the pull stream
+    //! // Initialized the pull stream
     //! let mut pull_stream = DryocStream::init_pull(&key, &header);
     //!
-    //! Decrypt the set of messages, putting everything into locked memory
+    //! // Decrypt the set of messages, putting everything into locked memory
     //! let (m1, tag1): (LockedBytes, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");
     //! let (m2, tag2): (LockedBytes, Tag) = pull_stream.pull(&c2, None).expect("Decrypt failed");
     //! let (m3, tag3): (LockedBytes, Tag) = pull_stream.pull(&c3, None).expect("Decrypt failed");

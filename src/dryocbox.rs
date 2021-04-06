@@ -87,35 +87,35 @@ pub mod protected {
     //! use dryoc::dryocbox::protected::*;
     //! use dryoc::dryocbox::DryocBox;
     //!
-    //! Generate a random sender and recipient keypair, into locked, readonly
-    //! memory.
+    //! // Generate a random sender and recipient keypair, into locked, readonly
+    //! // memory.
     //! let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
     //! let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
     //!
-    //! Generate a random nonce, into locked, readonly memory.
+    //! // Generate a random nonce, into locked, readonly memory.
     //! let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
     //!
-    //! Read message into locked, readonly memory.
+    //! // Read message into locked, readonly memory.
     //! let message = HeapBytes::from_slice_into_readonly_locked(b"Secret message from Santa Claus")
-    //! .expect("message failed");
+    //!     .expect("message failed");
     //!
-    //! Encrypt message into a locked box.
+    //! // Encrypt message into a locked box.
     //! let dryocbox: LockedBox = DryocBox::encrypt(
-    //! &message,
-    //! &nonce,
-    //! &recipient_keypair.public_key,
-    //! &sender_keypair.secret_key,
+    //!     &message,
+    //!     &nonce,
+    //!     &recipient_keypair.public_key,
+    //!     &sender_keypair.secret_key,
     //! )
     //! .expect("encrypt failed");
     //!
-    //! Decrypt message into locked bytes.
+    //! // Decrypt message into locked bytes.
     //! let decrypted: LockedBytes = dryocbox
-    //! .decrypt(
-    //! &nonce,
-    //! &sender_keypair.public_key,
-    //! &recipient_keypair.secret_key,
-    //! )
-    //! .expect("decrypt failed");
+    //!     .decrypt(
+    //!         &nonce,
+    //!         &sender_keypair.public_key,
+    //!         &recipient_keypair.secret_key,
+    //!     )
+    //!     .expect("decrypt failed");
     //!
     //! assert_eq!(message.as_slice(), decrypted.as_slice());
     //! ```
