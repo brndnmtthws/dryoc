@@ -3,7 +3,7 @@ use std::convert::From;
 #[derive(Debug)]
 pub enum Error {
     Message(String),
-    IO(std::io::Error),
+    Io(std::io::Error),
 }
 
 impl From<String> for Error {
@@ -20,7 +20,7 @@ impl From<&str> for Error {
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Error::IO(error)
+        Error::Io(error)
     }
 }
 
