@@ -73,8 +73,8 @@ fn crypto_generichash_blake2b_validate_key(key: Option<&[u8]>) -> Result<(), Err
 
 #[inline]
 fn crypto_generichash_blake2b_validate_outlen(outlen: usize) -> Result<(), Error> {
-    if outlen < CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN
-        || outlen > CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
+    if !(CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN..=CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX)
+        .contains(&outlen)
     {
         return Err(dryoc_error!(format!(
             "output length is {}, expected at least {} and less than {} bytes",

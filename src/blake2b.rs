@@ -96,34 +96,32 @@ fn rotr64(x: u64, b: u64) -> u64 {
     (x >> b) | (x << (64 - b))
 }
 
-fn compress(h: &mut [u64; 8], t: &mut [u64; 2], f: &mut [u64; 2], block: &[u8]) {
-    let mut m = [0u64; 16];
-    let mut v = [0u64; 16];
+fn compress(sh: &mut [u64; 8], st: &mut [u64; 2], sf: &mut [u64; 2], block: &[u8]) {
+    let mut tm = [0u64; 16];
+    let mut tv = [0u64; 16];
 
     for i in 0..16 {
-        m[i] = load64_le(&block[(i * 8)..(i * 8 + 8)]);
+        tm[i] = load64_le(&block[(i * 8)..(i * 8 + 8)]);
     }
-    for i in 0..8 {
-        v[i] = h[i];
-    }
-    v[8] = IV[0];
-    v[9] = IV[1];
-    v[10] = IV[2];
-    v[11] = IV[3];
-    v[12] = t[0] ^ IV[4];
-    v[13] = t[1] ^ IV[5];
-    v[14] = f[0] ^ IV[6];
-    v[15] = f[1] ^ IV[7];
+    tv[..8].copy_from_slice(sh);
+    tv[8] = IV[0];
+    tv[9] = IV[1];
+    tv[10] = IV[2];
+    tv[11] = IV[3];
+    tv[12] = st[0] ^ IV[4];
+    tv[13] = st[1] ^ IV[5];
+    tv[14] = sf[0] ^ IV[6];
+    tv[15] = sf[1] ^ IV[7];
 
     let mut g = |r: usize, i: usize, a: usize, b: usize, c: usize, d: usize| {
-        v[a] = v[a].wrapping_add(v[b].wrapping_add(m[(SIGMA[r] as [usize; 16])[2 * i + 0]]));
-        v[d] = rotr64(v[d] ^ v[a], 32);
-        v[c] = v[c].wrapping_add(v[d]);
-        v[b] = rotr64(v[b] ^ v[c], 24);
-        v[a] = v[a].wrapping_add(v[b].wrapping_add(m[(SIGMA[r] as [usize; 16])[2 * i + 1]]));
-        v[d] = rotr64(v[d] ^ v[a], 16);
-        v[c] = v[c].wrapping_add(v[d]);
-        v[b] = rotr64(v[b] ^ v[c], 63);
+        tv[a] = tv[a].wrapping_add(tv[b].wrapping_add(tm[(SIGMA[r] as [usize; 16])[2 * i]]));
+        tv[d] = rotr64(tv[d] ^ tv[a], 32);
+        tv[c] = tv[c].wrapping_add(tv[d]);
+        tv[b] = rotr64(tv[b] ^ tv[c], 24);
+        tv[a] = tv[a].wrapping_add(tv[b].wrapping_add(tm[(SIGMA[r] as [usize; 16])[2 * i + 1]]));
+        tv[d] = rotr64(tv[d] ^ tv[a], 16);
+        tv[c] = tv[c].wrapping_add(tv[d]);
+        tv[b] = rotr64(tv[b] ^ tv[c], 63);
     };
     let mut round = |r| {
         g(r, 0, 0, 4, 8, 12);
@@ -149,14 +147,14 @@ fn compress(h: &mut [u64; 8], t: &mut [u64; 2], f: &mut [u64; 2], block: &[u8]) 
     round(11);
 
     for i in 0..8 {
-        h[i] = h[i] ^ v[i] ^ v[i + 8];
+        sh[i] = sh[i] ^ tv[i] ^ tv[i + 8];
     }
 }
 
 fn increment_counter(t: &mut [u64; 2], inc: usize) {
     let mut c: u128 = ((t[1] as u128) << 64) | t[0] as u128;
     c += inc as u128;
-    t[0] = (c >> 0) as u64;
+    t[0] = c as u64;
     t[1] = (c >> 64) as u64;
 }
 
@@ -180,17 +178,18 @@ impl State {
     }
 
     fn init0(&mut self) {
-        for i in 0..8 {
-            self.h[i] = IV[i];
-        }
+        self.h[..8].copy_from_slice(&IV);
     }
 
     pub(crate) fn init(outlen: u8) -> Result<Self, Error> {
         if outlen == 0 || outlen as usize > OUTBYTES {
             return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
         }
-        let mut params = Params::default();
-        params.digest_length = outlen;
+
+        let params = Params {
+            digest_length: outlen,
+            ..Default::default()
+        };
 
         Ok(Self::init_param(&params))
     }
@@ -206,9 +205,11 @@ impl State {
             )));
         }
 
-        let mut params = Params::default();
-        params.digest_length = outlen;
-        params.key_length = key.len() as u8;
+        let params = Params {
+            digest_length: outlen,
+            key_length: key.len() as u8,
+            ..Default::default()
+        };
 
         let mut state = Self::init_param(&params);
 
