@@ -10,6 +10,7 @@ const SALTBYTES: usize = 16;
 const PERSONALBYTES: usize = 16;
 
 #[repr(packed)]
+#[allow(dead_code)]
 struct Params {
     digest_length: u8,
     key_length: u8,
@@ -437,7 +438,13 @@ mod tests {
         let mut output = [0u8; 64];
         let mut so_output = [0u8; 64];
 
-        unsafe { blake2b_final(&mut s, &mut so_output as *mut u8, so_output.len() as u64) };
+        unsafe {
+            blake2b_final(
+                &mut s,
+                so_output.as_mut_ptr() as *mut u8,
+                so_output.len() as u64,
+            )
+        };
 
         state.finalize(&mut output).ok();
 
@@ -477,7 +484,13 @@ mod tests {
         let mut output = [0u8; 64];
         let mut so_output = [0u8; 64];
 
-        unsafe { blake2b_final(&mut s, &mut so_output as *mut u8, so_output.len() as u64) };
+        unsafe {
+            blake2b_final(
+                &mut s,
+                so_output.as_mut_ptr() as *mut u8,
+                so_output.len() as u64,
+            )
+        };
 
         state.finalize(&mut output).ok();
 
