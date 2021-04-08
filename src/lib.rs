@@ -65,8 +65,9 @@
 //!
 //! [^1]: Not actually trademarked.
 //!
-//! [^2]: The protected memory features described in [protected] require custom
-//! memory allocation and system calls, which are unsafe in Rust.
+//! [^2]: The protected memory features described in the [protected] mod require
+//! custom memory allocation, system calls, and pointer arithmetic, which are
+//! unsafe in Rust.
 //!
 //! [^3]: The Rustaceous API is designed to protect users of this library from
 //! making mistakes, however the Classic API allows one to do as one pleases.
