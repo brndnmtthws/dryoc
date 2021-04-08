@@ -41,14 +41,14 @@ With optional features:
 
 ```toml
 [dependencies]
-dryoc = {version = "0.2", features = ["serde", "base64", "simd_backend"]
+dryoc = {version = "0.2", features = ["serde", "simd_backend"]
 ```
 
 ## Features
 
 * Many libsodium implemented with both Classic and Rustaceous API
 * Protected memory handling
-* [Serde](https://serde.rs/) support, including optional base64 encoding (with `features = ["serde", "base64"]`)
+* [Serde](https://serde.rs/) support (with `features = ["serde"]`)
 
 ## Project status
 
