@@ -9,7 +9,8 @@
 //! use base64::encode;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
-//! // Type for `key` param must be specified, the complire cannot infer it when we pass None
+//! // Type for `key` param must be specified, the complire cannot infer it when
+//! // we pass `None` here.
 //! let hash =
 //!     GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 //!
