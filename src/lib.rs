@@ -42,6 +42,8 @@
 //! | Public-key authenticated boxes | [`DryocDox`](dryocbox) | [`crypto_box`] | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
 //! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
+//! | Generic hashing | [`GenericHash`](generichash) | [`crypto_generichash`] | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
+//!
 //! # Using Serde
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
