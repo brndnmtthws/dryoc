@@ -1,10 +1,18 @@
 //! # Encrypted streams
 //!
-//! _For public-key based encryption, see [`DryocBox`](crate::dryocbox). For
-//! secret-key based encryption, see [`DryocSecretBox`](crate::dryocsecretbox)_.
+//! [`DryocStream`] implements libsodium's secret-key authenticated stream
+//! encryption, also known as a _secretstream_. This implementation uses the
+//! XSalsa20 stream cipher, and Poly1305 for message authentication.
 //!
-//! See [protected] for an example using the protected memory features with
-//! [`DryocStream`].
+//! You should use a [`DryocStream`] when you want to:
+//!
+//! * read and write messages to a file or network socket
+//! * exchange messages between two parties
+//! * send messages in a particular sequence, and authenticate the order of
+//!   messages
+//! * provide a way to determine the start and end of a sequence of messages
+//! * use a shared secret, such as a passphrase, which can be used to derive a
+//!   secret key using `crypto_pwhash_*`
 //!
 //! # Rustaceous API example
 //!
@@ -48,6 +56,15 @@
 //! assert_eq!(tag2, Tag::MESSAGE);
 //! assert_eq!(tag3, Tag::FINAL);
 //! ```
+//! 
+//! ## Additional resources
+//!
+//! * See <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream>
+//!   for additional details on secret streams
+//! * For public-key based encryption, see [`DryocBox`](crate::dryocbox)
+//! * For stream encryption, see [`DryocStream`](crate::dryocstream)
+//! * See [protected] for an example using the protected memory features with
+//!   [`DryocStream`]
 
 use bitflags::bitflags;
 use zeroize::Zeroize;

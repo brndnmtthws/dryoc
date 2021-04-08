@@ -1,10 +1,14 @@
 //! # Secret-key authenticated encryption
 //!
-//! _For public-key based encryption, see [`DryocBox`](crate::dryocbox). For
-//! stream encryption, see [`DryocStream`](crate::dryocstream)_.
+//! [`DryocSecretBox`] implements libsodium's secret-key authenticated
+//! encryption, also known as a _secretbox_. This implementation uses the
+//! XSalsa20 stream cipher, and Poly1305 for message authentication.
 //!
-//! See [protected] for an example using the protected memory features with
-//! [`DryocSecretBox`].
+//! You should use a [`DryocSecretBox`] when you want to:
+//!
+//! * exchange messages between two parties
+//! * use a shared secret, such as a passphrase, which can be used to derive a
+//!   secret key using `crypto_pwhash_*`
 //!
 //! # Rustaceous API example
 //!
@@ -14,7 +18,7 @@
 //! // Generate a random secret key and nonce
 //! let secret_key = Key::gen();
 //! let nonce = Nonce::gen();
-//! let message = b"Why hello there";
+//! let message = b"Why hello there, fren";
 //!
 //! // Encrypt `message`, into a Vec<u8>-based box
 //! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
@@ -32,6 +36,15 @@
 //!
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
+//!
+//! ## Additional resources
+//!
+//! * See <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox>
+//!   for additional details on crypto boxes
+//! * For public-key based encryption, see [`DryocBox`](crate::dryocbox)
+//! * For stream encryption, see [`DryocStream`](crate::dryocstream)
+//! * See [protected] for an example using the protected memory features with
+//!   [`DryocSecretBox`]
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -111,6 +124,8 @@ pub mod protected {
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A public-key authenticated encrypted box, compatible with a libsodium box.
 /// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
+///
+/// Refer to [crate::dryocsecretbox] for sample usage.
 pub struct DryocSecretBox<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> {
     tag: Mac,
     data: Data,
@@ -216,12 +231,19 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
         Ok(message)
     }
 
-    /// Copies this box into a new Vec
-    pub fn to_vec(&self) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(self.tag.as_array());
-        data.extend(self.data.as_slice());
+    /// Copies `self` into the target. Can be used with protected memory.
+    pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
+        let mut data = Bytes::new_bytes();
+        data.resize(self.tag.len() + self.data.len(), 0);
+        let s = data.as_mut_slice();
+        s[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(self.tag.as_slice());
+        s[CRYPTO_SECRETBOX_MACBYTES..].copy_from_slice(self.data.as_slice());
         data
+    }
+
+    /// Copies `self` into a new [`Vec`]
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.to_bytes()
     }
 }
 

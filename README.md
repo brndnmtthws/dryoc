@@ -62,7 +62,7 @@ implementation:
 * [x] [Generating random data](https://doc.libsodium.org/generating_random_data) (`randombytes_buf`)
 * [x] [Encrypted streams](https://doc.libsodium.org/secret-key_cryptography/secretstream) (`crypto_secretstream_*`)
 * [x] [Memory locking](https://doc.libsodium.org/memory_management) (`sodium_mlock`, `sodium_munlock`, `sodium_mprotect_*`)
-* [ ] [Encrypting related message](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
+* [x] [Encrypting related messages](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages) (`sodium_increment`)
 * [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
 * [ ] [Generic hashing](https://doc.libsodium.org/hashing/generic_hashing)

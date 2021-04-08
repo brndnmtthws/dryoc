@@ -1,11 +1,15 @@
 //! # Public-key authenticated encryption
 //!
-//! _For secret-key based encryption, see
-//! [`DryocSecretBox`](crate::dryocsecretbox). For stream encryption, see
-//! [`DryocStream`](crate::dryocstream)_.
+//! [`DryocBox`] implements libsodium's public-key authenticated encryption,
+//! also known as a _box_. This implementation uses X25519 for key derivation,
+//! XSalsa20 stream cipher, and Poly1305 for message authentication.
 //!
-//! See [protected] for an example using the protected memory features with
-//! [`DryocBox`].
+//! You should use a [`DryocBox`] when you want to:
+//!
+//! * exchange messages between two parties
+//! * authenticate the messages with public keys, rather than a pre-shared
+//!   secret
+//! * avoid secret sharing between parties
 //!
 //! # Rustaceous API example
 //!
@@ -48,6 +52,16 @@
 //!
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
+//!
+//! ## Additional resources
+//!
+//! * See <https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption>
+//!   for additional details on crypto boxes
+//! * For secret-key based encryption, see
+//!   [`DryocSecretBox`](crate::dryocsecretbox)
+//! * For stream encryption, see [`DryocStream`](crate::dryocstream)
+//! * See [protected] for an example using the protected memory features with
+//!   [`DryocBox`]
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -150,6 +164,8 @@ pub mod protected {
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box
+///
+/// Refer to [crate::dryocbox] for sample usage.
 pub struct DryocBox<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> {
     /// libsodium box authentication tag, usually prepended to each box
     tag: Mac,
@@ -228,7 +244,7 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
         Self { tag, data }
     }
 
-    /// Copies this box into a new [`Vec`]
+    /// Copies `self` into a new [`Vec`]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }

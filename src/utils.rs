@@ -10,6 +10,12 @@ pub fn increment_bytes(bytes: &mut [u8]) {
     }
 }
 
+/// Convenience wrapper for [`increment_bytes`]. Functionally equivalent to
+/// `sodium_increment`.
+pub fn sodium_increment(bytes: &mut [u8]) {
+    increment_bytes(bytes)
+}
+
 #[inline]
 pub(crate) fn xor_buf(out: &mut [u8], in_: &[u8]) {
     let len = std::cmp::min(out.len(), in_.len());
@@ -97,5 +103,27 @@ mod tests {
 
         xor_buf(&mut a, &b);
         assert_eq!([1, 0, 0], a);
+    }
+
+    #[test]
+    fn test_sodium_increment() {
+        use libsodium_sys::sodium_increment as so_sodium_increment;
+        use rand_core::{OsRng, RngCore};
+
+        use crate::rng::copy_randombytes;
+
+        for _ in 0..20 {
+            let rand_usize = (OsRng.next_u32() % 1000) as usize;
+            let mut data = vec![0u8; rand_usize];
+            copy_randombytes(&mut data);
+
+            let mut data_copy = data.clone();
+
+            sodium_increment(&mut data);
+
+            unsafe { so_sodium_increment(data_copy.as_mut_ptr(), data_copy.len()) };
+
+            assert_eq!(data, data_copy);
+        }
     }
 }

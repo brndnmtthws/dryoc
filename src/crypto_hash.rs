@@ -1,31 +1,31 @@
 use sha2::{Digest, Sha512};
 
-/// Computes a SHA-512 hash from `input'
+/// Computes a SHA-512 hash from `input`.
 pub fn crypto_hash_sha512(input: &[u8]) -> Vec<u8> {
     let mut state = crypto_hash_sha512_init();
     state.update(input);
     state.finalize().to_vec()
 }
 
-/// SHA-512 wrapper, for more ergonomic usage
+/// SHA-512 wrapper, for more ergonomic usage.
 pub struct HashSha512 {
     hasher: Sha512,
 }
 
 impl HashSha512 {
-    /// Returns a new SHA-512 hasher instance
+    /// Returns a new SHA-512 hasher instance.
     pub fn new() -> Self {
         Self {
             hasher: crypto_hash_sha512_init(),
         }
     }
 
-    /// Updates SHA-512 hash state with `input`
+    /// Updates SHA-512 hash state with `input`.
     pub fn update(&mut self, input: &[u8]) {
         crypto_hash_sha512_update(&mut self.hasher, input);
     }
 
-    /// Consumes hasher and return final computed hash
+    /// Consumes hasher and return final computed hash.
     pub fn finalize(self) -> Vec<u8> {
         crypto_hash_sha512_final(self.hasher)
     }

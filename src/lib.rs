@@ -36,15 +36,12 @@
 //! you're extra careful you could make mistakes. With the Rustaceous API, you'd
 //! have to try really hard to do things wrong.
 //!
-//! | Feature                        | Rustaceous API                     |
-//! Classic API                               | Libsodium Docs
-//! |
-//! |--------------------------------|------------------------------------|-------------------------------------------|-------------------------------------------------------------------------------------------|
-//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`]                      | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox)                |
-//! | Public-key authenticated boxes | [`DryocDox`](dryocbox)             | [`crypto_box`]                            | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
-//! | Streaming encryption           | [`DryocStream`](dryocstream)       | [`crypto_secretstream_xchacha20poly1305`] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream)             |
-//! | Protected memory[^4]           | [protected]                        | N/A                                       | [Link](https://doc.libsodium.org/memory_management)                                       |
-//!
+//! | Feature | Rustaceous API | Classic API | Libsodium Docs |
+//! |-|-|-|-|
+//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
+//! | Public-key authenticated boxes | [`DryocDox`](dryocbox) | [`crypto_box`] | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
+//! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
+//! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //! # Using Serde
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
@@ -61,7 +58,8 @@
 //! extensive testing used in this crate means it's relatively safe to use,
 //! provided the underlying algorithms remain safe. Arguably, this crate is
 //! _incredibly_ safe (as far as cryptography libraries go) thanks to the
-//! features of the Rustaceous API, and those provided by the Rust language.
+//! features provided by the API of this crate, and those provided by the Rust
+//! language itself.
 //!
 //! [^1]: Not actually trademarked.
 //!
@@ -86,6 +84,7 @@ mod error;
 #[macro_use]
 pub mod protected;
 
+mod blake2b;
 #[cfg(feature = "serde")]
 mod bytes_serde;
 mod crypto_box_impl;
@@ -98,6 +97,7 @@ pub mod constants;
 pub mod crypto_box;
 /// # Core cryptography functions
 pub mod crypto_core;
+pub mod crypto_generichash;
 /// Hash functions
 pub mod crypto_hash;
 /// # Provides one-time authentication using Poly1305

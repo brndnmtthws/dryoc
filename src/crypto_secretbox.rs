@@ -38,14 +38,15 @@ use crate::crypto_secretbox_impl::*;
 use crate::error::Error;
 use crate::types::*;
 
-/// Container for crypto secret box message authentication code.
+/// Secret box message authentication code.
 pub type Mac = [u8; CRYPTO_SECRETBOX_MACBYTES];
-/// A nonce for secret key authenticated boxes.
+/// Nonce for secret key authenticated boxes.
 pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
-/// A secret for secret key authenticated boxes.
+/// Key (or secret) for secret key authenticated boxes.
 pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
 
-/// Generates a random key using [crate::rng::copy_randombytes].
+/// Generates a random key using
+/// [`copy_randombytes`](crate::rng::copy_randombytes).
 pub fn crypto_secretbox_keygen<K>() -> K
 where
     K: NewByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
@@ -53,7 +54,7 @@ where
     K::gen()
 }
 
-/// Detached version of [crypto_secretbox_easy].
+/// Detached version of [`crypto_secretbox_easy`].
 ///
 /// Compatible with libsodium's `crypto_secretbox_detached`.
 pub fn crypto_secretbox_detached(
@@ -67,7 +68,7 @@ pub fn crypto_secretbox_detached(
     crypto_secretbox_detached_inplace(ciphertext, mac, nonce, key);
 }
 
-/// Detached version of [crypto_secretbox_open_easy].
+/// Detached version of [`crypto_secretbox_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_secretbox_open_detached`.
 pub fn crypto_secretbox_open_detached(

@@ -49,23 +49,24 @@ use crate::crypto_secretbox_impl::*;
 use crate::error::Error;
 use crate::types::*;
 
-/// Container for crypto box message authentication code.
+/// Crypto box message authentication code.
 pub type Mac = [u8; CRYPTO_BOX_MACBYTES];
 
-/// A nonce for crypto boxes.
+/// Nonce for crypto boxes.
 pub type Nonce = [u8; CRYPTO_BOX_NONCEBYTES];
-/// A public key for public key authenticated crypto boxes.
+/// Public key for public key authenticated crypto boxes.
 pub type PublicKey = [u8; CRYPTO_BOX_PUBLICKEYBYTES];
-/// A secret key for public key authenticated crypto boxes.
+/// Secret key for public key authenticated crypto boxes.
 pub type SecretKey = [u8; CRYPTO_BOX_SECRETKEYBYTES];
 
 /// Generates a public/secret key pair using OS provided data using
-/// [rand_core::OsRng].
+/// [`rand_core::OsRng`].
 pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_keypair()
 }
 
-/// Deterministically derives a keypair from `seed`.
+/// Deterministically derives a keypair from `seed`, which can be of arbitrary
+/// length.
 ///
 /// Compatible with libsodium's `crypto_box_seed_keypair`.
 pub fn crypto_box_seed_keypair(seed: &[u8]) -> (PublicKey, SecretKey) {
@@ -80,7 +81,8 @@ pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Ke
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
-/// Precalculation variant of [`crate::crypto_box::crypto_box_easy`]
+/// Precalculation variant of
+/// [`crypto_box_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_detached_afternm`.
 pub fn crypto_box_detached_afternm(
@@ -121,7 +123,7 @@ pub fn crypto_box_detached(
     key.zeroize();
 }
 
-/// In-place variant of [crypto_box_detached]
+/// In-place variant of [`crypto_box_detached`].
 pub fn crypto_box_detached_inplace(
     message: &mut [u8],
     mac: &mut Mac,
@@ -139,7 +141,7 @@ pub fn crypto_box_detached_inplace(
 }
 
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
-/// sender's secret key `sender_secret_key` using `nonce`.
+/// sender's secret key `sender_secret_key` and `nonce`.
 ///
 /// Compatible with libsodium's `crypto_box_easy`.
 pub fn crypto_box_easy(
@@ -178,8 +180,16 @@ pub fn crypto_box_easy(
 }
 
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
-/// sender's secret key `sender_secret_key` using `nonce` in-place, without
-/// allocated additional memory for the message.
+/// sender's secret key `sender_secret_key` using `nonce` in-place in `data`,
+/// without allocated additional memory for the message.
+///
+/// The caller of this function is responsible for allocating `data` such that
+/// there's enough capacity for the message plus the additional
+/// [`CRYPTO_BOX_MACBYTES`] bytes for the authentication tag.
+///
+/// For this reason, the last [`CRYPTO_BOX_MACBYTES`] bytes from the input
+/// is ignored. The length of `data` should be the length of your message plus
+/// [`CRYPTO_BOX_MACBYTES`] bytes.
 pub fn crypto_box_easy_inplace(
     data: &mut [u8],
     nonce: &Nonce,
@@ -210,7 +220,7 @@ pub fn crypto_box_easy_inplace(
     }
 }
 
-/// Precalculation variant of [crypto_box_open_easy].
+/// Precalculation variant of [`crypto_box_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_open_detached_afternm`.
 pub fn crypto_box_open_detached_afternm(
@@ -223,7 +233,7 @@ pub fn crypto_box_open_detached_afternm(
     crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
 }
 
-/// In-place variant of [crypto_box_open_detached_afternm].
+/// In-place variant of [`crypto_box_open_detached_afternm`].
 pub fn crypto_box_open_detached_afternm_inplace(
     data: &mut [u8],
     mac: &Mac,
@@ -233,7 +243,7 @@ pub fn crypto_box_open_detached_afternm_inplace(
     crypto_secretbox_open_detached_inplace(data, mac, nonce, key)
 }
 
-/// Detached variant of [`crate::crypto_box::crypto_box_open_easy`].
+/// Detached variant of [`crypto_box_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_open_detached`.
 pub fn crypto_box_open_detached(
@@ -253,7 +263,7 @@ pub fn crypto_box_open_detached(
     Ok(())
 }
 
-/// In-place variant of [crypto_box_open_detached].
+/// In-place variant of [`crypto_box_open_detached`].
 pub fn crypto_box_open_detached_inplace(
     data: &mut [u8],
     mac: &Mac,
@@ -303,8 +313,15 @@ pub fn crypto_box_open_easy(
 }
 
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
-/// sender's public key `sender_public_key` using `nonce` in-place, without
-/// allocated additional memory for the message.
+/// sender's public key `sender_public_key` with `nonce` in-place in `data`,
+/// without allocated additional memory for the message.
+///
+/// The caller of this function is responsible for allocating `data` such that
+/// there's enough capacity for the message plus the additional
+/// [`CRYPTO_BOX_MACBYTES`] bytes for the authentication tag.
+///
+/// After opening the box, the last [`CRYPTO_BOX_MACBYTES`] bytes can be
+/// discarded or ignored at the caller's preference.
 pub fn crypto_box_open_easy_inplace(
     data: &mut [u8],
     nonce: &Nonce,
