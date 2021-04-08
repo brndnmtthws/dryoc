@@ -220,6 +220,10 @@ impl State {
     }
 
     pub(crate) fn update(&mut self, input: &[u8]) {
+        if input.is_empty() {
+            // return early if the input is empty
+            return;
+        }
         let start = if !self.buf.is_empty() && self.buf.len() < BLOCKBYTES {
             // the buffer should have at least BLOCKBYTES bytes in it; fill the buffer first
             // up to BLOCKBYTES

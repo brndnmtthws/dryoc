@@ -97,7 +97,7 @@ impl<const OUTPUT_LENGTH: usize> GenericHash<OUTPUT_LENGTH> {
     }
 
     /// Updates the hasher state from `input`.
-    pub fn update<Input: Bytes>(&mut self, input: Input) {
+    pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
         crypto_generichash_update(&mut self.state, input.as_slice())
     }
 
@@ -135,7 +135,7 @@ impl<const OUTPUT_LENGTH: usize> GenericHash<OUTPUT_LENGTH> {
     /// );
     /// ```
     pub fn hash<
-        Input: Bytes,
+        Input: Bytes + ?Sized,
         Key: ByteArray<KEY_LENGTH>,
         Output: NewByteArray<OUTPUT_LENGTH>,
         const KEY_LENGTH: usize,
@@ -172,7 +172,10 @@ impl GenericHash<CRYPTO_GENERICHASH_BYTES> {
 
     /// Hashes `input` using `key`, with the default length parameters. Provided
     /// for convenience.
-    pub fn hash_with_defaults<Input: Bytes, Output: NewByteArray<CRYPTO_GENERICHASH_BYTES>>(
+    pub fn hash_with_defaults<
+        Input: Bytes + ?Sized,
+        Output: NewByteArray<CRYPTO_GENERICHASH_BYTES>,
+    >(
         input: &Input,
         key: Option<&Key>,
     ) -> Result<Output, Error> {
@@ -181,7 +184,7 @@ impl GenericHash<CRYPTO_GENERICHASH_BYTES> {
 
     /// Hashes `input` using `key`, with the default length parameters,
     /// returning a [`Vec`]. Provided for convenience.
-    pub fn hash_with_defaults_to_vec<Input: Bytes>(
+    pub fn hash_with_defaults_to_vec<Input: Bytes + ?Sized>(
         input: &Input,
         key: Option<&Key>,
     ) -> Result<Vec<u8>, Error> {
@@ -238,6 +241,17 @@ mod tests {
         );
 
         let output = GenericHash::hash_with_defaults_to_vec(b"hello", None).expect("hash failed");
+
+        assert_eq!(
+            encode(&output),
+            "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
+        );
+    }
+    #[test]
+    fn test_generichash_onetime_empty() {
+        use base64::encode;
+
+        let output = GenericHash::hash_with_defaults_to_vec(&[], None).expect("hash failed");
 
         assert_eq!(
             encode(&output),
