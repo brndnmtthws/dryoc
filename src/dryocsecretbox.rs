@@ -113,7 +113,7 @@ pub mod protected {
     /// use with protected memory.
     pub type Mac = HeapByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-    /// Locked [DryocSecretBox], provided as a type alias for convenience.
+    /// Locked [`DryocSecretBox`], provided as a type alias for convenience.
     pub type LockedBox = DryocSecretBox<Locked<Mac>, LockedBytes>;
 }
 

@@ -107,6 +107,7 @@ pub mod crypto_secretstream_xchacha20poly1305;
 pub mod dryocbox;
 pub mod dryocsecretbox;
 pub mod dryocstream;
+pub mod generichash;
 /// # Public-key tools
 pub mod keypair;
 

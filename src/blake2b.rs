@@ -44,7 +44,7 @@ impl Default for Params {
 
 #[derive(Zeroize, Debug)]
 #[zeroize(drop)]
-struct State {
+pub(crate) struct State {
     h: [u64; 8],
     t: [u64; 2],
     f: [u64; 2],
@@ -95,26 +95,24 @@ fn rotr64(x: u64, b: u64) -> u64 {
     (x >> b) | (x << (64 - b))
 }
 
-fn compress(state: &mut State) {
+fn compress(h: &mut [u64; 8], t: &mut [u64; 2], f: &mut [u64; 2], block: &[u8]) {
     let mut m = [0u64; 16];
     let mut v = [0u64; 16];
-
-    let block = &state.buf[..BLOCKBYTES];
 
     for i in 0..16 {
         m[i] = load64_le(&block[(i * 8)..(i * 8 + 8)]);
     }
     for i in 0..8 {
-        v[i] = state.h[i];
+        v[i] = h[i];
     }
     v[8] = IV[0];
     v[9] = IV[1];
     v[10] = IV[2];
     v[11] = IV[3];
-    v[12] = state.t[0] ^ IV[4];
-    v[13] = state.t[1] ^ IV[5];
-    v[14] = state.f[0] ^ IV[6];
-    v[15] = state.f[1] ^ IV[7];
+    v[12] = t[0] ^ IV[4];
+    v[13] = t[1] ^ IV[5];
+    v[14] = f[0] ^ IV[6];
+    v[15] = f[1] ^ IV[7];
 
     let mut g = |r: usize, i: usize, a: usize, b: usize, c: usize, d: usize| {
         v[a] = v[a].wrapping_add(v[b].wrapping_add(m[(SIGMA[r] as [usize; 16])[2 * i + 0]]));
@@ -150,143 +148,219 @@ fn compress(state: &mut State) {
     round(11);
 
     for i in 0..8 {
-        state.h[i] = state.h[i] ^ v[i] ^ v[i + 8];
+        h[i] = h[i] ^ v[i] ^ v[i + 8];
     }
 }
 
-fn init0(state: &mut State) {
-    for i in 0..8 {
-        state.h[i] = IV[i];
-    }
+fn increment_counter(t: &mut [u64; 2], inc: usize) {
+    let mut c: u128 = ((t[1] as u128) << 64) | t[0] as u128;
+    c += inc as u128;
+    t[0] = (c >> 0) as u64;
+    t[1] = (c >> 64) as u64;
 }
 
-fn init(outlen: u8) -> Result<State, Error> {
-    if outlen == 0 || outlen as usize > OUTBYTES {
-        return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
-    }
-    let mut state = State::default();
-    let mut params = Params::default();
-    params.digest_length = outlen;
+impl State {
+    fn init_param(params: &Params) -> Self {
+        let mut state = Self::default();
+        state.init0();
 
-    init_param(state, &params)
-}
+        let pslice = unsafe {
+            std::slice::from_raw_parts(
+                (params as *const Params) as *const u8,
+                std::mem::size_of::<Params>(),
+            )
+        };
 
-fn init_param(mut state: State, params: &Params) -> Result<State, Error> {
-    init0(&mut state);
+        for i in 0..8 {
+            state.h[i] ^= load64_le(&pslice[(8 * i)..(8 * i + 8)]);
+        }
 
-    let pslice = unsafe {
-        std::slice::from_raw_parts(
-            (params as *const Params) as *const u8,
-            std::mem::size_of::<Params>(),
-        )
-    };
-
-    for i in 0..8 {
-        state.h[i] ^= load64_le(&pslice[(8 * i)..(8 * i + 8)]);
+        state
     }
 
-    Ok(state)
-}
-
-fn init_key(outlen: u8, key: &[u8]) -> Result<State, Error> {
-    if outlen == 0 || outlen as usize > OUTBYTES {
-        return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
-    }
-    let state = State::default();
-    let mut params = Params::default();
-    params.digest_length = outlen;
-
-    let mut state = init_param(state, &params)?;
-
-    let mut block = [0u8; BLOCKBYTES];
-    block[..key.len()].copy_from_slice(key);
-    update(&mut state, &block);
-    block.zeroize();
-
-    Ok(state)
-}
-
-fn increment_counter(state: &mut State, inc: usize) {
-    let mut t: u128 = ((state.t[1] as u128) << 64) | state.t[0] as u128;
-    t += inc as u128;
-    state.t[0] = (t >> 0) as u64;
-    state.t[1] = (t >> 64) as u64;
-}
-
-fn update(state: &mut State, input: &[u8]) {
-    for chunk in input.chunks(BLOCKBYTES) {
-        state.buf.extend_from_slice(chunk);
-
-        if state.buf.len() > BLOCKBYTES {
-            increment_counter(state, BLOCKBYTES);
-            compress(state);
-            state.buf.rotate_left(BLOCKBYTES);
-            state.buf.resize(state.buf.len() - BLOCKBYTES, 0);
+    fn init0(&mut self) {
+        for i in 0..8 {
+            self.h[i] = IV[i];
         }
     }
-}
 
-fn set_lastnode(state: &mut State) {
-    state.f[1] = -1i64 as u64;
-}
+    pub(crate) fn init(outlen: u8) -> Result<Self, Error> {
+        if outlen == 0 || outlen as usize > OUTBYTES {
+            return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
+        }
+        let mut params = Params::default();
+        params.digest_length = outlen;
 
-fn is_lastblock(state: &State) -> bool {
-    state.f[0] != 0
-}
-
-fn set_lastblock(state: &mut State) {
-    if state.last_node != 0 {
-        set_lastnode(state);
-    }
-    state.f[0] = -1i64 as u64;
-}
-
-fn finalize(state: &mut State, output: &mut [u8]) -> Result<(), Error> {
-    if output.is_empty() || output.len() > OUTBYTES {
-        return Err(dryoc_error!(format!(
-            "invalid output length {}, should be <= {}",
-            output.len(),
-            OUTBYTES
-        )));
+        Ok(Self::init_param(&params))
     }
 
-    if is_lastblock(state) {
-        return Err(dryoc_error!("already on last block"));
+    pub(crate) fn init_key(outlen: u8, key: &[u8]) -> Result<State, Error> {
+        if outlen == 0 || outlen as usize > OUTBYTES {
+            return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
+        }
+        if key.is_empty() || key.len() > KEYBYTES {
+            return Err(dryoc_error!(format!(
+                "invalid blake2b key length: {}",
+                outlen
+            )));
+        }
+
+        let mut params = Params::default();
+        params.digest_length = outlen;
+        params.key_length = key.len() as u8;
+
+        let mut state = Self::init_param(&params);
+
+        let mut block = [0u8; BLOCKBYTES];
+        block[..key.len()].copy_from_slice(key);
+        state.update(&block);
+        block.zeroize();
+
+        Ok(state)
     }
 
-    if state.buf.len() > BLOCKBYTES {
-        increment_counter(state, BLOCKBYTES);
-        compress(state);
-        state.buf.rotate_left(BLOCKBYTES);
-        state.buf.resize(state.buf.len() - BLOCKBYTES, 0);
+    pub(crate) fn update(&mut self, input: &[u8]) {
+        let start = if !self.buf.is_empty() && self.buf.len() < BLOCKBYTES {
+            // the buffer should have at least BLOCKBYTES bytes in it; fill the buffer first
+            // up to BLOCKBYTES
+            if input.len() + self.buf.len() < BLOCKBYTES {
+                // the combined length of input and buff is less than BLOCKBYTES, we just
+                // fill the buff, and then we're done
+                self.buf.resize(self.buf.len() + input.len(), 0);
+                self.buf.copy_from_slice(input);
+                return; // return early
+            } else {
+                // fill the buf with the first N bytes of input until there are BLOCKBYTES bytes
+                // in the buf
+                let start = BLOCKBYTES - self.buf.len();
+                let buf_start = self.buf.len();
+
+                self.buf.resize(BLOCKBYTES, 0);
+                self.buf[buf_start..].copy_from_slice(&input[..start]);
+
+                start
+            }
+        } else if !self.buf.is_empty() {
+            // if the buf is not empty, and there are at least BLOCKBYTES bytes in
+            // the buf, we need to fill the buf so it's aligned to BLOCKBYTES
+            // (assuming it's not already)
+            if self.buf.len() % BLOCKBYTES != 0 {
+                let additional_bytes = BLOCKBYTES - self.buf.len() % BLOCKBYTES;
+                self.buf.copy_from_slice(&input[..additional_bytes]);
+                additional_bytes
+            } else {
+                0
+            }
+        } else {
+            // the state buf is empty, so we can ignore it
+            0
+        };
+        let slen = input.len() - start; // the length from start
+        let end = if slen % BLOCKBYTES == 0 {
+            // it's already bound to the block size, just take everything minus one block
+            input.len() - BLOCKBYTES
+        } else {
+            // take whatever is left over after blocks are consumed
+            input.len() - slen % BLOCKBYTES
+        };
+
+        let h = &mut self.h;
+        let t = &mut self.t;
+        let f = &mut self.f;
+
+        for chunk in self.buf.chunks(BLOCKBYTES) {
+            increment_counter(t, BLOCKBYTES);
+            compress(h, t, f, chunk);
+        }
+        for chunk in input[start..end].chunks(BLOCKBYTES) {
+            increment_counter(t, BLOCKBYTES);
+            compress(h, t, f, chunk);
+        }
+
+        // finally, copy whatever's leftover from input into buf
+        self.buf.resize(input.len() - end, 0);
+        self.buf.copy_from_slice(&input[end..]);
     }
 
-    increment_counter(state, state.buf.len());
-    set_lastblock(state);
+    pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
+        if output.is_empty() || output.len() > OUTBYTES {
+            return Err(dryoc_error!(format!(
+                "invalid output length {}, should be <= {}",
+                output.len(),
+                OUTBYTES
+            )));
+        }
 
-    // fill last block with zero padding
-    state.buf.resize(BLOCKBYTES, 0);
+        if self.is_lastblock() {
+            return Err(dryoc_error!("already on last block"));
+        }
 
-    compress(state);
+        if self.buf.len() > BLOCKBYTES {
+            increment_counter(&mut self.t, BLOCKBYTES);
+            compress(
+                &mut self.h,
+                &mut self.t,
+                &mut self.f,
+                &self.buf[..BLOCKBYTES],
+            );
 
-    let mut buffer = [0u8; OUTBYTES];
-    buffer[0..8].copy_from_slice(&state.h[0].to_le_bytes());
-    buffer[8..16].copy_from_slice(&state.h[1].to_le_bytes());
-    buffer[16..24].copy_from_slice(&state.h[2].to_le_bytes());
-    buffer[24..32].copy_from_slice(&state.h[3].to_le_bytes());
-    buffer[32..40].copy_from_slice(&state.h[4].to_le_bytes());
-    buffer[40..48].copy_from_slice(&state.h[5].to_le_bytes());
-    buffer[48..56].copy_from_slice(&state.h[6].to_le_bytes());
-    buffer[56..64].copy_from_slice(&state.h[7].to_le_bytes());
-    output.copy_from_slice(&buffer[..output.len()]);
+            increment_counter(&mut self.t, self.buf.len() - BLOCKBYTES);
+            self.set_lastblock();
 
-    state.h.zeroize();
-    state.buf.zeroize();
+            // fill last block with zero padding
+            self.buf.resize(2 * BLOCKBYTES, 0);
 
-    Ok(())
+            compress(
+                &mut self.h,
+                &mut self.t,
+                &mut self.f,
+                &self.buf[BLOCKBYTES..],
+            );
+        } else {
+            increment_counter(&mut self.t, self.buf.len());
+            self.set_lastblock();
+
+            // fill last block with zero padding
+            self.buf.resize(BLOCKBYTES, 0);
+
+            compress(&mut self.h, &mut self.t, &mut self.f, &self.buf);
+        }
+        self.buf.zeroize();
+
+        let mut buffer = [0u8; OUTBYTES];
+        buffer[0..8].copy_from_slice(&self.h[0].to_le_bytes());
+        buffer[8..16].copy_from_slice(&self.h[1].to_le_bytes());
+        buffer[16..24].copy_from_slice(&self.h[2].to_le_bytes());
+        buffer[24..32].copy_from_slice(&self.h[3].to_le_bytes());
+        buffer[32..40].copy_from_slice(&self.h[4].to_le_bytes());
+        buffer[40..48].copy_from_slice(&self.h[5].to_le_bytes());
+        buffer[48..56].copy_from_slice(&self.h[6].to_le_bytes());
+        buffer[56..64].copy_from_slice(&self.h[7].to_le_bytes());
+        output.copy_from_slice(&buffer[..output.len()]);
+
+        self.h.zeroize();
+        self.buf.zeroize();
+
+        Ok(())
+    }
+
+    fn set_lastnode(&mut self) {
+        self.f[1] = -1i64 as u64;
+    }
+
+    fn is_lastblock(&self) -> bool {
+        self.f[0] != 0
+    }
+
+    fn set_lastblock(&mut self) {
+        if self.last_node != 0 {
+            self.set_lastnode();
+        }
+        self.f[0] = -1i64 as u64;
+    }
 }
 
-pub(crate) fn hash(output: &mut [u8], input: &[u8], key: &[u8]) -> Result<(), Error> {
+pub(crate) fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
     if output.len() > OUTBYTES {
         return Err(dryoc_error!(format!(
             "output length {} greater than max {}",
@@ -295,14 +369,13 @@ pub(crate) fn hash(output: &mut [u8], input: &[u8], key: &[u8]) -> Result<(), Er
         )));
     }
 
-    let mut state = if key.is_empty() {
-        init(output.len() as u8)?
-    } else {
-        init_key(output.len() as u8, key)?
+    let mut state = match key {
+        Some(key) => State::init_key(output.len() as u8, key)?,
+        None => State::init(output.len() as u8)?,
     };
 
-    update(&mut state, input);
-    finalize(&mut state, output)
+    state.update(input);
+    state.finalize(output)
 }
 
 #[cfg(test)]
@@ -324,6 +397,7 @@ mod tests {
 
     extern "C" {
         fn blake2b_init(S: *mut B2state, outlen: c_uchar);
+        fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
         fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
         fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
     }
@@ -343,40 +417,65 @@ mod tests {
 
         unsafe { blake2b_init(&mut s, 64) };
 
-        let mut state = init(64).expect("init");
-
-        println!("{:?}", state);
-        println!("{:?}", s);
+        let mut state = State::init(64).expect("init");
 
         let mut block = [0u8; 256];
-        // copy_randombytes(&mut block);
+        copy_randombytes(&mut block);
 
         unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
 
-        update(&mut state, &block);
-
-        println!("{:?}", state);
-        println!("{:?}", s);
+        state.update(&block);
 
         unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
 
-        update(&mut state, &block);
-
-        println!("{:?}", state);
-        println!("{:?}", s);
+        state.update(&block);
 
         let mut output = [0u8; 64];
         let mut so_output = [0u8; 64];
 
         unsafe { blake2b_final(&mut s, &mut so_output as *mut u8, so_output.len() as u64) };
 
-        finalize(&mut state, &mut output).ok();
+        state.finalize(&mut output).ok();
 
-        println!("{:?}", state);
-        println!("{:?}", s);
+        assert_eq!(output, so_output);
+    }
 
-        println!("{:?}", output);
-        println!("{:?}", so_output);
+    #[test]
+    fn test_b2_key() {
+        use crate::rng::copy_randombytes;
+
+        let mut s = B2state {
+            h: [0u64; 8],
+            t: [0u64; 2],
+            f: [0u64; 2],
+            buf: [0u8; 256],
+            buflen: 0,
+            last_node: 0,
+        };
+
+        let mut key = [0u8; 32];
+        copy_randombytes(&mut key);
+        let mut block = [0u8; 256];
+        copy_randombytes(&mut block);
+
+        unsafe { blake2b_init_key(&mut s, 64, &key as *const u8, key.len() as u8) };
+
+        let mut state = State::init_key(64, &key).expect("init");
+
+        unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
+
+        state.update(&block);
+
+        unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
+
+        state.update(&block);
+
+        let mut output = [0u8; 64];
+        let mut so_output = [0u8; 64];
+
+        unsafe { blake2b_final(&mut s, &mut so_output as *mut u8, so_output.len() as u64) };
+
+        state.finalize(&mut output).ok();
 
         assert_eq!(output, so_output);
     }

@@ -1,31 +1,193 @@
+//! # Generic hashing
+//!
+//! Implements libsodium's generic hashing functions.
+//!
+//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/hashing/generic_hashing).
+//!
+//! # Classic API example, one-time interface
+//!
+//! ```
+//! use base64::encode;
+//! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
+//! use dryoc::crypto_generichash::*;
+//!
+//! // Use the default hash length
+//! let mut output = [0u8; CRYPTO_GENERICHASH_BYTES];
+//! // Compute the hash using the one-time interface
+//! crypto_generichash(&mut output, b"a string of bytes", None).ok();
+//!
+//! assert_eq!(
+//!     encode(output),
+//!     "GdztjR9nU/rLh8VJt8e74+/seKTUnHgBexhGSpxLau0="
+//! );
+//! ```
+//!
+//! # Classic API example, incremental interface
+//!
+//! ```
+//! use base64::encode;
+//! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
+//! use dryoc::crypto_generichash::*;
+//!
+//! // Use the default hash length
+//! let mut output = [0u8; CRYPTO_GENERICHASH_BYTES];
+//! // Initialize the state for the incremental interface
+//! let mut state = crypto_generichash_init(None, CRYPTO_GENERICHASH_BYTES).expect("state");
+//! // Update the hash
+//! crypto_generichash_update(&mut state, b"a string of bytes");
+//! // Finalize, compute the hash and copy it into `output`
+//! crypto_generichash_final(state, &mut output).expect("final failed");
+//!
+//! assert_eq!(
+//!     encode(output),
+//!     "GdztjR9nU/rLh8VJt8e74+/seKTUnHgBexhGSpxLau0="
+//! );
+//! ```
 use crate::blake2b;
 use crate::constants::{
-    CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX, CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX,
+    CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN,
+    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX, CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN,
+    CRYPTO_GENERICHASH_KEYBYTES,
 };
 use crate::error::Error;
 
-fn crypto_generichash_blake2b(output: &mut [u8], input: &[u8], key: &[u8]) -> Result<(), Error> {
-    if output.is_empty() || output.len() > CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX {
-        return Err(dryoc_error!(format!(
-            "output length is {}, expected non-empty and less than {} bytes",
-            output.len(),
-            CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
-        )));
+#[inline]
+fn crypto_generichash_blake2b_validate_key(key: Option<&[u8]>) -> Result<(), Error> {
+    match key {
+        Some(key) => {
+            if key.len() < CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN
+                || key.len() > CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
+            {
+                return Err(dryoc_error!(format!(
+                    "key length is {}, should be at least {} and less than {} bytes",
+                    key.len(),
+                    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN,
+                    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
+                )));
+            }
+            Ok(())
+        }
+        None => Ok(()),
     }
+}
 
-    if key.len() > CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX {
+#[inline]
+fn crypto_generichash_blake2b_validate_outlen(outlen: usize) -> Result<(), Error> {
+    if outlen < CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN
+        || outlen > CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
+    {
         return Err(dryoc_error!(format!(
-            "key length is {}, expected non-empty and less than {} bytes",
-            key.len(),
-            CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
+            "output length is {}, expected at least {} and less than {} bytes",
+            outlen, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
         )));
     }
+    Ok(())
+}
+
+#[inline]
+fn crypto_generichash_blake2b(
+    output: &mut [u8],
+    input: &[u8],
+    key: Option<&[u8]>,
+) -> Result<(), Error> {
+    crypto_generichash_blake2b_validate_outlen(output.len())?;
+    crypto_generichash_blake2b_validate_key(key)?;
 
     blake2b::hash(output, input, key)
 }
 
-pub fn crypto_generichash(output: &mut [u8], input: &[u8], key: &[u8]) -> Result<(), Error> {
+#[inline]
+fn crypto_generichash_blake2b_init(
+    key: Option<&[u8]>,
+    outlen: usize,
+) -> Result<blake2b::State, Error> {
+    crypto_generichash_blake2b_validate_outlen(outlen)?;
+    crypto_generichash_blake2b_validate_key(key)?;
+
+    match key {
+        Some(key) => blake2b::State::init_key(outlen as u8, key),
+        None => blake2b::State::init(outlen as u8),
+    }
+}
+
+#[inline]
+fn crypto_generichash_blake2b_update(state: &mut blake2b::State, input: &[u8]) {
+    state.update(input)
+}
+
+#[inline]
+fn crypto_generichash_blake2b_final(state: blake2b::State, output: &mut [u8]) -> Result<(), Error> {
+    state.finalize(output)
+}
+
+/**
+Computes a hash from `input` and `key`, copying the result into `output`.
+
+| Parameter | Typical length | Minimum length | Maximum length |
+|-|-|-|-|
+| `output` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [ `CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
+| `key` | [`CRYPTO_GENERICHASH_KEYBYTES`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES) | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
+
+Compatible with libsodium's `crypto_generichash_final`
+*/
+#[inline]
+pub fn crypto_generichash(
+    output: &mut [u8],
+    input: &[u8],
+    key: Option<&[u8]>,
+) -> Result<(), Error> {
     crypto_generichash_blake2b(output, input, key)
+}
+
+/// State struct for the generic hash algorithm, based on BLAKE2B.
+pub struct GenericHashState {
+    state: blake2b::State,
+}
+
+/**
+Initializes the state for the generic hash function using `outlen` for the expected hash output length, and optional `key`, returning it upon success.
+
+| Parameter | Typical length | Minimum length | Maximum length |
+|-|-|-|-|
+| `outlen` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [ `CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
+| `key` | [`CRYPTO_GENERICHASH_KEYBYTES`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES) | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
+
+Equivalent to libsodium's `crypto_generichash_final`
+*/
+#[inline]
+pub fn crypto_generichash_init(
+    key: Option<&[u8]>,
+    outlen: usize,
+) -> Result<GenericHashState, Error> {
+    let state = crypto_generichash_blake2b_init(key, outlen)?;
+    Ok(GenericHashState { state })
+}
+
+/// Updates the internal hash state with `input`.
+///
+/// Equivalent to libsodium's `crypto_generichash_final`
+#[inline]
+pub fn crypto_generichash_update(state: &mut GenericHashState, input: &[u8]) {
+    crypto_generichash_blake2b_update(&mut state.state, input)
+}
+
+/// Finalizes the hash computation, copying the result into `output`. The length
+/// of `output` should match `outlen` from the call to
+/// [`crypto_generichash_init`].
+///
+/// Equivalent to libsodium's `crypto_generichash_final`
+#[inline]
+pub fn crypto_generichash_final(state: GenericHashState, output: &mut [u8]) -> Result<(), Error> {
+    crypto_generichash_blake2b_final(state.state, output)
+}
+
+/// Generates a random hash key using the OS's random number source.
+///
+/// Equivalent to libsodium's `crypto_generichash_keygen`
+pub fn crypto_generichash_keygen() -> [u8; CRYPTO_GENERICHASH_KEYBYTES] {
+    let mut key = [0u8; CRYPTO_GENERICHASH_KEYBYTES];
+    crate::rng::copy_randombytes(&mut key);
+    key
 }
 
 #[cfg(test)]
@@ -35,31 +197,83 @@ mod tests {
     #[test]
     fn test_generichash() {
         use libsodium_sys::crypto_generichash as so_crypto_generichash;
+        use rand_core::{OsRng, RngCore};
 
+        use crate::constants::{CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN};
         use crate::rng::copy_randombytes;
 
-        let mut output = [0u8; 32];
-        let mut input = [0u8; 1791];
-        let mut key = [0u8; 16];
+        for _ in 0..20 {
+            let outlen = CRYPTO_GENERICHASH_BYTES_MIN
+                + (OsRng.next_u32() as usize
+                    % (CRYPTO_GENERICHASH_BYTES_MAX - CRYPTO_GENERICHASH_BYTES_MIN));
+            let mut output = vec![0u8; outlen];
 
-        copy_randombytes(&mut input);
-        copy_randombytes(&mut key);
+            let mut input = vec![0u8; (OsRng.next_u32() % 5000) as usize];
 
-        let mut so_output = output.clone();
+            copy_randombytes(&mut input);
 
-        crypto_generichash(&mut output, &input, &key).ok();
+            let mut so_output = output.clone();
 
-        unsafe {
-            so_crypto_generichash(
-                &mut so_output as *mut u8,
-                so_output.len(),
-                &input as *const u8,
-                input.len() as u64,
-                &key as *const u8,
-                key.len(),
-            );
+            crypto_generichash(&mut output, &input, None).ok();
+
+            unsafe {
+                so_crypto_generichash(
+                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.len(),
+                    input.as_ptr() as *const u8,
+                    input.len() as u64,
+                    std::ptr::null(),
+                    0,
+                );
+            }
+
+            assert_eq!(output, so_output);
         }
+    }
 
-        assert_eq!(output, so_output);
+    #[test]
+    fn test_generichash_key() {
+        use libsodium_sys::crypto_generichash as so_crypto_generichash;
+        use rand_core::{OsRng, RngCore};
+
+        use crate::constants::{
+            CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
+            CRYPTO_GENERICHASH_KEYBYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MIN,
+        };
+        use crate::rng::copy_randombytes;
+
+        for _ in 0..20 {
+            let outlen = CRYPTO_GENERICHASH_BYTES_MIN
+                + (OsRng.next_u32() as usize
+                    % (CRYPTO_GENERICHASH_BYTES_MAX - CRYPTO_GENERICHASH_BYTES_MIN));
+            let mut output = vec![0u8; outlen];
+
+            let mut input = vec![0u8; (OsRng.next_u32() % 5000) as usize];
+
+            let keylen = CRYPTO_GENERICHASH_KEYBYTES_MIN
+                + (OsRng.next_u32() as usize
+                    % (CRYPTO_GENERICHASH_KEYBYTES_MAX - CRYPTO_GENERICHASH_KEYBYTES_MIN));
+            let mut key = vec![0u8; keylen];
+
+            copy_randombytes(&mut input);
+            copy_randombytes(&mut key);
+
+            let mut so_output = output.clone();
+
+            crypto_generichash(&mut output, &input, Some(&key)).ok();
+
+            unsafe {
+                so_crypto_generichash(
+                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.len(),
+                    input.as_ptr() as *const u8,
+                    input.len() as u64,
+                    key.as_ptr() as *const u8,
+                    key.len(),
+                );
+            }
+
+            assert_eq!(output, so_output);
+        }
     }
 }

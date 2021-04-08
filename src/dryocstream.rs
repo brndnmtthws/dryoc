@@ -104,10 +104,10 @@ pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYT
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`DryocBox`]
+    //! #  Protected memory type aliases for [`DryocStream`]
     //!
     //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`DryocBox`]. These type aliases are provided for convenience.
+    //! with [`DryocStream`]. These type aliases are provided for convenience.
     //!
     //! ## Example
     //! ```
