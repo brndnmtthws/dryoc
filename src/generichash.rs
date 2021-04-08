@@ -9,8 +9,8 @@
 //! use base64::encode;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
-//! // Type for `key` param must be specified, the complire cannot infer it when
-//! // we pass `None` here.
+//! // NOTE: The type for `key` param must be specified, the compiler cannot infer it when
+//! // we pass `None` below.
 //! let hash =
 //!     GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 //!
@@ -26,7 +26,7 @@
 //! use base64::encode;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
-//! // The compiler cannot infer the `Key` type, so we pass it here
+//! // The compiler cannot infer the `Key` type, so we pass it below.
 //! let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new failed");
 //! hasher.update(b"hello");
 //! let hash = hasher.finalize_to_vec().expect("finalize failed");
