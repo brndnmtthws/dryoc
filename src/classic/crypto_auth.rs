@@ -51,7 +51,7 @@ use crate::error::Error;
 use crate::sha512::Sha512;
 use crate::types::*;
 
-struct HMACSha512State {
+struct HmacSha512State {
     octx: Sha512,
     ictx: Sha512,
 }
@@ -77,7 +77,7 @@ fn crypto_auth_hmacsha512256_verify(mac: &Mac, input: &[u8], key: &Key) -> Resul
     }
 }
 
-fn crypto_auth_hmacsha512256_init(key: &[u8]) -> HMACSha512State {
+fn crypto_auth_hmacsha512256_init(key: &[u8]) -> HmacSha512State {
     let mut pad = [0x36u8; 128];
     let mut khash = [0u8; 64];
     let keylen = key.len();
@@ -102,14 +102,14 @@ fn crypto_auth_hmacsha512256_init(key: &[u8]) -> HMACSha512State {
     }
     octx.update(&pad);
 
-    HMACSha512State { ictx, octx }
+    HmacSha512State { ictx, octx }
 }
 
-fn crypto_auth_hmacsha512256_update(state: &mut HMACSha512State, input: &[u8]) {
+fn crypto_auth_hmacsha512256_update(state: &mut HmacSha512State, input: &[u8]) {
     state.ictx.update(input)
 }
 fn crypto_auth_hmacsha512256_final(
-    mut state: HMACSha512State,
+    mut state: HmacSha512State,
     output: &mut [u8; CRYPTO_AUTH_HMACSHA512256_BYTES],
 ) {
     let mut ihash = [0u8; 64];
@@ -137,7 +137,7 @@ pub fn crypto_auth_verify(mac: &Mac, input: &[u8], key: &Key) -> Result<(), Erro
 
 /// Internal state for [`crypto_auth`].
 pub struct AuthState {
-    state: HMACSha512State,
+    state: HmacSha512State,
 }
 
 /// Generates a random key using
