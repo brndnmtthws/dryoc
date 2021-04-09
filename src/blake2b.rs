@@ -204,12 +204,12 @@ impl State {
         }
 
         let salt = match salt {
-            Some(salt) => salt.clone(),
+            Some(salt) => *salt,
             None => [0u8; SALTBYTES],
         };
 
         let personal = match personal {
-            Some(personal) => personal.clone(),
+            Some(personal) => *personal,
             None => [0u8; PERSONALBYTES],
         };
 
@@ -223,14 +223,11 @@ impl State {
 
         let mut state = Self::init_param(&params);
 
-        match key {
-            Some(key) => {
-                let mut block = [0u8; BLOCKBYTES];
-                block[..key.len()].copy_from_slice(key);
-                state.update(&block);
-                block.zeroize();
-            }
-            None => (),
+        if let Some(key) = key {
+            let mut block = [0u8; BLOCKBYTES];
+            block[..key.len()].copy_from_slice(key);
+            state.update(&block);
+            block.zeroize();
         }
 
         Ok(state)
