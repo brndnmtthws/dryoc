@@ -16,10 +16,11 @@
 //! * protected memory support, with an API designed such that it's hard to
 //!   accidentally unprotect your memory
 //! * designed to be especially difficult to use incorrectly[^3]
-//! * provides full compatibility with libsodium, and implements most of its
+//! * provides compatibility with libsodium, and implements most of its core
 //!   functions
-//! * covers common use cases for safe encryption
-//! * available under the [LGPL-3.0 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
+//! * covers common use cases for safe encryption, hashing, and message
+//!   authentication
+//! * available under the [LGPL3 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 //!
 //! # APIs
 //!
