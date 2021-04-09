@@ -232,8 +232,9 @@ impl State {
             if input.len() + self.buf.len() < BLOCKBYTES {
                 // the combined length of input and buff is less than BLOCKBYTES, we just
                 // fill the buff, and then we're done
-                self.buf.resize(self.buf.len() + input.len(), 0);
-                self.buf.copy_from_slice(input);
+                let buflen = self.buf.len();
+                self.buf.resize(buflen + input.len(), 0);
+                self.buf[buflen..].copy_from_slice(input);
                 return; // return early
             } else {
                 // fill the buf with the first N bytes of input until there are BLOCKBYTES bytes

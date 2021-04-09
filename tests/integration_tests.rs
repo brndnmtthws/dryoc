@@ -316,8 +316,8 @@ fn test_dryocbox_serde_known_good() {
 
     assert_eq!(
         json,
-        "{\"tag\":[105,111,140,72,164,126,195,203,17,25,161,50,61,65,22,82],\"data\":[183,35,105,\
-         8,103,239,207,9,37,137]}"
+        "{\"ephemeral_pk\":null,\"tag\":[105,111,140,72,164,126,195,203,17,25,161,50,61,65,22,82],\
+         \"data\":[183,35,105,8,103,239,207,9,37,137]}"
     );
 
     let dryocbox: VecBox = serde_json::from_str(&json).unwrap();
@@ -431,4 +431,21 @@ fn test_streams_protected() {
     assert_eq!(tag1, Tag::MESSAGE);
     assert_eq!(tag2, Tag::MESSAGE);
     assert_eq!(tag3, Tag::FINAL);
+}
+
+#[test]
+fn test_dryocbox_seal() {
+    use dryoc::dryocbox::*;
+
+    let recipient_keypair = KeyPair::gen();
+    let message = b"juicybox";
+
+    let dryocbox = DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key.clone())
+        .expect("unable to seal");
+
+    let decrypted = dryocbox
+        .unseal_to_vec(&recipient_keypair.public_key, &recipient_keypair.secret_key)
+        .expect("unable to unseal");
+
+    assert_eq!(message, decrypted.as_slice());
 }

@@ -22,7 +22,7 @@
 //!   authentication
 //! * available under the [LGPL3 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 //!
-//! # APIs
+//! ## APIs
 //!
 //! This library includes both a _Classic_ API, which is very similar to the
 //! original libsodium API, and _Rustaceous_ API with Rust-specific features.
@@ -38,14 +38,14 @@
 //!
 //! | Feature | Rustaceous API | Classic API | Libsodium Docs |
 //! |-|-|-|-|
-//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
 //! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
+//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
 //! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
 //! | Generic hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //!
-//! # Using Serde
+//! ## Using Serde
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
 //! enabled with the `serde` feature flag. When enabled, the
@@ -53,7 +53,7 @@
 //! [`Deserialize`](serde::de::Deserialize) traits are provided for data
 //! structures.
 //!
-//! # Security notes
+//! ## Security notes
 //!
 //! This crate has not been audited by any 3rd parties.
 //!

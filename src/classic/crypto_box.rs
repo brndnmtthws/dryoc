@@ -42,6 +42,9 @@
 
 use zeroize::Zeroize;
 
+use super::crypto_generichash::{
+    crypto_generichash_final, crypto_generichash_init, crypto_generichash_update,
+};
 use crate::classic::crypto_box_impl::*;
 use crate::classic::crypto_secretbox::*;
 use crate::classic::crypto_secretbox_impl::*;
@@ -140,8 +143,10 @@ pub fn crypto_box_detached_inplace(
     Ok(())
 }
 
-/// Encrypts `message` with recipient's public key `recipient_public_key` and
-/// sender's secret key `sender_secret_key` and `nonce`.
+/// Encrypts `message` with recipient's public key `recipient_public_key`,
+/// sender's secret key `sender_secret_key`, and `nonce`. The result is placed
+/// into `ciphertext` which must be the length of the message plus
+/// [`CRYPTO_BOX_MACBYTES`] bytes, for the message tag.
 ///
 /// Compatible with libsodium's `crypto_box_easy`.
 pub fn crypto_box_easy(
@@ -174,6 +179,53 @@ pub fn crypto_box_easy(
             recipient_public_key,
             sender_secret_key,
         );
+
+        Ok(())
+    }
+}
+
+pub(crate) fn crypto_box_seal_nonce(nonce: &mut Nonce, epk: &PublicKey, rpk: &SecretKey) {
+    let mut state = crypto_generichash_init(None, CRYPTO_BOX_NONCEBYTES).expect("state");
+    crypto_generichash_update(&mut state, epk);
+    crypto_generichash_update(&mut state, rpk);
+    crypto_generichash_final(state, nonce).expect("hash error");
+}
+
+/// Encrypts `message` with recipient's public key `recipient_public_key`, using
+/// an ephemeral keypair and nonce. The length of `ciphertext` must be the
+/// length of the message plus [`CRYPTO_BOX_SEALBYTES`] bytes for the message
+/// tag and ephemeral public key.
+///
+/// Compatible with libsodium's `crypto_box_seal`.
+pub fn crypto_box_seal(
+    ciphertext: &mut [u8],
+    message: &[u8],
+    recipient_public_key: &PublicKey,
+) -> Result<(), Error> {
+    if ciphertext.len() < message.len() + CRYPTO_BOX_SEALBYTES {
+        Err(dryoc_error!(format!(
+            "ciphertext length invalid ({} != {}",
+            ciphertext.len(),
+            message.len() + CRYPTO_BOX_SEALBYTES,
+        )))
+    } else {
+        let mut nonce = Nonce::new_byte_array();
+        let (mut epk, mut esk) = crypto_box_keypair();
+        crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
+
+        crypto_box_easy(
+            &mut ciphertext[CRYPTO_BOX_PUBLICKEYBYTES..],
+            message,
+            &nonce,
+            recipient_public_key,
+            &esk,
+        )?;
+
+        ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES].copy_from_slice(&epk);
+
+        epk.zeroize();
+        esk.zeroize();
+        nonce.zeroize();
 
         Ok(())
     }
@@ -307,6 +359,48 @@ pub fn crypto_box_open_easy(
             &ciphertext,
             nonce,
             sender_public_key,
+            recipient_secret_key,
+        )
+    }
+}
+
+/// Decrypts a sealed box from `ciphertext` with recipient's secret key
+/// `recipient_secret_key`, placing the result into `message`. The nonce and
+/// public are derived from `ciphertext`. `message` length should be equal to
+/// the length of `ciphertext` minus [`CRYPTO_BOX_SEALBYTES`] bytes for the
+/// message tag and ephemeral public key.
+///
+/// Compatible with libsodium's `crypto_box_seal_open`.
+pub fn crypto_box_seal_open(
+    message: &mut [u8],
+    ciphertext: &[u8],
+    recipient_public_key: &PublicKey,
+    recipient_secret_key: &SecretKey,
+) -> Result<(), Error> {
+    if ciphertext.len() < CRYPTO_BOX_SEALBYTES {
+        Err(dryoc_error!(format!(
+            "Impossibly small box ({} < {}",
+            ciphertext.len(),
+            CRYPTO_BOX_SEALBYTES,
+        )))
+    } else if message.len() != ciphertext.len() - CRYPTO_BOX_SEALBYTES {
+        Err(dryoc_error!(format!(
+            "message length invalid ({} != {}",
+            message.len(),
+            ciphertext.len() - CRYPTO_BOX_SEALBYTES,
+        )))
+    } else {
+        let mut nonce = Nonce::new_byte_array();
+        let mut epk = PublicKey::new_byte_array();
+        epk.copy_from_slice(&ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES]);
+
+        crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
+
+        crypto_box_open_easy(
+            message,
+            &ciphertext[CRYPTO_BOX_PUBLICKEYBYTES..],
+            &nonce,
+            &epk,
             recipient_secret_key,
         )
     }
@@ -505,6 +599,68 @@ mod tests {
 
             assert_eq!(encode(&pk), encode(so_pk.as_ref()));
             assert_eq!(encode(&sk), encode(so_sk.as_ref()));
+        }
+    }
+
+    #[test]
+    fn test_crypto_box_seal() {
+        for i in 0..20 {
+            use sodiumoxide::crypto::box_::{PublicKey, SecretKey};
+            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+            let (recipient_pk, recipient_sk) = crypto_box_keypair();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+            let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_SEALBYTES];
+            crypto_box_seal(&mut ciphertext, message.as_bytes(), &recipient_pk)
+                .expect("encrypt failed");
+
+            let mut m = vec![0u8; ciphertext.len() - CRYPTO_BOX_SEALBYTES];
+            crypto_box_seal_open(&mut m, ciphertext.as_slice(), &recipient_pk, &recipient_sk)
+                .expect("decrypt failed");
+            let so_m = curve25519blake2bxsalsa20poly1305::open(
+                ciphertext.as_slice(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+                &SecretKey::from_slice(&recipient_sk).unwrap(),
+            )
+            .unwrap();
+
+            assert_eq!(m, message.as_bytes());
+            assert_eq!(m, so_m);
+        }
+    }
+
+    #[test]
+    fn test_crypto_box_seal_open() {
+        for i in 0..20 {
+            use sodiumoxide::crypto::box_::{PublicKey, SecretKey};
+            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+            let (recipient_pk, recipient_sk) = crypto_box_keypair();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+            let so_ciphertext = curve25519blake2bxsalsa20poly1305::seal(
+                message.as_bytes(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+            );
+
+            let mut m = vec![0u8; so_ciphertext.len() - CRYPTO_BOX_SEALBYTES];
+            crypto_box_seal_open(
+                &mut m,
+                so_ciphertext.as_slice(),
+                &recipient_pk,
+                &recipient_sk,
+            )
+            .expect("decrypt failed");
+            let so_m = curve25519blake2bxsalsa20poly1305::open(
+                so_ciphertext.as_slice(),
+                &PublicKey::from_slice(&recipient_pk).unwrap(),
+                &SecretKey::from_slice(&recipient_sk).unwrap(),
+            )
+            .unwrap();
+
+            assert_eq!(m, message.as_bytes());
+            assert_eq!(m, so_m);
         }
     }
 }

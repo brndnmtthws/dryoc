@@ -67,7 +67,7 @@ implementation:
 * [x] [Generic hashing](https://doc.libsodium.org/hashing/generic_hashing) (`crypto_generichash_*`)
 * [x] [Secret-key authentication](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 * [x] [One-time authentication](https://doc.libsodium.org/advanced/poly1305) (`crypto_onetimeauth_*`)
-* [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
+* [x] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
 * [ ] [Key exchange](https://doc.libsodium.org/key_exchange) (`crypto_kx_*`)
 * [ ] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing)
@@ -89,7 +89,7 @@ crates:
 
 [![Stargazers over time](https://starchart.cc/brndnmtthws/dryoc.svg)](https://starchart.cc/brndnmtthws/dryoc)
 
-## Other Rust implementations worth mentioning
+## Other NaCl-related Rust implementations worth mentioning
 
 * [sodiumoxide](https://crates.io/crates/sodiumoxide)
 * [crypto_box](https://crates.io/crates/crypto_box)

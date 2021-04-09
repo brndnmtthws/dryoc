@@ -11,7 +11,7 @@
 //!   secret
 //! * avoid secret sharing between parties
 //!
-//! # Rustaceous API example
+//! ## Rustaceous API example
 //!
 //! ```
 //! use dryoc::dryocbox::*;
@@ -53,6 +53,24 @@
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
 //!
+//! ## Sealed box example
+//!
+//! ```
+//! use dryoc::dryocbox::*;
+//!
+//! let recipient_keypair = KeyPair::gen();
+//! let message = b"Now is the winter of our discontent.";
+//!
+//! let dryocbox = DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key.clone())
+//!     .expect("unable to seal");
+//!
+//! let decrypted = dryocbox
+//!     .unseal_to_vec(&recipient_keypair.public_key, &recipient_keypair.secret_key)
+//!     .expect("unable to unseal");
+//!
+//! assert_eq!(message, decrypted.as_slice());
+//! ```
+//!
 //! ## Additional resources
 //!
 //! * See <https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption>
@@ -68,7 +86,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::constants::{
-    CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES, CRYPTO_BOX_PUBLICKEYBYTES,
+    CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES,
     CRYPTO_BOX_SECRETKEYBYTES,
 };
 use crate::error::*;
@@ -155,7 +173,7 @@ pub mod protected {
     /// authenticated public-key boxes, for use with protected memory
     pub type LockedKeyPair = crate::keypair::KeyPair<Locked<PublicKey>, Locked<SecretKey>>;
     /// Locked [DryocBox], provided as a type alias for convenience.
-    pub type LockedBox = DryocBox<Locked<Mac>, LockedBytes>;
+    pub type LockedBox = DryocBox<Locked<PublicKey>, Locked<Mac>, LockedBytes>;
 }
 
 #[cfg_attr(
@@ -163,26 +181,33 @@ pub mod protected {
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
-/// A libsodium public-key authenticated encrypted box
+/// A libsodium public-key authenticated encrypted box.
 ///
 /// Refer to [crate::dryocbox] for sample usage.
-pub struct DryocBox<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> {
-    /// libsodium box authentication tag, usually prepended to each box
+pub struct DryocBox<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: Bytes,
+> {
+    ephemeral_pk: Option<PublicKey>,
     tag: Mac,
-    /// libsodium box message or ciphertext, depending on state
     data: Data,
 }
 
 /// [Vec]-based authenticated public-key box.
-pub type VecBox = DryocBox<Mac, Vec<u8>>;
+pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
 
-impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> DryocBox<Mac, Data> {
+impl<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: NewByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: NewBytes + ResizableBytes,
+> DryocBox<PublicKey, Mac, Data>
+{
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new [DryocBox] with ciphertext and tag
+    /// and returns a new [DryocBox] with ciphertext and tag.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
         message: &Message,
@@ -193,6 +218,7 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> Dr
         use crate::classic::crypto_box::crypto_box_detached;
 
         let mut dryocbox = Self {
+            ephemeral_pk: None,
             tag: Mac::new_byte_array(),
             data: Data::new_bytes(),
         };
@@ -213,10 +239,59 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> Dr
 }
 
 impl<
+    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: NewByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: NewBytes + ResizableBytes,
+> DryocBox<PublicKey, Mac, Data>
+{
+    /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
+    /// key and nonce. Returns a new [DryocBox] with ciphertext, tag, and
+    /// ephemeral public key.
+    pub fn seal<
+        Message: Bytes + ?Sized,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    >(
+        message: &Message,
+        recipient_public_key: &RecipientPublicKey,
+    ) -> Result<Self, Error> {
+        use crate::classic::crypto_box::{
+            crypto_box_detached, crypto_box_keypair, crypto_box_seal_nonce,
+        };
+
+        let mut nonce = Nonce::new_byte_array();
+        let (epk, esk) = crypto_box_keypair();
+        crypto_box_seal_nonce(nonce.as_mut_array(), &epk, recipient_public_key.as_array());
+
+        let mut pk = PublicKey::new_byte_array();
+        pk.copy_from_slice(&epk);
+
+        let mut dryocbox = Self {
+            ephemeral_pk: Some(pk),
+            tag: Mac::new_byte_array(),
+            data: Data::new_bytes(),
+        };
+
+        dryocbox.data.resize(message.as_slice().len(), 0);
+
+        crypto_box_detached(
+            dryocbox.data.as_mut_slice(),
+            dryocbox.tag.as_mut_array(),
+            message.as_slice(),
+            nonce.as_array(),
+            recipient_public_key.as_array(),
+            &esk,
+        );
+
+        Ok(dryocbox)
+    }
+}
+
+impl<
     'a,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
     Mac: ByteArray<CRYPTO_BOX_MACBYTES> + std::convert::TryFrom<&'a [u8]>,
     Data: Bytes + From<&'a [u8]>,
-> DryocBox<Mac, Data>
+> DryocBox<PublicKey, Mac, Data>
 {
     /// Initializes a [`DryocBox`] from a slice. Expects the first
     /// [`CRYPTO_BOX_MACBYTES`] bytes to contain the message authentication tag,
@@ -231,6 +306,32 @@ impl<
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
             Ok(Self {
+                ephemeral_pk: None,
+                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                data: Data::from(data),
+            })
+        }
+    }
+
+    /// Initializes a sealed [`DryocBox`] from a slice. Expects the first
+    /// [`CRYPTO_BOX_PUBLICKEYBYTES`] bytes to contain the ephemeral public key,
+    /// the next [`CRYPTO_BOX_MACBYTES`] bytes to be the message authentication
+    /// tag, with the remaining bytes containing the encrypted message.
+    pub fn from_sealed_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
+        if bytes.len() < CRYPTO_BOX_SEALBYTES {
+            Err(dryoc_error!(format!(
+                "bytes of len {} less than expected minimum of {}",
+                bytes.len(),
+                CRYPTO_BOX_SEALBYTES
+            )))
+        } else {
+            let (seal, data) = bytes.split_at(CRYPTO_BOX_SEALBYTES);
+            let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
+            Ok(Self {
+                ephemeral_pk: Some(
+                    PublicKey::try_from(epk)
+                        .map_err(|_e| dryoc_error!("invalid ephemeral public key"))?,
+                ),
                 tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
                 data: Data::from(data),
             })
@@ -238,10 +339,19 @@ impl<
     }
 }
 
-impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
+impl<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: Bytes,
+> DryocBox<PublicKey, Mac, Data>
+{
     /// Returns a new box with `tag` and `data`, consuming both
     pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
-        Self { tag, data }
+        Self {
+            ephemeral_pk: None,
+            tag,
+            data,
+        }
     }
 
     /// Copies `self` into a new [`Vec`]
@@ -250,12 +360,16 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
     }
 }
 
-impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
-    /// Decrypts `ciphertext` using `recipient_secret_key` and
-    /// `sender_public_key`, returning a new [DryocBox] with decrypted message
+impl<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: Bytes,
+> DryocBox<PublicKey, Mac, Data>
+{
+    /// Decrypts this box using `nonce`, `recipient_secret_key`, and
+    /// `sender_public_key`, returning the decrypted message upon success.
     pub fn decrypt<
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
         Output: ResizableBytes + NewBytes,
     >(
@@ -281,23 +395,75 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
         Ok(message)
     }
 
+    /// Decrypts this sealed box using `recipient_secret_key`, and
+    /// returning the decrypted message upon success.
+    pub fn unseal<
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        Output: ResizableBytes + NewBytes,
+    >(
+        &self,
+        recipient_public_key: &PublicKey,
+        recipient_secret_key: &SecretKey,
+    ) -> Result<Output, Error> {
+        use crate::classic::crypto_box::*;
+
+        match &self.ephemeral_pk {
+            Some(epk) => {
+                let mut nonce = Nonce::new_byte_array();
+                crypto_box_seal_nonce(
+                    nonce.as_mut_array(),
+                    epk.as_array(),
+                    recipient_public_key.as_array(),
+                );
+
+                let mut message = Output::new_bytes();
+                message.resize(self.data.as_slice().len(), 0);
+
+                crypto_box_open_detached(
+                    message.as_mut_slice(),
+                    self.tag.as_array(),
+                    self.data.as_slice(),
+                    nonce.as_array(),
+                    epk.as_array(),
+                    recipient_secret_key.as_array(),
+                )?;
+
+                Ok(message)
+            }
+            None => Err(dryoc_error!(
+                "ephemeral public key is missing, cannot unseal"
+            )),
+        }
+    }
+
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         let mut data = Bytes::new_bytes();
-        data.resize(self.tag.len() + self.data.len(), 0);
-        let s = data.as_mut_slice();
-        s[..CRYPTO_BOX_MACBYTES].copy_from_slice(self.tag.as_slice());
-        s[CRYPTO_BOX_MACBYTES..].copy_from_slice(self.data.as_slice());
+        match &self.ephemeral_pk {
+            Some(epk) => {
+                data.resize(epk.len() + self.tag.len() + self.data.len(), 0);
+                let s = data.as_mut_slice();
+                s[..CRYPTO_BOX_PUBLICKEYBYTES].copy_from_slice(epk.as_slice());
+                s[CRYPTO_BOX_PUBLICKEYBYTES..CRYPTO_BOX_SEALBYTES]
+                    .copy_from_slice(self.tag.as_slice());
+                s[CRYPTO_BOX_SEALBYTES..].copy_from_slice(self.data.as_slice());
+            }
+            None => {
+                data.resize(self.tag.len() + self.data.len(), 0);
+                let s = data.as_mut_slice();
+                s[..CRYPTO_BOX_MACBYTES].copy_from_slice(self.tag.as_slice());
+                s[CRYPTO_BOX_MACBYTES..].copy_from_slice(self.data.as_slice());
+            }
+        }
         data
     }
 }
 
-impl DryocBox<Mac, Vec<u8>> {
+impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
         message: &Message,
@@ -308,12 +474,19 @@ impl DryocBox<Mac, Vec<u8>> {
         Self::encrypt(message, nonce, recipient_public_key, sender_secret_key)
     }
 
-    /// Decrypts `ciphertext` using `recipient_secret_key` and
-    /// `sender_public_key`, returning a new [DryocBox] with decrypted message
-    pub fn decrypt_to_vec<
-        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-    >(
+    /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
+    /// key and nonce, and returns a new [DryocBox] with the ciphertext,
+    /// ephemeral public key, and tag.
+    pub fn seal_to_vecbox<Message: Bytes + ?Sized>(
+        message: &Message,
+        recipient_public_key: &PublicKey,
+    ) -> Result<Self, Error> {
+        Self::seal(message, recipient_public_key)
+    }
+
+    /// Decrypts this box using `nonce`, `recipient_secret_key` and
+    /// `sender_public_key`, returning the decrypted message upon success.
+    pub fn decrypt_to_vec<SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>>(
         &self,
         nonce: &Nonce,
         sender_public_key: &PublicKey,
@@ -321,15 +494,41 @@ impl DryocBox<Mac, Vec<u8>> {
     ) -> Result<Vec<u8>, Error> {
         self.decrypt(nonce, sender_public_key, recipient_secret_key)
     }
+
+    /// Decrypts this sealed box using `recipient_secret_key`, returning the
+    /// decrypted message upon success.
+    pub fn unseal_to_vec<SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>>(
+        &self,
+        recipient_public_key: &PublicKey,
+        recipient_secret_key: &SecretKey,
+    ) -> Result<Vec<u8>, Error> {
+        self.unseal(recipient_public_key, recipient_secret_key)
+    }
 }
 
-impl<'a, Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes + ResizableBytes + From<&'a [u8]>>
-    DryocBox<Mac, Data>
+impl<
+    'a,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: Bytes + ResizableBytes + From<&'a [u8]>,
+> DryocBox<PublicKey, Mac, Data>
 {
     /// Returns a new box with `data` and `tag`, with data copied from `input`
-    /// and `tag` consumed.
-    pub fn with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
+    /// and `tag` consumed. The ephemeral public key is assumed not to be
+    /// present.
+    pub fn new_with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
         Self {
+            ephemeral_pk: None,
+            tag,
+            data: input.into(),
+        }
+    }
+
+    /// Returns a new sealed box with `ephemeral_pk`, `data` and `tag`, where
+    /// data copied from `input` and `ephemeral_pk` & `tag` are consumed.
+    pub fn new_with_epk_data_and_mac(ephemeral_pk: PublicKey, tag: Mac, input: &'a [u8]) -> Self {
+        Self {
+            ephemeral_pk: Some(ephemeral_pk),
             tag,
             data: input.into(),
         }
@@ -358,8 +557,8 @@ mod tests {
             let dryocbox = DryocBox::encrypt_to_vecbox(
                 message.as_bytes(),
                 &nonce,
-                keypair_recipient.public_key.as_array(),
-                keypair_sender.secret_key.as_array(),
+                &keypair_recipient.public_key,
+                &keypair_sender.secret_key,
             )
             .unwrap();
 
@@ -437,7 +636,7 @@ mod tests {
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
 
-            DryocBox::decrypt::<Nonce, PublicKey, SecretKey, Vec<u8>>(
+            DryocBox::decrypt::<Nonce, SecretKey, Vec<u8>>(
                 &dryocbox,
                 &nonce,
                 &invalid_key_copy_1.public_key,
@@ -466,12 +665,7 @@ mod tests {
 
             let dryocbox: VecBox =
                 DryocBox::from_bytes(b"trollolllololololollollolololololol").expect("ok");
-            DryocBox::decrypt::<
-                Nonce,
-                crate::classic::crypto_box::PublicKey,
-                crate::classic::crypto_box::SecretKey,
-                Vec<u8>,
-            >(
+            DryocBox::decrypt::<Nonce, crate::classic::crypto_box::SecretKey, Vec<u8>>(
                 &dryocbox,
                 &nonce,
                 &invalid_key_copy_1.public_key,
@@ -499,9 +693,66 @@ mod tests {
             let data1 = data1_copy.clone();
             let (tag, data) = data1.split_at(CRYPTO_BOX_MACBYTES);
             let dryocbox: VecBox =
-                DryocBox::with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
+                DryocBox::new_with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
             assert_eq!(dryocbox.data.as_slice(), &data1_copy[CRYPTO_BOX_MACBYTES..]);
             assert_eq!(dryocbox.tag.as_array(), &data1_copy[..CRYPTO_BOX_MACBYTES]);
+        }
+    }
+
+    #[test]
+    fn test_dryocbox_seal_vecbox() {
+        for i in 0..20 {
+            use sodiumoxide::crypto::box_::{PublicKey as SOPublicKey, SecretKey as SOSecretKey};
+            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+            let keypair_recipient = KeyPair::gen();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+            let message_copy = message.clone();
+            let dryocbox =
+                DryocBox::seal_to_vecbox(message.as_bytes(), &keypair_recipient.public_key)
+                    .unwrap();
+
+            let ciphertext = dryocbox.to_vec();
+
+            let m = dryocbox
+                .unseal_to_vec(&keypair_recipient.public_key, &keypair_recipient.secret_key)
+                .expect("hmm");
+            let so_m = curve25519blake2bxsalsa20poly1305::open(
+                &ciphertext.as_slice(),
+                &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                &SOSecretKey::from_slice(keypair_recipient.secret_key.as_slice()).unwrap(),
+            )
+            .unwrap();
+
+            assert_eq!(m, message_copy.as_bytes());
+            assert_eq!(m, so_m);
+        }
+    }
+
+    #[test]
+    fn test_dryocbox_unseal_vecbox() {
+        for i in 0..20 {
+            use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
+            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+            let keypair_recipient = KeyPair::gen();
+            let words = vec!["hello1".to_string(); i];
+            let message = words.join(" :D ");
+
+            let ciphertext = curve25519blake2bxsalsa20poly1305::seal(
+                message.as_bytes(),
+                &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+            );
+
+            let dryocbox =
+                DryocBox::from_sealed_bytes(&ciphertext).expect("from sealed bytes failed");
+
+            let m = dryocbox
+                .unseal_to_vec(&keypair_recipient.public_key, &keypair_recipient.secret_key)
+                .expect("hmm");
+
+            assert_eq!(m, message.as_bytes());
         }
     }
 }
