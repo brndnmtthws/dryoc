@@ -8,8 +8,8 @@
 //!
 //! ```
 //! use base64::encode;
+//! use dryoc::classic::crypto_generichash::*;
 //! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
-//! use dryoc::crypto_generichash::*;
 //!
 //! // Use the default hash length
 //! let mut output = [0u8; CRYPTO_GENERICHASH_BYTES];
@@ -26,8 +26,8 @@
 //!
 //! ```
 //! use base64::encode;
+//! use dryoc::classic::crypto_generichash::*;
 //! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
-//! use dryoc::crypto_generichash::*;
 //!
 //! // Use the default hash length
 //! let mut output = [0u8; CRYPTO_GENERICHASH_BYTES];

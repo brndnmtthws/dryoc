@@ -4,13 +4,13 @@
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox).
 //!
-//! # Classic API example
+//! ## Classic API example
 //!
 //! ```
-//! use dryoc::constants::{CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES};
-//! use dryoc::crypto_secretbox::{
+//! use dryoc::classic::crypto_secretbox::{
 //!     crypto_secretbox_easy, crypto_secretbox_keygen, crypto_secretbox_open_easy, Key, Nonce,
 //! };
+//! use dryoc::constants::{CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES};
 //! use dryoc::rng::randombytes_buf;
 //! use dryoc::types::*;
 //!
@@ -31,10 +31,10 @@
 //! assert_eq!(decrypted, message.as_bytes());
 //! ```
 
+use crate::classic::crypto_secretbox_impl::*;
 use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
-use crate::crypto_secretbox_impl::*;
 use crate::error::Error;
 use crate::types::*;
 
@@ -47,11 +47,8 @@ pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
 
 /// Generates a random key using
 /// [`copy_randombytes`](crate::rng::copy_randombytes).
-pub fn crypto_secretbox_keygen<K>() -> K
-where
-    K: NewByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
-{
-    K::gen()
+pub fn crypto_secretbox_keygen() -> Key {
+    Key::gen()
 }
 
 /// Detached version of [`crypto_secretbox_easy`].

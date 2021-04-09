@@ -4,10 +4,9 @@ use salsa20::XSalsa20;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
-use crate::crypto_secretbox::{Key, Mac, Nonce};
+use crate::classic::crypto_secretbox::{Key, Mac, Nonce};
 use crate::error::Error;
 use crate::poly1305::Poly1305;
-use crate::types::*;
 
 pub(crate) fn crypto_secretbox_detached_inplace(
     data: &mut [u8],
@@ -30,9 +29,7 @@ pub(crate) fn crypto_secretbox_detached_inplace(
     cipher.apply_keystream(data);
 
     computed_mac.update(data);
-    let computed_mac = computed_mac.finish();
-
-    mac.copy_from_slice(&computed_mac);
+    computed_mac.finalize(mac);
 }
 
 pub(crate) fn crypto_secretbox_open_detached_inplace(
@@ -53,7 +50,7 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
     mac_key.zeroize();
 
     computed_mac.update(data);
-    let computed_mac = computed_mac.finish();
+    let computed_mac = computed_mac.finalize_to_array();
 
     cipher.apply_keystream(data);
 

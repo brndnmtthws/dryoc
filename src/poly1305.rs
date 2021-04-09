@@ -152,7 +152,15 @@ impl Poly1305 {
         self.h[2] = h2;
     }
 
-    pub fn finish(&mut self) -> [u8; 16] {
+    pub fn finalize_to_array(&mut self) -> [u8; BLOCK_SIZE] {
+        let mut mac = [0u8; 16];
+
+        self.finalize(&mut mac);
+
+        mac
+    }
+
+    pub fn finalize(&mut self, output: &mut [u8]) {
         // process any remaining block
         if !self.buffer.is_empty() {
             self.buffer.push(1);
@@ -226,15 +234,11 @@ impl Poly1305 {
         h0 |= h1 << 44;
         h1 = (h1 >> 20) | (h2 << 24);
 
-        let mut mac = [0u8; 16];
-
-        mac[0..8].copy_from_slice(&h0.to_le_bytes());
-        mac[8..16].copy_from_slice(&h1.to_le_bytes());
+        output[0..8].copy_from_slice(&h0.to_le_bytes());
+        output[8..16].copy_from_slice(&h1.to_le_bytes());
 
         // zero out the state
         self.zeroize();
-
-        mac
     }
 }
 
@@ -257,7 +261,7 @@ mod tests {
 
         let mut mac = Poly1305::new(&key);
         mac.update(text);
-        let mac = mac.finish();
+        let mac = mac.finalize_to_array();
 
         use sodiumoxide::crypto::onetimeauth::poly1305::{authenticate, Key as SOKey};
         let so_key = SOKey::from_slice(&key).expect("key");
@@ -280,7 +284,7 @@ mod tests {
 
         let mut mac = Poly1305::new(&key);
         mac.update(&text);
-        let mac = mac.finish();
+        let mac = mac.finalize_to_array();
 
         assert_eq!(mac, [0u8; 16]);
     }
@@ -300,7 +304,7 @@ mod tests {
 
         let mut mac = Poly1305::new(&key);
         mac.update(text);
-        let mac = mac.finish();
+        let mac = mac.finalize_to_array();
 
         assert_eq!(
             mac,
@@ -326,7 +330,7 @@ mod tests {
 
         let mut mac = Poly1305::new(&key);
         mac.update(text);
-        let mac = mac.finish();
+        let mac = mac.finalize_to_array();
 
         assert_eq!(
             mac,
@@ -365,7 +369,7 @@ mod tests {
 
         let mut mac = Poly1305::new(&key);
         mac.update(&text);
-        let mac = mac.finish();
+        let mac = mac.finalize_to_array();
 
         assert_eq!(
             mac,
@@ -394,7 +398,7 @@ mod tests {
 
             let mut mac = Poly1305::new(&key);
             mac.update(&data);
-            let mac = mac.finish();
+            let mac = mac.finalize_to_array();
 
             let so_mac = authenticate(&data, &so_key);
 

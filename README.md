@@ -64,12 +64,12 @@ implementation:
 * [x] [Memory locking](https://doc.libsodium.org/memory_management) (`sodium_mlock`, `sodium_munlock`, `sodium_mprotect_*`)
 * [x] [Encrypting related messages](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages) (`sodium_increment`)
 * [x] [Generic hashing](https://doc.libsodium.org/hashing/generic_hashing) (`crypto_generichash_*`)
+* [x] [One-time authentication](https://doc.libsodium.org/advanced/poly1305) (`crypto_onetimeauth_*`)
 * [ ] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [ ] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
 * [ ] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing)
 * [ ] [Password hashing](https://doc.libsodium.org/password_hashing/default_phf)
 * [ ] [Key exchange](https://doc.libsodium.org/key_exchange) (`crypto_kx_*`)
-* [ ] [One-time authentication](https://doc.libsodium.org/advanced/poly1305)
 * [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [ ] [Authentication](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 

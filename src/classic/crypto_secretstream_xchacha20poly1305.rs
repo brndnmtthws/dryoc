@@ -8,12 +8,12 @@
 //! # Classic API example
 //!
 //! ```
+//! use dryoc::classic::crypto_secretstream_xchacha20poly1305::*;
 //! use dryoc::constants::{
 //!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
 //!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
 //!     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
 //! };
-//! use dryoc::crypto_secretstream_xchacha20poly1305::*;
 //! let message1 = b"Arbitrary data to encrypt";
 //! let message2 = b"split into";
 //! let message3 = b"three messages";
@@ -89,6 +89,7 @@
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+use crate::classic::crypto_core::{crypto_core_hchacha20, HChaCha20Key};
 use crate::constants::{
     CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES,
@@ -99,7 +100,6 @@ use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES,
     CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
-use crate::crypto_core::{crypto_core_hchacha20, HChaCha20Key};
 use crate::error::*;
 use crate::rng::copy_randombytes;
 use crate::types::*;
@@ -318,12 +318,10 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     mac.update(&_pad0[0..buffer_mac_pad]);
     mac.update(&size_data);
 
-    let mac = mac.finish();
-
-    ciphertext[1 + mlen..].copy_from_slice(&mac);
+    mac.finalize(&mut ciphertext[1 + mlen..]);
 
     let inonce = state_inonce(&mut state.nonce);
-    xor_buf(inonce, &mac);
+    xor_buf(inonce, &ciphertext[1 + mlen..]);
 
     let counter = state_counter(&mut state.nonce);
     increment_bytes(counter);
@@ -424,7 +422,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
     size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
     mac.update(&size_data);
-    let mac = mac.finish();
+    let mac = mac.finalize_to_array();
 
     cipher.seek(128);
     cipher.apply_keystream(&mut message[..mlen]);

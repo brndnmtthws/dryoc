@@ -37,11 +37,11 @@
 //! );
 //! ```
 
-use crate::constants::{CRYPTO_GENERICHASH_BYTES, CRYPTO_GENERICHASH_KEYBYTES};
-use crate::crypto_generichash::{
+use crate::classic::crypto_generichash::{
     crypto_generichash, crypto_generichash_final, crypto_generichash_init,
     crypto_generichash_update, GenericHashState,
 };
+use crate::constants::{CRYPTO_GENERICHASH_BYTES, CRYPTO_GENERICHASH_KEYBYTES};
 use crate::error::Error;
 pub use crate::types::*;
 

@@ -148,7 +148,7 @@ impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableByt
         nonce: &Nonce,
         secret_key: &SecretKey,
     ) -> Self {
-        use crate::crypto_secretbox::crypto_secretbox_detached;
+        use crate::classic::crypto_secretbox::crypto_secretbox_detached;
 
         let mut new = Self {
             tag: Mac::new_byte_array(),
@@ -215,7 +215,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
         nonce: &Nonce,
         secret_key: &SecretKey,
     ) -> Result<Output, Error> {
-        use crate::crypto_secretbox::crypto_secretbox_open_detached;
+        use crate::classic::crypto_secretbox::crypto_secretbox_open_detached;
 
         let mut message = Output::new_bytes();
         message.resize(self.data.as_slice().len(), 0);

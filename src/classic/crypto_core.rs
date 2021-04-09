@@ -201,7 +201,7 @@ pub fn crypto_core_hsalsa20(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto_box::*;
+    use crate::classic::crypto_box::*;
 
     #[test]
     fn test_crypto_scalarmult_base() {

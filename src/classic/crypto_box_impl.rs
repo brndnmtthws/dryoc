@@ -2,13 +2,13 @@ use rand_core::OsRng;
 use x25519_dalek::{PublicKey as DalekPublicKey, StaticSecret as DalekSecretKey};
 use zeroize::Zeroize;
 
+use crate::classic::crypto_box::{PublicKey, SecretKey};
+use crate::classic::crypto_core::crypto_core_hsalsa20;
+use crate::classic::crypto_hash::crypto_hash_sha512;
+use crate::classic::crypto_secretbox::Key;
 use crate::constants::{
     CRYPTO_BOX_SEEDBYTES, CRYPTO_CORE_HSALSA20_INPUTBYTES, CRYPTO_CORE_HSALSA20_OUTPUTBYTES,
 };
-use crate::crypto_box::{PublicKey, SecretKey};
-use crate::crypto_core::crypto_core_hsalsa20;
-use crate::crypto_hash::crypto_hash_sha512;
-use crate::crypto_secretbox::Key;
 use crate::dryocstream::ByteArray;
 use crate::scalarmult_curve25519::*;
 

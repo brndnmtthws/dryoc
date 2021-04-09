@@ -190,7 +190,7 @@ impl<Mac: NewByteArray<CRYPTO_BOX_MACBYTES>, Data: NewBytes + ResizableBytes> Dr
         recipient_public_key: &PublicKey,
         sender_secret_key: &SecretKey,
     ) -> Result<Self, Error> {
-        use crate::crypto_box::crypto_box_detached;
+        use crate::classic::crypto_box::crypto_box_detached;
 
         let mut dryocbox = Self {
             tag: Mac::new_byte_array(),
@@ -264,7 +264,7 @@ impl<Mac: ByteArray<CRYPTO_BOX_MACBYTES>, Data: Bytes> DryocBox<Mac, Data> {
         sender_public_key: &PublicKey,
         recipient_secret_key: &SecretKey,
     ) -> Result<Output, Error> {
-        use crate::crypto_box::*;
+        use crate::classic::crypto_box::*;
 
         let mut message = Output::new_bytes();
         message.resize(self.data.as_slice().len(), 0);
@@ -468,8 +468,8 @@ mod tests {
                 DryocBox::from_bytes(b"trollolllololololollollolololololol").expect("ok");
             DryocBox::decrypt::<
                 Nonce,
-                crate::crypto_box::PublicKey,
-                crate::crypto_box::SecretKey,
+                crate::classic::crypto_box::PublicKey,
+                crate::classic::crypto_box::SecretKey,
                 Vec<u8>,
             >(
                 &dryocbox,

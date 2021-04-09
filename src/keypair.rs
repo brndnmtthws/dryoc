@@ -44,7 +44,7 @@ impl<
 {
     /// Generates a random keypair
     pub fn gen() -> Self {
-        use crate::crypto_box::crypto_box_keypair;
+        use crate::classic::crypto_box::crypto_box_keypair;
         let (pk, sk) = crypto_box_keypair();
         Self {
             public_key: PublicKey::from(pk),
@@ -78,7 +78,7 @@ impl<
 {
     /// Derives a keypair from `secret_key`, and consume it
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
-        use crate::crypto_core::crypto_scalarmult_base;
+        use crate::classic::crypto_core::crypto_scalarmult_base;
 
         let mut public_key = PublicKey::new_byte_array();
         crypto_scalarmult_base(public_key.as_mut_array(), secret_key.as_array());
@@ -123,7 +123,7 @@ pub mod protected {
 
         /// Returns a new locked byte array filled with random data.
         pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
-            use crate::crypto_core::crypto_scalarmult_base;
+            use crate::classic::crypto_core::crypto_scalarmult_base;
             use crate::rng::copy_randombytes;
 
             let mut res = Self::new_locked_keypair()?;
@@ -143,7 +143,7 @@ pub mod protected {
     {
         /// Returns a new locked byte array filled with random data.
         pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
-            use crate::crypto_core::crypto_scalarmult_base;
+            use crate::classic::crypto_core::crypto_scalarmult_base;
             use crate::rng::copy_randombytes;
 
             let mut public_key = HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?;
@@ -201,7 +201,7 @@ mod tests {
     fn test_gen_keypair() {
         use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
 
-        use crate::crypto_core::crypto_scalarmult_base;
+        use crate::classic::crypto_core::crypto_scalarmult_base;
 
         let keypair = KeyPair::<
             StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,

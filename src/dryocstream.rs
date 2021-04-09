@@ -69,17 +69,17 @@
 use bitflags::bitflags;
 use zeroize::Zeroize;
 
+use crate::classic::crypto_secretstream_xchacha20poly1305::{
+    crypto_secretstream_xchacha20poly1305_init_pull,
+    crypto_secretstream_xchacha20poly1305_init_push, crypto_secretstream_xchacha20poly1305_pull,
+    crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_rekey, State,
+};
 use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_PUSH,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
-};
-use crate::crypto_secretstream_xchacha20poly1305::{
-    crypto_secretstream_xchacha20poly1305_init_pull,
-    crypto_secretstream_xchacha20poly1305_init_push, crypto_secretstream_xchacha20poly1305_pull,
-    crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_rekey, State,
 };
 use crate::error::Error;
 pub use crate::types::*;

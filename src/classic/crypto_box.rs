@@ -4,11 +4,11 @@
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption).
 //!
-//! # Classic API example
+//! ## Classic API example
 //!
 //! ```
+//! use dryoc::classic::crypto_box::*;
 //! use dryoc::constants::CRYPTO_BOX_MACBYTES;
-//! use dryoc::crypto_box::*;
 //! use dryoc::types::*;
 //!
 //! // Create a random sender keypair
@@ -42,10 +42,10 @@
 
 use zeroize::Zeroize;
 
+use crate::classic::crypto_box_impl::*;
+use crate::classic::crypto_secretbox::*;
+use crate::classic::crypto_secretbox_impl::*;
 use crate::constants::*;
-use crate::crypto_box_impl::*;
-use crate::crypto_secretbox::*;
-use crate::crypto_secretbox_impl::*;
 use crate::error::Error;
 use crate::types::*;
 

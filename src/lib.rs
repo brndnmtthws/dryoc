@@ -33,16 +33,17 @@
 //! It's recommended that you use the Rustaceous API unless you have strong
 //! feelings about using the Classic API. The classic API includes some pitfalls
 //! and traps that are also present in the original libsodium API, and unless
-//! you're extra careful you could make mistakes. With the Rustaceous API, you'd
-//! have to try really hard to do things wrong.
+//! you're extra careful you could make mistakes. With the Rustaceous API, it's
+//! harder to make mistakes thanks to strict safety features.
 //!
 //! | Feature | Rustaceous API | Classic API | Libsodium Docs |
 //! |-|-|-|-|
-//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
-//! | Public-key authenticated boxes | [`DryocDox`](dryocbox) | [`crypto_box`] | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
-//! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`] | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
+//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
+//! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
+//! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
+//! | Generic hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
+//! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
-//! | Generic hashing | [`GenericHash`](generichash) | [`crypto_generichash`] | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //!
 //! # Using Serde
 //!
@@ -90,30 +91,41 @@ pub mod protected;
 mod blake2b;
 #[cfg(feature = "serde")]
 mod bytes_serde;
-mod crypto_box_impl;
-mod crypto_secretbox_impl;
 mod poly1305;
 mod scalarmult_curve25519;
 
+pub mod classic {
+    //! # Classic API
+    //!
+    //! The Classic API contains functions designed to match the interface of
+    //! libsodium as closely as possible. It's provided to make it easier to
+    //! switch code from using libsodium directly over to dryoc, and also to
+    //! provide a familiar interface for anyone already comfortable with
+    //! libsodium.
+    mod crypto_box_impl;
+    mod crypto_secretbox_impl;
+
+    pub mod crypto_box;
+    /// # Core cryptography functions
+    pub mod crypto_core;
+    pub mod crypto_generichash;
+    /// Hash functions
+    pub mod crypto_hash;
+    pub mod crypto_onetimeauth;
+    pub mod crypto_secretbox;
+    pub mod crypto_secretstream_xchacha20poly1305;
+}
+
 /// # Constant value definitions
 pub mod constants;
-pub mod crypto_box;
-/// # Core cryptography functions
-pub mod crypto_core;
-pub mod crypto_generichash;
-/// Hash functions
-pub mod crypto_hash;
-/// # Provides one-time authentication using Poly1305
-pub mod crypto_onetimeauth;
-pub mod crypto_secretbox;
-pub mod crypto_secretstream_xchacha20poly1305;
+
 pub mod dryocbox;
 pub mod dryocsecretbox;
 pub mod dryocstream;
 pub mod generichash;
 /// # Public-key tools
 pub mod keypair;
-
+pub mod onetimeauth;
 /// # Random number generation utilities
 pub mod rng;
 /// # Base type definitions

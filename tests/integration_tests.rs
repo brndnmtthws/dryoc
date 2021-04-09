@@ -156,8 +156,8 @@ fn test_dryocsecretbox_serde_bincode() {
 }
 #[test]
 fn test_streams() {
+    use dryoc::classic::crypto_secretstream_xchacha20poly1305::*;
     use dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-    use dryoc::crypto_secretstream_xchacha20poly1305::*;
     use dryoc::dryocstream::Tag;
     let message1 = b"Arbitrary data to encrypt";
     let message2 = b"split into";
