@@ -2,7 +2,7 @@
 //!
 //! [`DryocBox`] implements libsodium's public-key authenticated encryption,
 //! also known as a _box_. This implementation uses X25519 for key derivation,
-//! XSalsa20 stream cipher, and Poly1305 for message authentication.
+//! the XSalsa20 stream cipher, and Poly1305 for message authentication.
 //!
 //! You should use a [`DryocBox`] when you want to:
 //!
@@ -11,12 +11,20 @@
 //!   secret
 //! * avoid secret sharing between parties
 //!
+//! The public keys of the sender and recipient must be known ahead of time, but
+//! the sender's secret key can be used once and discarded, if desired. The
+//! [`DryocBox::seal`] and corresponding [`DryocBox::unseal`] functions do just
+//! this, by generating an ephemeral secret key, deriving a nonce, and including
+//! the sender's public key in the box.
+//!
 //! ## Rustaceous API example
 //!
 //! ```
 //! use dryoc::dryocbox::*;
 //!
-//! // Randomly generate sender/recipient keypairs
+//! // Randomly generate sender/recipient keypairs. Under normal circumstances, the
+//! // sender would only know the recipient's public key, and the recipient would
+//! // only know the sender's public key.
 //! let sender_keypair = KeyPair::gen();
 //! let recipient_keypair = KeyPair::gen();
 //!

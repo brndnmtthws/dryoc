@@ -10,7 +10,7 @@
 //! use dryoc::generichash::{GenericHash, Key};
 //!
 //! // NOTE: The type for `key` param must be specified, the compiler cannot infer it when
-//! // we pass `None` below.
+//! // we pass `None`.
 //! let hash =
 //!     GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 //!

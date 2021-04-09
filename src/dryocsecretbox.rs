@@ -6,9 +6,9 @@
 //!
 //! You should use a [`DryocSecretBox`] when you want to:
 //!
-//! * exchange messages between two parties
-//! * use a shared secret, such as a passphrase, which can be used to derive a
-//!   secret key using `crypto_pwhash_*`
+//! * exchange messages between two or more parties
+//! * use a shared secret, including a passphrase (which can be used to derive a
+//!   secret key using `crypto_pwhash_*`)
 //!
 //! # Rustaceous API example
 //!
@@ -20,7 +20,7 @@
 //! let nonce = Nonce::gen();
 //! let message = b"Why hello there, fren";
 //!
-//! // Encrypt `message`, into a Vec<u8>-based box
+//! // Encrypt `message`, into a Vec-based box
 //! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
 //!
 //! // Convert into a libsodium-compatible box

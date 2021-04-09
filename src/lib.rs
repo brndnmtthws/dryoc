@@ -1,10 +1,28 @@
 //! # dryoc: Don't Roll Your Own Crypto™[^1]
 //!
 //! dryoc is a pure-Rust, general-purpose cryptography library. It's also an
-//! implementation of [libsodium](https://libsodium.gitbook.io/doc/), and designed to be 100%
-//! compatible with a interchangeable with libsodium's API.
+//! implementation of [libsodium](https://libsodium.gitbook.io/doc/), and
+//! designed to be 100% compatible with, and interchangeable with, libsodium's
+//! API.
 //!
-//! Minimum supported Rust version (MSRV): Requires **Rust 1.51** or newer.
+//! Doing cryptography properly is _hard_. While no human is infallible,
+//! computers are pretty good at following instructions. Humans are bad at
+//! following instructions, but they do a decent job of giving instructions,
+//! provided they can effectively communicate intent. Thus, if the instructions
+//! humans give the computer are correct, we can be reasonably assured
+//! that the operations the computer does are correct too.
+//!
+//! This library tries to make it easy to give the computer the correct
+//! instructions, and it does so by providing well-known implementations of
+//! general-purpose cryptography functions, in an API that's relatively easy to
+//! use, type safe, and hard to use wrong.
+//!
+//! As the name of this library implies, one should avoid trying to "roll their
+//! own crypto", as it often results in avoidable mistakes. In the context of
+//! cryptography, mistakes can be very costly.
+//!
+//! The minimum supported Rust version (MSRV) for this crate is **Rust 1.51** or
+//! newer.
 //!
 //! ## Features
 //!
