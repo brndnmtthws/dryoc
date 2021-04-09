@@ -19,6 +19,7 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+      - uses: Swatinem/rust-cache@v1
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
@@ -27,4 +28,3 @@ jobs:
         uses: codecov/codecov-action@v1
         with:
           fail_ci_if_error: true
-      - uses: Swatinem/rust-cache@v1

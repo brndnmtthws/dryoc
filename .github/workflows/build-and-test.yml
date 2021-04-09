@@ -45,6 +45,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
           override: true
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v1
       - name: Build
         uses: actions-rs/cargo@v1
         with:
@@ -68,4 +69,3 @@ jobs:
         with:
           command: clippy
           args: --features ${{ env.FEATURES }} -- -D warnings
-      - uses: Swatinem/rust-cache@v1
