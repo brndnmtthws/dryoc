@@ -1,6 +1,6 @@
 //! # dryoc: Don't Roll Your Own Crypto™[^1]
 //!
-//! dryoc is a pure-Rust, general purpose cryptography library. It's also an
+//! dryoc is a pure-Rust, general-purpose cryptography library. It's also an
 //! implementation of [libsodium](https://libsodium.gitbook.io/doc/), and designed to be 100%
 //! compatible with a interchangeable with libsodium's API.
 //!
