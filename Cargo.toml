@@ -1,8 +1,10 @@
 [package]
 authors = ["Brenden Matthews <brenden@brndn.io>"]
+categories = ["cryptography", "algorithms"]
 description = "dryoc is a pure-Rust implementation of the excellent libsodium"
 documentation = "https://docs.rs/dryoc"
 edition = "2018"
+keywords = ["cryptography", "nacl", "libsodium", "xchacha20", "cryptobox", "encryption"]
 license = "LGPL-3.0-only"
 name = "dryoc"
 readme = "README.md"
