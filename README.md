@@ -2,9 +2,9 @@
 
 # dryoc: Don't Roll Your Own Crypto™<sup><sup>[1](#footnotes)</sup></sup>
 
-dryoc is a pure-Rust, general purpose cryptography library. It's also an
+dryoc is a pure-Rust, general-purpose cryptography library. It's provides an
 implementation of the excellent
-[libsodium](https://github.com/jedisct1/libsodium) library in Rust.
+[libsodium](https://github.com/jedisct1/libsodium) library, in _pure_ Rust.
 
 ![Granny says no](dryoc.png)
 
