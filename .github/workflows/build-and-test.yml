@@ -68,3 +68,4 @@ jobs:
         with:
           command: clippy
           args: --features ${{ env.FEATURES }} -- -D warnings
+      - uses: Swatinem/rust-cache@v1
