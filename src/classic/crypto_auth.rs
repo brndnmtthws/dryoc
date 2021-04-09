@@ -102,7 +102,7 @@ fn crypto_auth_hmacsha512256_init(key: &[u8]) -> HmacSha512State {
     }
     octx.update(&pad);
 
-    HmacSha512State { ictx, octx }
+    HmacSha512State { octx, ictx }
 }
 
 fn crypto_auth_hmacsha512256_update(state: &mut HmacSha512State, input: &[u8]) {
