@@ -35,14 +35,14 @@ In `cargo.toml`:
 
 ```toml
 [dependencies]
-dryoc = "0.2"
+dryoc = "0.3"
 ```
 
 With optional features:
 
 ```toml
 [dependencies]
-dryoc = {version = "0.2", features = ["serde", "simd_backend"]
+dryoc = {version = "0.3", features = ["serde", "simd_backend"]
 ```
 
 ## Features
