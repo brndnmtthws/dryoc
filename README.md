@@ -2,29 +2,30 @@
 
 # dryoc: Don't Roll Your Own Crypto™<sup><sup>[1](#footnotes)</sup></sup>
 
-dryoc is a pure-Rust implementation of the excellent
-[libsodium](https://github.com/jedisct1/libsodium) library.
+dryoc is a pure-Rust, general purpose cryptography library. It's also an
+implementation of the excellent
+[libsodium](https://github.com/jedisct1/libsodium) library in Rust.
 
 ![Granny says no](dryoc.png)
 
 The purpose of this project is to provide a pure-Rust, mostly drop-in
 replacement for libsodium. This library has nearly the same ergonomics as
-libsodium (referred to in dryoc as the _Classic_ API), so that people
+libsodium (referred to in dryoc as the _Classic_ API), such that people
 familiar with libsodium can use this library nearly interchangeably. While
 the API is not 100% identical to libsodium, most functions have the same or
 very similar signatures.
 
-In addition to the Classic API, there's a Rustaceous API which aims to bring
+In addition to the Classic API, there's a _Rustaceous_ API which aims to bring
 an idiomatic Rust implementation of libsodium's core features: public and
-secret key authenticated cryptography.
+secret key authenticated cryptography and general-purpose cryptography tools.
 
-Not all features from libsodium are implemented here, such as advanced "under
-the hood" features of libsodium. For those specific features, it's
-recommended you rely on other crates directly.
+Not all features from libsodium are implemented here, either because there
+exist better implementations in other crates, or because they aren't
+necessary as part of this crate.
 
 Additionally, this crate provides exceptionally safe cryptography thanks to
 Rust's safety features. The Rustaceous API is designed designed to make it
-difficult to shoot yourself in the foot. However, it's worth noting, you
+difficult to shoot yourself in the foot. It's worth noting, however, you
 certainly can still shoot yourself if you choose (either by leaking private
 data, using insecure hardware, OPSEC issues, etc).
 
@@ -73,8 +74,9 @@ implementation:
 * [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [ ] [Authentication](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 
-The following libsodium features are not implemented, and there's no
-plan to implement them:
+The following libsodium features are either incomplete, not exposed as public
+APIs, or not implemented; you may find equivalent functionality in other
+crates:
 
 * [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate instead)
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities

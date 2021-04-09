@@ -1,9 +1,8 @@
 //! # dryoc: Don't Roll Your Own Crypto™[^1]
 //!
-//! dryoc is a pure-Rust implementation of
-//! [libsodium](https://libsodium.gitbook.io/doc/), designed to be 100%
-//! compatible with a interchangeable with the libsodium API, and have limited
-//! dependencies.
+//! dryoc is a pure-Rust, general purpose cryptography library. It's also an
+//! implementation of [libsodium](https://libsodium.gitbook.io/doc/), and designed to be 100%
+//! compatible with a interchangeable with libsodium's API.
 //!
 //! Minimum supported Rust version (MSRV): Requires **Rust 1.51** or newer.
 //!
