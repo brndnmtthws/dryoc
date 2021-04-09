@@ -1,22 +1,18 @@
-//! # One-time authentication
+//! # Secret-key message authentication
 //!
-//! [`OnetimeAuth`] implements libsodium's one-time authentication, based on the
-//! Poly1305 message authentication code.
+//! [`Auth`] implements libsodium's secret-key authentication, based on
+//! HMAC-SHA512-256.
 //!
-//! Use [`OnetimeAuth`] to authenticate messages when:
+//! Use [`Auth`] to authenticate messages when:
 //!
-//! * you want to exchange many small messages, such as in an online protocol
-//! * you can generate a unique key for each message you're authenticating,
-//!   i.e., using a key and a nonce
-//!
-//! Do not reuse the same key for difference messages with [`OnetimeAuth`], as
-//! it provides an opportunity for an attacker to discover the key.
-//!
+//! * you want to authenticate arbitrary messages
+//! * you have a pre-shared key between both parties
+//! * (optionally) you want to share the authentication tag publicly
 //!
 //! # Rustaceous API example, one-time interface
 //!
 //! ```
-//! use dryoc::onetimeauth::*;
+//! use dryoc::auth::*;
 //! use dryoc::types::*;
 //!
 //! // Generate a random key
@@ -25,35 +21,35 @@
 //! // Compute the mac in one shot. Here we clone the key for the purpose of this
 //! // example, but normally you would not do this as you never want to re-use a
 //! // key.
-//! let mac = OnetimeAuth::compute_to_vec(key.clone(), b"Data to authenticate");
+//! let mac = Auth::compute_to_vec(key.clone(), b"Data to authenticate");
 //!
 //! // Verify the mac
-//! OnetimeAuth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+//! Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
 //! ```
 //!
 //! # Rustaceous API example, incremental interface
 //!
 //! ```
-//! use dryoc::onetimeauth::*;
+//! use dryoc::auth::*;
 //! use dryoc::types::*;
 //!
 //! // Generate a random key
 //! let key = Key::gen();
 //!
 //! // Initialize the MAC, clone the key (don't do this)
-//! let mut mac = OnetimeAuth::new(key.clone());
+//! let mut mac = Auth::new(key.clone());
 //! mac.update(b"Multi-part");
 //! mac.update(b"data");
 //! let mac = mac.finalize_to_vec();
 //!
 //! // Verify it's correct, clone the key (don't do this)
-//! let mut verify_mac = OnetimeAuth::new(key.clone());
+//! let mut verify_mac = Auth::new(key.clone());
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"data");
 //! verify_mac.verify(&mac).expect("verify failed");
 //!
 //! // Check that invalid data fails, consume the key
-//! let mut verify_mac = OnetimeAuth::new(key);
+//! let mut verify_mac = Auth::new(key);
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"bad data");
 //! verify_mac
@@ -63,40 +59,40 @@
 
 use subtle::ConstantTimeEq;
 
-use crate::classic::crypto_onetimeauth::{
-    crypto_onetimeauth, crypto_onetimeauth_final, crypto_onetimeauth_init,
-    crypto_onetimeauth_update, crypto_onetimeauth_verify, OnetimeauthState,
+use crate::classic::crypto_auth::{
+    crypto_auth, crypto_auth_final, crypto_auth_init, crypto_auth_update, crypto_auth_verify,
+    AuthState,
 };
-use crate::constants::{CRYPTO_ONETIMEAUTH_BYTES, CRYPTO_ONETIMEAUTH_KEYBYTES};
+use crate::constants::{CRYPTO_AUTH_BYTES, CRYPTO_AUTH_KEYBYTES};
 use crate::error::Error;
 use crate::types::*;
 
-/// Stack-allocated key for one-time authentication.
-pub type Key = StackByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>;
-/// Stack-allocated message authentication code for one-time authentication.
-pub type Mac = StackByteArray<CRYPTO_ONETIMEAUTH_BYTES>;
+/// Stack-allocated key for secret-key authentication.
+pub type Key = StackByteArray<CRYPTO_AUTH_KEYBYTES>;
+/// Stack-allocated message authentication code for secret-key authentication.
+pub type Mac = StackByteArray<CRYPTO_AUTH_BYTES>;
 
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`OnetimeAuth`]
+    //! #  Protected memory type aliases for [`Auth`]
     //!
     //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`OnetimeAuth`]. These type aliases are provided for
+    //! with [`Auth`]. These type aliases are provided for
     //! convenience.
     //!
     //! ## Example
     //!
     //! ```
-    //! use dryoc::onetimeauth::protected::*;
-    //! use dryoc::onetimeauth::OnetimeAuth;
+    //! use dryoc::auth::protected::*;
+    //! use dryoc::auth::Auth;
     //!
     //! // Create a randomly generated key, lock it, protect it as read-only
     //! let key = Key::gen_readonly_locked().expect("gen failed");
     //! let input =
     //!     HeapBytes::from_slice_into_readonly_locked(b"super secret input").expect("input failed");
     //! // Compute the message authentication code, consuming the key.
-    //! let mac: Locked<Mac> = OnetimeAuth::compute(key, &input);
+    //! let mac: Locked<Mac> = Auth::compute(key, &input);
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -104,39 +100,39 @@ pub mod protected {
 
     /// Heap-allocated, page-aligned secret key for the generic hash algorithm,
     /// for use with protected memory.
-    pub type Key = HeapByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>;
+    pub type Key = HeapByteArray<CRYPTO_AUTH_KEYBYTES>;
     /// Heap-allocated, page-aligned hash output for the generic hash algorithm,
     /// for use with protected memory.
-    pub type Mac = HeapByteArray<CRYPTO_ONETIMEAUTH_BYTES>;
+    pub type Mac = HeapByteArray<CRYPTO_AUTH_BYTES>;
 }
 
-/// One-time authentication implementation based on Poly1305, compatible with
-/// libsodium's `crypto_onetimeauth_*` functions.
-pub struct OnetimeAuth {
-    state: OnetimeauthState,
+/// secret-key authentication implementation based on Poly1305, compatible with
+/// libsodium's `crypto_Auth_*` functions.
+pub struct Auth {
+    state: AuthState,
 }
 
-impl OnetimeAuth {
-    /// Single-part interface for [`OnetimeAuth`]. Computes (and returns) the
+impl Auth {
+    /// Single-part interface for [`Auth`]. Computes (and returns) the
     /// message authentication code for `input` using `key`. The `key` is
     /// consumed to prevent accidental re-use of the same key.
     pub fn compute<
-        Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>,
+        Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
         Input: Bytes,
-        Output: NewByteArray<CRYPTO_ONETIMEAUTH_BYTES>,
+        Output: NewByteArray<CRYPTO_AUTH_BYTES>,
     >(
         key: Key,
         input: &Input,
     ) -> Output {
         let mut output = Output::new_byte_array();
-        crypto_onetimeauth(output.as_mut_array(), input.as_slice(), key.as_array());
+        crypto_auth(output.as_mut_array(), input.as_slice(), key.as_array());
         output
     }
 
-    /// Convience wrapper around [`OnetimeAuth::compute`]. Returns the message
+    /// Convience wrapper around [`Auth::compute`]. Returns the message
     /// authentication code as a [`Vec`]. The `key` is
     /// consumed to prevent accidental re-use of the same key.
-    pub fn compute_to_vec<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>, Input: Bytes>(
+    pub fn compute_to_vec<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>, Input: Bytes>(
         key: Key,
         input: &Input,
     ) -> Vec<u8> {
@@ -147,48 +143,48 @@ impl OnetimeAuth {
     /// expected code for `key` and `input`. The `key` is
     /// consumed to prevent accidental re-use of the same key.
     pub fn compute_and_verify<
-        OtherMac: ByteArray<CRYPTO_ONETIMEAUTH_BYTES>,
-        Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>,
+        OtherMac: ByteArray<CRYPTO_AUTH_BYTES>,
+        Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
         Input: Bytes,
     >(
         other_mac: &OtherMac,
         key: Key,
         input: &Input,
     ) -> Result<(), Error> {
-        crypto_onetimeauth_verify(other_mac.as_array(), input.as_slice(), key.as_array())
+        crypto_auth_verify(other_mac.as_array(), input.as_slice(), key.as_array())
     }
 
-    /// Returns a new one-time authenticator for `key`. The `key` is
+    /// Returns a new secret-key authenticator for `key`. The `key` is
     /// consumed to prevent accidental re-use of the same key.
-    pub fn new<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>>(key: Key) -> Self {
+    pub fn new<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>>(key: Key) -> Self {
         Self {
-            state: crypto_onetimeauth_init(key.as_array()),
+            state: crypto_auth_init(key.as_array()),
         }
     }
 
-    /// Updates the one-time authenticator at `self` with `input`.
+    /// Updates the secret-key authenticator at `self` with `input`.
     pub fn update<Input: Bytes>(&mut self, input: &Input) {
-        crypto_onetimeauth_update(&mut self.state, input.as_slice())
+        crypto_auth_update(&mut self.state, input.as_slice())
     }
 
-    /// Finalizes this one-time authenticator, returning the message
+    /// Finalizes this secret-key authenticator, returning the message
     /// authentication code.
-    pub fn finalize<Output: NewByteArray<CRYPTO_ONETIMEAUTH_BYTES>>(self) -> Output {
+    pub fn finalize<Output: NewByteArray<CRYPTO_AUTH_BYTES>>(self) -> Output {
         let mut output = Output::new_byte_array();
-        crypto_onetimeauth_final(self.state, output.as_mut_array());
+        crypto_auth_final(self.state, output.as_mut_array());
         output
     }
 
-    /// Finalizes this one-time authenticator, returning the message
+    /// Finalizes this secret-key authenticator, returning the message
     /// authentication code as a [`Vec`]. Convenience wrapper around
-    /// [`OnetimeAuth::finalize`].
+    /// [`Auth::finalize`].
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize()
     }
 
     /// Finalizes this authenticator, and verifies that the computed code
     /// matches `other_mac` using a constant-time comparison.
-    pub fn verify<OtherMac: ByteArray<CRYPTO_ONETIMEAUTH_BYTES>>(
+    pub fn verify<OtherMac: ByteArray<CRYPTO_AUTH_BYTES>>(
         self,
         other_mac: &OtherMac,
     ) -> Result<(), Error> {
@@ -214,26 +210,26 @@ mod tests {
     #[test]
     fn test_single_part() {
         let key = Key::gen();
-        let mac = OnetimeAuth::compute_to_vec(key.clone(), b"Data to authenticate");
+        let mac = Auth::compute_to_vec(key.clone(), b"Data to authenticate");
 
-        OnetimeAuth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+        Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
     }
 
     #[test]
     fn test_multi_part() {
         let key = Key::gen();
 
-        let mut mac = OnetimeAuth::new(key.clone());
+        let mut mac = Auth::new(key.clone());
         mac.update(b"Multi-part");
         mac.update(b"data");
         let mac = mac.finalize_to_vec();
 
-        let mut verify_mac = OnetimeAuth::new(key.clone());
+        let mut verify_mac = Auth::new(key.clone());
         verify_mac.update(b"Multi-part");
         verify_mac.update(b"data");
         verify_mac.verify(&mac).expect("verify failed");
 
-        let mut verify_mac = OnetimeAuth::new(key.clone());
+        let mut verify_mac = Auth::new(key.clone());
         verify_mac.update(b"Multi-part");
         verify_mac.update(b"bad data");
         verify_mac

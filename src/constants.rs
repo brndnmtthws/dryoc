@@ -1,8 +1,5 @@
 #![allow(missing_docs)]
 
-// const fn max(a: usize, b: usize) -> usize {
-// [a, b][(a < b) as usize]
-// }
 const fn min(a: usize, b: usize) -> usize {
     [a, b][(a > b) as usize]
 }
@@ -107,3 +104,11 @@ pub const CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES: usize = 32;
 
 pub const CRYPTO_ONETIMEAUTH_BYTES: usize = CRYPTO_ONETIMEAUTH_POLY1305_BYTES;
 pub const CRYPTO_ONETIMEAUTH_KEYBYTES: usize = CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES;
+
+pub const CRYPTO_AUTH_HMACSHA512256_BYTES: usize = 32;
+pub const CRYPTO_AUTH_HMACSHA512256_KEYBYTES: usize = 32;
+
+pub const CRYPTO_AUTH_BYTES: usize = CRYPTO_AUTH_HMACSHA512256_BYTES;
+pub const CRYPTO_AUTH_KEYBYTES: usize = CRYPTO_AUTH_HMACSHA512256_KEYBYTES;
+
+pub const CRYPTO_HASH_SHA512_BYTES: usize = 64;

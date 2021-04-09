@@ -98,7 +98,7 @@ fn crypto_onetimeauth_poly1305_final(
 }
 
 /// Authenticates `message` using `key`, and places the result into
-/// `mac`.
+/// `mac`. `key` should only be used once.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth`.
 pub fn crypto_onetimeauth(mac: &mut Mac, message: &[u8], key: &Key) {
@@ -120,7 +120,8 @@ pub struct OnetimeauthState {
 
 /// Generates a random key using
 /// [`copy_randombytes`](crate::rng::copy_randombytes), suitable for use with
-/// [`crypto_onetimeauth_init`] and [`crypto_onetimeauth`].
+/// [`crypto_onetimeauth_init`] and [`crypto_onetimeauth`]. The key should only
+/// be used once.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_keygen`.
 pub fn crypto_onetimeauth_keygen() -> Key {
@@ -130,7 +131,7 @@ pub fn crypto_onetimeauth_keygen() -> Key {
 /// Initialize the incremental interface for Poly1305-based one-time
 /// authentication, using `key`. Returns a state struct which is required for
 /// subsequent calls to [`crypto_onetimeauth_update`] and
-/// [`crypto_onetimeauth_final`]
+/// [`crypto_onetimeauth_final`]. The key should only be used once.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_init`.
 pub fn crypto_onetimeauth_init(key: &[u8; CRYPTO_ONETIMEAUTH_KEYBYTES]) -> OnetimeauthState {
@@ -146,8 +147,8 @@ pub fn crypto_onetimeauth_update(state: &mut OnetimeauthState, input: &[u8]) {
     crypto_onetimeauth_poly1305_update(&mut state.state, input)
 }
 
-/// Finalizes the message authentication code `state`, and places the value into
-/// `output`.
+/// Finalizes the message authentication code for `state`, and places the result
+/// into `output`.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_final`.
 pub fn crypto_onetimeauth_final(

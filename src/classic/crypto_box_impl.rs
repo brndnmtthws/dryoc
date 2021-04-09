@@ -8,6 +8,7 @@ use crate::classic::crypto_hash::crypto_hash_sha512;
 use crate::classic::crypto_secretbox::Key;
 use crate::constants::{
     CRYPTO_BOX_SEEDBYTES, CRYPTO_CORE_HSALSA20_INPUTBYTES, CRYPTO_CORE_HSALSA20_OUTPUTBYTES,
+    CRYPTO_HASH_SHA512_BYTES,
 };
 use crate::dryocstream::ByteArray;
 use crate::scalarmult_curve25519::*;
@@ -44,7 +45,8 @@ pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair() -> (PublicKey, Sec
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair(
     seed: &[u8],
 ) -> (PublicKey, SecretKey) {
-    let mut hash = crypto_hash_sha512(seed);
+    let mut hash = [0u8; CRYPTO_HASH_SHA512_BYTES];
+    crypto_hash_sha512(&mut hash, seed);
 
     let mut secret_key = [0u8; CRYPTO_BOX_SEEDBYTES];
     let mut public_key = [0u8; CRYPTO_BOX_SEEDBYTES];

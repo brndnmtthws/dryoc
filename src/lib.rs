@@ -105,6 +105,7 @@ pub mod classic {
     mod crypto_box_impl;
     mod crypto_secretbox_impl;
 
+    pub mod crypto_auth;
     pub mod crypto_box;
     /// # Core cryptography functions
     pub mod crypto_core;
@@ -116,9 +117,9 @@ pub mod classic {
     pub mod crypto_secretstream_xchacha20poly1305;
 }
 
+pub mod auth;
 /// # Constant value definitions
 pub mod constants;
-
 pub mod dryocbox;
 pub mod dryocsecretbox;
 pub mod dryocstream;
@@ -128,6 +129,7 @@ pub mod keypair;
 pub mod onetimeauth;
 /// # Random number generation utilities
 pub mod rng;
+pub mod sha512;
 /// # Base type definitions
 pub mod types;
 /// # Various utility functions
