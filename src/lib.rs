@@ -61,7 +61,10 @@
 //! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
 //! | Generic hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
+//! | Key derivation | [`Kdf`](kdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
+//!
+//!
 //!
 //! ## Using Serde
 //!
@@ -122,6 +125,7 @@ pub mod classic {
     //! libsodium.
     mod crypto_box_impl;
     mod crypto_secretbox_impl;
+    mod generichash_blake2b;
 
     pub mod crypto_auth;
     pub mod crypto_box;
@@ -130,6 +134,7 @@ pub mod classic {
     pub mod crypto_generichash;
     /// Hash functions
     pub mod crypto_hash;
+    pub mod crypto_kdf;
     pub mod crypto_onetimeauth;
     pub mod crypto_secretbox;
     pub mod crypto_secretstream_xchacha20poly1305;
@@ -142,6 +147,7 @@ pub mod dryocbox;
 pub mod dryocsecretbox;
 pub mod dryocstream;
 pub mod generichash;
+pub mod kdf;
 /// # Public-key tools
 pub mod keypair;
 pub mod onetimeauth;

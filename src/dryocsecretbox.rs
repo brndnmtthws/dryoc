@@ -197,8 +197,18 @@ impl<
 
 impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac, Data> {
     /// Returns a new box with `tag` and `data`, consuming both
-    pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
+    pub fn from_parts(tag: Mac, data: Data) -> Self {
         Self { tag, data }
+    }
+
+    /// Copies `self` into a new [`Vec`]
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.to_bytes()
+    }
+
+    /// Moves the tag and data out of this instance, returning them as a tuple.
+    pub fn into_parts(self) -> (Mac, Data) {
+        (self.tag, self.data)
     }
 }
 
@@ -239,11 +249,6 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
         s[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(self.tag.as_slice());
         s[CRYPTO_SECRETBOX_MACBYTES..].copy_from_slice(self.data.as_slice());
         data
-    }
-
-    /// Copies `self` into a new [`Vec`]
-    pub fn to_vec(&self) -> Vec<u8> {
-        self.to_bytes()
     }
 }
 

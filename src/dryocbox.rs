@@ -353,10 +353,11 @@ impl<
     Data: Bytes,
 > DryocBox<PublicKey, Mac, Data>
 {
-    /// Returns a new box with `tag` and `data`, consuming both
-    pub fn from_data_and_mac(tag: Mac, data: Data) -> Self {
+    /// Returns a new box with `tag`, `data` and (optional) `ephemeral_pk`,
+    /// consuming each.
+    pub fn from_parts(tag: Mac, data: Data, ephemeral_pk: Option<PublicKey>) -> Self {
         Self {
-            ephemeral_pk: None,
+            ephemeral_pk,
             tag,
             data,
         }
@@ -365,6 +366,12 @@ impl<
     /// Copies `self` into a new [`Vec`]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
+    }
+
+    /// Moves the tag, data, and (optional) ephemeral public key out of this
+    /// instance, returning them as a tuple.
+    pub fn into_parts(self) -> (Mac, Data, Option<PublicKey>) {
+        (self.tag, self.data, self.ephemeral_pk)
     }
 }
 

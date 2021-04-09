@@ -43,82 +43,10 @@
 //!     "GdztjR9nU/rLh8VJt8e74+/seKTUnHgBexhGSpxLau0="
 //! );
 //! ```
+use super::generichash_blake2b::*;
 use crate::blake2b;
-use crate::constants::{
-    CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN,
-    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX, CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN,
-    CRYPTO_GENERICHASH_KEYBYTES,
-};
+use crate::constants::CRYPTO_GENERICHASH_KEYBYTES;
 use crate::error::Error;
-
-#[inline]
-fn crypto_generichash_blake2b_validate_key(key: Option<&[u8]>) -> Result<(), Error> {
-    match key {
-        Some(key) => {
-            if key.len() < CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN
-                || key.len() > CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
-            {
-                return Err(dryoc_error!(format!(
-                    "key length is {}, should be at least {} and less than {} bytes",
-                    key.len(),
-                    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN,
-                    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
-                )));
-            }
-            Ok(())
-        }
-        None => Ok(()),
-    }
-}
-
-#[inline]
-fn crypto_generichash_blake2b_validate_outlen(outlen: usize) -> Result<(), Error> {
-    if !(CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN..=CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX)
-        .contains(&outlen)
-    {
-        return Err(dryoc_error!(format!(
-            "output length is {}, expected at least {} and less than {} bytes",
-            outlen, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
-        )));
-    }
-    Ok(())
-}
-
-#[inline]
-fn crypto_generichash_blake2b(
-    output: &mut [u8],
-    input: &[u8],
-    key: Option<&[u8]>,
-) -> Result<(), Error> {
-    crypto_generichash_blake2b_validate_outlen(output.len())?;
-    crypto_generichash_blake2b_validate_key(key)?;
-
-    blake2b::hash(output, input, key)
-}
-
-#[inline]
-fn crypto_generichash_blake2b_init(
-    key: Option<&[u8]>,
-    outlen: usize,
-) -> Result<blake2b::State, Error> {
-    crypto_generichash_blake2b_validate_outlen(outlen)?;
-    crypto_generichash_blake2b_validate_key(key)?;
-
-    match key {
-        Some(key) => blake2b::State::init_key(outlen as u8, key),
-        None => blake2b::State::init(outlen as u8),
-    }
-}
-
-#[inline]
-fn crypto_generichash_blake2b_update(state: &mut blake2b::State, input: &[u8]) {
-    state.update(input)
-}
-
-#[inline]
-fn crypto_generichash_blake2b_final(state: blake2b::State, output: &mut [u8]) -> Result<(), Error> {
-    state.finalize(output)
-}
 
 /**
 Computes a hash from `input` and `key`, copying the result into `output`.
@@ -159,7 +87,7 @@ pub fn crypto_generichash_init(
     key: Option<&[u8]>,
     outlen: usize,
 ) -> Result<GenericHashState, Error> {
-    let state = crypto_generichash_blake2b_init(key, outlen)?;
+    let state = crypto_generichash_blake2b_init(key, outlen, None, None)?;
     Ok(GenericHashState { state })
 }
 

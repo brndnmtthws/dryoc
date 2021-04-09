@@ -181,42 +181,57 @@ impl State {
         self.h[..8].copy_from_slice(&IV);
     }
 
-    pub(crate) fn init(outlen: u8) -> Result<Self, Error> {
+    pub(crate) fn init(
+        outlen: u8,
+        key: Option<&[u8]>,
+        salt: Option<&[u8; SALTBYTES]>,
+        personal: Option<&[u8; PERSONALBYTES]>,
+    ) -> Result<State, Error> {
         if outlen == 0 || outlen as usize > OUTBYTES {
             return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
         }
 
-        let params = Params {
-            digest_length: outlen,
-            ..Default::default()
+        let key_length: u8 = match key {
+            Some(key) => key.len() as u8,
+            None => 0,
         };
 
-        Ok(Self::init_param(&params))
-    }
-
-    pub(crate) fn init_key(outlen: u8, key: &[u8]) -> Result<State, Error> {
-        if outlen == 0 || outlen as usize > OUTBYTES {
-            return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
-        }
-        if key.is_empty() || key.len() > KEYBYTES {
+        if key_length > KEYBYTES as u8 {
             return Err(dryoc_error!(format!(
-                "invalid blake2b key length: {}",
-                outlen
+                "invalid blake2b key length: {} max: {}",
+                key_length, KEYBYTES
             )));
         }
 
+        let salt = match salt {
+            Some(salt) => salt.clone(),
+            None => [0u8; SALTBYTES],
+        };
+
+        let personal = match personal {
+            Some(personal) => personal.clone(),
+            None => [0u8; PERSONALBYTES],
+        };
+
         let params = Params {
             digest_length: outlen,
-            key_length: key.len() as u8,
+            key_length,
+            salt,
+            personal,
             ..Default::default()
         };
 
         let mut state = Self::init_param(&params);
 
-        let mut block = [0u8; BLOCKBYTES];
-        block[..key.len()].copy_from_slice(key);
-        state.update(&block);
-        block.zeroize();
+        match key {
+            Some(key) => {
+                let mut block = [0u8; BLOCKBYTES];
+                block[..key.len()].copy_from_slice(key);
+                state.update(&block);
+                block.zeroize();
+            }
+            None => (),
+        }
 
         Ok(state)
     }
@@ -376,10 +391,7 @@ pub(crate) fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Resul
         )));
     }
 
-    let mut state = match key {
-        Some(key) => State::init_key(output.len() as u8, key)?,
-        None => State::init(output.len() as u8)?,
-    };
+    let mut state = State::init(output.len() as u8, key, None, None)?;
 
     state.update(input);
     state.finalize(output)
@@ -424,7 +436,7 @@ mod tests {
 
         unsafe { blake2b_init(&mut s, 64) };
 
-        let mut state = State::init(64).expect("init");
+        let mut state = State::init(64, None, None, None).expect("init");
 
         let mut block = [0u8; 256];
         copy_randombytes(&mut block);
@@ -473,7 +485,7 @@ mod tests {
 
         unsafe { blake2b_init_key(&mut s, 64, &key as *const u8, key.len() as u8) };
 
-        let mut state = State::init_key(64, &key).expect("init");
+        let mut state = State::init(64, Some(&key), None, None).expect("init");
 
         unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
 

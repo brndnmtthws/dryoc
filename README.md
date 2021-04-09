@@ -68,7 +68,7 @@ implementation:
 * [x] [Secret-key authentication](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 * [x] [One-time authentication](https://doc.libsodium.org/advanced/poly1305) (`crypto_onetimeauth_*`)
 * [x] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
-* [ ] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
+* [x] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
 * [ ] [Key exchange](https://doc.libsodium.org/key_exchange) (`crypto_kx_*`)
 * [ ] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing)
 * [ ] [Password hashing](https://doc.libsodium.org/password_hashing/default_phf)
