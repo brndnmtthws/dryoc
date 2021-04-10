@@ -29,22 +29,6 @@ difficult to shoot yourself in the foot. It's worth noting, however, you
 certainly can still shoot yourself if you choose (either by leaking private
 data, using insecure hardware, OPSEC issues, etc).
 
-## Usage
-
-In `cargo.toml`:
-
-```toml
-[dependencies]
-dryoc = "0.3"
-```
-
-With optional features:
-
-```toml
-[dependencies]
-dryoc = {version = "0.3", features = ["serde", "simd_backend"]
-```
-
 ## Features
 
 * Many libsodium implemented with both Classic and Rustaceous API
