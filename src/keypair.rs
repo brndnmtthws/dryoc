@@ -1,5 +1,6 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
 use crate::error::Error;
@@ -7,9 +8,9 @@ use crate::types::*;
 
 #[cfg_attr(
     feature = "serde",
-    derive(Serialize, Deserialize, Debug, Clone, PartialEq)
+    derive(Zeroize, Serialize, Deserialize, Debug, Clone, PartialEq)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Debug, Clone, PartialEq))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
 /// Public/private keypair for use with [`crate::dryocbox::DryocBox`], aka
 /// libsodium box
 pub struct KeyPair<

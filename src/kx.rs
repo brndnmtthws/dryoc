@@ -226,6 +226,30 @@ impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES>> Session<SessionKey> {
     pub fn into_parts(self) -> (SessionKey, SessionKey) {
         (self.rx_key, self.tx_key)
     }
+
+    /// Returns a reference to a slice of the RX session key.
+    #[inline]
+    pub fn rx_as_slice(&self) -> &[u8] {
+        self.rx_key.as_slice()
+    }
+
+    /// Returns a reference to a slice of the TX session key.
+    #[inline]
+    pub fn tx_as_slice(&self) -> &[u8] {
+        self.tx_key.as_slice()
+    }
+
+    /// Returns a reference to an array of the RX session key.
+    #[inline]
+    pub fn rx_as_array(&self) -> &[u8; CRYPTO_KX_SESSIONKEYBYTES] {
+        self.rx_key.as_array()
+    }
+
+    /// Returns a reference to an array of the TX session key.
+    #[inline]
+    pub fn tx_as_array(&self) -> &[u8; CRYPTO_KX_SESSIONKEYBYTES] {
+        self.tx_key.as_array()
+    }
 }
 
 #[cfg(test)]
