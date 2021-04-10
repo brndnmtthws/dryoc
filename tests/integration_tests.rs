@@ -444,7 +444,7 @@ fn test_dryocbox_seal() {
         .expect("unable to seal");
 
     let decrypted = dryocbox
-        .unseal_to_vec(&recipient_keypair.public_key, &recipient_keypair.secret_key)
+        .unseal_to_vec(&recipient_keypair)
         .expect("unable to unseal");
 
     assert_eq!(message, decrypted.as_slice());

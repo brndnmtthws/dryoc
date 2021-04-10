@@ -73,7 +73,7 @@
 //!     .expect("unable to seal");
 //!
 //! let decrypted = dryocbox
-//!     .unseal_to_vec(&recipient_keypair.public_key, &recipient_keypair.secret_key)
+//!     .unseal_to_vec(&recipient_keypair)
 //!     .expect("unable to unseal");
 //!
 //! assert_eq!(message, decrypted.as_slice());
@@ -423,8 +423,7 @@ impl<
         Output: ResizableBytes + NewBytes,
     >(
         &self,
-        recipient_public_key: &RecipientPublicKey,
-        recipient_secret_key: &RecipientSecretKey,
+        recipient_keypair: &crate::keypair::KeyPair<RecipientPublicKey, RecipientSecretKey>,
     ) -> Result<Output, Error> {
         use crate::classic::crypto_box::*;
 
@@ -434,7 +433,7 @@ impl<
                 crypto_box_seal_nonce(
                     nonce.as_mut_array(),
                     epk.as_array(),
-                    recipient_public_key.as_array(),
+                    recipient_keypair.public_key.as_array(),
                 );
 
                 let mut message = Output::new_bytes();
@@ -446,7 +445,7 @@ impl<
                     self.data.as_slice(),
                     nonce.as_array(),
                     epk.as_array(),
-                    recipient_secret_key.as_array(),
+                    recipient_keypair.secret_key.as_array(),
                 )?;
 
                 Ok(message)
@@ -518,21 +517,23 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
 
     /// Decrypts this sealed box using `recipient_secret_key`, returning the
     /// decrypted message upon success.
-    pub fn unseal_to_vec<SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>>(
+    pub fn unseal_to_vec<
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    >(
         &self,
-        recipient_public_key: &PublicKey,
-        recipient_secret_key: &SecretKey,
+        recipient_keypair: &crate::keypair::KeyPair<RecipientPublicKey, RecipientSecretKey>,
     ) -> Result<Vec<u8>, Error> {
-        self.unseal(recipient_public_key, recipient_secret_key)
+        self.unseal(recipient_keypair)
     }
 }
 
 impl<
     'a,
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
     Data: Bytes + ResizableBytes + From<&'a [u8]>,
-> DryocBox<PublicKey, Mac, Data>
+> DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Returns a new box with `data` and `tag`, with data copied from `input`
     /// and `tag` consumed. The ephemeral public key is assumed not to be
@@ -547,7 +548,11 @@ impl<
 
     /// Returns a new sealed box with `ephemeral_pk`, `data` and `tag`, where
     /// data copied from `input` and `ephemeral_pk` & `tag` are consumed.
-    pub fn new_with_epk_data_and_mac(ephemeral_pk: PublicKey, tag: Mac, input: &'a [u8]) -> Self {
+    pub fn new_with_epk_data_and_mac(
+        ephemeral_pk: EphemeralPublicKey,
+        tag: Mac,
+        input: &'a [u8],
+    ) -> Self {
         Self {
             ephemeral_pk: Some(ephemeral_pk),
             tag,
@@ -741,9 +746,7 @@ mod tests {
 
             let ciphertext = dryocbox.to_vec();
 
-            let m = dryocbox
-                .unseal_to_vec(&keypair_recipient.public_key, &keypair_recipient.secret_key)
-                .expect("hmm");
+            let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
             let so_m = curve25519blake2bxsalsa20poly1305::open(
                 &ciphertext.as_slice(),
                 &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
@@ -774,9 +777,7 @@ mod tests {
             let dryocbox =
                 DryocBox::from_sealed_bytes(&ciphertext).expect("from sealed bytes failed");
 
-            let m = dryocbox
-                .unseal_to_vec(&keypair_recipient.public_key, &keypair_recipient.secret_key)
-                .expect("hmm");
+            let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
 
             assert_eq!(m, message.as_bytes());
         }
