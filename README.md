@@ -54,6 +54,7 @@ implementation:
 * [x] [Sealed boxes](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [x] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
 * [x] [Key exchange](https://doc.libsodium.org/key_exchange) (`crypto_kx_*`)
+* [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures) (`crypto_sign_*`)
 * [ ] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing)
 * [ ] [Password hashing](https://doc.libsodium.org/password_hashing/default_phf)
 * [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
