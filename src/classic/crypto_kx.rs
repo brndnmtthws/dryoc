@@ -21,11 +21,11 @@
 //!     SessionKey::default(),
 //! );
 //!
-//! // Calculate the client RX & TX keys
+//! // Calculate the client Rx & Tx keys
 //! crypto_kx_client_session_keys(&mut crx, &mut ctx, &client_pk, &client_sk, &server_pk)
 //!     .expect("client kx failed");
 //!
-//! // Calculate the server RX & TX keys
+//! // Calculate the server Rx & Tx keys
 //! crypto_kx_server_session_keys(&mut srx, &mut stx, &server_pk, &server_sk, &client_pk)
 //!     .expect("server kx failed");
 //!

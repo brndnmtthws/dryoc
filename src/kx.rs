@@ -34,9 +34,9 @@
 //! let (client_rx, client_tx) = client_session_keys.into_parts();
 //! let (server_rx, server_tx) = server_session_keys.into_parts();
 //!
-//! // Client RX should match server TX keys
+//! // Client Rx should match server Tx keys
 //! assert_eq!(client_rx, server_tx);
-//! // Client TX should match server RX keys
+//! // Client Tx should match server Rx keys
 //! assert_eq!(client_tx, server_rx);
 //! ```
 //!
@@ -114,9 +114,9 @@ pub mod protected {
     //! let (client_rx, client_tx) = client_session_keys.into_parts();
     //! let (server_rx, server_tx) = server_session_keys.into_parts();
     //!
-    //! // Client RX should match server TX keys
+    //! // Client Rx should match server Tx keys
     //! assert_eq!(client_rx.as_slice(), server_tx.as_slice());
-    //! // Client TX should match server RX keys
+    //! // Client Tx should match server Rx keys
     //! assert_eq!(client_tx.as_slice(), server_rx.as_slice());
     //! ```
     use super::*;
@@ -227,25 +227,25 @@ impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES>> Session<SessionKey> {
         (self.rx_key, self.tx_key)
     }
 
-    /// Returns a reference to a slice of the RX session key.
+    /// Returns a reference to a slice of the Rx session key.
     #[inline]
     pub fn rx_as_slice(&self) -> &[u8] {
         self.rx_key.as_slice()
     }
 
-    /// Returns a reference to a slice of the TX session key.
+    /// Returns a reference to a slice of the Tx session key.
     #[inline]
     pub fn tx_as_slice(&self) -> &[u8] {
         self.tx_key.as_slice()
     }
 
-    /// Returns a reference to an array of the RX session key.
+    /// Returns a reference to an array of the Rx session key.
     #[inline]
     pub fn rx_as_array(&self) -> &[u8; CRYPTO_KX_SESSIONKEYBYTES] {
         self.rx_key.as_array()
     }
 
-    /// Returns a reference to an array of the TX session key.
+    /// Returns a reference to an array of the Tx session key.
     #[inline]
     pub fn tx_as_array(&self) -> &[u8; CRYPTO_KX_SESSIONKEYBYTES] {
         self.tx_key.as_array()
