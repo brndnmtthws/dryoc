@@ -4,7 +4,9 @@ use crate::constants::{
     CRYPTO_CORE_HSALSA20_KEYBYTES, CRYPTO_CORE_HSALSA20_OUTPUTBYTES, CRYPTO_SCALARMULT_BYTES,
     CRYPTO_SCALARMULT_SCALARBYTES,
 };
-use crate::scalarmult_curve25519::crypto_scalarmult_curve25519_base;
+use crate::scalarmult_curve25519::{
+    crypto_scalarmult_curve25519, crypto_scalarmult_curve25519_base,
+};
 use crate::types::*;
 use crate::utils::load32_le;
 
@@ -29,6 +31,18 @@ pub fn crypto_scalarmult_base(
     n: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
 ) {
     crypto_scalarmult_curve25519_base(q, n)
+}
+
+/// Computes a shared secret `q`, given `n`, our secret key, and `p`, their
+/// public key, using a Diffie-Hellman key exchange.
+///
+/// Compatible with libsodium's `crypto_scalarmult`.
+pub fn crypto_scalarmult(
+    q: &mut [u8; CRYPTO_SCALARMULT_BYTES],
+    n: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_BYTES],
+) {
+    crypto_scalarmult_curve25519(q, n, p)
 }
 
 #[inline]
@@ -219,6 +233,28 @@ mod tests {
             let ge = scalarmult_base(&Scalar::from_slice(&sk).unwrap());
 
             assert_eq!(encode(ge.as_ref()), encode(public_key));
+        }
+    }
+
+    #[test]
+    fn test_crypto_scalarmult() {
+        use base64::encode;
+        for _ in 0..20 {
+            use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult, GroupElement, Scalar};
+
+            let (_our_pk, our_sk) = crypto_box_keypair();
+            let (their_pk, _their_sk) = crypto_box_keypair();
+
+            let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+            crypto_scalarmult(&mut shared_secret, &our_sk, &their_pk);
+
+            let ge = scalarmult(
+                &Scalar::from_slice(&our_sk).unwrap(),
+                &GroupElement::from_slice(&their_pk).unwrap(),
+            )
+            .expect("scalarmult failed");
+
+            assert_eq!(encode(ge.as_ref()), encode(shared_secret));
         }
     }
 

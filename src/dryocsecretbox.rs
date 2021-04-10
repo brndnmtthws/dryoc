@@ -7,8 +7,8 @@
 //! You should use a [`DryocSecretBox`] when you want to:
 //!
 //! * exchange messages between two or more parties
-//! * use a shared secret, including a passphrase (which can be used to derive a
-//!   secret key using `crypto_pwhash_*`)
+//! * use a shared secret, which could be pre-shared, or derived using [`Kdf`],
+//!   [`Kx`], or from a passphrase using a password hash
 //!
 //! # Rustaceous API example
 //!

@@ -11,8 +11,8 @@
 //! * send messages in a particular sequence, and authenticate the order of
 //!   messages
 //! * provide a way to determine the start and end of a sequence of messages
-//! * use a shared secret, such as a passphrase, which can be used to derive a
-//!   secret key using `crypto_pwhash_*`
+//! * use a shared secret, which could be pre-shared, or derived using [`Kdf`],
+//!   [`Kx`], or from a passphrase using a password hash
 //!
 //! # Rustaceous API example
 //!

@@ -3,7 +3,7 @@
 //! [`Kdf`] implements libsodium's key derivation functions, based on the
 //! Blake2b hash function.
 //!
-//! You should use [`Kdf`] when you want to
+//! You should use [`Kdf`] when you want to:
 //!
 //! * create many subkeys from a main key, without having to risk leaking the
 //!   main key
@@ -24,6 +24,11 @@
 //! let subkey = key.derive_subkey_to_vec(subkey_id).expect("derive failed");
 //! println!("Subkey {}: {}", subkey_id, encode(&subkey));
 //! ```
+//!
+//! ## Additional resources
+//!
+//! * See <https://doc.libsodium.org/key_derivation> for additional details on
+//!   key derivation
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -44,7 +49,7 @@ pub type Context = StackByteArray<CRYPTO_KDF_CONTEXTBYTES>;
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
-/// Key derivation implemantation based on Blake2b, compatible with libsodium's
+/// Key derivation implementation based on Blake2b, compatible with libsodium's
 /// `crypto_kdf_*` functions.
 pub struct Kdf<Key: ByteArray<CRYPTO_KDF_KEYBYTES>, Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES>> {
     main_key: Key,

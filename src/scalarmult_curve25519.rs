@@ -11,5 +11,18 @@ pub(crate) fn crypto_scalarmult_curve25519_base(
     let secret_key = DalekSecretKey::from(*n);
     let public_key = DalekPublicKey::from(&secret_key);
 
-    q.copy_from_slice(&public_key.to_bytes());
+    q.copy_from_slice(public_key.as_bytes());
+}
+
+pub(crate) fn crypto_scalarmult_curve25519(
+    q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+) {
+    let secret_key = DalekSecretKey::from(*n);
+    let public_key = DalekPublicKey::from(*p);
+
+    let shared_secret = secret_key.diffie_hellman(&public_key);
+
+    q.copy_from_slice(shared_secret.as_bytes());
 }

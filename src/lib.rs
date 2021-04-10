@@ -62,6 +62,7 @@
 //! | Generic hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
 //! | Key derivation | [`Kdf`](kdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation) |
+//! | Key exchange | [`Kx`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //!
 //!
@@ -135,6 +136,7 @@ pub mod classic {
     /// Hash functions
     pub mod crypto_hash;
     pub mod crypto_kdf;
+    pub mod crypto_kx;
     pub mod crypto_onetimeauth;
     pub mod crypto_secretbox;
     pub mod crypto_secretstream_xchacha20poly1305;
@@ -148,8 +150,9 @@ pub mod dryocsecretbox;
 pub mod dryocstream;
 pub mod generichash;
 pub mod kdf;
-/// # Public-key tools
+/// # Public/secret keypair tools
 pub mod keypair;
+pub mod kx;
 pub mod onetimeauth;
 /// # Random number generation utilities
 pub mod rng;

@@ -129,8 +129,8 @@ pub mod protected {
     //!
     //! // Generate a random sender and recipient keypair, into locked, readonly
     //! // memory.
-    //! let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
-    //! let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
+    //! let sender_keypair = LockedROKeyPair::gen_readonly_locked_keypair().expect("keypair");
+    //! let recipient_keypair = LockedROKeyPair::gen_readonly_locked_keypair().expect("keypair");
     //!
     //! // Generate a random nonce, into locked, readonly memory.
     //! let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
@@ -180,6 +180,9 @@ pub mod protected {
     /// Heap-allocated, page-aligned public/secret keypair for
     /// authenticated public-key boxes, for use with protected memory
     pub type LockedKeyPair = crate::keypair::KeyPair<Locked<PublicKey>, Locked<SecretKey>>;
+    /// Heap-allocated, page-aligned public/secret keypair for
+    /// authenticated public-key boxes, for use with protected memory
+    pub type LockedROKeyPair = crate::keypair::KeyPair<LockedRO<PublicKey>, LockedRO<SecretKey>>;
     /// Locked [DryocBox], provided as a type alias for convenience.
     pub type LockedBox = DryocBox<Locked<PublicKey>, Locked<Mac>, LockedBytes>;
 }
@@ -193,11 +196,11 @@ pub mod protected {
 ///
 /// Refer to [crate::dryocbox] for sample usage.
 pub struct DryocBox<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
     Data: Bytes,
 > {
-    ephemeral_pk: Option<PublicKey>,
+    ephemeral_pk: Option<EphemeralPublicKey>,
     tag: Mac,
     data: Data,
 }
@@ -206,22 +209,23 @@ pub struct DryocBox<
 pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
 
 impl<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     Mac: NewByteArray<CRYPTO_BOX_MACBYTES>,
     Data: NewBytes + ResizableBytes,
-> DryocBox<PublicKey, Mac, Data>
+> DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [DryocBox] with ciphertext and tag.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SenderSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
         message: &Message,
         nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
+        recipient_public_key: &RecipientPublicKey,
+        sender_secret_key: &SenderSecretKey,
     ) -> Result<Self, Error> {
         use crate::classic::crypto_box::crypto_box_detached;
 
@@ -247,10 +251,10 @@ impl<
 }
 
 impl<
-    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    EphemeralPublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     Mac: NewByteArray<CRYPTO_BOX_MACBYTES>,
     Data: NewBytes + ResizableBytes,
-> DryocBox<PublicKey, Mac, Data>
+> DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
     /// key and nonce. Returns a new [DryocBox] with ciphertext, tag, and
@@ -270,7 +274,7 @@ impl<
         let (epk, esk) = crypto_box_keypair();
         crypto_box_seal_nonce(nonce.as_mut_array(), &epk, recipient_public_key.as_array());
 
-        let mut pk = PublicKey::new_byte_array();
+        let mut pk = EphemeralPublicKey::new_byte_array();
         pk.copy_from_slice(&epk);
 
         let mut dryocbox = Self {
@@ -296,10 +300,10 @@ impl<
 
 impl<
     'a,
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
     Mac: ByteArray<CRYPTO_BOX_MACBYTES> + std::convert::TryFrom<&'a [u8]>,
     Data: Bytes + From<&'a [u8]>,
-> DryocBox<PublicKey, Mac, Data>
+> DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Initializes a [`DryocBox`] from a slice. Expects the first
     /// [`CRYPTO_BOX_MACBYTES`] bytes to contain the message authentication tag,
@@ -337,7 +341,7 @@ impl<
             let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
             Ok(Self {
                 ephemeral_pk: Some(
-                    PublicKey::try_from(epk)
+                    EphemeralPublicKey::try_from(epk)
                         .map_err(|_e| dryoc_error!("invalid ephemeral public key"))?,
                 ),
                 tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
@@ -348,14 +352,14 @@ impl<
 }
 
 impl<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
     Data: Bytes,
-> DryocBox<PublicKey, Mac, Data>
+> DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Returns a new box with `tag`, `data` and (optional) `ephemeral_pk`,
     /// consuming each.
-    pub fn from_parts(tag: Mac, data: Data, ephemeral_pk: Option<PublicKey>) -> Self {
+    pub fn from_parts(tag: Mac, data: Data, ephemeral_pk: Option<EphemeralPublicKey>) -> Self {
         Self {
             ephemeral_pk,
             tag,
@@ -370,28 +374,29 @@ impl<
 
     /// Moves the tag, data, and (optional) ephemeral public key out of this
     /// instance, returning them as a tuple.
-    pub fn into_parts(self) -> (Mac, Data, Option<PublicKey>) {
+    pub fn into_parts(self) -> (Mac, Data, Option<EphemeralPublicKey>) {
         (self.tag, self.data, self.ephemeral_pk)
     }
 }
 
 impl<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
     Data: Bytes,
-> DryocBox<PublicKey, Mac, Data>
+> DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Decrypts this box using `nonce`, `recipient_secret_key`, and
     /// `sender_public_key`, returning the decrypted message upon success.
     pub fn decrypt<
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        SenderPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
         Output: ResizableBytes + NewBytes,
     >(
         &self,
         nonce: &Nonce,
-        sender_public_key: &PublicKey,
-        recipient_secret_key: &SecretKey,
+        sender_public_key: &SenderPublicKey,
+        recipient_secret_key: &RecipientSecretKey,
     ) -> Result<Output, Error> {
         use crate::classic::crypto_box::*;
 
@@ -413,12 +418,13 @@ impl<
     /// Decrypts this sealed box using `recipient_secret_key`, and
     /// returning the decrypted message upon success.
     pub fn unseal<
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
         Output: ResizableBytes + NewBytes,
     >(
         &self,
-        recipient_public_key: &PublicKey,
-        recipient_secret_key: &SecretKey,
+        recipient_public_key: &RecipientPublicKey,
+        recipient_secret_key: &RecipientSecretKey,
     ) -> Result<Output, Error> {
         use crate::classic::crypto_box::*;
 
@@ -651,7 +657,7 @@ mod tests {
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
 
-            DryocBox::decrypt::<Nonce, SecretKey, Vec<u8>>(
+            DryocBox::decrypt::<Nonce, PublicKey, SecretKey, Vec<u8>>(
                 &dryocbox,
                 &nonce,
                 &invalid_key_copy_1.public_key,
@@ -680,7 +686,12 @@ mod tests {
 
             let dryocbox: VecBox =
                 DryocBox::from_bytes(b"trollolllololololollollolololololol").expect("ok");
-            DryocBox::decrypt::<Nonce, crate::classic::crypto_box::SecretKey, Vec<u8>>(
+            DryocBox::decrypt::<
+                Nonce,
+                crate::classic::crypto_box::PublicKey,
+                crate::classic::crypto_box::SecretKey,
+                Vec<u8>,
+            >(
                 &dryocbox,
                 &nonce,
                 &invalid_key_copy_1.public_key,
