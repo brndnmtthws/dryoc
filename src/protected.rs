@@ -1164,8 +1164,11 @@ impl<const LENGTH: usize> From<&[u8; LENGTH]> for HeapByteArray<LENGTH> {
 }
 
 impl<const LENGTH: usize> From<[u8; LENGTH]> for HeapByteArray<LENGTH> {
-    fn from(src: [u8; LENGTH]) -> Self {
-        Self::from(&src)
+    fn from(mut src: [u8; LENGTH]) -> Self {
+        let ret = Self::from(&src);
+        // need to zeroize this input
+        src.zeroize();
+        ret
     }
 }
 

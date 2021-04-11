@@ -1,9 +1,14 @@
+//! # Public/secret keypair tools
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
+use crate::constants::{
+    CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES, CRYPTO_KX_SESSIONKEYBYTES,
+};
 use crate::error::Error;
+use crate::kx;
 use crate::types::*;
 
 #[cfg_attr(
@@ -38,7 +43,6 @@ impl<
 }
 
 impl<
-    'a,
     PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + From<[u8; CRYPTO_BOX_PUBLICKEYBYTES]>,
     SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + From<[u8; CRYPTO_BOX_SECRETKEYBYTES]>,
 > KeyPair<PublicKey, SecretKey>
@@ -69,6 +73,30 @@ impl<
             secret_key: SecretKey::try_from(secret_key)
                 .map_err(|_e| dryoc_error!("invalid secret key"))?,
         })
+    }
+}
+
+impl<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+> KeyPair<PublicKey, SecretKey>
+{
+    /// Creates new client session keys using this keypair and
+    /// `server_public_key`, assuming this keypair is for the client.
+    pub fn kx_new_client_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES>>(
+        &self,
+        server_public_key: &PublicKey,
+    ) -> Result<kx::Session<SessionKey>, Error> {
+        kx::Session::new_client(self, server_public_key)
+    }
+
+    /// Creates new server session keys using this keypair and
+    /// `client_public_key`, assuming this keypair is for the server.
+    pub fn kx_new_server_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES>>(
+        &self,
+        client_public_key: &PublicKey,
+    ) -> Result<kx::Session<SessionKey>, Error> {
+        kx::Session::new_server(self, client_public_key)
     }
 }
 

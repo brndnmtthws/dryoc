@@ -150,7 +150,6 @@ pub mod dryocsecretbox;
 pub mod dryocstream;
 pub mod generichash;
 pub mod kdf;
-/// # Public/secret keypair tools
 pub mod keypair;
 pub mod kx;
 pub mod onetimeauth;
