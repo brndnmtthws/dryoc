@@ -55,9 +55,9 @@ implementation:
 * [x] [Key derivation](https://doc.libsodium.org/key_derivation) (`crypto_kdf_*`)
 * [x] [Key exchange](https://doc.libsodium.org/key_exchange) (`crypto_kx_*`)
 * [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures) (`crypto_sign_*`)
+* [ ] [Ed25519 to Curve25519](https://doc.libsodium.org/advanced/ed25519-curve25519) (`crypto_sign_ed25519_*`)
 * [ ] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing)
 * [ ] [Password hashing](https://doc.libsodium.org/password_hashing/default_phf)
-* [ ] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 
 The following libsodium features are either incomplete, not exposed as public
 APIs, or not implemented; you may find equivalent functionality in other
@@ -67,8 +67,7 @@ crates:
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
 * [Advanced features](https://doc.libsodium.org/advanced):
   * [Scrypt](https://doc.libsodium.org/advanced/scrypt) (use [scrypt](https://crates.io/crates/scrypt) crate directly instead)
-  * [Ed25519 to Curve25519](https://doc.libsodium.org/advanced/ed25519-curve25519) (try [dalek.rs](https://dalek.rs/))
-  * [Finite field arithmetic](https://doc.libsodium.org/advanced/point-arithmetic) (try [dalek.rs](https://dalek.rs/))
+  * [Finite field arithmetic](https://doc.libsodium.org/advanced/point-arithmetic) (try the [curve25519-dalek](https://crates.io/crates/curve25519-dalek) crate)
 
 ## Stargazers over time
 
