@@ -77,7 +77,9 @@
 //!
 //! ## Security notes
 //!
-//! This crate has not been audited by any 3rd parties.
+//! This crate has not been audited by any 3rd parties. It uses well-known
+//! implementations of the underlying algorithms which have been previously
+//! verified as using constant-time operations.
 //!
 //! With that out of the way, the deterministic nature of cryptography and
 //! extensive testing used in this crate means it's relatively safe to use,
@@ -140,6 +142,8 @@ pub mod classic {
     pub mod crypto_onetimeauth;
     pub mod crypto_secretbox;
     pub mod crypto_secretstream_xchacha20poly1305;
+    pub mod crypto_sign;
+    pub mod crypto_sign_ed25519;
 }
 
 pub mod auth;
