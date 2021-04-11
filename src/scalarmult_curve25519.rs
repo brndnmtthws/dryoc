@@ -9,7 +9,7 @@ use crate::constants::{
 fn clamp(
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
 ) -> [u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES] {
-    let mut s = n.clone();
+    let mut s = *n;
     s[0] &= 248;
     s[31] &= 127;
     s[31] |= 64;
