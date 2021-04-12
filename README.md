@@ -1,5 +1,7 @@
 [![Docs](https://docs.rs/dryoc/badge.svg)](https://docs.rs/dryoc) [![Crates.io](https://img.shields.io/crates/v/dryoc)](https://crates.io/crates/dryoc) [![Build & test](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml) [![Codecov](https://img.shields.io/codecov/c/github/brndnmtthws/dryoc)](https://app.codecov.io/gh/brndnmtthws/dryoc/)
 
+[💬 Join the Matrix chat](https://matrix.to/#/#dryoc:frens.io)
+
 # dryoc: Don't Roll Your Own Crypto™<sup><sup>[1](#footnotes)</sup></sup>
 
 dryoc is a pure-Rust, general-purpose cryptography library. It's provides an
