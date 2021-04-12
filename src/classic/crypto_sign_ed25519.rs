@@ -150,7 +150,7 @@ pub(crate) fn crypto_sign_ed25519_detached(
 
         let k = Scalar::from_bytes_mod_order_wide(&hram);
         let clamped = clamp_hash(az);
-        let sig = &(&k * &Scalar::from_bits(clamped)) + &r;
+        let sig = (k * Scalar::from_bits(clamped)) + r;
 
         signature[32..].copy_from_slice(sig.as_bytes());
 
