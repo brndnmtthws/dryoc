@@ -15,7 +15,7 @@
 //! This library tries to make it easy to give the computer the correct
 //! instructions, and it does so by providing well-known implementations of
 //! general-purpose cryptography functions, in an API that's relatively easy to
-//! use, type safe, and hard to use wrong.
+//! use, type safe, and hard to use incorrectly.
 //!
 //! As the name of this library implies, one should avoid trying to "roll their
 //! own crypto", as it often results in avoidable mistakes. In the context of
@@ -66,7 +66,6 @@
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //!
 //!
-//!
 //! ## Using Serde
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
@@ -87,6 +86,11 @@
 //! _incredibly_ safe (as far as cryptography libraries go) thanks to the
 //! features provided by the API of this crate, and those provided by the Rust
 //! language itself.
+//!
+//! ## Acknowledgements
+//!
+//! Big ups to the authors and contributors of [NaCl](https://nacl.cr.yp.to/) and [libsodium](https://github.com/jedisct1/libsodium) for paving the
+//! way toward better cryptography libraries.
 //!
 //! [^1]: Not actually trademarked.
 //!
