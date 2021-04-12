@@ -36,6 +36,7 @@ use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
 use crate::error::Error;
+use crate::rng::copy_randombytes;
 use crate::types::*;
 
 /// Secret box message authentication code.
@@ -44,6 +45,11 @@ pub type Mac = [u8; CRYPTO_SECRETBOX_MACBYTES];
 pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
 /// Key (or secret) for secret key authenticated boxes.
 pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
+
+/// In-place variant of [`crypto_secretbox_keygen`]
+pub fn crypto_secretbox_keygen_inplace(key: &mut Key) {
+    copy_randombytes(key)
+}
 
 /// Generates a random key using
 /// [`copy_randombytes`](crate::rng::copy_randombytes).

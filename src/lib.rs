@@ -49,10 +49,10 @@
 //! API.
 //!
 //! It's recommended that you use the Rustaceous API unless you have strong
-//! feelings about using the Classic API. The classic API includes some pitfalls
+//! feelings about using the Classic API. The Classic API includes some pitfalls
 //! and traps that are also present in the original libsodium API, and unless
 //! you're extra careful you could make mistakes. With the Rustaceous API, it's
-//! harder to make mistakes thanks to strict safety features.
+//! harder to make mistakes thanks to strict type and safety features.
 //!
 //! | Feature | Rustaceous API | Classic API | Libsodium Docs |
 //! |-|-|-|-|
@@ -63,6 +63,7 @@
 //! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
 //! | Key derivation | [`Kdf`](kdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation) |
 //! | Key exchange | [`Session`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
+//! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/public-key_signatures) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //!
 //!
@@ -164,6 +165,7 @@ pub mod onetimeauth;
 /// # Random number generation utilities
 pub mod rng;
 pub mod sha512;
+pub mod sign;
 /// # Base type definitions
 pub mod types;
 /// # Various utility functions

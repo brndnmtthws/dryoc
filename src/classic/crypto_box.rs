@@ -62,6 +62,20 @@ pub type PublicKey = [u8; CRYPTO_BOX_PUBLICKEYBYTES];
 /// Secret key for public key authenticated crypto boxes.
 pub type SecretKey = [u8; CRYPTO_BOX_SECRETKEYBYTES];
 
+/// In-place variant of [`crypto_box_keypair`]
+pub fn crypto_box_keypair_inplace(public_key: &mut PublicKey, secret_key: &mut SecretKey) {
+    crypto_box_curve25519xsalsa20poly1305_keypair_inplace(public_key, secret_key)
+}
+
+/// In-place variant of [`crypto_box_seed_keypair`]
+pub fn crypto_box_seed_keypair_inplace(
+    public_key: &mut PublicKey,
+    secret_key: &mut SecretKey,
+    seed: &[u8],
+) {
+    crypto_box_curve25519xsalsa20poly1305_seed_keypair_inplace(public_key, secret_key, seed)
+}
+
 /// Generates a public/secret key pair using OS provided data using
 /// [`rand_core::OsRng`].
 pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {

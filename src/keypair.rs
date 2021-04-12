@@ -1,9 +1,13 @@
 //! # Public/secret keypair tools
+//!
+//! See the [protected] mod for details on usage with protected memory.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
 use crate::constants::{
     CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES, CRYPTO_KX_SESSIONKEYBYTES,
 };
@@ -13,9 +17,9 @@ use crate::types::*;
 
 #[cfg_attr(
     feature = "serde",
-    derive(Zeroize, Serialize, Deserialize, Debug, Clone, PartialEq)
+    derive(Zeroize, Serialize, Deserialize, Debug, Clone)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone, PartialEq))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone))]
 /// Public/private keypair for use with [`crate::dryocbox::DryocBox`], aka
 /// libsodium box
 pub struct KeyPair<
@@ -33,28 +37,66 @@ impl<
     SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
 > KeyPair<PublicKey, SecretKey>
 {
-    /// Creates a new, unititialized keypair
+    /// Creates a new, empty keypair.
     pub fn new() -> Self {
         Self {
             public_key: PublicKey::new_byte_array(),
             secret_key: SecretKey::new_byte_array(),
         }
     }
+
+    /// Generates a random keypair.
+    pub fn gen() -> Self {
+        use crate::classic::crypto_box::crypto_box_keypair_inplace;
+
+        let mut public_key = PublicKey::new_byte_array();
+        let mut secret_key = SecretKey::new_byte_array();
+        crypto_box_keypair_inplace(public_key.as_mut_array(), secret_key.as_mut_array());
+
+        Self {
+            public_key,
+            secret_key,
+        }
+    }
+
+    /// Derives a keypair from `secret_key`, and consumes it, and returns a new
+    /// keypair.
+    pub fn from_secret_key(secret_key: SecretKey) -> Self {
+        use crate::classic::crypto_core::crypto_scalarmult_base;
+
+        let mut public_key = PublicKey::new_byte_array();
+        crypto_scalarmult_base(public_key.as_mut_array(), secret_key.as_array());
+
+        Self {
+            public_key,
+            secret_key,
+        }
+    }
+
+    /// Derives a keypair from `seed`, returning
+    /// a new keypair.
+    pub fn from_seed<Seed: Bytes>(seed: &Seed) -> Self {
+        let mut public_key = PublicKey::new_byte_array();
+        let mut secret_key = SecretKey::new_byte_array();
+
+        crypto_box_seed_keypair_inplace(
+            public_key.as_mut_array(),
+            secret_key.as_mut_array(),
+            seed.as_slice(),
+        );
+
+        Self {
+            public_key,
+            secret_key,
+        }
+    }
 }
 
-impl<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + From<[u8; CRYPTO_BOX_PUBLICKEYBYTES]>,
-    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + From<[u8; CRYPTO_BOX_SECRETKEYBYTES]>,
-> KeyPair<PublicKey, SecretKey>
-{
-    /// Generates a random keypair
-    pub fn gen() -> Self {
-        use crate::classic::crypto_box::crypto_box_keypair;
-        let (pk, sk) = crypto_box_keypair();
-        Self {
-            public_key: PublicKey::from(pk),
-            secret_key: SecretKey::from(sk),
-        }
+impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>> {
+    /// Randomly generates a new keypair, using default types
+    /// (stack-allocated byte arrays). Provided for convenience.
+    pub fn gen_with_defaults() -> Self {
+        Self::gen()
     }
 }
 
@@ -103,25 +145,6 @@ impl<
 impl<
     PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
     SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-> KeyPair<PublicKey, SecretKey>
-{
-    /// Derives a keypair from `secret_key`, and consume it
-    pub fn from_secret_key(secret_key: SecretKey) -> Self {
-        use crate::classic::crypto_core::crypto_scalarmult_base;
-
-        let mut public_key = PublicKey::new_byte_array();
-        crypto_scalarmult_base(public_key.as_mut_array(), secret_key.as_array());
-
-        Self {
-            public_key,
-            secret_key,
-        }
-    }
-}
-
-impl<
-    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
 > Default for KeyPair<PublicKey, SecretKey>
 {
     fn default() -> Self {
@@ -134,7 +157,8 @@ impl<
 pub mod protected {
     //! #  Protected memory for [`KeyPair`]
     use super::*;
-    use crate::protected::*;
+    use crate::classic::crypto_box::crypto_box_keypair_inplace;
+    pub use crate::protected::*;
 
     impl
         KeyPair<
@@ -142,7 +166,7 @@ pub mod protected {
             Locked<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
         >
     {
-        /// Returns a new locked byte array.
+        /// Returns a new locked keypair.
         pub fn new_locked_keypair() -> Result<Self, std::io::Error> {
             Ok(Self {
                 public_key: HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?,
@@ -150,15 +174,14 @@ pub mod protected {
             })
         }
 
-        /// Returns a new locked byte array filled with random data.
+        /// Returns a new randomly generated locked keypair.
         pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
-            use crate::classic::crypto_core::crypto_scalarmult_base;
-            use crate::rng::copy_randombytes;
-
             let mut res = Self::new_locked_keypair()?;
-            copy_randombytes(res.secret_key.as_mut_slice());
 
-            crypto_scalarmult_base(res.public_key.as_mut_array(), res.secret_key.as_array());
+            crypto_box_keypair_inplace(
+                res.public_key.as_mut_array(),
+                res.secret_key.as_mut_array(),
+            );
 
             Ok(res)
         }
@@ -170,16 +193,12 @@ pub mod protected {
             LockedRO<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
         >
     {
-        /// Returns a new locked byte array filled with random data.
+        /// Returns a new randomly generated locked, read-only keypair.
         pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
-            use crate::classic::crypto_core::crypto_scalarmult_base;
-            use crate::rng::copy_randombytes;
-
             let mut public_key = HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?;
 
-            copy_randombytes(secret_key.as_mut_slice());
-            crypto_scalarmult_base(public_key.as_mut_array(), secret_key.as_array());
+            crypto_box_keypair_inplace(public_key.as_mut_array(), secret_key.as_mut_array());
 
             let public_key = public_key.mprotect_readonly()?;
             let secret_key = secret_key.mprotect_readonly()?;
@@ -189,6 +208,26 @@ pub mod protected {
                 secret_key,
             })
         }
+    }
+}
+
+impl<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+> PartialEq<KeyPair<PublicKey, SecretKey>> for KeyPair<PublicKey, SecretKey>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.public_key
+            .as_slice()
+            .ct_eq(other.public_key.as_slice())
+            .unwrap_u8()
+            == 1
+            && self
+                .secret_key
+                .as_slice()
+                .ct_eq(other.secret_key.as_slice())
+                .unwrap_u8()
+                == 1
     }
 }
 

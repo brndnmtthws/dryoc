@@ -86,11 +86,12 @@
 //! * For secret-key based encryption, see
 //!   [`DryocSecretBox`](crate::dryocsecretbox)
 //! * For stream encryption, see [`DryocStream`](crate::dryocstream)
-//! * See [protected] for an example using the protected memory features with
-//!   [`DryocBox`]
+//! * See the [protected] mod for an example using the protected memory features
+//!   with [`DryocBox`]
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::constants::{
@@ -165,23 +166,23 @@ pub mod protected {
     pub use crate::types::*;
 
     /// Heap-allocated, page-aligned public key for authenticated public-key
-    /// boxes, for use with protected memory
+    /// boxes, for use with protected memory.
     pub type PublicKey = HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
     /// Heap-allocated, page-aligned secret key for authenticated public-key
-    /// boxes, for use with protected memory
+    /// boxes, for use with protected memory.
     pub type SecretKey = HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
     /// Heap-allocated, page-aligned nonce for authenticated public-key
-    /// boxes, for use with protected memory
+    /// boxes, for use with protected memory.
     pub type Nonce = HeapByteArray<CRYPTO_BOX_NONCEBYTES>;
     /// Heap-allocated, page-aligned message authentication code for
-    /// authenticated public-key boxes, for use with protected memory
+    /// authenticated public-key boxes, for use with protected memory.
     pub type Mac = HeapByteArray<CRYPTO_BOX_MACBYTES>;
 
     /// Heap-allocated, page-aligned public/secret keypair for
-    /// authenticated public-key boxes, for use with protected memory
+    /// authenticated public-key boxes, for use with protected memory.
     pub type LockedKeyPair = crate::keypair::KeyPair<Locked<PublicKey>, Locked<SecretKey>>;
     /// Heap-allocated, page-aligned public/secret keypair for
-    /// authenticated public-key boxes, for use with protected memory
+    /// authenticated public-key boxes, for use with protected memory.
     pub type LockedROKeyPair = crate::keypair::KeyPair<LockedRO<PublicKey>, LockedRO<SecretKey>>;
     /// Locked [DryocBox], provided as a type alias for convenience.
     pub type LockedBox = DryocBox<Locked<PublicKey>, Locked<Mac>, LockedBytes>;
@@ -377,14 +378,7 @@ impl<
     pub fn into_parts(self) -> (Mac, Data, Option<EphemeralPublicKey>) {
         (self.tag, self.data, self.ephemeral_pk)
     }
-}
 
-impl<
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: Bytes,
-> DryocBox<EphemeralPublicKey, Mac, Data>
-{
     /// Decrypts this box using `nonce`, `recipient_secret_key`, and
     /// `sender_public_key`, returning the decrypted message upon success.
     pub fn decrypt<
@@ -557,6 +551,40 @@ impl<
             ephemeral_pk: Some(ephemeral_pk),
             tag,
             data: input.into(),
+        }
+    }
+}
+
+impl<
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
+    Data: Bytes,
+> PartialEq<DryocBox<EphemeralPublicKey, Mac, Data>> for DryocBox<EphemeralPublicKey, Mac, Data>
+{
+    fn eq(&self, other: &Self) -> bool {
+        if let Some(our_epk) = &self.ephemeral_pk {
+            if let Some(their_epk) = &other.ephemeral_pk {
+                self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
+                    && self
+                        .data
+                        .as_slice()
+                        .ct_eq(other.data.as_slice())
+                        .unwrap_u8()
+                        == 1
+                    && our_epk.as_slice().ct_eq(their_epk.as_slice()).unwrap_u8() == 1
+            } else {
+                false
+            }
+        } else if other.ephemeral_pk.is_none() {
+            self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
+                && self
+                    .data
+                    .as_slice()
+                    .ct_eq(other.data.as_slice())
+                    .unwrap_u8()
+                    == 1
+        } else {
+            false
         }
     }
 }

@@ -24,35 +24,68 @@ use crate::constants::{
 use crate::error::Error;
 use crate::sha512::Sha512;
 
-/// Type alias for an Ed25519 public key
+/// Type alias for an Ed25519 public key.
 pub type PublicKey = [u8; CRYPTO_SIGN_ED25519_PUBLICKEYBYTES];
-/// Type alias for an Ed25519 secret key with seed bytes
+/// Type alias for an Ed25519 secret key with seed bytes.
 pub type SecretKey = [u8; CRYPTO_SIGN_ED25519_SECRETKEYBYTES];
+/// Type alias for an Ed25519 signature.
+pub type Signature = [u8; CRYPTO_SIGN_ED25519_BYTES];
+
+const DOM2PREFIX: &[u8] = b"SigEd25519 no Ed25519 collisions\x01\x00";
+
+/// In-place variant of [`crypto_sign_ed25519_seed_keypair`].
+#[inline]
+pub(crate) fn crypto_sign_ed25519_seed_keypair_inplace(
+    public_key: &mut PublicKey,
+    secret_key: &mut SecretKey,
+    seed: &[u8; CRYPTO_SIGN_ED25519_SEEDBYTES],
+) {
+    let hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
+
+    let mut sk = Scalar::from_bits(clamp_hash(hash));
+
+    let pk = (&ED25519_BASEPOINT_TABLE * &sk).compress();
+    secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
+    secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..].copy_from_slice(pk.as_bytes());
+
+    public_key.copy_from_slice(pk.as_bytes());
+
+    sk.zeroize();
+}
 
 /// Generates an Ed25519 keypair from `seed` which can be used for signing
 /// messages.
-pub fn crypto_sign_ed25519_seed_keypair(
+pub(crate) fn crypto_sign_ed25519_seed_keypair(
     seed: &[u8; CRYPTO_SIGN_ED25519_SEEDBYTES],
 ) -> (PublicKey, SecretKey) {
-    let hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
-
-    let sk = Scalar::from_bits(clamp_hash(hash));
-
-    let public_key = (&ED25519_BASEPOINT_TABLE * &sk).compress();
+    let mut public_key = PublicKey::default();
     let mut secret_key = [0u8; CRYPTO_SIGN_ED25519_SECRETKEYBYTES];
-    secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
-    secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..].copy_from_slice(public_key.as_bytes());
 
-    (public_key.to_bytes(), secret_key)
+    crypto_sign_ed25519_seed_keypair_inplace(&mut public_key, &mut secret_key, seed);
+
+    (public_key, secret_key)
+}
+
+/// In-place variant of [`crypto_sign_ed25519_keypair`].
+#[inline]
+pub(crate) fn crypto_sign_ed25519_keypair_inplace(
+    public_key: &mut PublicKey,
+    secret_key: &mut SecretKey,
+) {
+    use crate::rng::copy_randombytes;
+    let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
+    copy_randombytes(&mut seed);
+    crypto_sign_ed25519_seed_keypair_inplace(public_key, secret_key, &seed)
 }
 
 /// Generates a random Ed25519 keypair which can be used for signing
 /// messages.
-pub fn crypto_sign_ed25519_keypair() -> (PublicKey, SecretKey) {
-    use crate::rng::copy_randombytes;
-    let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
-    copy_randombytes(&mut seed);
-    crypto_sign_ed25519_seed_keypair(&seed)
+pub(crate) fn crypto_sign_ed25519_keypair() -> (PublicKey, SecretKey) {
+    let mut public_key = PublicKey::default();
+    let mut secret_key = [0u8; CRYPTO_SIGN_ED25519_SECRETKEYBYTES];
+    crypto_sign_ed25519_keypair_inplace(&mut public_key, &mut secret_key);
+
+    (public_key, secret_key)
 }
 
 fn clamp_hash(
@@ -118,9 +151,19 @@ pub(crate) fn crypto_sign_ed25519(
 }
 
 pub(crate) fn crypto_sign_ed25519_detached(
-    signature: &mut [u8; CRYPTO_SIGN_ED25519_BYTES],
+    signature: &mut Signature,
     message: &[u8],
     secret_key: &SecretKey,
+) -> Result<(), Error> {
+    crypto_sign_ed25519_detached_impl(signature, message, secret_key, false)
+}
+
+#[inline]
+fn crypto_sign_ed25519_detached_impl(
+    signature: &mut Signature,
+    message: &[u8],
+    secret_key: &SecretKey,
+    prehashed: bool,
 ) -> Result<(), Error> {
     if signature.len() != CRYPTO_SIGN_ED25519_BYTES {
         Err(dryoc_error!(format!(
@@ -132,6 +175,9 @@ pub(crate) fn crypto_sign_ed25519_detached(
         let mut az: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&secret_key[..32]);
 
         let mut hasher = Sha512::new();
+        if prehashed {
+            hasher.update(DOM2PREFIX);
+        }
         hasher.update(&az[32..]);
         hasher.update(message);
         let mut nonce: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
@@ -144,6 +190,9 @@ pub(crate) fn crypto_sign_ed25519_detached(
         signature[..32].copy_from_slice(big_r.as_bytes());
 
         let mut hasher = Sha512::new();
+        if prehashed {
+            hasher.update(DOM2PREFIX);
+        }
         hasher.update(signature);
         hasher.update(message);
         let hram: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
@@ -162,9 +211,18 @@ pub(crate) fn crypto_sign_ed25519_detached(
 }
 
 pub(crate) fn crypto_sign_ed25519_verify_detached(
-    signature: &[u8; CRYPTO_SIGN_ED25519_BYTES],
+    signature: &Signature,
     message: &[u8],
     public_key: &PublicKey,
+) -> Result<(), Error> {
+    crypto_sign_ed25519_verify_detached_impl(signature, message, public_key, false)
+}
+
+fn crypto_sign_ed25519_verify_detached_impl(
+    signature: &Signature,
+    message: &[u8],
+    public_key: &PublicKey,
+    prehashed: bool,
 ) -> Result<(), Error> {
     let s = Scalar::from_bits(
         *<&[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]>::try_from(&signature[32..])
@@ -185,7 +243,11 @@ pub(crate) fn crypto_sign_ed25519_verify_detached(
     if pk.is_small_order() {
         return Err(dryoc_error!("bad public key"));
     }
+
     let mut hasher = Sha512::new();
+    if prehashed {
+        hasher.update(DOM2PREFIX);
+    }
     hasher.update(&signature[..32]);
     hasher.update(public_key);
     hasher.update(message);
@@ -227,6 +289,42 @@ pub(crate) fn crypto_sign_ed25519_open(
         message.copy_from_slice(sm);
         Ok(())
     }
+}
+
+pub(crate) struct Ed25519SignerState {
+    hasher: Sha512,
+}
+
+pub(crate) fn crypto_sign_ed25519ph_init() -> Ed25519SignerState {
+    Ed25519SignerState {
+        hasher: Sha512::new(),
+    }
+}
+
+pub(crate) fn crypto_sign_ed25519ph_update(state: &mut Ed25519SignerState, message: &[u8]) {
+    state.hasher.update(message)
+}
+
+pub(crate) fn crypto_sign_ed25519ph_final_create(
+    state: Ed25519SignerState,
+    signature: &mut Signature,
+    secret_key: &SecretKey,
+) -> Result<(), Error> {
+    let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = state.hasher.finalize();
+    let res = crypto_sign_ed25519_detached_impl(signature, &hash, secret_key, true);
+    hash.zeroize();
+    res
+}
+
+pub(crate) fn crypto_sign_ed25519ph_final_verify(
+    state: Ed25519SignerState,
+    signature: &Signature,
+    public_key: &PublicKey,
+) -> Result<(), Error> {
+    let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = state.hasher.finalize();
+    let res = crypto_sign_ed25519_verify_detached_impl(signature, &hash, public_key, true);
+    hash.zeroize();
+    res
 }
 
 #[cfg(test)]

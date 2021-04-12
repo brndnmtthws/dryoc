@@ -7,8 +7,11 @@
 //! You should use a [`DryocSecretBox`] when you want to:
 //!
 //! * exchange messages between two or more parties
-//! * use a shared secret, which could be pre-shared, or derived using [`Kdf`],
-//!   [`Kx`], or from a passphrase using a password hash
+//! * use a shared secret, which could be pre-shared, or derived using one or
+//!   more of:
+//!   * [`Kdf`](crate::kdf)
+//!   * [`Kx`](crate::kx)
+//!   * a passphrase with a strong password hashing function
 //!
 //! # Rustaceous API example
 //!
@@ -40,14 +43,15 @@
 //! ## Additional resources
 //!
 //! * See <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox>
-//!   for additional details on crypto boxes
+//!   for additional details on secret boxes
 //! * For public-key based encryption, see [`DryocBox`](crate::dryocbox)
 //! * For stream encryption, see [`DryocStream`](crate::dryocstream)
-//! * See [protected] for an example using the protected memory features with
-//!   [`DryocSecretBox`]
+//! * See the [protected] mod for an example using the protected memory features
+//!   with [`DryocSecretBox`]
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::constants::{
@@ -306,11 +310,8 @@ impl<
     }
 }
 
-impl<
-    'a,
-    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>,
-    Data: NewBytes + ResizableBytes + From<&'a [u8]>,
-> DryocSecretBox<Mac, Data>
+impl<'a, Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes + ResizableBytes + From<&'a [u8]>>
+    DryocSecretBox<Mac, Data>
 {
     /// Returns a new box with `data` and `tag`, with data copied from `input`
     /// and `tag` consumed.
@@ -319,6 +320,20 @@ impl<
             tag,
             data: input.into(),
         }
+    }
+}
+
+impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> PartialEq<DryocSecretBox<Mac, Data>>
+    for DryocSecretBox<Mac, Data>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
+            && self
+                .data
+                .as_slice()
+                .ct_eq(other.data.as_slice())
+                .unwrap_u8()
+                == 1
     }
 }
 
