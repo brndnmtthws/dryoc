@@ -272,8 +272,14 @@ mod tests {
             let mut so_xsk = [0u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES];
 
             unsafe {
-                so_crypto_sign_ed25519_pk_to_curve25519(&mut so_xpk as *mut u8, &pk as *const u8);
-                so_crypto_sign_ed25519_sk_to_curve25519(&mut so_xsk as *mut u8, &sk as *const u8);
+                so_crypto_sign_ed25519_pk_to_curve25519(
+                    so_xpk.as_mut_ptr() as *mut u8,
+                    pk.as_ptr() as *const u8,
+                );
+                so_crypto_sign_ed25519_sk_to_curve25519(
+                    so_xsk.as_mut_ptr() as *mut u8,
+                    sk.as_ptr() as *const u8,
+                );
             }
 
             assert_eq!(encode(xpk), encode(so_xpk));
