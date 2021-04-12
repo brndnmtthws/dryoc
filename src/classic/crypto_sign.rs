@@ -1,3 +1,58 @@
+//! # Public-key signatures
+//!
+//! This module implements libsodium's public-key signatures, based on Ed25519.
+//!
+//! ## Classic API example
+//!
+//! ```
+//! use dryoc::classic::crypto_sign::*;
+//! use dryoc::constants::CRYPTO_SIGN_BYTES;
+//!
+//! // Generate a random signing keypair
+//! let (public_key, secret_key) = crypto_sign_keypair();
+//! let message = b"These violent delights have violent ends...";
+//!
+//! // Signed message buffer needs to be correct length
+//! let mut signed_message = vec![0u8; message.len() + CRYPTO_SIGN_BYTES];
+//!
+//! // Sign the message, placing the result into `signed_message`
+//! crypto_sign(&mut signed_message, message, &secret_key).expect("sign failed");
+//!
+//! // Allocate a new buffer for opening the message
+//! let mut opened_message = vec![0u8; message.len()];
+//!
+//! // Open the signed message, verifying the signature
+//! crypto_sign_open(&mut opened_message, &signed_message, &public_key).expect("verify failed");
+//!
+//! assert_eq!(&opened_message, message);
+//!
+//! // Create an invalid message
+//! let mut invalid_signed_message = signed_message.clone();
+//! invalid_signed_message[5] ^= invalid_signed_message[6];
+//!
+//! // An invalid message can't be verified
+//! crypto_sign_open(&mut opened_message, &invalid_signed_message, &public_key)
+//!     .expect_err("verify should not succeed");
+//! ```
+//!
+//! ## Classic API example, detached mode
+//!
+//! ```
+//! use dryoc::classic::crypto_sign::*;
+//! use dryoc::constants::CRYPTO_SIGN_BYTES;
+//!
+//! // Generate a random signing keypair
+//! let (public_key, secret_key) = crypto_sign_keypair();
+//! let message = b"Brevity is the soul of wit.";
+//! let mut signature = [0u8; CRYPTO_SIGN_BYTES];
+//!
+//! // Sign out message
+//! crypto_sign_detached(&mut signature, message, &secret_key).expect("sign failed");
+//!
+//! // Verify the signature
+//! crypto_sign_verify_detached(&signature, message, &public_key).expect("verify failed");
+//! ```
+
 use super::crypto_sign_ed25519::*;
 pub use super::crypto_sign_ed25519::{PublicKey, SecretKey};
 use crate::constants::CRYPTO_SIGN_BYTES;
@@ -48,7 +103,13 @@ pub fn crypto_sign_open(
     signed_message: &[u8],
     public_key: &PublicKey,
 ) -> Result<(), Error> {
-    if message.len() != signed_message.len() - CRYPTO_SIGN_BYTES {
+    if signed_message.len() < CRYPTO_SIGN_BYTES {
+        Err(dryoc_error!(format!(
+            "signed_message length invalid ({} < {})",
+            signed_message.len(),
+            CRYPTO_SIGN_BYTES,
+        )))
+    } else if message.len() != signed_message.len() - CRYPTO_SIGN_BYTES {
         Err(dryoc_error!(format!(
             "message length incorrect (expect {}, got {})",
             signed_message.len() - CRYPTO_SIGN_BYTES,

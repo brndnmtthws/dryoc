@@ -207,7 +207,13 @@ pub(crate) fn crypto_sign_ed25519_open(
     signed_message: &[u8],
     public_key: &PublicKey,
 ) -> Result<(), Error> {
-    if message.len() != signed_message.len() - CRYPTO_SIGN_ED25519_BYTES {
+    if signed_message.len() < CRYPTO_SIGN_ED25519_BYTES {
+        Err(dryoc_error!(format!(
+            "signed_message length invalid ({} < {})",
+            signed_message.len(),
+            CRYPTO_SIGN_ED25519_BYTES,
+        )))
+    } else if message.len() != signed_message.len() - CRYPTO_SIGN_ED25519_BYTES {
         Err(dryoc_error!(format!(
             "message length incorrect (expect {}, got {})",
             signed_message.len() - CRYPTO_SIGN_ED25519_BYTES,
