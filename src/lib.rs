@@ -65,6 +65,7 @@
 //! | Key exchange | [`Session`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
 //! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/public-key_signatures) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
+//! | Short-input hashing | N/A | [`crypto_shorthash`](classic::crypto_shorthash) | [Link](https://libsodium.gitbook.io/doc/hashing/short-input_hashing) |
 //!
 //!
 //! ## Using Serde
@@ -122,6 +123,7 @@ mod blake2b;
 mod bytes_serde;
 mod poly1305;
 mod scalarmult_curve25519;
+mod siphash24;
 
 pub mod classic {
     //! # Classic API
@@ -147,6 +149,7 @@ pub mod classic {
     pub mod crypto_onetimeauth;
     pub mod crypto_secretbox;
     pub mod crypto_secretstream_xchacha20poly1305;
+    pub mod crypto_shorthash;
     pub mod crypto_sign;
     pub mod crypto_sign_ed25519;
 }

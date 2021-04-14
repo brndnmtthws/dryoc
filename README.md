@@ -58,7 +58,7 @@ implementation:
 * [x] [Key exchange](https://doc.libsodium.org/key_exchange) (`crypto_kx_*`)
 * [x] [Public-key signatures](https://doc.libsodium.org/public-key_cryptography/public-key_signatures) (`crypto_sign_*`)
 * [x] [Ed25519 to Curve25519](https://doc.libsodium.org/advanced/ed25519-curve25519) (`crypto_sign_ed25519_*`)
-* [ ] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing)
+* [x] [Short-input hashing](https://doc.libsodium.org/hashing/short-input_hashing) (`crypto_shorthash`)
 * [ ] [Password hashing](https://doc.libsodium.org/password_hashing/default_phf)
 
 The following libsodium features are either incomplete, not exposed as public
