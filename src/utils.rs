@@ -1,5 +1,5 @@
-/// Increments `bytes` representing a large integer as if they were encoded as
-/// little-endian in constant-time, equivalent to `sodium_increment`.
+/// Increments `bytes` in constant time, representing a large little-endian
+/// integer; equivalent to `sodium_increment`.
 #[inline]
 pub fn increment_bytes(bytes: &mut [u8]) {
     let mut carry: u16 = 1;
@@ -40,6 +40,11 @@ pub(crate) fn load32_le(bytes: &[u8]) -> u32 {
         r |= (b as u32) << (8 * i);
     }
     r
+}
+
+#[inline]
+pub(crate) fn rotr64(x: u64, b: u64) -> u64 {
+    (x >> b) | (x << (64 - b))
 }
 
 #[cfg(test)]

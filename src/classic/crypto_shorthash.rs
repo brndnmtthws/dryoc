@@ -16,6 +16,8 @@
 //! constructing hash tables, it's recommended the table size be a prime number
 //! to ensure all bits from the output are used.
 //!
+//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/hashing/short-input_hashing).
+//!
 //! ## Classic API example
 //!
 //! ```

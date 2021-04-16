@@ -38,6 +38,7 @@
 //!   functions
 //! * covers common use cases for safe encryption, hashing, and message
 //!   authentication
+//! * reentrant and thread safe (no internal state)
 //! * available under the [LGPL3 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 //!
 //! ## APIs
@@ -54,6 +55,12 @@
 //! you're extra careful you could make mistakes. With the Rustaceous API, it's
 //! harder to make mistakes thanks to strict type and safety features.
 //!
+//! The Rustaceous API is, arguably, somewhat trickier to use, especially if
+//! you're new to Rust. The Rustaceous API requires knowing and specifying the
+//! desired type in many cases. For your convenience, type aliases are provided
+//! for common types within each module. The Classic API only uses base types
+//! (fixed length byte arrays and byte slices).
+//!
 //! | Feature | Rustaceous API | Classic API | Libsodium Docs |
 //! |-|-|-|-|
 //! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
@@ -66,6 +73,7 @@
 //! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/public-key_signatures) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //! | Short-input hashing | N/A | [`crypto_shorthash`](classic::crypto_shorthash) | [Link](https://libsodium.gitbook.io/doc/hashing/short-input_hashing) |
+//! | Password hashing | N/A | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://libsodium.gitbook.io/doc/password_hashing/default_phf) |
 //!
 //!
 //! ## Using Serde
@@ -118,6 +126,7 @@ mod error;
 #[macro_use]
 pub mod protected;
 
+mod argon2;
 mod blake2b;
 #[cfg(feature = "serde")]
 mod bytes_serde;
@@ -147,6 +156,7 @@ pub mod classic {
     pub mod crypto_kdf;
     pub mod crypto_kx;
     pub mod crypto_onetimeauth;
+    pub mod crypto_pwhash;
     pub mod crypto_secretbox;
     pub mod crypto_secretstream_xchacha20poly1305;
     pub mod crypto_shorthash;

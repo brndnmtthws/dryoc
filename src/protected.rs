@@ -72,8 +72,6 @@ use std::ptr;
 use lazy_static::lazy_static;
 use zeroize::Zeroize;
 
-#[cfg(all(feature = "serde", feature = "base64"))]
-use crate::bytes_serde::*;
 use crate::error;
 use crate::rng::copy_randombytes;
 pub use crate::types::*;

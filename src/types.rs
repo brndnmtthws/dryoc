@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use zeroize::Zeroize;
 
-#[cfg(any(feature = "serde", feature = "base64"))]
+#[cfg(any(feature = "serde"))]
 pub use crate::bytes_serde::*;
 use crate::rng::copy_randombytes;
 

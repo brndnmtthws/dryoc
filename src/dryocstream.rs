@@ -15,7 +15,8 @@
 //!   more of:
 //!   * [`Kdf`](crate::kdf)
 //!   * [`Kx`](crate::kx)
-//!   * a passphrase with a strong password hashing function
+//!   * a passphrase with a strong password hashing function, such as
+//!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
 //!
 //! # Rustaceous API example
 //!

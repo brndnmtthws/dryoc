@@ -27,3 +27,19 @@ impl From<std::io::Error> for Error {
 macro_rules! dryoc_error {
     ($msg:expr) => {{ crate::error::Error::from(format!("{}, from {}:{}", $msg, file!(), line!())) }};
 }
+
+macro_rules! validate {
+    ($min:expr, $max:expr, $value:expr, $name:literal) => {
+        if $value < $min {
+            return Err(dryoc_error!(format!(
+                "{} value of {} less than minimum {}",
+                $name, $value, $min
+            )));
+        } else if $value > $max {
+            return Err(dryoc_error!(format!(
+                "{} value of {} greater than minimum {}",
+                $name, $value, $max
+            )));
+        }
+    };
+}
