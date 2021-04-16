@@ -42,6 +42,11 @@ pub(crate) fn load32_le(bytes: &[u8]) -> u32 {
     r
 }
 
+#[inline]
+pub(crate) fn rotr64(x: u64, b: u64) -> u64 {
+    (x >> b) | (x << (64 - b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

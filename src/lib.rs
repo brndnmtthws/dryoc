@@ -38,6 +38,7 @@
 //!   functions
 //! * covers common use cases for safe encryption, hashing, and message
 //!   authentication
+//! * reentrant and thread safe (no internal state)
 //! * available under the [LGPL3 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 //!
 //! ## APIs
@@ -118,6 +119,7 @@ mod error;
 #[macro_use]
 pub mod protected;
 
+mod argon2;
 mod blake2b;
 #[cfg(feature = "serde")]
 mod bytes_serde;

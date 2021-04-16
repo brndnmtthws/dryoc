@@ -1,10 +1,11 @@
 use zeroize::Zeroize;
 
 use crate::error::Error;
-use crate::utils::load64_le;
+use crate::utils::{load64_le, rotr64};
 
 const BLOCKBYTES: usize = 128;
 const OUTBYTES: usize = 64;
+const HALFOUTBYTES: usize = OUTBYTES / 2;
 const KEYBYTES: usize = 64;
 const SALTBYTES: usize = 16;
 const PERSONALBYTES: usize = 16;
@@ -90,11 +91,6 @@ const IV: [u64; 8] = [
     0x1f83d9abfb41bd6b,
     0x5be0cd19137e2179,
 ];
-
-#[inline]
-fn rotr64(x: u64, b: u64) -> u64 {
-    (x >> b) | (x << (64 - b))
-}
 
 fn compress(sh: &mut [u64; 8], st: &mut [u64; 2], sf: &mut [u64; 2], block: &[u8]) {
     let mut tm = [0u64; 16];
@@ -238,67 +234,43 @@ impl State {
             // return early if the input is empty
             return;
         }
-        let start = if !self.buf.is_empty() && self.buf.len() < BLOCKBYTES {
-            // the buffer should have at least BLOCKBYTES bytes in it; fill the buffer first
-            // up to BLOCKBYTES
-            if input.len() + self.buf.len() < BLOCKBYTES {
-                // the combined length of input and buff is less than BLOCKBYTES, we just
-                // fill the buff, and then we're done
-                let buflen = self.buf.len();
-                self.buf.resize(buflen + input.len(), 0);
-                self.buf[buflen..].copy_from_slice(input);
-                return; // return early
-            } else {
-                // fill the buf with the first N bytes of input until there are BLOCKBYTES bytes
-                // in the buf
+        if input.len() + self.buf.len() <= BLOCKBYTES {
+            // do nothing, not enough data to make a block, just append input to buf
+            self.buf.extend_from_slice(input);
+        } else {
+            let start = if !self.buf.is_empty() && self.buf.len() < BLOCKBYTES {
                 let start = BLOCKBYTES - self.buf.len();
-                let buf_start = self.buf.len();
-
-                self.buf.resize(BLOCKBYTES, 0);
-                self.buf[buf_start..].copy_from_slice(&input[..start]);
-
+                self.buf.extend_from_slice(&input[..start]);
                 start
-            }
-        } else if !self.buf.is_empty() {
-            // if the buf is not empty, and there are at least BLOCKBYTES bytes in
-            // the buf, we need to fill the buf so it's aligned to BLOCKBYTES
-            // (assuming it's not already)
-            if self.buf.len() % BLOCKBYTES != 0 {
-                let additional_bytes = BLOCKBYTES - self.buf.len() % BLOCKBYTES;
-                self.buf.copy_from_slice(&input[..additional_bytes]);
-                additional_bytes
             } else {
                 0
+            };
+            let remaining = input.len() - start;
+            let end = if remaining > BLOCKBYTES && remaining % BLOCKBYTES == 0 {
+                input.len() - BLOCKBYTES
+            } else if remaining > BLOCKBYTES {
+                input.len() - remaining % BLOCKBYTES
+            } else {
+                start
+            };
+
+            let h = &mut self.h;
+            let t = &mut self.t;
+            let f = &mut self.f;
+
+            for chunk in self.buf.chunks_exact(BLOCKBYTES) {
+                increment_counter(t, BLOCKBYTES);
+                compress(h, t, f, chunk);
             }
-        } else {
-            // the state buf is empty, so we can ignore it
-            0
-        };
-        let slen = input.len() - start; // the length from start
-        let end = if slen % BLOCKBYTES == 0 {
-            // it's already bound to the block size, just take everything minus one block
-            input.len() - BLOCKBYTES
-        } else {
-            // take whatever is left over after blocks are consumed
-            input.len() - slen % BLOCKBYTES
-        };
+            for chunk in input[start..end].chunks_exact(BLOCKBYTES) {
+                increment_counter(t, BLOCKBYTES);
+                compress(h, t, f, chunk);
+            }
 
-        let h = &mut self.h;
-        let t = &mut self.t;
-        let f = &mut self.f;
-
-        for chunk in self.buf.chunks(BLOCKBYTES) {
-            increment_counter(t, BLOCKBYTES);
-            compress(h, t, f, chunk);
+            // finally, copy whatever's leftover from the input into buf
+            self.buf.resize(input[end..].len(), 0);
+            self.buf.copy_from_slice(&input[end..]);
         }
-        for chunk in input[start..end].chunks(BLOCKBYTES) {
-            increment_counter(t, BLOCKBYTES);
-            compress(h, t, f, chunk);
-        }
-
-        // finally, copy whatever's leftover from input into buf
-        self.buf.resize(input.len() - end, 0);
-        self.buf.copy_from_slice(&input[end..]);
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
@@ -394,6 +366,54 @@ pub(crate) fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Resul
     state.finalize(output)
 }
 
+pub(crate) fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
+    // long variant of blake2b, used by argon2
+    // fills output with bytes from blake2b based on input
+
+    assert!(output.len() > 4);
+    assert!(output.len() < u32::MAX as usize);
+
+    let outlen = output.len() as u32;
+    let outlen_bytes = outlen.to_le_bytes();
+
+    let mut state = State::init(
+        std::cmp::min(outlen, OUTBYTES as u32) as u8,
+        None,
+        None,
+        None,
+    )?;
+    state.update(&outlen_bytes);
+    state.update(input);
+
+    if outlen as usize <= OUTBYTES {
+        state.finalize(output)
+    } else {
+        let mut in_buffer = [0u8; OUTBYTES];
+
+        state.finalize(&mut output[..OUTBYTES])?;
+        in_buffer.copy_from_slice(&output[..OUTBYTES]);
+
+        let outlen = output.len() - HALFOUTBYTES;
+        let chunk_count = if outlen % HALFOUTBYTES == 0 {
+            outlen / HALFOUTBYTES - 2
+        } else {
+            outlen / HALFOUTBYTES - 1
+        };
+        let end = chunk_count * HALFOUTBYTES;
+        let (start, end) = output[HALFOUTBYTES..].split_at_mut(end);
+
+        for chunk in start.chunks_exact_mut(HALFOUTBYTES) {
+            let mut out_buffer = [0u8; OUTBYTES];
+
+            hash(&mut out_buffer, &in_buffer, None)?;
+
+            chunk.copy_from_slice(&out_buffer[..HALFOUTBYTES]);
+            in_buffer.copy_from_slice(&out_buffer);
+        }
+        hash(end, &in_buffer, None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use libc::*;
@@ -416,6 +436,7 @@ mod tests {
         fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
         fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
         fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
+        fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
     }
 
     #[test]
@@ -431,35 +452,37 @@ mod tests {
             last_node: 0,
         };
 
-        unsafe { blake2b_init(&mut s, 64) };
+        for i in 0..512 {
+            unsafe { blake2b_init(&mut s, 64) };
 
-        let mut state = State::init(64, None, None, None).expect("init");
+            let mut state = State::init(64, None, None, None).expect("init");
 
-        let mut block = [0u8; 256];
-        copy_randombytes(&mut block);
+            let mut block = vec![0u8; i];
+            copy_randombytes(&mut block);
 
-        unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
+            unsafe { blake2b_update(&mut s, block.as_ptr() as *const u8, block.len() as u64) };
 
-        state.update(&block);
+            state.update(&block);
 
-        unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
+            unsafe { blake2b_update(&mut s, block.as_ptr() as *const u8, block.len() as u64) };
 
-        state.update(&block);
+            state.update(&block);
 
-        let mut output = [0u8; 64];
-        let mut so_output = [0u8; 64];
+            let mut output = [0u8; 64];
+            let mut so_output = [0u8; 64];
 
-        unsafe {
-            blake2b_final(
-                &mut s,
-                so_output.as_mut_ptr() as *mut u8,
-                so_output.len() as u64,
-            )
-        };
+            unsafe {
+                blake2b_final(
+                    &mut s,
+                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.len() as u64,
+                )
+            };
 
-        state.finalize(&mut output).ok();
+            state.finalize(&mut output).ok();
 
-        assert_eq!(output, so_output);
+            assert_eq!(output, so_output);
+        }
     }
 
     #[test]
@@ -506,5 +529,57 @@ mod tests {
         state.finalize(&mut output).ok();
 
         assert_eq!(output, so_output);
+    }
+
+    #[test]
+    fn test_blake2b_long() {
+        use crate::rng::copy_randombytes;
+
+        for i in 5..320 {
+            let mut input = vec![0u8; i - 5 as usize];
+            let mut output = vec![0u8; i as usize];
+            let mut so_output = output.clone();
+            copy_randombytes(&mut input);
+
+            longhash(&mut output, &input).expect("longhash failed");
+
+            unsafe {
+                blake2b_long(
+                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.len() as u64,
+                    input.as_ptr() as *const u8,
+                    input.len() as u64,
+                )
+            };
+
+            assert_eq!(output, so_output);
+        }
+    }
+
+    #[test]
+    fn test_blake2b_long_rand_length() {
+        use rand_core::{OsRng, RngCore};
+
+        use crate::rng::copy_randombytes;
+
+        for _ in 0..25 {
+            let mut input = vec![0u8; (OsRng.next_u32() % 1000) as usize];
+            let mut output = vec![0u8; (OsRng.next_u32() % 1000 + 64) as usize];
+            let mut so_output = output.clone();
+            copy_randombytes(&mut input);
+
+            longhash(&mut output, &input).expect("longhash failed");
+
+            unsafe {
+                blake2b_long(
+                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.len() as u64,
+                    input.as_ptr() as *const u8,
+                    input.len() as u64,
+                )
+            };
+
+            assert_eq!(output, so_output);
+        }
     }
 }
