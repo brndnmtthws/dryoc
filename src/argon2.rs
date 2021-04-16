@@ -212,39 +212,6 @@ pub(crate) fn argon2_hash(
 
     for pass in 0..instance.passes {
         argon2_fill_memory_blocks(&mut instance, pass);
-        eprintln!("pass = {:?}", pass);
-        eprintln!(
-            "instance.region.memory[0].v[0] = {:x}",
-            instance.region.memory[0].v[0]
-        );
-        eprintln!(
-            "instance.region.memory[0].v[1] = {:x}",
-            instance.region.memory[0].v[1]
-        );
-        eprintln!(
-            "instance.region.memory[0].v[2] = {:x}",
-            instance.region.memory[0].v[2]
-        );
-        eprintln!(
-            "instance.region.memory[0].v[3] = {:x}",
-            instance.region.memory[0].v[3]
-        );
-        eprintln!(
-            "instance.region.memory[31].v[124] = {:x}",
-            instance.region.memory[31].v[124]
-        );
-        eprintln!(
-            "instance.region.memory[31].v[125] = {:x}",
-            instance.region.memory[31].v[125]
-        );
-        eprintln!(
-            "instance.region.memory[31].v[126] = {:x}",
-            instance.region.memory[31].v[126]
-        );
-        eprintln!(
-            "instance.region.memory[31].v[127] = {:x}",
-            instance.region.memory[31].v[127]
-        );
     }
 
     argon2_finalize(context, instance)
@@ -505,79 +472,47 @@ fn fill_block(prev_block: &Block, ref_block: &Block, next_block: &mut Block, wit
     }
 
     for i in 0..8 {
-        let (v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15) =
-            blake2_round_nomsg(
-                block_r.v[16 * i],
-                block_r.v[16 * i + 1],
-                block_r.v[16 * i + 2],
-                block_r.v[16 * i + 3],
-                block_r.v[16 * i + 4],
-                block_r.v[16 * i + 5],
-                block_r.v[16 * i + 6],
-                block_r.v[16 * i + 7],
-                block_r.v[16 * i + 8],
-                block_r.v[16 * i + 9],
-                block_r.v[16 * i + 10],
-                block_r.v[16 * i + 11],
-                block_r.v[16 * i + 12],
-                block_r.v[16 * i + 13],
-                block_r.v[16 * i + 14],
-                block_r.v[16 * i + 15],
-            );
-        block_r.v[16 * i] = v0;
-        block_r.v[16 * i + 1] = v1;
-        block_r.v[16 * i + 2] = v2;
-        block_r.v[16 * i + 3] = v3;
-        block_r.v[16 * i + 4] = v4;
-        block_r.v[16 * i + 5] = v5;
-        block_r.v[16 * i + 6] = v6;
-        block_r.v[16 * i + 7] = v7;
-        block_r.v[16 * i + 8] = v8;
-        block_r.v[16 * i + 9] = v9;
-        block_r.v[16 * i + 10] = v10;
-        block_r.v[16 * i + 11] = v11;
-        block_r.v[16 * i + 12] = v12;
-        block_r.v[16 * i + 13] = v13;
-        block_r.v[16 * i + 14] = v14;
-        block_r.v[16 * i + 15] = v15;
+        blake2_round_nomsg(
+            &mut block_r,
+            16 * i,
+            16 * i + 1,
+            16 * i + 2,
+            16 * i + 3,
+            16 * i + 4,
+            16 * i + 5,
+            16 * i + 6,
+            16 * i + 7,
+            16 * i + 8,
+            16 * i + 9,
+            16 * i + 10,
+            16 * i + 11,
+            16 * i + 12,
+            16 * i + 13,
+            16 * i + 14,
+            16 * i + 15,
+        );
     }
 
     for i in 0..8 {
-        let (v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15) =
-            blake2_round_nomsg(
-                block_r.v[2 * i],
-                block_r.v[2 * i + 1],
-                block_r.v[2 * i + 16],
-                block_r.v[2 * i + 17],
-                block_r.v[2 * i + 32],
-                block_r.v[2 * i + 33],
-                block_r.v[2 * i + 48],
-                block_r.v[2 * i + 49],
-                block_r.v[2 * i + 64],
-                block_r.v[2 * i + 65],
-                block_r.v[2 * i + 80],
-                block_r.v[2 * i + 81],
-                block_r.v[2 * i + 96],
-                block_r.v[2 * i + 97],
-                block_r.v[2 * i + 112],
-                block_r.v[2 * i + 113],
-            );
-        block_r.v[2 * i] = v0;
-        block_r.v[2 * i + 1] = v1;
-        block_r.v[2 * i + 16] = v2;
-        block_r.v[2 * i + 17] = v3;
-        block_r.v[2 * i + 32] = v4;
-        block_r.v[2 * i + 33] = v5;
-        block_r.v[2 * i + 48] = v6;
-        block_r.v[2 * i + 49] = v7;
-        block_r.v[2 * i + 64] = v8;
-        block_r.v[2 * i + 65] = v9;
-        block_r.v[2 * i + 80] = v10;
-        block_r.v[2 * i + 81] = v11;
-        block_r.v[2 * i + 96] = v12;
-        block_r.v[2 * i + 97] = v13;
-        block_r.v[2 * i + 112] = v14;
-        block_r.v[2 * i + 113] = v15;
+        blake2_round_nomsg(
+            &mut block_r,
+            2 * i,
+            2 * i + 1,
+            2 * i + 16,
+            2 * i + 17,
+            2 * i + 32,
+            2 * i + 33,
+            2 * i + 48,
+            2 * i + 49,
+            2 * i + 64,
+            2 * i + 65,
+            2 * i + 80,
+            2 * i + 81,
+            2 * i + 96,
+            2 * i + 97,
+            2 * i + 112,
+            2 * i + 113,
+        );
     }
 
     copy_block(next_block, &block_tmp);
@@ -586,70 +521,50 @@ fn fill_block(prev_block: &Block, ref_block: &Block, next_block: &mut Block, wit
 
 #[inline]
 fn blake2_round_nomsg(
-    mut v0: u64,
-    mut v1: u64,
-    mut v2: u64,
-    mut v3: u64,
-    mut v4: u64,
-    mut v5: u64,
-    mut v6: u64,
-    mut v7: u64,
-    mut v8: u64,
-    mut v9: u64,
-    mut v10: u64,
-    mut v11: u64,
-    mut v12: u64,
-    mut v13: u64,
-    mut v14: u64,
-    mut v15: u64,
-) -> (
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
-    u64,
+    block: &mut Block,
+    v0: usize,
+    v1: usize,
+    v2: usize,
+    v3: usize,
+    v4: usize,
+    v5: usize,
+    v6: usize,
+    v7: usize,
+    v8: usize,
+    v9: usize,
+    v10: usize,
+    v11: usize,
+    v12: usize,
+    v13: usize,
+    v14: usize,
+    v15: usize,
 ) {
-    let g = |a: &mut u64, b: &mut u64, c: &mut u64, d: &mut u64| {
-        *a = fblamka(*a, *b);
-        *d = rotr64(*d ^ *a, 32);
-        *c = fblamka(*c, *d);
-        *b = rotr64(*b ^ *c, 24);
-        *a = fblamka(*a, *b);
-        *d = rotr64(*d ^ *a, 16);
-        *c = fblamka(*c, *d);
-        *b = rotr64(*b ^ *c, 63);
+    let g = |block: &mut Block, a, b, c, d| {
+        block.v[a] = fblamka(block.v[a], block.v[b]);
+        block.v[d] = rotr64(block.v[d] ^ block.v[a], 32);
+        block.v[c] = fblamka(block.v[c], block.v[d]);
+        block.v[b] = rotr64(block.v[b] ^ block.v[c], 24);
+        block.v[a] = fblamka(block.v[a], block.v[b]);
+        block.v[d] = rotr64(block.v[d] ^ block.v[a], 16);
+        block.v[c] = fblamka(block.v[c], block.v[d]);
+        block.v[b] = rotr64(block.v[b] ^ block.v[c], 63);
     };
 
-    g(&mut v0, &mut v4, &mut v8, &mut v12);
-    g(&mut v1, &mut v5, &mut v9, &mut v13);
-    g(&mut v2, &mut v6, &mut v10, &mut v14);
-    g(&mut v3, &mut v7, &mut v11, &mut v15);
-    g(&mut v0, &mut v5, &mut v10, &mut v15);
-    g(&mut v1, &mut v6, &mut v11, &mut v12);
-    g(&mut v2, &mut v7, &mut v8, &mut v13);
-    g(&mut v3, &mut v4, &mut v9, &mut v14);
-
-    (
-        v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15,
-    )
+    g(block, v0, v4, v8, v12);
+    g(block, v1, v5, v9, v13);
+    g(block, v2, v6, v10, v14);
+    g(block, v3, v7, v11, v15);
+    g(block, v0, v5, v10, v15);
+    g(block, v1, v6, v11, v12);
+    g(block, v2, v7, v8, v13);
+    g(block, v3, v4, v9, v14);
 }
 
 #[inline]
 fn fblamka(x: u64, y: u64) -> u64 {
     let m = 0xFFFFFFFFu64;
     let xy = (x & m) * (y & m);
-    x.wrapping_add(y).wrapping_add(2 * xy)
+    x.wrapping_add(y).wrapping_add(2u64.wrapping_mul(xy))
 }
 
 fn copy_block(dst: &mut Block, src: &Block) {
@@ -781,6 +696,37 @@ mod tests {
             4,
             &password,
             &salt,
+            Some(&secret),
+            Some(&ad),
+            &mut hash,
+            Argon2Type::Argon2id,
+        )
+        .expect("argon2_hash failed");
+
+        assert_eq!(
+            hash,
+            [
+                0x0d, 0x64, 0x0d, 0xf5, 0x8d, 0x78, 0x76, 0x6c, 0x08, 0xc0, 0x37, 0xa3, 0x4a, 0x8b,
+                0x53, 0xc9, 0xd0, 0x1e, 0xf0, 0x45, 0x2d, 0x75, 0xb6, 0x5e, 0xb5, 0x25, 0x20, 0xe9,
+                0x6b, 0x01, 0xe6, 0x59,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_vector_argon2id_so() {
+        let password = [1u8; 32];
+        let salt = [2u8; 16];
+
+        let mut hash = [0u8; 32];
+        let mut so_hash = [0u8; 32];
+
+        super::argon2_hash(
+            3,
+            32,
+            4,
+            &password,
+            &salt,
             None,
             None,
             &mut hash,
@@ -810,9 +756,8 @@ mod tests {
         assert_eq!(
             hash,
             [
-                0x0d, 0x64, 0x0d, 0xf5, 0x8d, 0x78, 0x76, 0x6c, 0x08, 0xc0, 0x37, 0xa3, 0x4a, 0x8b,
-                0x53, 0xc9, 0xd0, 0x1e, 0xf0, 0x45, 0x2d, 0x75, 0xb6, 0x5e, 0xb5, 0x25, 0x20, 0xe9,
-                0x6b, 0x01, 0xe6, 0x59,
+                3, 170, 185, 101, 193, 32, 1, 201, 215, 208, 210, 222, 51, 25, 44, 4, 148, 182,
+                132, 187, 20, 129, 150, 215, 60, 29, 241, 172, 175, 109, 12, 46
             ]
         );
     }
