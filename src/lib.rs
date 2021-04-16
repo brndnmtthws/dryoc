@@ -55,6 +55,12 @@
 //! you're extra careful you could make mistakes. With the Rustaceous API, it's
 //! harder to make mistakes thanks to strict type and safety features.
 //!
+//! The Rustaceous API is, arguably, somewhat trickier to use, especially if
+//! you're new to Rust. The Rustaceous API requires knowing and specifying the
+//! desired type in many cases. For your convenience, type aliases are provided
+//! for common types within each module. The Classic API only uses base types
+//! (fixed length byte arrays and byte slices).
+//!
 //! | Feature | Rustaceous API | Classic API | Libsodium Docs |
 //! |-|-|-|-|
 //! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
