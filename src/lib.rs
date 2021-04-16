@@ -175,6 +175,7 @@ pub mod kdf;
 pub mod keypair;
 pub mod kx;
 pub mod onetimeauth;
+pub mod pwhash;
 /// # Random number generation utilities
 pub mod rng;
 pub mod sha512;

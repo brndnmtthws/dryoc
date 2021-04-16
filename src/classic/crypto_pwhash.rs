@@ -16,12 +16,12 @@
 //! use dryoc::classic::crypto_pwhash::*;
 //! use dryoc::rng::copy_randombytes;
 //! use dryoc::constants::{CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
-//!     CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE};
+//!     CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE, CRYPTO_PWHASH_SALTBYTES};
 //!
 //! let mut key = [0u8; CRYPTO_SECRETBOX_KEYBYTES];
 //!
 //! // Randomly generate a salt
-//! let mut salt = Salt::default();
+//! let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
 //! copy_randombytes(&mut salt);
 //!
 //! // Create a really good password
@@ -43,6 +43,7 @@
 
 #[cfg(feature = "base64")]
 use subtle::ConstantTimeEq;
+use zeroize::Zeroize;
 
 #[cfg(feature = "base64")]
 use crate::argon2::ARGON2_VERSION_NUMBER;
@@ -50,13 +51,10 @@ use crate::argon2::{self, argon2_hash};
 use crate::constants::*;
 use crate::error::Error;
 
-/// Type alias for password hash salt.
-pub type Salt = [u8; CRYPTO_PWHASH_SALTBYTES];
-
-#[cfg(feature = "base64")]
-const STR_HASHBYTES: usize = 32;
+pub(crate) const STR_HASHBYTES: usize = 32;
 
 /// Password hash algorithm implementations.
+#[derive(Clone, Debug, PartialEq, Zeroize)]
 pub enum PasswordHashAlgorithm {
     /// Argon2i version 0x13 (v19)
     Argon2i13,
@@ -96,7 +94,7 @@ impl From<PasswordHashAlgorithm> for argon2::Argon2Type {
 pub fn crypto_pwhash(
     output: &mut [u8],
     password: &[u8],
-    salt: &Salt,
+    salt: &[u8],
     opslimit: u64,
     memlimit: usize,
     algorithm: PasswordHashAlgorithm,
@@ -136,8 +134,6 @@ pub fn crypto_pwhash(
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Result<String, Error> {
-    use crate::types::NewByteArray;
-
     validate!(
         CRYPTO_PWHASH_OPSLIMIT_MIN,
         CRYPTO_PWHASH_OPSLIMIT_MAX,
@@ -151,7 +147,7 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
         "memlimit"
     );
 
-    let salt = Salt::gen();
+    let salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
     let mut hash = [0u8; STR_HASHBYTES];
 
     let t_cost = opslimit as u32;
@@ -182,7 +178,8 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
 }
 
 #[cfg(feature = "base64")]
-#[derive(Default)]
+#[derive(Default, Zeroize)]
+#[zeroize(drop)]
 struct Pwhash {
     pwhash: Option<Vec<u8>>,
     salt: Option<Vec<u8>>,
@@ -227,16 +224,10 @@ impl Pwhash {
                         })?);
                     }
                 }
-            } else if s.len() == ((CRYPTO_PWHASH_SALTBYTES as f64) / 3.0 * 4.0).ceil() as usize {
-                pwhash.salt = Some(
-                    base64::decode_config(s, base64::STANDARD_NO_PAD)
-                        .map_err(|_| dryoc_error!("unable to decode salt"))?,
-                );
-            } else if s.len() == ((STR_HASHBYTES as f64) / 3.0 * 4.0).ceil() as usize {
-                pwhash.pwhash = Some(
-                    base64::decode_config(s, base64::STANDARD_NO_PAD)
-                        .map_err(|_| dryoc_error!("unable to decode password hash"))?,
-                );
+            } else if pwhash.salt.is_none() {
+                pwhash.salt = base64::decode_config(s, base64::STANDARD_NO_PAD).ok();
+            } else if pwhash.pwhash.is_none() {
+                pwhash.pwhash = base64::decode_config(s, base64::STANDARD_NO_PAD).ok();
             }
         }
 
@@ -330,7 +321,7 @@ mod tests {
 
         let mut hash = [0u8; 32];
         let mut so_hash = [0u8; 32];
-        let mut salt = Salt::default();
+        let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
 
         copy_randombytes(&mut salt);
 
