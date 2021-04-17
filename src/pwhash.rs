@@ -14,6 +14,9 @@
 //! * derive secret keys based on passphrases
 //! * hash arbitrary data in a manner that's strongly resistant to collisions
 //!
+//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
+//! [`serde::Serialize`] traits will be implemented for [`PwHash`].
+//!
 //! ## Rustaceous API example
 //!
 //! ```
@@ -281,6 +284,9 @@ impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Ha
     /// Returns a string-encoded representation of this hash, salt, and config,
     /// suitable for storage in a database.
     ///
+    /// It's recommended that you use the Serde support instead of this
+    /// function, however this function is provided for compatiblity reasons.
+    ///
     /// The string returned is compatible with libsodium's `crypto_pwhash_str`,
     /// `crypto_pwhash_str_verify`, and `crypto_pwhash_str_needs_rehash`
     /// functions, but _only_ when the hash and salt length values match those
@@ -364,6 +370,9 @@ impl<Hash: Bytes + From<Vec<u8>>, Salt: Bytes + From<Vec<u8>>> PwHash<Hash, Salt
     /// Creates a new password hash instance by parsing `hashed_password`.
     /// Compatible with libsodium's `crypto_pwhash_str*` functions, and supports
     /// variable-length encoding for the hash and salt.
+    ///
+    /// It's recommended that you use the Serde support instead of this
+    /// function, however this function is provided for compatiblity reasons.
     pub fn from_string(hashed_password: &str) -> Result<Self, Error> {
         let parsed_pwhash = crypto_pwhash::Pwhash::parse_encoded_pwhash(hashed_password)?;
 

@@ -14,6 +14,10 @@
 //! For details on the [`Allocator`] API, see:
 //! <https://github.com/rust-lang/rust/issues/32838>
 //!
+//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
+//! [`serde::Serialize`] traits will be implemented for [`HeapBytes`] and
+//! [`HeapByteArray`].
+//!
 //! ## Example
 //!
 //! ```

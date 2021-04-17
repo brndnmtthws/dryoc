@@ -17,6 +17,9 @@
 //! this, by generating an ephemeral secret key, deriving a nonce, and including
 //! the sender's public key in the box.
 //!
+//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
+//! [`serde::Serialize`] traits will be implemented for [`DryocBox`].
+//!
 //! ## Rustaceous API example
 //!
 //! ```

@@ -14,7 +14,10 @@
 //!   * a passphrase with a strong password hashing function, such as
 //!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
 //!
-//! # Rustaceous API example
+//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
+//! [`serde::Serialize`] traits will be implemented for [`DryocSecretBox`].
+//!
+//! ## Rustaceous API example
 //!
 //! ```
 //! use dryoc::dryocsecretbox::*;
