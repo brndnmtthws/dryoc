@@ -19,9 +19,39 @@
 //! ```
 //! use dryoc::pwhash::*;
 //!
+//! // A strong passphrase
 //! let password = b"But, for my own part, it was Greek to me.";
 //!
+//! // Hash the password, generating a random salt
 //! let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+//!
+//! pwhash.verify(password).expect("verification failed");
+//! pwhash
+//!     .verify(b"invalid password")
+//!     .expect_err("verification should have failed");
+//! ```
+//!
+//! ## Using a custom config, or your own salt
+//!
+//! ```
+//! use dryoc::pwhash::*;
+//!
+//! // Generate a random salt
+//! let mut salt = Salt::default();
+//! salt.resize(dryoc::constants::CRYPTO_PWHASH_SALTBYTES, 0);
+//! dryoc::rng::copy_randombytes(&mut salt);
+//!
+//! // A strong passphrase
+//! let password = b"What's in a name? That which we call a rose\n
+//!                  By any other word would smell as sweet...";
+//!
+//! // With customized configuration parameters, return type must be explicit
+//! let pwhash: VecPwHash = PwHash::hash_with_salt(
+//!     password,
+//!     salt,
+//!     Config::interactive().with_opslimit(1).with_memlimit(8192),
+//! )
+//! .expect("unable to hash password with salt and custom config");
 //!
 //! pwhash.verify(password).expect("verification failed");
 //! pwhash
@@ -32,7 +62,7 @@
 //! ## String-based encoding
 //!
 //! See [`PwHash::to_string()`] for an example of using the string-based
-//! encoding API.
+//! encoding API, compatible with `crypto_pwhash_str*` functions.
 //!
 //! ## Additional resources
 //!
@@ -78,6 +108,32 @@ pub struct Config {
 }
 
 impl Config {
+    /// Returns this config with `salt_length`.
+    pub fn with_salt_length(self, salt_length: usize) -> Self {
+        Self {
+            salt_length,
+            ..self
+        }
+    }
+
+    /// Returns this config with `hash_length`.
+    pub fn with_hash_length(self, hash_length: usize) -> Self {
+        Self {
+            hash_length,
+            ..self
+        }
+    }
+
+    /// Returns this config with `memlimit`.
+    pub fn with_memlimit(self, memlimit: usize) -> Self {
+        Self { memlimit, ..self }
+    }
+
+    /// Returns this config with `opslimit`.
+    pub fn with_opslimit(self, opslimit: u64) -> Self {
+        Self { opslimit, ..self }
+    }
+
     /// Provides a password hash configuration for interactive hashing.
     pub fn interactive() -> Self {
         Self {
