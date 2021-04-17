@@ -90,6 +90,7 @@ mod int {
         NoAccess,
     }
 
+    #[derive(Clone)]
     pub(super) struct InternalData<A> {
         pub(super) a: A,
         pub(super) lm: LockMode,
@@ -169,6 +170,9 @@ pub trait ProtectNoAccess<A: Zeroize + Bytes, PM: traits::ProtectMode> {
 pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     /// Returns a new locked byte array.
     fn new_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+    /// Returns a new locked byte array.
+    fn new_readonly_locked()
+    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
     /// Returns a new locked byte array, filled with random data.
     fn gen_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
     /// Returns a new read-only, locked byte array, filled with random data.
@@ -210,6 +214,40 @@ pub mod ptypes {
     pub type UnlockedRO<T> = super::Protected<T, super::traits::ReadOnly, super::traits::Unlocked>;
     /// Locked, read-write, page-aligned bytes type alias
     pub type LockedBytes = Locked<super::HeapBytes>;
+}
+
+impl<T: Zeroize + NewBytes + ResizableBytes + Lockable<T> + NewLocked<T>> Clone for Locked<T> {
+    fn clone(&self) -> Self {
+        let mut cloned = T::new_locked().expect("unable to create new locked instance");
+        cloned.resize(self.len(), 0);
+        cloned.as_mut_slice().copy_from_slice(self.as_slice());
+        cloned
+    }
+}
+
+impl<T: Zeroize + NewBytes + ResizableBytes + Lockable<T> + NewLocked<T>> Clone for LockedRO<T> {
+    fn clone(&self) -> Self {
+        let mut cloned = T::new_locked().expect("unable to create new locked instance");
+        cloned.resize(self.len(), 0);
+        cloned.as_mut_slice().copy_from_slice(self.as_slice());
+        cloned
+            .mprotect_readonly()
+            .expect("unable to protect readonly")
+    }
+}
+
+impl<T: Zeroize + Bytes + Clone> Clone for Unlocked<T> {
+    fn clone(&self) -> Self {
+        Self::new_with(self.i.as_ref().unwrap().a.clone())
+    }
+}
+
+impl<T: Zeroize + NewBytes + Clone> Clone for UnlockedRO<T> {
+    fn clone(&self) -> Self {
+        Unlocked::<T>::new_with(self.i.as_ref().unwrap().a.clone())
+            .mprotect_readonly()
+            .expect("unable to create new readonly instance")
+    }
 }
 
 pub use ptypes::*;
@@ -773,6 +811,13 @@ pub struct HeapBytes(Vec<u8, PageAlignedAllocator>);
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
     fn new_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
         Self::new_bytes().mlock()
+    }
+
+    fn new_readonly_locked()
+    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, std::io::Error> {
+        Self::new_bytes()
+            .mlock()
+            .and_then(|p| p.mprotect_readonly())
     }
 
     fn gen_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {

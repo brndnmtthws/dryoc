@@ -41,6 +41,8 @@
 //! println!("key = {}", encode(&key));
 //! ```
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "base64")]
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
@@ -53,13 +55,32 @@ use crate::error::Error;
 
 pub(crate) const STR_HASHBYTES: usize = 32;
 
+#[cfg_attr(
+    feature = "serde",
+    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
+)]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// Password hash algorithm implementations.
-#[derive(Clone, Debug, PartialEq, Zeroize)]
 pub enum PasswordHashAlgorithm {
     /// Argon2i version 0x13 (v19)
-    Argon2i13,
+    Argon2i13  = 1,
     /// Argon2id version 0x13 (v19)
-    Argon2id13,
+    Argon2id13 = 2,
+}
+
+impl From<u32> for PasswordHashAlgorithm {
+    fn from(num: u32) -> Self {
+        // a bit clunky but it gets the job done
+        match num {
+            num if num == PasswordHashAlgorithm::Argon2i13 as u32 => {
+                PasswordHashAlgorithm::Argon2i13
+            }
+            num if num == PasswordHashAlgorithm::Argon2id13 as u32 => {
+                PasswordHashAlgorithm::Argon2id13
+            }
+            _ => panic!("invalid password hash algorithm type: {}", num),
+        }
+    }
 }
 
 impl From<PasswordHashAlgorithm> for argon2::Argon2Type {
@@ -112,9 +133,11 @@ pub fn crypto_pwhash(
         "memlimit"
     );
 
+    let (t_cost, m_cost) = convert_costs(opslimit, memlimit);
+
     argon2_hash(
-        opslimit as u32,
-        (memlimit / 1024) as u32,
+        t_cost,
+        m_cost,
         1,
         password,
         salt,
@@ -123,6 +146,23 @@ pub fn crypto_pwhash(
         output,
         algorithm.into(),
     )
+}
+
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
+pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8]) -> String {
+    format!(
+        "$argon2id$v={}$m={},t={},p=1${}${}",
+        argon2::ARGON2_VERSION_NUMBER,
+        m_cost,
+        t_cost,
+        base64::encode_config(salt, base64::STANDARD_NO_PAD),
+        base64::encode_config(hash, base64::STANDARD_NO_PAD)
+    )
+}
+
+pub(crate) fn convert_costs(opslimit: u64, memlimit: usize) -> (u32, u32) {
+    (opslimit as u32, (memlimit / 1024) as u32)
 }
 
 /// Wrapper for [`crypto_pwhash`] that returns a string encoding of a hashed
@@ -150,8 +190,7 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
     let salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
     let mut hash = [0u8; STR_HASHBYTES];
 
-    let t_cost = opslimit as u32;
-    let m_cost = (memlimit / 1024) as u32;
+    let (t_cost, m_cost) = convert_costs(opslimit, memlimit);
 
     argon2_hash(
         t_cost,
@@ -165,38 +204,32 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
         argon2::Argon2Type::Argon2id,
     )?;
 
-    let pw = format!(
-        "$argon2id$v={}$m={},t={},p=1${}${}",
-        argon2::ARGON2_VERSION_NUMBER,
-        m_cost,
-        t_cost,
-        base64::encode_config(salt, base64::STANDARD_NO_PAD),
-        base64::encode_config(hash, base64::STANDARD_NO_PAD)
-    );
+    let pw = pwhash_to_string(t_cost, m_cost, &salt, &hash);
 
     Ok(pw)
 }
 
 #[cfg(feature = "base64")]
-#[derive(Default, Zeroize)]
-#[zeroize(drop)]
-struct Pwhash {
-    pwhash: Option<Vec<u8>>,
-    salt: Option<Vec<u8>>,
-    type_: Option<PasswordHashAlgorithm>,
-    t_cost: Option<u32>,
-    m_cost: Option<u32>,
-    parallelism: Option<u32>,
-    version: Option<u32>,
+#[derive(Default)]
+pub(crate) struct Pwhash {
+    pub(crate) pwhash: Option<Vec<u8>>,
+    pub(crate) salt: Option<Vec<u8>>,
+    pub(crate) type_: Option<PasswordHashAlgorithm>,
+    pub(crate) t_cost: Option<u32>,
+    pub(crate) m_cost: Option<u32>,
+    pub(crate) parallelism: Option<u32>,
+    pub(crate) version: Option<u32>,
 }
 
 #[cfg(feature = "base64")]
 impl Pwhash {
-    fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
+    pub(crate) fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
         let mut pwhash = Pwhash::default();
 
         for s in hashed_password.split('$') {
-            if s.starts_with("argon2") {
+            if s.is_empty() {
+                // skip
+            } else if s.starts_with("argon2") {
                 match s {
                     "argon2i" => pwhash.type_ = Some(PasswordHashAlgorithm::Argon2i13),
                     "argon2id" => pwhash.type_ = Some(PasswordHashAlgorithm::Argon2id13),
@@ -234,12 +267,13 @@ impl Pwhash {
         // Check if version is supported
         if pwhash.version.is_none() || pwhash.version.unwrap() != ARGON2_VERSION_NUMBER {
             return Err(dryoc_error!("unsupported password hash"));
-        }
-
+        // Verify correct value for parallism
+        } else if pwhash.parallelism.is_none() || pwhash.parallelism.unwrap() != 1 {
+            Err(dryoc_error!("parallelism missing or invalid"))
         // Check for missing fields
-        if pwhash.pwhash.is_none() {
+        } else if pwhash.pwhash.is_none() || pwhash.pwhash.as_ref().unwrap().is_empty() {
             Err(dryoc_error!("password hash missing"))
-        } else if pwhash.salt.is_none() {
+        } else if pwhash.salt.is_none() || pwhash.salt.as_ref().unwrap().is_empty() {
             Err(dryoc_error!("password salt missing"))
         } else if pwhash.type_.is_none() {
             Err(dryoc_error!("algorithm type missing"))
@@ -247,8 +281,6 @@ impl Pwhash {
             Err(dryoc_error!("m_cost missing"))
         } else if pwhash.t_cost.is_none() {
             Err(dryoc_error!("t_cost missing"))
-        } else if pwhash.parallelism.is_none() {
-            Err(dryoc_error!("parallelism missing"))
         } else {
             Ok(pwhash)
         }
@@ -299,8 +331,7 @@ pub fn crypto_pwhash_str_needs_rehash(
 ) -> Result<bool, Error> {
     let pwhash = Pwhash::parse_encoded_pwhash(hashed_password)?;
 
-    let t_cost = opslimit as u32;
-    let m_cost = (memlimit / 1024) as u32;
+    let (t_cost, m_cost) = convert_costs(opslimit, memlimit);
 
     if t_cost != pwhash.t_cost.unwrap() || m_cost != pwhash.m_cost.unwrap() {
         Ok(true)

@@ -14,23 +14,44 @@
 //! * derive secret keys based on passphrases
 //! * hash arbitrary data in a manner that's strongly resistant to collisions
 //!
-//! # Rustaceous API example
+//! ## Rustaceous API example
 //!
+//! ```
+//! use dryoc::pwhash::*;
+//!
+//! let password = b"But, for my own part, it was Greek to me.";
+//!
+//! let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+//!
+//! pwhash.verify(password).expect("verification failed");
+//! pwhash
+//!     .verify(b"invalid password")
+//!     .expect_err("verification should have failed");
+//! ```
+//!
+//! ## String-based encoding
+//!
+//! See [`PwHash::to_string()`] for an example of using the string-based
+//! encoding API.
 //!
 //! ## Additional resources
 //!
 //! * See <https://libsodium.gitbook.io/doc/password_hashing> for additional
 //!   details on password hashing
+//! * Refer to the [protected] module for details on usage with protected
+//!   memory.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
-use crate::classic::crypto_pwhash::{crypto_pwhash, PasswordHashAlgorithm, STR_HASHBYTES};
-use crate::constants::{
-    CRYPTO_PWHASH_BYTES_MIN, CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
-    CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE, CRYPTO_PWHASH_SALTBYTES, CRYPTO_PWHASH_SALTBYTES_MIN,
+#[cfg(feature = "base64")]
+use crate::classic::crypto_pwhash::pwhash_to_string;
+use crate::classic::crypto_pwhash::{
+    self, convert_costs, crypto_pwhash, PasswordHashAlgorithm, STR_HASHBYTES,
 };
+use crate::constants::*;
 use crate::error::Error;
 use crate::rng::copy_randombytes;
 use crate::types::*;
@@ -49,15 +70,69 @@ pub type Hash = Vec<u8>;
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+/// Password hash configuration parameters. Provides reasonable default
+/// values with [`Config::default()`], [`Config::interactive()`],
+/// [`Config::moderate()`], and [`Config::sensitive()`].
+pub struct Config {
+    algorithm: PasswordHashAlgorithm,
+    opslimit: u64,
+    memlimit: usize,
+    salt_length: usize,
+    hash_length: usize,
+}
+
+impl Config {
+    /// Provides a password hash configuration for interactive hashing.
+    pub fn interactive() -> Self {
+        Self {
+            algorithm: PasswordHashAlgorithm::Argon2id13,
+            opslimit: CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
+            memlimit: CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
+            salt_length: CRYPTO_PWHASH_SALTBYTES,
+            hash_length: STR_HASHBYTES,
+        }
+    }
+
+    /// Provides a password hash configuration for moderate hashing.
+    pub fn moderate() -> Self {
+        Self {
+            algorithm: PasswordHashAlgorithm::Argon2id13,
+            opslimit: CRYPTO_PWHASH_OPSLIMIT_MODERATE,
+            memlimit: CRYPTO_PWHASH_MEMLIMIT_MODERATE,
+            salt_length: CRYPTO_PWHASH_SALTBYTES,
+            hash_length: STR_HASHBYTES,
+        }
+    }
+
+    /// Provides a password hash configuration for sensitive hashing.
+    pub fn sensitive() -> Self {
+        Self {
+            algorithm: PasswordHashAlgorithm::Argon2id13,
+            opslimit: CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
+            memlimit: CRYPTO_PWHASH_MEMLIMIT_SENSITIVE,
+            salt_length: CRYPTO_PWHASH_SALTBYTES,
+            hash_length: STR_HASHBYTES,
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::interactive()
+    }
+}
+
+#[cfg_attr(
+    feature = "serde",
+    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
+)]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// Password hash implementation based on Argon2, compatible with libsodium's
 /// `crypto_pwhash_*` functions.
 pub struct PwHash<Hash: Bytes, Salt: Bytes> {
     hash: Hash,
     salt: Salt,
-    algorithm: PasswordHashAlgorithm,
-    t_cost: u32,
-    m_cost: u32,
-    parallelism: u32,
+    config: Config,
 }
 
 /// Vec<u8>-based PwHash type alias, provided for convenience.
@@ -75,16 +150,21 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use base64::encode;
-    //! use dryoc::PwHash::protected::*;
-    //! use dryoc::PwHash::PwHash;
+    //! use dryoc::pwhash::protected::*;
+    //! use dryoc::pwhash::{Config, PwHash};
     //!
-    //! // Randomly generate a main key and context, using locked memory
-    //! let key: LockedPwHash = PwHash::gen();
-    //! let subkey_id = 0;
+    //! let password = HeapBytes::from_slice_into_locked(
+    //!     b"The robb'd that smiles, steals something from the thief.",
+    //! )
+    //! .expect("couldn't lock password");
     //!
-    //! let subkey: Locked<Key> = key.derive_subkey(subkey_id).expect("derive failed");
-    //! println!("Subkey {}: {}", subkey_id, encode(&subkey));
+    //! let pwhash: LockedPwHash =
+    //!     PwHash::hash(&password, Config::interactive()).expect("unable to hash");
+    //!
+    //! pwhash.verify(&password).expect("verification failed");
+    //! pwhash
+    //!     .verify(b"invalid password")
+    //!     .expect_err("verification should have failed");
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -101,42 +181,238 @@ pub mod protected {
     pub type LockedPwHash = PwHash<Locked<Hash>, Locked<Salt>>;
 }
 
-// impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes>
-// PwHash<Hash, Salt> {     /// Hashes `password` with a random salt and default
-// parameters, returning     /// the hash upon success.
-//     pub fn hash<Password: Bytes>(password: &Password) -> Result<Self, Error>
-// {         let mut hash = Hash::new_bytes();
-//         let mut salt = Salt::new_bytes();
+impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Hash, Salt> {
+    /// Hashes `password` with a random salt and `config`, returning
+    /// the hash, salt, and config upon success.
+    pub fn hash<Password: Bytes>(password: &Password, config: Config) -> Result<Self, Error> {
+        let mut hash = Hash::new_bytes();
+        let mut salt = Salt::new_bytes();
 
-//         hash.resize(STR_HASHBYTES, 0);
+        hash.resize(config.hash_length, 0);
 
-//         salt.resize(CRYPTO_PWHASH_SALTBYTES, 0);
-//         copy_randombytes(salt.as_mut_slice());
+        salt.resize(config.salt_length, 0);
+        copy_randombytes(salt.as_mut_slice());
 
-//         crypto_pwhash(
-//             hash.as_mut_slice(),
-//             password.as_slice(),
-//             salt.as_slice(),
-//             CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
-//             CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
-//             crate::classic::crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
-//         )?;
+        crypto_pwhash(
+            hash.as_mut_slice(),
+            password.as_slice(),
+            salt.as_slice(),
+            config.opslimit,
+            config.memlimit,
+            config.algorithm.clone(),
+        )?;
 
-//         Ok(Self { hash, salt })
-//     }
-// }
+        Ok(Self { hash, salt, config })
+    }
 
-// impl<Hash: Bytes, Salt: Bytes> PwHash<Hash, Salt> {
-//     /// Constructs a new instance from `hash` and `salt`, consuming them
-// both.     pub fn from_parts(hash: Hash, salt: Salt) -> Self {
-//         Self { hash, salt }
-//     }
+    /// Hashes `password` with a random salt and a default configuration
+    /// suitable for interactive hashing, returning the hash, salt, and config
+    /// upon success.
+    pub fn hash_interactive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+        Self::hash(password, Config::interactive())
+    }
 
-//     /// Moves the key and context out of this instance, returning them as a
-//     /// tuple.
-//     pub fn into_parts(self) -> (Hash, Salt) {
-//         (self.hash, self.salt)
-//     }
-// }
+    /// Hashes `password` with a random salt and a default configuration
+    /// suitable for moderate hashing, returning the hash, salt, and config upon
+    /// success.
+    pub fn hash_moderate<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+        Self::hash(password, Config::moderate())
+    }
 
-impl PwHash<Hash, Salt> {}
+    /// Hashes `password` with a random salt and a default configuration
+    /// suitable for sensitive hashing, returning the hash, salt, and config
+    /// upon success.
+    pub fn hash_sensitive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+        Self::hash(password, Config::sensitive())
+    }
+
+    /// Returns a string-encoded representation of this hash, salt, and config,
+    /// suitable for storage in a database.
+    ///
+    /// The string returned is compatible with libsodium's `crypto_pwhash_str`,
+    /// `crypto_pwhash_str_verify`, and `crypto_pwhash_str_needs_rehash`
+    /// functions, but _only_ when the hash and salt length values match those
+    /// supported by libsodium. This implementation supports variable-length
+    /// salts and hashes, but libsodium's does not.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use dryoc::pwhash::*;
+    ///
+    /// let password = b"Come what come may, time and the hour runs through the roughest day.";
+    ///
+    /// let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+    /// let pw_string = pwhash.to_string();
+    ///
+    /// let parsed_pwhash =
+    ///     PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+    ///
+    /// parsed_pwhash.verify(password).expect("verification failed");
+    /// parsed_pwhash
+    ///     .verify(b"invalid password")
+    ///     .expect_err("verification should have failed");
+    /// ```
+    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
+    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
+    pub fn to_string(&self) -> String {
+        let (t_cost, m_cost) = convert_costs(self.config.opslimit, self.config.memlimit);
+
+        pwhash_to_string(t_cost, m_cost, self.salt.as_slice(), self.hash.as_slice())
+    }
+}
+
+impl<Hash: NewBytes + ResizableBytes, Salt: Bytes + Clone> PwHash<Hash, Salt> {
+    /// Verifies that this hash, salt, and config is valid for `password`.
+    pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
+        let computed = Self::hash_with_salt(password, self.salt.clone(), self.config.clone())?;
+
+        if self
+            .hash
+            .as_slice()
+            .ct_eq(computed.hash.as_slice())
+            .unwrap_u8()
+            == 1
+        {
+            Ok(())
+        } else {
+            Err(dryoc_error!("hashes do not match"))
+        }
+    }
+
+    /// Hashes `password` with `salt` and `config`, returning
+    /// the hash, salt, and config upon success.
+    pub fn hash_with_salt<Password: Bytes>(
+        password: &Password,
+        salt: Salt,
+        config: Config,
+    ) -> Result<Self, Error> {
+        let mut hash = Hash::new_bytes();
+
+        hash.resize(config.hash_length, 0);
+
+        crypto_pwhash(
+            hash.as_mut_slice(),
+            password.as_slice(),
+            salt.as_slice(),
+            config.opslimit,
+            config.memlimit,
+            config.algorithm.clone(),
+        )?;
+
+        Ok(Self { hash, salt, config })
+    }
+}
+
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
+impl<Hash: Bytes + From<Vec<u8>>, Salt: Bytes + From<Vec<u8>>> PwHash<Hash, Salt> {
+    /// Creates a new password hash instance by parsing `hashed_password`.
+    /// Compatible with libsodium's `crypto_pwhash_str*` functions, and supports
+    /// variable-length encoding for the hash and salt.
+    pub fn from_string(hashed_password: &str) -> Result<Self, Error> {
+        let parsed_pwhash = crypto_pwhash::Pwhash::parse_encoded_pwhash(hashed_password)?;
+
+        let opslimit = parsed_pwhash.t_cost.unwrap() as u64;
+        let memlimit = 1024 * (parsed_pwhash.m_cost.unwrap() as usize);
+        let hash_length = parsed_pwhash.pwhash.as_ref().unwrap().len();
+        let salt_length = parsed_pwhash.salt.as_ref().unwrap().len();
+        let algorithm = parsed_pwhash.type_.unwrap();
+
+        Ok(Self {
+            hash: parsed_pwhash.pwhash.unwrap().into(),
+            salt: parsed_pwhash.salt.unwrap().into(),
+            config: Config {
+                opslimit,
+                memlimit,
+                hash_length,
+                salt_length,
+                algorithm,
+            },
+        })
+    }
+}
+
+impl<Hash: Bytes, Salt: Bytes> PwHash<Hash, Salt> {
+    /// Constructs a new instance from `hash`, `salt`, and `config`, consuming
+    /// them.
+    pub fn from_parts(hash: Hash, salt: Salt, config: Config) -> Self {
+        Self { hash, salt, config }
+    }
+
+    /// Moves the hash, salt, and config out of this instance, returning them as
+    /// a tuple.
+    pub fn into_parts(self) -> (Hash, Salt, Config) {
+        (self.hash, self.salt, self.config)
+    }
+}
+
+impl PwHash<Hash, Salt> {
+    /// Hashes `password` using default (interactive) config parameters,
+    /// returning the Vec<u8>-based hash and salt, with config, upon success.
+    ///
+    /// This function provides reasonable defaults, and is provided for
+    /// convenience.
+    pub fn hash_with_defaults<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+        Self::hash_interactive(password)
+    }
+
+    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
+    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
+    /// Parses the `hashed_password` string, returning a new hash instance upon
+    /// success. Wraps [`PwHash::from_string`], provided for convenience.
+    pub fn from_string_with_defaults(hashed_password: &str) -> Result<Self, Error> {
+        Self::from_string(hashed_password)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pwhash() {
+        let password = b"super secrit password";
+
+        let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+
+        pwhash.verify(password).expect("verification failed");
+        pwhash
+            .verify(b"invalid password")
+            .expect_err("verification should have failed");
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn test_pwhash_str() {
+        let password = b"super secrit password";
+
+        let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+        let pw_string = pwhash.to_string();
+
+        let parsed_pwhash =
+            PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+
+        parsed_pwhash.verify(password).expect("verification failed");
+        parsed_pwhash
+            .verify(b"invalid password")
+            .expect_err("verification should have failed");
+    }
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_protected() {
+        use crate::pwhash::protected::*;
+
+        let password =
+            HeapBytes::from_slice_into_locked(b"juicy password").expect("couldn't lock password");
+
+        let pwhash: LockedPwHash =
+            PwHash::hash(&password, Config::interactive()).expect("unable to hash");
+
+        pwhash.verify(&password).expect("verification failed");
+        pwhash
+            .verify(b"invalid password")
+            .expect_err("verification should have failed");
+    }
+}
