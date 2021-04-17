@@ -75,10 +75,10 @@ pub type Hash = Vec<u8>;
 /// [`Config::moderate()`], and [`Config::sensitive()`].
 pub struct Config {
     algorithm: PasswordHashAlgorithm,
-    opslimit: u64,
-    memlimit: usize,
-    salt_length: usize,
     hash_length: usize,
+    memlimit: usize,
+    opslimit: u64,
+    salt_length: usize,
 }
 
 impl Config {
@@ -255,6 +255,7 @@ impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Ha
     /// ```
     #[cfg(any(feature = "base64", all(doc, not(doctest))))]
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         let (t_cost, m_cost) = convert_costs(self.config.opslimit, self.config.memlimit);
 
@@ -323,11 +324,11 @@ impl<Hash: Bytes + From<Vec<u8>>, Salt: Bytes + From<Vec<u8>>> PwHash<Hash, Salt
             hash: parsed_pwhash.pwhash.unwrap().into(),
             salt: parsed_pwhash.salt.unwrap().into(),
             config: Config {
-                opslimit,
-                memlimit,
-                hash_length,
-                salt_length,
                 algorithm,
+                hash_length,
+                memlimit,
+                opslimit,
+                salt_length,
             },
         })
     }
