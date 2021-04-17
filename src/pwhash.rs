@@ -46,11 +46,7 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
-#[cfg(feature = "base64")]
-use crate::classic::crypto_pwhash::pwhash_to_string;
-use crate::classic::crypto_pwhash::{
-    self, convert_costs, crypto_pwhash, PasswordHashAlgorithm, STR_HASHBYTES,
-};
+use crate::classic::crypto_pwhash;
 use crate::constants::*;
 use crate::error::Error;
 use crate::rng::copy_randombytes;
@@ -74,7 +70,7 @@ pub type Hash = Vec<u8>;
 /// values with [`Config::default()`], [`Config::interactive()`],
 /// [`Config::moderate()`], and [`Config::sensitive()`].
 pub struct Config {
-    algorithm: PasswordHashAlgorithm,
+    algorithm: crypto_pwhash::PasswordHashAlgorithm,
     hash_length: usize,
     memlimit: usize,
     opslimit: u64,
@@ -85,33 +81,33 @@ impl Config {
     /// Provides a password hash configuration for interactive hashing.
     pub fn interactive() -> Self {
         Self {
-            algorithm: PasswordHashAlgorithm::Argon2id13,
+            algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
             opslimit: CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
             memlimit: CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
             salt_length: CRYPTO_PWHASH_SALTBYTES,
-            hash_length: STR_HASHBYTES,
+            hash_length: crypto_pwhash::STR_HASHBYTES,
         }
     }
 
     /// Provides a password hash configuration for moderate hashing.
     pub fn moderate() -> Self {
         Self {
-            algorithm: PasswordHashAlgorithm::Argon2id13,
+            algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
             opslimit: CRYPTO_PWHASH_OPSLIMIT_MODERATE,
             memlimit: CRYPTO_PWHASH_MEMLIMIT_MODERATE,
             salt_length: CRYPTO_PWHASH_SALTBYTES,
-            hash_length: STR_HASHBYTES,
+            hash_length: crypto_pwhash::STR_HASHBYTES,
         }
     }
 
     /// Provides a password hash configuration for sensitive hashing.
     pub fn sensitive() -> Self {
         Self {
-            algorithm: PasswordHashAlgorithm::Argon2id13,
+            algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
             opslimit: CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
             memlimit: CRYPTO_PWHASH_MEMLIMIT_SENSITIVE,
             salt_length: CRYPTO_PWHASH_SALTBYTES,
-            hash_length: STR_HASHBYTES,
+            hash_length: crypto_pwhash::STR_HASHBYTES,
         }
     }
 }
@@ -193,7 +189,7 @@ impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Ha
         salt.resize(config.salt_length, 0);
         copy_randombytes(salt.as_mut_slice());
 
-        crypto_pwhash(
+        crypto_pwhash::crypto_pwhash(
             hash.as_mut_slice(),
             password.as_slice(),
             salt.as_slice(),
@@ -257,9 +253,10 @@ impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Ha
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
-        let (t_cost, m_cost) = convert_costs(self.config.opslimit, self.config.memlimit);
+        let (t_cost, m_cost) =
+            crypto_pwhash::convert_costs(self.config.opslimit, self.config.memlimit);
 
-        pwhash_to_string(t_cost, m_cost, self.salt.as_slice(), self.hash.as_slice())
+        crypto_pwhash::pwhash_to_string(t_cost, m_cost, self.salt.as_slice(), self.hash.as_slice())
     }
 }
 
@@ -292,7 +289,7 @@ impl<Hash: NewBytes + ResizableBytes, Salt: Bytes + Clone> PwHash<Hash, Salt> {
 
         hash.resize(config.hash_length, 0);
 
-        crypto_pwhash(
+        crypto_pwhash::crypto_pwhash(
             hash.as_mut_slice(),
             password.as_slice(),
             salt.as_slice(),
