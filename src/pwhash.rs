@@ -450,7 +450,7 @@ impl<Salt: Bytes> PwHash<Hash, Salt> {
             salt.as_slice(),
             config.opslimit,
             config.memlimit,
-            config.algorithm.clone(),
+            config.algorithm,
         )?;
 
         Ok(keypair::KeyPair::<PublicKey, SecretKey>::from_secret_key(
