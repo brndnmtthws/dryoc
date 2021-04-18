@@ -62,6 +62,26 @@
 //!     .expect_err("verification should have failed");
 //! ```
 //!
+//! ## Deriving a keypair from a passphrase and salt
+//!
+//! ```
+//! use dryoc::keypair::StackKeyPair;
+//! use dryoc::pwhash::*;
+//!
+//! // Generate a random salt
+//! let mut salt = Salt::default();
+//! salt.resize(dryoc::constants::CRYPTO_PWHASH_SALTBYTES, 0);
+//! dryoc::rng::copy_randombytes(&mut salt);
+//!
+//! // Use a strong passphrase
+//! let password = b"Is this a dagger which I see before me, the handle toward my hand?";
+//!
+//! let keypair: StackKeyPair = PwHash::derive_keypair(password, salt, Config::interactive())
+//!     .expect("couldn't derive keypair");
+//!
+//! // now you can use `keypair` with DryocBox
+//! ```
+//!
 //! ## String-based encoding
 //!
 //! See [`PwHash::to_string()`] for an example of using the string-based
@@ -82,6 +102,7 @@ use zeroize::Zeroize;
 use crate::classic::crypto_pwhash;
 use crate::constants::*;
 use crate::error::Error;
+use crate::keypair;
 use crate::rng::copy_randombytes;
 use crate::types::*;
 
@@ -407,6 +428,34 @@ impl<Hash: Bytes, Salt: Bytes> PwHash<Hash, Salt> {
     /// a tuple.
     pub fn into_parts(self) -> (Hash, Salt, Config) {
         (self.hash, self.salt, self.config)
+    }
+}
+
+impl<Salt: Bytes> PwHash<Hash, Salt> {
+    /// Derives a keypair from `password` and `salt`, using `config`.
+    pub fn derive_keypair<
+        Password: Bytes,
+        PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    >(
+        password: &Password,
+        salt: Salt,
+        config: Config,
+    ) -> Result<keypair::KeyPair<PublicKey, SecretKey>, Error> {
+        let mut secret_key = SecretKey::new_byte_array();
+
+        crypto_pwhash::crypto_pwhash(
+            secret_key.as_mut_slice(),
+            password.as_slice(),
+            salt.as_slice(),
+            config.opslimit,
+            config.memlimit,
+            config.algorithm.clone(),
+        )?;
+
+        Ok(keypair::KeyPair::<PublicKey, SecretKey>::from_secret_key(
+            secret_key,
+        ))
     }
 }
 

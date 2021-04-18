@@ -15,6 +15,13 @@ use crate::error::Error;
 use crate::kx;
 use crate::types::*;
 
+/// Stack-allocated public key type alias.
+pub type PublicKey = StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
+/// Stack-allocated secret key type alias.
+pub type SecretKey = StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
+/// Stack-allocated key pair type alias.
+pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
+
 #[cfg_attr(
     feature = "serde",
     derive(Zeroize, Serialize, Deserialize, Debug, Clone)
