@@ -38,7 +38,8 @@
 //!   functions
 //! * covers common use cases for safe encryption, hashing, and message
 //!   authentication
-//! * reentrant and thread safe (no internal state)
+//! * reentrant and thread safe (no internal state, with the exception of using `lazy_static` for
+//!   protected memory to determine page size)
 //! * available under the [LGPL3 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
 //!
 //! ## APIs
