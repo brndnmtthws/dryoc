@@ -2,7 +2,7 @@
 
 [💬 Join the Matrix chat](https://matrix.to/#/#dryoc:frens.io)
 
-# dryoc: Don't Roll Your Own Crypto™<sup><sup>[1](#footnotes)</sup></sup>
+# dryoc: Don't Roll Your Own Crypto™<sup>[^1]</sup>
 
 dryoc is a pure-Rust, general-purpose cryptography library. It's provides an
 implementation of the excellent
@@ -80,6 +80,4 @@ crates:
 * [sodiumoxide](https://crates.io/crates/sodiumoxide)
 * [crypto_box](https://crates.io/crates/crypto_box)
 
-## Footnotes
-
-1. Not actually trademarked.
+[^1]: Not actually trademarked.
