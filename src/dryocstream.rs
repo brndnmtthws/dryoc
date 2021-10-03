@@ -198,9 +198,14 @@ impl From<u8> for Tag {
 /// Secret-key authenticated encrypted streams
 #[derive(PartialEq, Clone, Zeroize)]
 pub struct DryocStream<Mode> {
-    #[zeroize(drop)]
     state: State,
     phantom: std::marker::PhantomData<Mode>,
+}
+
+impl<Mode> Drop for DryocStream<Mode> {
+    fn drop(&mut self) {
+        self.state.zeroize()
+    }
 }
 
 impl<M> DryocStream<M> {

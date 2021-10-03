@@ -275,7 +275,7 @@ mod tests {
             crypto_sign_detached(&mut signature, message, &secret_key).expect("sign failed");
 
             assert!(sign::verify_detached(
-                &sign::Signature::from_slice(&signature).expect("signature failed"),
+                &sign::Signature::new(signature.clone()),
                 message,
                 &sign::PublicKey::from_slice(&public_key).expect("public key failed"),
             ));
@@ -316,13 +316,13 @@ mod tests {
             let so_signature = so_signer
                 .finalize(&sign::SecretKey::from_slice(&secret_key).expect("secret key failed"));
 
-            assert_eq!(signature, so_signature.0);
+            assert_eq!(signature, so_signature.to_bytes());
 
-            crypto_sign_final_verify(verifier, &so_signature.0, &public_key)
+            crypto_sign_final_verify(verifier, &so_signature.to_bytes(), &public_key)
                 .expect("verify failed");
 
             assert!(so_signer.verify(
-                &sign::Signature::from_slice(&signature).expect("signature failed"),
+                &sign::Signature::new(signature.clone()),
                 &sign::PublicKey::from_slice(&public_key).expect("public key failed"),
             ));
         }
