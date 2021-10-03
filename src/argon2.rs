@@ -73,8 +73,7 @@ struct Block {
     v: [u64; ARGON2_QWORDS_IN_BLOCK],
 }
 
-#[cfg(feature = "nightly")]
-#[allow(clippy::derivable_impls)]
+#[cfg_attr(feature = "nightly", allow(clippy::derivable_impls))]
 impl Default for Block {
     fn default() -> Self {
         Self {
