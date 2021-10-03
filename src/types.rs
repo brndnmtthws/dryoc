@@ -319,7 +319,7 @@ impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
-        &self
+        self
     }
 }
 
@@ -328,13 +328,12 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
 impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
-        if self.len() < LENGTH {
-            panic!(
-                "invalid slice length {}, expecting at least {}",
-                self.len(),
-                LENGTH
-            );
-        }
+        assert!(
+            !self.len() < LENGTH,
+            "invalid slice length {}, expecting at least {}",
+            self.len(),
+            LENGTH
+        );
         let arr = self.as_ptr() as *const [u8; LENGTH];
         unsafe { &*arr }
     }
@@ -343,13 +342,12 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
-        if self.len() < LENGTH {
-            panic!(
-                "invalid slice length {}, expecting at least {}",
-                self.len(),
-                LENGTH
-            );
-        }
+        assert!(
+            !self.len() < LENGTH,
+            "invalid slice length {}, expecting at least {}",
+            self.len(),
+            LENGTH
+        );
         let arr = self.as_ptr() as *const [u8; LENGTH];
         unsafe { &*arr }
     }
@@ -357,13 +355,12 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
 
 impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        if self.len() < LENGTH {
-            panic!(
-                "invalid slice length {}, expecting at least {}",
-                self.len(),
-                LENGTH
-            );
-        }
+        assert!(
+            !self.len() < LENGTH,
+            "invalid slice length {}, expecting at least {}",
+            self.len(),
+            LENGTH
+        );
         let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
         unsafe { &mut *arr }
     }

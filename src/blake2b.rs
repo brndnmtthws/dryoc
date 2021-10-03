@@ -54,6 +54,7 @@ pub(crate) struct State {
     buf: Vec<u8>,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for State {
     fn default() -> Self {
         Self {

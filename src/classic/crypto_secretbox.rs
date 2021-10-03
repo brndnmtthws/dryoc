@@ -164,7 +164,7 @@ pub fn crypto_secretbox_open_easy_inplace(
         let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
         let mac = mac.as_array();
 
-        crypto_secretbox_open_detached_inplace(data, &mac, nonce, key)?;
+        crypto_secretbox_open_detached_inplace(data, mac, nonce, key)?;
 
         ciphertext.rotate_left(CRYPTO_SECRETBOX_MACBYTES);
 

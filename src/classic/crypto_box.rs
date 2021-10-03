@@ -370,7 +370,7 @@ pub fn crypto_box_open_easy(
         crypto_box_open_detached(
             message,
             mac,
-            &ciphertext,
+            ciphertext,
             nonce,
             sender_public_key,
             recipient_secret_key,

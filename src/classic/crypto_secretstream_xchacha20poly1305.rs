@@ -127,6 +127,7 @@ impl State {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for State {
     fn default() -> Self {
         Self {
@@ -290,7 +291,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     let mut mac = Poly1305::new(&mac_key);
     mac_key.zeroize();
 
-    mac.update(&associated_data);
+    mac.update(associated_data);
     mac.update(&_pad0[..((0x10 - associated_data.len()) & 0xf)]);
 
     let mut block = [0u8; 64];
@@ -301,7 +302,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
 
     let mlen = message.len();
     ciphertext[0] = block[0];
-    ciphertext[1..(1 + mlen)].copy_from_slice(&message);
+    ciphertext[1..(1 + mlen)].copy_from_slice(message);
 
     cipher.seek(128);
     cipher.apply_keystream(&mut ciphertext[1..(1 + mlen)]);
@@ -394,7 +395,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     let mut mac = Poly1305::new(&mac_key);
     mac_key.zeroize();
 
-    mac.update(&associated_data);
+    mac.update(associated_data);
     mac.update(&_pad0[..((0x10 - associated_data.len()) & 0xf)]);
 
     let mut block = [0u8; 64];

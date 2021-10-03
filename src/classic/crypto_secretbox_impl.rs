@@ -15,8 +15,8 @@ pub(crate) fn crypto_secretbox_detached_inplace(
     key: &Key,
 ) {
     let mut cipher = XSalsa20::new(
-        &GenericArray::from_slice(key),
-        &GenericArray::from_slice(nonce),
+        GenericArray::from_slice(key),
+        GenericArray::from_slice(nonce),
     );
 
     let mut mac_key = crate::poly1305::Key::new();
@@ -39,8 +39,8 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
     key: &Key,
 ) -> Result<(), Error> {
     let mut cipher = XSalsa20::new(
-        &GenericArray::from_slice(key),
-        &GenericArray::from_slice(nonce),
+        GenericArray::from_slice(key),
+        GenericArray::from_slice(nonce),
     );
 
     let mut mac_key = crate::poly1305::Key::new();
