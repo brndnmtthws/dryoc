@@ -127,6 +127,7 @@ impl State {
     }
 }
 
+#[cfg(feature = "nightly")]
 #[allow(clippy::derivable_impls)]
 impl Default for State {
     fn default() -> Self {
