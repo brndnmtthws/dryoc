@@ -329,7 +329,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         assert!(
-            !self.len() < LENGTH,
+            self.len() >= LENGTH,
             "invalid slice length {}, expecting at least {}",
             self.len(),
             LENGTH
@@ -343,7 +343,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         assert!(
-            !self.len() < LENGTH,
+            self.len() >= LENGTH,
             "invalid slice length {}, expecting at least {}",
             self.len(),
             LENGTH
@@ -356,7 +356,7 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
 impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
         assert!(
-            !self.len() < LENGTH,
+            self.len() >= LENGTH,
             "invalid slice length {}, expecting at least {}",
             self.len(),
             LENGTH
