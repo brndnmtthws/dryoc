@@ -672,7 +672,7 @@ impl Lockable<HeapBytes> for HeapBytes {
 
 #[derive(Clone)]
 /// Custom page-aligned allocator implementation. Creates blocks of page-aligned
-/// heap-allocated memory regions, with a no-access pages before and after the
+/// heap-allocated memory regions, with no-access pages before and after the
 /// allocated region of memory.
 pub struct PageAlignedAllocator;
 
