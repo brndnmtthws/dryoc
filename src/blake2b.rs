@@ -44,7 +44,7 @@ impl Default for Params {
     }
 }
 
-#[derive(Zeroize, Debug)]
+#[derive(Zeroize, Debug, Default)]
 #[zeroize(drop)]
 pub(crate) struct State {
     h: [u64; 8],
@@ -52,19 +52,6 @@ pub(crate) struct State {
     f: [u64; 2],
     last_node: u8,
     buf: Vec<u8>,
-}
-
-#[cfg_attr(feature = "nightly", allow(clippy::derivable_impls))]
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            h: [0u64; 8],
-            t: [0u64; 2],
-            f: [0u64; 2],
-            buf: vec![],
-            last_node: 0,
-        }
-    }
 }
 
 const SIGMA: [[usize; 16]; 12] = [

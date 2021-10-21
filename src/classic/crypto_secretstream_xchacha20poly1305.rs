@@ -113,7 +113,7 @@ pub type Nonce = [u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES];
 pub type Header = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
 
 /// Stream state data
-#[derive(PartialEq, Clone, Zeroize)]
+#[derive(PartialEq, Clone, Zeroize, Default)]
 #[zeroize(drop)]
 pub struct State {
     k: Key,
@@ -124,16 +124,6 @@ impl State {
     /// Returns a new stream state with an empty key and nonce.
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-#[cfg_attr(feature = "nightly", allow(clippy::derivable_impls))]
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            k: Key::default(),
-            nonce: Nonce::default(),
-        }
     }
 }
 
