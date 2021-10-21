@@ -12,6 +12,7 @@ const PERSONALBYTES: usize = 16;
 
 #[repr(packed)]
 #[allow(dead_code)]
+#[derive(Default)]
 struct Params {
     digest_length: u8,
     key_length: u8,
@@ -26,25 +27,25 @@ struct Params {
     personal: [u8; PERSONALBYTES],
 }
 
-impl Default for Params {
-    fn default() -> Self {
-        Self {
-            digest_length: 0,
-            key_length: 0,
-            fanout: 1,
-            depth: 1,
-            leaf_length: [0u8; 4],
-            node_offset: [0u8; 8],
-            node_depth: 0,
-            inner_length: 0,
-            reserved: [0u8; 14],
-            salt: [0u8; SALTBYTES],
-            personal: [0u8; PERSONALBYTES],
-        }
-    }
-}
+// impl Default for Params {
+//     fn default() -> Self {
+//         Self {
+//             digest_length: 0,
+//             key_length: 0,
+//             fanout: 1,
+//             depth: 1,
+//             leaf_length: [0u8; 4],
+//             node_offset: [0u8; 8],
+//             node_depth: 0,
+//             inner_length: 0,
+//             reserved: [0u8; 14],
+//             salt: [0u8; SALTBYTES],
+//             personal: [0u8; PERSONALBYTES],
+//         }
+//     }
+// }
 
-#[derive(Zeroize, Debug)]
+#[derive(Zeroize, Debug, Default)]
 #[zeroize(drop)]
 pub(crate) struct State {
     h: [u64; 8],
@@ -54,18 +55,18 @@ pub(crate) struct State {
     buf: Vec<u8>,
 }
 
-#[cfg_attr(feature = "nightly", allow(clippy::derivable_impls))]
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            h: [0u64; 8],
-            t: [0u64; 2],
-            f: [0u64; 2],
-            buf: vec![],
-            last_node: 0,
-        }
-    }
-}
+// #[cfg_attr(feature = "nightly", allow(clippy::derivable_impls))]
+// impl Default for State {
+//     fn default() -> Self {
+//         Self {
+//             h: [0u64; 8],
+//             t: [0u64; 2],
+//             f: [0u64; 2],
+//             buf: vec![],
+//             last_node: 0,
+//         }
+//     }
+// }
 
 const SIGMA: [[usize; 16]; 12] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
