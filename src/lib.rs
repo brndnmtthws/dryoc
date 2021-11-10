@@ -116,7 +116,6 @@
 //! [^4]: Currently only available on nightly Rust, with the `nightly` feature
 //! flag enabled.
 
-#![warn(missing_docs)]
 #![cfg_attr(
     any(feature = "nightly", all(feature = "nightly", doc)),
     feature(allocator_api, doc_cfg)
@@ -186,6 +185,8 @@ pub mod sign;
 pub mod types;
 /// # Various utility functions
 pub mod utils;
+
+pub use error::Error;
 
 #[cfg(test)]
 mod tests {
