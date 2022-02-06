@@ -31,6 +31,10 @@ difficult to shoot yourself in the foot. It's worth noting, however, you
 certainly can still shoot yourself if you choose (either by leaking private
 data, using insecure hardware, OPSEC issues, etc).
 
+For example usage, refer to the
+[official docs](https://docs.rs/dryoc/latest/dryoc/) or the
+[integration tests](/tests/integration_tests.rs).
+
 ## Features
 
 * Many libsodium implemented with both Classic and Rustaceous API
