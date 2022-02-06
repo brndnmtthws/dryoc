@@ -133,6 +133,7 @@ pub struct Config {
 
 impl Config {
     /// Returns this config with `salt_length`.
+    #[must_use]
     pub fn with_salt_length(self, salt_length: usize) -> Self {
         Self {
             salt_length,
@@ -141,6 +142,7 @@ impl Config {
     }
 
     /// Returns this config with `hash_length`.
+    #[must_use]
     pub fn with_hash_length(self, hash_length: usize) -> Self {
         Self {
             hash_length,
@@ -149,11 +151,13 @@ impl Config {
     }
 
     /// Returns this config with `memlimit`.
+    #[must_use]
     pub fn with_memlimit(self, memlimit: usize) -> Self {
         Self { memlimit, ..self }
     }
 
     /// Returns this config with `opslimit`.
+    #[must_use]
     pub fn with_opslimit(self, opslimit: u64) -> Self {
         Self { opslimit, ..self }
     }
