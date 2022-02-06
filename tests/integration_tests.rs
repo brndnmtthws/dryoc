@@ -154,6 +154,37 @@ fn test_dryocsecretbox_serde_bincode() {
 
     assert_eq!(message, decrypted.as_slice());
 }
+
+#[cfg(all(feature = "serde", feature = "nightly"))]
+#[test]
+fn test_dryocsecretbox_serde_protected_bincode() {
+    use dryoc::dryocsecretbox::protected::*;
+    use dryoc::dryocsecretbox::*;
+
+    let secret_key = protected::Key::gen_locked()
+        .and_then(|s| s.mprotect_readonly())
+        .expect("key failed");
+
+    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+
+    let message =
+        HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
+            .expect("message failed");
+
+    let dryocsecretbox: protected::LockedBox =
+        DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+
+    let encoded = bincode::serialize(&dryocsecretbox).expect("doesn't serialize");
+
+    let dryocsecretbox: protected::LockedBox = bincode::deserialize(&encoded).unwrap();
+
+    let decrypted: LockedBytes = dryocsecretbox
+        .decrypt(&nonce, &secret_key)
+        .expect("decrypt failed");
+
+    assert_eq!(message.as_slice(), decrypted.as_slice());
+}
+
 #[test]
 fn test_streams() {
     use dryoc::classic::crypto_secretstream_xchacha20poly1305::*;
