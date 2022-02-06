@@ -110,7 +110,7 @@ pub fn crypto_sign_ed25519_pk_to_curve25519(
 ) -> Result<(), Error> {
     let ep = CompressedEdwardsY(*ed25519_public_key)
         .decompress()
-        .ok_or(dryoc_error!("failed to convert to Edwards point"))?;
+        .ok_or_else(|| dryoc_error!("failed to convert to Edwards point"))?;
     x25519_public_key.copy_from_slice(ep.to_montgomery().as_bytes());
 
     Ok(())
@@ -230,7 +230,7 @@ fn crypto_sign_ed25519_verify_detached_impl(
     );
     let big_r = CompressedEdwardsY::from_slice(&signature[..32])
         .decompress()
-        .ok_or(dryoc_error!("bad signature"))?;
+        .ok_or_else(|| dryoc_error!("bad signature"))?;
     if big_r.is_small_order() {
         return Err(dryoc_error!("bad signature"));
     }
@@ -239,7 +239,7 @@ fn crypto_sign_ed25519_verify_detached_impl(
     }
     let pk = CompressedEdwardsY::from_slice(public_key)
         .decompress()
-        .ok_or(dryoc_error!("bad public key"))?;
+        .ok_or_else(|| dryoc_error!("bad public key"))?;
     if pk.is_small_order() {
         return Err(dryoc_error!("bad public key"));
     }
