@@ -37,8 +37,8 @@ For example usage, refer to the
 
 ## Features
 
-* Many libsodium implemented with both Classic and Rustaceous API
-* Protected memory handling
+* Many libsodium features implemented with both Classic and Rustaceous API
+* Protected memory handling (mprotect() + mlock() with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
 
 ## Project status
