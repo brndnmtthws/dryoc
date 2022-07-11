@@ -266,7 +266,7 @@ impl Pwhash {
 
         // Check if version is supported
         if pwhash.version.is_none() || pwhash.version.unwrap() != ARGON2_VERSION_NUMBER {
-            return Err(dryoc_error!("unsupported password hash"));
+            Err(dryoc_error!("unsupported password hash"))
         // Verify correct value for parallism
         } else if pwhash.parallelism.is_none() || pwhash.parallelism.unwrap() != 1 {
             Err(dryoc_error!("parallelism missing or invalid"))

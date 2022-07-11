@@ -81,13 +81,13 @@ use crate::rng::copy_randombytes;
 pub use crate::types::*;
 
 mod int {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub(super) enum LockMode {
         Locked,
         Unlocked,
     }
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub(super) enum ProtectMode {
         ReadOnly,
         ReadWrite,
@@ -800,7 +800,7 @@ unsafe impl Allocator for PageAlignedAllocator {
 /// [page-aligned allocator](PageAlignedAllocator). Required for working with
 /// protected memory regions. Wraps a [`Vec`] with custom [`Allocator`]
 /// implementation.
-#[derive(Zeroize, Debug, PartialEq, Clone)]
+#[derive(Zeroize, Debug, PartialEq, Eq, Clone)]
 #[zeroize(drop)]
 pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 
@@ -808,7 +808,7 @@ pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 /// [page-aligned allocator](PageAlignedAllocator). Required for working with
 /// protected memory regions. Wraps a [`Vec`] with custom [`Allocator`]
 /// implementation.
-#[derive(Zeroize, Debug, PartialEq, Clone)]
+#[derive(Zeroize, Debug, PartialEq, Eq, Clone)]
 #[zeroize(drop)]
 pub struct HeapBytes(Vec<u8, PageAlignedAllocator>);
 
