@@ -144,21 +144,21 @@ mod tests {
         ];
 
         let mut key = Key::default();
-        for i in 0..key.len() {
-            key[i] = i as u8;
+        for (i, item) in key.iter_mut().enumerate() {
+            *item = i as u8;
         }
 
-        for i in 0..64 {
+        for (i, item) in vectors.iter().enumerate() {
             let mut input = vec![0u8; i];
-            for j in 0..i {
-                input[j] = j as u8;
+            for (j, item) in input.iter_mut().enumerate().take(i) {
+                *item = j as u8;
             }
 
             let mut output = Hash::default();
 
             siphash24(&mut output, &input, &key);
 
-            assert_eq!(output, vectors[i]);
+            assert_eq!(output, *item);
         }
     }
 }

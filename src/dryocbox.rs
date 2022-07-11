@@ -779,7 +779,7 @@ mod tests {
 
             let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
             let so_m = curve25519blake2bxsalsa20poly1305::open(
-                &ciphertext.as_slice(),
+                ciphertext.as_slice(),
                 &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
                 &SOSecretKey::from_slice(keypair_recipient.secret_key.as_slice()).unwrap(),
             )

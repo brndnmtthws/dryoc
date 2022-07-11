@@ -8,7 +8,7 @@ use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
 /// optional [Serde](https://serde.rs) features.
-#[derive(Zeroize, Debug, PartialEq, Clone)]
+#[derive(Zeroize, Debug, PartialEq, Eq, Clone)]
 #[zeroize(drop)]
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
 
@@ -301,17 +301,20 @@ impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
 
 impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
     #[inline]
+    #[allow(clippy::explicit_auto_deref)]
     fn as_slice(&self) -> &[u8] {
         *self
     }
 
     #[inline]
+    #[allow(clippy::explicit_auto_deref)]
     fn len(&self) -> usize {
         <[u8]>::len(*self)
     }
 
     #[inline]
     fn is_empty(&self) -> bool {
+        #[allow(clippy::explicit_auto_deref)]
         <[u8]>::is_empty(*self)
     }
 }

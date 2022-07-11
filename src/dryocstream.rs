@@ -196,7 +196,7 @@ impl From<u8> for Tag {
 }
 
 /// Secret-key authenticated encrypted streams
-#[derive(PartialEq, Clone, Zeroize)]
+#[derive(PartialEq, Eq, Clone, Zeroize)]
 pub struct DryocStream<Mode> {
     state: State,
     phantom: std::marker::PhantomData<Mode>,

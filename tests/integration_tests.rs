@@ -12,8 +12,8 @@ fn test_dryocbox() {
     let dryocbox = DryocBox::encrypt_to_vecbox(
         message,
         &nonce,
-        &recipient_keypair.public_key.clone(),
-        &sender_keypair.secret_key.clone(),
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
     )
     .expect("unable to encrypt");
 
@@ -471,8 +471,8 @@ fn test_dryocbox_seal() {
     let recipient_keypair = KeyPair::gen();
     let message = b"juicybox";
 
-    let dryocbox = DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key.clone())
-        .expect("unable to seal");
+    let dryocbox =
+        DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key).expect("unable to seal");
 
     let decrypted = dryocbox
         .unseal_to_vec(&recipient_keypair)

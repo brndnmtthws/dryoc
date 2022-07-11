@@ -113,7 +113,7 @@ pub type Nonce = [u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES];
 pub type Header = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
 
 /// Stream state data
-#[derive(PartialEq, Clone, Zeroize, Default)]
+#[derive(PartialEq, Eq, Clone, Zeroize, Default)]
 #[zeroize(drop)]
 pub struct State {
     k: Key,

@@ -184,7 +184,7 @@ mod tests {
 
             assert_eq!(so_mac.0, mac);
 
-            crypto_onetimeauth_verify(&mut mac, &input, &key).expect("verify failed");
+            crypto_onetimeauth_verify(&mac, &input, &key).expect("verify failed");
         }
     }
 
@@ -212,7 +212,7 @@ mod tests {
 
             assert_eq!(so_mac.0, mac);
 
-            crypto_onetimeauth_verify(&mut mac, &input, &key).expect("verify failed");
+            crypto_onetimeauth_verify(&mac, &input, &key).expect("verify failed");
         }
     }
 }

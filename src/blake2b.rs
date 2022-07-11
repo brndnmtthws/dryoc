@@ -524,7 +524,7 @@ mod tests {
         use crate::rng::copy_randombytes;
 
         for i in 5..320 {
-            let mut input = vec![0u8; i - 5 as usize];
+            let mut input = vec![0u8; i - 5_usize];
             let mut output = vec![0u8; i as usize];
             let mut so_output = output.clone();
             copy_randombytes(&mut input);

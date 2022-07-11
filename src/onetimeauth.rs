@@ -233,7 +233,7 @@ mod tests {
         verify_mac.update(b"data");
         verify_mac.verify(&mac).expect("verify failed");
 
-        let mut verify_mac = OnetimeAuth::new(key.clone());
+        let mut verify_mac = OnetimeAuth::new(key);
         verify_mac.update(b"Multi-part");
         verify_mac.update(b"bad data");
         verify_mac

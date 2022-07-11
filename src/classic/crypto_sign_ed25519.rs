@@ -260,7 +260,7 @@ fn crypto_sign_ed25519_verify_detached_impl(
     if sig_r == big_r {
         Ok(())
     } else {
-        return Err(dryoc_error!("bad signature"));
+        Err(dryoc_error!("bad signature"))
     }
 }
 

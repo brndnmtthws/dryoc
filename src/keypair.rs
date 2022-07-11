@@ -250,7 +250,7 @@ mod tests {
     where
         T: PartialEq,
     {
-        t.iter().fold(true, |acc, x| acc && *x == v)
+        t.iter().all(|x| *x == v)
     }
 
     #[test]
@@ -260,8 +260,8 @@ mod tests {
             StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
         >::new();
 
-        assert_eq!(all_eq(&keypair.public_key, 0), true);
-        assert_eq!(all_eq(&keypair.secret_key, 0), true);
+        assert!(all_eq(&keypair.public_key, 0));
+        assert!(all_eq(&keypair.secret_key, 0));
     }
 
     #[test]
@@ -271,8 +271,8 @@ mod tests {
             StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
         >::default();
 
-        assert_eq!(all_eq(&keypair.public_key, 0), true);
-        assert_eq!(all_eq(&keypair.secret_key, 0), true);
+        assert!(all_eq(&keypair.public_key, 0));
+        assert!(all_eq(&keypair.secret_key, 0));
     }
 
     #[test]
