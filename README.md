@@ -6,7 +6,9 @@
 
 dryoc is a pure-Rust, general-purpose cryptography library. It provides an
 implementation of the excellent
-[libsodium](https://github.com/jedisct1/libsodium) library, in _pure_ Rust.
+[libsodium](https://github.com/jedisct1/libsodium) library, in _pure_ Rust. It
+also includes protected memory features throughout, which makes it dead simple
+to build secure, robust, and safe cryptographic software.
 
 ![Granny says no](dryoc.png)
 
