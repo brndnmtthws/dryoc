@@ -42,7 +42,7 @@ For example usage, refer to the
 * Many libsodium features implemented with both Classic and Rustaceous API
 * Protected memory handling (mprotect() + mlock() with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
-* SIMD backends for Curve25519 and SHA2 on supported platforms (with `features = ["simd_backend"]`)
+* SIMD backends for Curve25519 and SHA2 on supported platforms (with `features = ["simd_backend", "nightly"]`, currently nightly-only)
 
 ## Project status
 
