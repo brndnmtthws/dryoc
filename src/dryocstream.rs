@@ -213,8 +213,8 @@ impl<M> DryocStream<M> {
     /// need to manually rekey if you use this function (i.e., it's not handled
     /// by the library).
     ///
-    /// Automatic rekeying will occur normally, and you generally should need to
-    /// manually rekey.
+    /// Automatic rekeying will occur normally, and you generally shouldn't need
+    /// to manually rekey.
     ///
     /// Refer to the [libsodium
     /// docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream#rekeying)
