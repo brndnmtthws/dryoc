@@ -1,6 +1,7 @@
 //! # Generic hashing
 //!
-//! Implements libsodium's generic hashing functions.
+//! Implements libsodium's generic hashing functions, based on blake2b. Can also
+//! be used as an HMAC function, if a key is provided.
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/hashing/generic_hashing).
 //!

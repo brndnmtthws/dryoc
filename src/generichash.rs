@@ -1,7 +1,7 @@
 //! # Generic hashing
 //!
 //! [`GenericHash`] implements libsodium's generic hashing, based on the Blake2b
-//! algorithm.
+//! algorithm. Can also be used as an HMAC function, if a key is provided.
 //!
 //! # Rustaceous API example, one-time interface
 //!
