@@ -709,7 +709,7 @@ unsafe impl Allocator for PageAlignedAllocator {
 
             // allocate full pages, in addition to an extra page at the start and
             // end which will remain locked with no access permitted.
-            let ret = unsafe { posix_memalign(&mut out, pagesize as usize, size) };
+            let ret = unsafe { posix_memalign(&mut out, pagesize, size) };
             if ret != 0 {
                 return Err(AllocError);
             }
