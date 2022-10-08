@@ -302,19 +302,19 @@ impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
 impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
     #[inline]
     fn as_slice(&self) -> &[u8] {
-        #[cfg_attr(feature = "nightly", allow(clippy::explicit_auto_deref))]
+        #[allow(clippy::explicit_auto_deref)]
         *self
     }
 
     #[inline]
     fn len(&self) -> usize {
-        #[cfg_attr(feature = "nightly", allow(clippy::explicit_auto_deref))]
+        #[allow(clippy::explicit_auto_deref)]
         <[u8]>::len(*self)
     }
 
     #[inline]
     fn is_empty(&self) -> bool {
-        #[cfg_attr(feature = "nightly", allow(clippy::explicit_auto_deref))]
+        #[allow(clippy::explicit_auto_deref)]
         <[u8]>::is_empty(*self)
     }
 }
