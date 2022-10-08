@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 
+use lazy_static::__Deref;
 use zeroize::Zeroize;
 
 #[cfg(any(feature = "serde"))]
@@ -302,20 +303,17 @@ impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
 impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
     #[inline]
     fn as_slice(&self) -> &[u8] {
-        #[allow(clippy::explicit_auto_deref)]
-        *self
+        self.deref()
     }
 
     #[inline]
     fn len(&self) -> usize {
-        #[allow(clippy::explicit_auto_deref)]
-        <[u8]>::len(*self)
+        <[u8]>::len(self.deref())
     }
 
     #[inline]
     fn is_empty(&self) -> bool {
-        #[allow(clippy::explicit_auto_deref)]
-        <[u8]>::is_empty(*self)
+        <[u8]>::is_empty(self.deref())
     }
 }
 
