@@ -1,7 +1,7 @@
 [package]
 authors = ["Brenden Matthews <brenden@brndn.io>"]
 categories = ["cryptography", "algorithms"]
-description = "dryoc is a pure-Rust general-purpose cryptography library"
+description = "Don't Roll Your Own Crypto: a pure-Rust, hard to misuse cryptography library "
 documentation = "https://docs.rs/dryoc"
 edition = "2021"
 keywords = ["cryptography", "nacl", "libsodium", "xchacha20", "crypto_box"]
