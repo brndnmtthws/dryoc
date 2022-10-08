@@ -4,11 +4,10 @@
 
 # dryoc: Don't Roll Your Own Crypto™<sup>[^1]</sup>
 
-dryoc is a pure-Rust, general-purpose cryptography library. It provides an
-implementation of the excellent
-[libsodium](https://github.com/jedisct1/libsodium) library, in _pure_ Rust. It
+dryoc is a pure-Rust, general-purpose cryptography library that's hard to misuse. It's based on the excellent
+[libsodium](https://github.com/jedisct1/libsodium) library, but in _pure_ Rust. It
 also includes protected memory features throughout, which makes it dead simple
-to build secure, robust, and safe cryptographic software.
+to build secure, robust, and safe cryptographic software. The original goal of this library was to provide a pure-Rust alternative to libsodium.
 
 ![Granny says no](dryoc.png)
 
@@ -39,6 +38,7 @@ For example usage, refer to the
 
 ## Features
 
+* Hard to misuse, helping you avoid common costly cryptography mistakes
 * Many libsodium features implemented with both Classic and Rustaceous API
 * Protected memory handling (mprotect() + mlock() with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
