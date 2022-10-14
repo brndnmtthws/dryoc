@@ -205,7 +205,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
 /// Compatible with libsodium's
 /// `crypto_secretstream_xchacha20poly1305_init_push`.
 pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
-    use chacha20::cipher::{NewStreamCipher, SyncStreamCipher};
+    use chacha20::cipher::{KeyIvInit, StreamCipher};
     use chacha20::{ChaCha20, Key, Nonce};
 
     let mut new_state = [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES
@@ -245,7 +245,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     associated_data: Option<&[u8]>,
     tag: u8,
 ) -> Result<(), Error> {
-    use chacha20::cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
+    use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
     use chacha20::{ChaCha20, Key, Nonce};
 
     use crate::poly1305::Poly1305;
@@ -350,7 +350,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     ciphertext: &[u8],
     associated_data: Option<&[u8]>,
 ) -> Result<usize, Error> {
-    use chacha20::cipher::{NewStreamCipher, SyncStreamCipher, SyncStreamCipherSeek};
+    use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
     use chacha20::{ChaCha20, Key, Nonce};
 
     use crate::poly1305::Poly1305;
