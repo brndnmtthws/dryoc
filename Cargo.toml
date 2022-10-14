@@ -20,7 +20,7 @@ curve25519-dalek = "3.0"
 generic-array = "0.14"
 lazy_static = "1"
 rand_core = { version = "0.6", features = ["getrandom"] }
-salsa20 = { version = "0.7", features = ["hsalsa20"] }
+salsa20 = { version = "0.10", features = ["zeroize"] }
 serde = { version = "1.0", optional = true, features = ["derive"] }
 sha2 = "0.10"
 subtle = "2.4"
