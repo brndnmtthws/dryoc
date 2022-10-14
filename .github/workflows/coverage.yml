@@ -25,6 +25,6 @@ jobs:
         with:
           args: --features serde,nightly
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v1
+        uses: codecov/codecov-action@v3
         with:
           fail_ci_if_error: true
