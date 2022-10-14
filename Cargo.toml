@@ -48,7 +48,7 @@ libsodium-sys = "0.2"
 serde = {version = "1.0", features = ["derive"]}
 serde_json = "1"
 sodiumoxide = "0.2"
-static_assertions = "0.1"
+static_assertions = "1.1"
 
 [features]
 default = [
