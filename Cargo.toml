@@ -10,31 +10,31 @@ name = "dryoc"
 readme = "README.md"
 repository = "https://github.com/brndnmtthws/dryoc"
 rust-version = "1.56"
-version = "0.3.15"
+version = "0.4.0"
 
 [dependencies]
-base64 = {version = "0.13", optional = true}
+base64 = { version = "0.13", optional = true }
 bitflags = "1.0"
-chacha20 = {version = "0.6", features = ["rng"]}
+chacha20 = { version = "0.6", features = ["rng"] }
 curve25519-dalek = "3.0"
 generic-array = "0.14"
 lazy_static = "1"
-rand_core = {version = "0.6", features = ["getrandom"]}
-salsa20 = {version = "0.7", features = ["hsalsa20"]}
-serde = {version = "1.0", optional = true, features = ["derive"]}
-sha2 = "0.9"
+rand_core = { version = "0.6", features = ["getrandom"] }
+salsa20 = { version = "0.7", features = ["hsalsa20"] }
+serde = { version = "1.0", optional = true, features = ["derive"] }
+sha2 = "0.10"
 subtle = "2.4"
-zeroize = {version = "1", features = ["zeroize_derive"]}
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.'cfg(windows)'.dependencies]
-winapi = {version = "0.3", features = [
+winapi = { version = "0.3", features = [
   "impl-default",
   "memoryapi",
   "minwindef",
   "std",
   "sysinfoapi",
   "winnt",
-]}
+] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -45,15 +45,13 @@ bincode = "1"
 hex = "0.4"
 libc = "0.2"
 libsodium-sys = "0.2"
-serde = {version = "1.0", features = ["derive"]}
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 sodiumoxide = "0.2"
 static_assertions = "1.1"
 
 [features]
-default = [
-  "u64_backend",
-]
+default = ["u64_backend"]
 nightly = []
 simd_backend = ["curve25519-dalek/simd_backend", "sha2/asm"]
 u64_backend = ["curve25519-dalek/u64_backend"]
