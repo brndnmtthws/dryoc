@@ -15,7 +15,7 @@ version = "0.4.0"
 [dependencies]
 base64 = { version = "0.13", optional = true }
 bitflags = "1.0"
-chacha20 = { version = "0.6", features = ["rng"] }
+chacha20 = { version = "0.9", features = ["rng"] }
 curve25519-dalek = "3.0"
 generic-array = "0.14"
 lazy_static = "1"
