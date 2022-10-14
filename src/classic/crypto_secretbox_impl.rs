@@ -1,5 +1,5 @@
 use generic_array::GenericArray;
-use salsa20::cipher::{NewStreamCipher, SyncStreamCipher};
+use salsa20::cipher::{KeyIvInit, StreamCipher};
 use salsa20::XSalsa20;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
