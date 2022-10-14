@@ -63,12 +63,13 @@ jobs:
           command: test
           args: --features ${{ env.FEATURES }}
       - name: Rustfmt
-        if: ${{ matrix.rust == 'nightly' }}
+        if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' }}
         uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: --all -- --check
       - name: Clippy
+        if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' }}
         uses: actions-rs/cargo@v1
         with:
           command: clippy
