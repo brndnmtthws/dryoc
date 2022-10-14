@@ -37,7 +37,7 @@ jobs:
     env:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
