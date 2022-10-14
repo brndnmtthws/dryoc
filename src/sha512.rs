@@ -1,19 +1,18 @@
-/*!
-# SHA-512 hash algorithm
-
-Provides an implementation of the SHA-512 hash algorithm.
-
-## Example
-
-```
-use dryoc::sha512::Sha512;
-
-
-
- */
+//! # SHA-512 hash algorithm
+//!
+//! Provides an implementation of the SHA-512 hash algorithm.
+//!
+//! ## Example
+//!
+//! ```
+//! use dryoc::sha512::Sha512;
+//!
+//! let mut state = Sha512::new();
+//! state.update(b"bytes");
+//! let hash = state.finalize_to_vec();
+//! ```
 use generic_array::typenum::U64;
 use generic_array::GenericArray;
-use sha2::digest::FixedOutputDirty;
 use sha2::{Digest as DigestImpl, Sha512 as Sha512Impl};
 
 use crate::constants::CRYPTO_HASH_SHA512_BYTES;
@@ -82,7 +81,7 @@ impl Sha512 {
         output: &mut Output,
     ) {
         let arr = GenericArray::<_, U64>::from_mut_slice(output.as_mut_slice());
-        self.hasher.finalize_into_dirty(arr);
+        self.hasher.finalize_into_reset(arr);
     }
 
     /// Consumes hasher and returns final computed hash as a [`Vec`].
