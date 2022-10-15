@@ -25,22 +25,26 @@ pub(crate) fn xor_buf(out: &mut [u8], in_: &[u8]) {
 }
 
 #[inline]
-pub(crate) fn load64_le(bytes: &[u8]) -> u64 {
-    let mut r = 0u64;
-    for (i, &b) in bytes[0..8].iter().enumerate() {
-        r |= (b as u64) << (8 * i);
-    }
-    r
+pub(crate) fn load_u64_le(bytes: &[u8]) -> u64 {
+    (bytes[0] as u64)
+        | (bytes[1] as u64) << 8
+        | (bytes[2] as u64) << 16
+        | (bytes[3] as u64) << 24
+        | (bytes[4] as u64) << 32
+        | (bytes[5] as u64) << 40
+        | (bytes[6] as u64) << 48
+        | (bytes[7] as u64) << 56
 }
 
 #[inline]
-pub(crate) fn load32_le(bytes: &[u8]) -> u32 {
-    let mut r = 0u32;
-    for (i, &b) in bytes[0..4].iter().enumerate() {
-        r |= (b as u32) << (8 * i);
-    }
-    r
+pub(crate) fn load_u32_le(bytes: &[u8]) -> u32 {
+    (bytes[0] as u32) | (bytes[1] as u32) << 8 | (bytes[2] as u32) << 16 | (bytes[3] as u32) << 24
 }
+
+// #[inline]
+// pub(crate) fn load_i32_le(bytes: &[u8]) -> i32 {
+//     (bytes[0] as i32) | (bytes[1] as i32) << 8 | (bytes[2] as i32) << 16 |
+// (bytes[3] as i32) << 24 }
 
 #[inline]
 pub(crate) fn rotr64(x: u64, b: u64) -> u64 {

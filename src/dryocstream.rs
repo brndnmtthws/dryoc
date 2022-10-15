@@ -2,7 +2,7 @@
 //!
 //! [`DryocStream`] implements libsodium's secret-key authenticated stream
 //! encryption, also known as a _secretstream_. This implementation uses the
-//! XSalsa20 stream cipher, and Poly1305 for message authentication.
+//! XChaCha20 stream cipher, and Poly1305 for message authentication.
 //!
 //! You should use a [`DryocStream`] when you want to:
 //!

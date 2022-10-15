@@ -1,5 +1,5 @@
 use crate::constants::{CRYPTO_SHORTHASH_SIPHASH24_BYTES, CRYPTO_SHORTHASH_SIPHASH24_KEYBYTES};
-use crate::utils::load64_le;
+use crate::utils::load_u64_le;
 
 pub(crate) type Hash = [u8; CRYPTO_SHORTHASH_SIPHASH24_BYTES];
 pub(crate) type Key = [u8; CRYPTO_SHORTHASH_SIPHASH24_KEYBYTES];
@@ -15,8 +15,8 @@ pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
     let mut v2 = 0x6c7967656e657261u64;
     let mut v3 = 0x7465646279746573u64;
 
-    let k0 = load64_le(&key[..8]);
-    let k1 = load64_le(&key[8..]);
+    let k0 = load_u64_le(&key[..8]);
+    let k1 = load_u64_le(&key[8..]);
 
     v3 ^= k1;
     v2 ^= k0;
@@ -41,7 +41,7 @@ pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
     };
 
     for chunk in input.chunks_exact(8) {
-        let m = load64_le(chunk);
+        let m = load_u64_le(chunk);
         v3 ^= m;
         round(&mut v0, &mut v1, &mut v2, &mut v3);
         round(&mut v0, &mut v1, &mut v2, &mut v3);

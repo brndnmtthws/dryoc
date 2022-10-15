@@ -123,6 +123,11 @@
     any(feature = "nightly", all(feature = "nightly", doc)),
     feature(allocator_api, doc_cfg)
 )]
+#![cfg_attr(
+    all(feature = "simd_backend", feature = "nightly"),
+    feature(portable_simd)
+)]
+#![cfg_attr(feature = "nightly", feature(test))]
 #[macro_use]
 mod error;
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]

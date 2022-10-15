@@ -40,9 +40,23 @@ For example usage, refer to the
 
 * Hard to misuse, helping you avoid common costly cryptography mistakes
 * Many libsodium features implemented with both Classic and Rustaceous API
-* Protected memory handling (mprotect() + mlock() with Windows equivalents)
+* Protected memory handling (`mprotect()` + `mlock()`, along with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
-* SIMD backends for Curve25519 and SHA2 on supported platforms (with `features = ["simd_backend", "nightly"]`, currently nightly-only)
+* [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Blake2b (used by generic hashing, password hashing, and key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
+* SIMD backend for Curve25519 (used by public/private key functions) on nightly with `features = ["simd_backend", "nightly"]`
+* [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
+* [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for Neon, AVX2, and SSE2
+
+To enable all the SIMD backends through 3rd party crates, you'll need to also
+set `RUSTFLAGS`:
+* For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
+* For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
+* For Neon set `RUSTFLAGS=-Ctarget-feature=+neon`
+
+_Note that eventually this project will converge on portable SIMD implementations
+for all the core algos which will work across all platforms supported by LLVM,
+rather than relying on hand-coded assembly or intrinsics, but his is a work in
+progress_.
 
 ## Project status
 

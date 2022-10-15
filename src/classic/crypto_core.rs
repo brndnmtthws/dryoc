@@ -8,7 +8,7 @@ use crate::scalarmult_curve25519::{
     crypto_scalarmult_curve25519, crypto_scalarmult_curve25519_base,
 };
 use crate::types::*;
-use crate::utils::load32_le;
+use crate::utils::load_u32_le;
 
 /// Stack-allocated HChaCha20 input.
 pub type HChaCha20Input = [u8; CRYPTO_CORE_HCHACHA20_INPUTBYTES];
@@ -88,18 +88,18 @@ pub fn crypto_core_hchacha20(
         mut x14,
         mut x15,
     ) = (
-        load32_le(&key[0..4]),
-        load32_le(&key[4..8]),
-        load32_le(&key[8..12]),
-        load32_le(&key[12..16]),
-        load32_le(&key[16..20]),
-        load32_le(&key[20..24]),
-        load32_le(&key[24..28]),
-        load32_le(&key[28..32]),
-        load32_le(&input[0..4]),
-        load32_le(&input[4..8]),
-        load32_le(&input[8..12]),
-        load32_le(&input[12..16]),
+        load_u32_le(&key[0..4]),
+        load_u32_le(&key[4..8]),
+        load_u32_le(&key[8..12]),
+        load_u32_le(&key[12..16]),
+        load_u32_le(&key[16..20]),
+        load_u32_le(&key[20..24]),
+        load_u32_le(&key[24..28]),
+        load_u32_le(&key[28..32]),
+        load_u32_le(&input[0..4]),
+        load_u32_le(&input[4..8]),
+        load_u32_le(&input[8..12]),
+        load_u32_le(&input[12..16]),
     );
 
     for _ in 0..10 {
@@ -153,18 +153,18 @@ pub fn crypto_core_hsalsa20(
         mut x8,
         mut x9,
     ) = (
-        load32_le(&key[0..4]),
-        load32_le(&key[4..8]),
-        load32_le(&key[8..12]),
-        load32_le(&key[12..16]),
-        load32_le(&key[16..20]),
-        load32_le(&key[20..24]),
-        load32_le(&key[24..28]),
-        load32_le(&key[28..32]),
-        load32_le(&input[0..4]),
-        load32_le(&input[4..8]),
-        load32_le(&input[8..12]),
-        load32_le(&input[12..16]),
+        load_u32_le(&key[0..4]),
+        load_u32_le(&key[4..8]),
+        load_u32_le(&key[8..12]),
+        load_u32_le(&key[12..16]),
+        load_u32_le(&key[16..20]),
+        load_u32_le(&key[20..24]),
+        load_u32_le(&key[24..28]),
+        load_u32_le(&key[28..32]),
+        load_u32_le(&input[0..4]),
+        load_u32_le(&input[4..8]),
+        load_u32_le(&input[8..12]),
+        load_u32_le(&input[12..16]),
     );
 
     for _ in (0..20).step_by(2) {

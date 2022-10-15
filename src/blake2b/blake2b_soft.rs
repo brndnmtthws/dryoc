@@ -1,7 +1,7 @@
 use zeroize::Zeroize;
 
 use crate::error::Error;
-use crate::utils::{load64_le, rotr64};
+use crate::utils::{load_u64_le, rotr64};
 
 const BLOCKBYTES: usize = 128;
 const OUTBYTES: usize = 64;
@@ -46,7 +46,7 @@ impl Default for Params {
 
 #[derive(Zeroize, Debug, Default)]
 #[zeroize(drop)]
-pub(crate) struct State {
+pub struct State {
     h: [u64; 8],
     t: [u64; 2],
     f: [u64; 2],
@@ -85,7 +85,7 @@ fn compress(sh: &mut [u64; 8], st: &mut [u64; 2], sf: &mut [u64; 2], block: &[u8
     let mut tv = [0u64; 16];
 
     for i in 0..16 {
-        tm[i] = load64_le(&block[(i * 8)..(i * 8 + 8)]);
+        tm[i] = load_u64_le(&block[(i * 8)..(i * 8 + 8)]);
     }
     tv[..8].copy_from_slice(sh);
     tv[8] = IV[0];
@@ -155,7 +155,7 @@ impl State {
         };
 
         for i in 0..8 {
-            state.h[i] ^= load64_le(&pslice[(8 * i)..(8 * i + 8)]);
+            state.h[i] ^= load_u64_le(&pslice[(8 * i)..(8 * i + 8)]);
         }
 
         state
@@ -339,7 +339,7 @@ impl State {
     }
 }
 
-pub(crate) fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
+pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
     if output.len() > OUTBYTES {
         return Err(dryoc_error!(format!(
             "output length {} greater than max {}",
@@ -354,7 +354,7 @@ pub(crate) fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Resul
     state.finalize(output)
 }
 
-pub(crate) fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
+pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
     // long variant of blake2b, used by argon2
     // fills output with bytes from blake2b based on input
 
@@ -404,7 +404,11 @@ pub(crate) fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "nightly")]
+    extern crate test;
+    use lazy_static::lazy_static;
     use libc::*;
+    use serde::{Deserialize, Serialize};
 
     use super::*;
 
@@ -425,6 +429,55 @@ mod tests {
         fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
         fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
         fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct TestVector {
+        hash: String,
+        #[serde(rename = "in")]
+        in_: String,
+        key: String,
+        out: String,
+    }
+
+    lazy_static! {
+        static ref TEST_VECTORS: Vec<TestVector> =
+            serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap();
+    }
+
+    #[test]
+    fn test_vectors() {
+        for vector in TEST_VECTORS.iter() {
+            let key = if vector.key.is_empty() {
+                None
+            } else {
+                Some(hex::decode(&vector.key).unwrap())
+            };
+            let mut state =
+                State::init(64, key.as_ref().map(|s| s.as_slice()), None, None).expect("init");
+            state.update(hex::decode(&vector.in_).unwrap().as_slice());
+            let mut output = [0u8; 64];
+
+            state.finalize(&mut output).ok();
+
+            assert_eq!(vector.out, hex::encode(output));
+        }
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn blake2b_bench(b: &mut test::Bencher) {
+        use crate::rng::copy_randombytes;
+        let mut input = vec![0u8; 694200];
+        copy_randombytes(&mut input);
+
+        b.iter(|| {
+            let mut state = State::init(64, None, None, None).expect("init");
+            state.update(&input);
+
+            let mut output = [0u8; 64];
+            state.finalize(&mut output).ok();
+        });
     }
 
     #[test]
