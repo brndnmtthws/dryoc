@@ -4,18 +4,7 @@ categories = ["cryptography", "algorithms"]
 description = "Don't Roll Your Own Crypto: pure-Rust, hard to misuse cryptography library"
 documentation = "https://docs.rs/dryoc"
 edition = "2021"
-keywords = [
-  "cryptography",
-  "nacl",
-  "libsodium",
-  "xchacha20",
-  "crypto_box",
-  "curve25519",
-  "xsalsa20",
-  "blake2b",
-  "x25519",
-  "diffie-hellman",
-]
+keywords = ["cryptography", "nacl", "libsodium", "xchacha20", "crypto_box"]
 license = "LGPL-3.0-only"
 name = "dryoc"
 readme = "README.md"
