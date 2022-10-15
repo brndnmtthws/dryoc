@@ -36,3 +36,12 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: publish
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          draft: false
+          prerelease: false
+          discussion_category_name: General
+          generate_release_notes: true
