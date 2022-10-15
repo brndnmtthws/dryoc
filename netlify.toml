@@ -1,0 +1,3 @@
+[build]
+publish = "target/doc"
+command = 'rustup toolchain install nightly && cargo +nightly doc --features nightly,serde && echo "/ /dryoc" >> target/doc/_redirects'
