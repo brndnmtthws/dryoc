@@ -1,12 +1,12 @@
 use zeroize::Zeroize;
 
 use crate::types::*;
-use crate::utils::load64_le;
+use crate::utils::load_u64_le;
 
 const BLOCK_SIZE: usize = 16;
 
 #[derive(Default, Zeroize)]
-pub(crate) struct Poly1305 {
+pub struct Poly1305 {
     r: [u64; 3],
     h: [u64; 3],
     pad: [u64; 2],
@@ -38,8 +38,8 @@ impl Poly1305 {
         let mut state = Poly1305::default();
 
         let (t0, t1) = (
-            load64_le(&key.as_array()[0..8]),
-            load64_le(&key.as_array()[8..16]),
+            load_u64_le(&key.as_array()[0..8]),
+            load_u64_le(&key.as_array()[8..16]),
         );
 
         // wiped after finalization
@@ -51,8 +51,8 @@ impl Poly1305 {
         state.h.fill(0);
 
         // save pad for later
-        state.pad[0] = load64_le(&key.as_array()[16..24]);
-        state.pad[1] = load64_le(&key.as_array()[24..32]);
+        state.pad[0] = load_u64_le(&key.as_array()[16..24]);
+        state.pad[1] = load_u64_le(&key.as_array()[24..32]);
 
         state
     }
@@ -108,8 +108,8 @@ impl Poly1305 {
 
         for m in input.chunks(BLOCK_SIZE) {
             // h += m[i]
-            let t0 = load64_le(&m[0..8]);
-            let t1 = load64_le(&m[8..]);
+            let t0 = load_u64_le(&m[0..8]);
+            let t1 = load_u64_le(&m[8..]);
 
             h0 = h0.wrapping_add(t0 & 0xfffffffffff);
             h1 = h1.wrapping_add(((t0 >> 44) | (t1 << 20)) & 0xfffffffffff);

@@ -2,7 +2,7 @@ use zeroize::Zeroize;
 
 use crate::blake2b;
 use crate::error::Error;
-use crate::utils::{load64_le, rotr64};
+use crate::utils::{load_u64_le, rotr64};
 
 // Version of the algorithm
 pub(crate) const ARGON2_VERSION_NUMBER: u32 = 0x13;
@@ -658,7 +658,7 @@ fn load_block(block: &mut Block, input: &[u8]) {
     for i in 0..ARGON2_QWORDS_IN_BLOCK {
         let start = i * 8;
         let end = start + 8;
-        block.v[i] = load64_le(&input[start..end]);
+        block.v[i] = load_u64_le(&input[start..end]);
     }
 }
 
