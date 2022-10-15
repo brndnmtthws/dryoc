@@ -104,6 +104,7 @@ crates:
 * [crypto_box](https://crates.io/crates/crypto_box)
 
 [^1]: Not actually trademarked.
+
 [^2]: The protected memory features described in the [protected] mod require
 custom memory allocation, system calls, and pointer arithmetic, which are
 unsafe in Rust. Some of the libraries used by this library, such as those

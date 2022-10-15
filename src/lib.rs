@@ -117,14 +117,17 @@
 //! way toward better cryptography libraries.
 //!
 //! [^1]: Not actually trademarked.
+//!
 //! [^2]: The protected memory features described in the [protected] mod require
 //! custom memory allocation, system calls, and pointer arithmetic, which are
 //! unsafe in Rust. Some of the libraries used by this library, such as those
 //! using SIMD, may contain unsafe code. In particular, SIMD code is generally
 //! considered "unsafe", however without SIMD-based cryptography you are
 //! exposing yourself to timing attacks.
+//!
 //! [^3]: The Rustaceous API is designed to protect users of this library from
 //! making mistakes, however the Classic API allows one to do as one pleases.
+//!
 //! [^4]: Currently only available on nightly Rust, with the `nightly` feature
 //! flag enabled.
 
