@@ -26,21 +26,34 @@
 //!
 //! ## Features
 //!
-//! * 100% pure Rust
+//! * 100% pure Rust, no hidden C libraries
 //! * mostly free of unsafe code[^2]
-//! * free of corporate and governmental influence
-//! * automatic safety features such as zeroization of data structures (via
-//!   [Drop] and [Zeroize](https://crates.io/crates/zeroize))
-//! * protected memory support, with an API designed such that it's hard to
-//!   accidentally unprotect your memory
-//! * designed to be especially difficult to use incorrectly[^3]
-//! * provides compatibility with libsodium, and implements most of its core
-//!   functions
-//! * covers common use cases for safe encryption, hashing, and message
-//!   authentication
-//! * reentrant and thread safe (no internal state, with the exception of using
-//!   `lazy_static` for protected memory to determine page size)
-//! * available under the [LGPL3 license](https://www.gnu.org/licenses/lgpl-3.0.en.html)
+//! * Hard to misuse, helping you avoid common costly cryptography mistakes
+//! * Many libsodium features implemented with both Classic and Rustaceous API
+//! * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
+//!   equivalents)
+//! * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
+//! * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html)
+//!   implementation for Blake2b (used by generic hashing, password hashing, and
+//!   key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
+//! * SIMD backend for Curve25519 (used by public/private key functions) on
+//!   nightly with `features = ["simd_backend", "nightly"]`
+//! * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by
+//!   sealed boxes) includes SIMD implementation for AVX2
+//! * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20)
+//!   (used by streaming interface) includes SIMD implementations for Neon,
+//!   AVX2, and SSE2
+//!
+//! To enable all the SIMD backends through 3rd party crates, you'll need to
+//! also set `RUSTFLAGS`:
+//! * For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
+//! * For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
+//! * For Neon set `RUSTFLAGS=-Ctarget-feature=+neon`
+//!
+//! _Note that eventually this project will converge on portable SIMD
+//! implementations for all the core algos which will work across all platforms
+//! supported by LLVM, rather than relying on hand-coded assembly or intrinsics,
+//! but his is a work in progress_.
 //!
 //! ## APIs
 //!
@@ -77,7 +90,6 @@
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //! | Short-input hashing | N/A | [`crypto_shorthash`](classic::crypto_shorthash) | [Link](https://libsodium.gitbook.io/doc/hashing/short-input_hashing) |
 //!
-//!
 //! ## Using Serde
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
@@ -105,17 +117,14 @@
 //! way toward better cryptography libraries.
 //!
 //! [^1]: Not actually trademarked.
-//!
 //! [^2]: The protected memory features described in the [protected] mod require
 //! custom memory allocation, system calls, and pointer arithmetic, which are
 //! unsafe in Rust. Some of the libraries used by this library, such as those
 //! using SIMD, may contain unsafe code. In particular, SIMD code is generally
 //! considered "unsafe", however without SIMD-based cryptography you are
 //! exposing yourself to timing attacks.
-//!
 //! [^3]: The Rustaceous API is designed to protect users of this library from
 //! making mistakes, however the Classic API allows one to do as one pleases.
-//!
 //! [^4]: Currently only available on nightly Rust, with the `nightly` feature
 //! flag enabled.
 

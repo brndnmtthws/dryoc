@@ -38,6 +38,8 @@ For example usage, refer to the
 
 ## Features
 
+* 100% pure Rust, no hidden C libraries
+* mostly free of unsafe code[^2]
 * Hard to misuse, helping you avoid common costly cryptography mistakes
 * Many libsodium features implemented with both Classic and Rustaceous API
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows equivalents)
@@ -102,3 +104,9 @@ crates:
 * [crypto_box](https://crates.io/crates/crypto_box)
 
 [^1]: Not actually trademarked.
+[^2]: The protected memory features described in the [protected] mod require
+custom memory allocation, system calls, and pointer arithmetic, which are
+unsafe in Rust. Some of the libraries used by this library, such as those
+using SIMD, may contain unsafe code. In particular, SIMD code is generally
+considered "unsafe", however without SIMD-based cryptography you are
+exposing yourself to timing attacks.
