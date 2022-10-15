@@ -1,0 +1,44 @@
+name: 🐞 Bug Report
+description: "File a bug report: crashes, unexpected behaviour, and other errors go here."
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you haven't done so already, please take a moment to search the [existing issues](https://github.com/brndnmtthws/dryoc/issues) to see if this has been previously reported. If not, carry on.
+
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: >
+        Describe the problem, what you expected to happen, and any other
+        relevant info. You can sample code below.
+      placeholder: Here's what happened
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version of dryoc are you using?
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    validations:
+      required: true
+    attributes:
+      label: Which OS are you seeing the problem on?
+      options:
+        - Linux
+        - macOS
+        - Windows
+  - type: textarea
+    id: code
+    attributes:
+      label: Test code
+      description: If possible, please provide a minimal code sample that produces the problem.
+      render: Rust
