@@ -509,3 +509,15 @@ impl<'a, const LENGTH: usize> TryFrom<&'a [u8]> for StackByteArray<LENGTH> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "invalid vec length 2, expecting at least 3")]
+    fn test_vec_as_array_out_of_bounds() {
+        let vec = vec![1, 2];
+        let _ = <Vec<u8> as ByteArray<3>>::as_array(&vec)[2];
+    }
+}
