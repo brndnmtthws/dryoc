@@ -150,6 +150,12 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
 impl<const LENGTH: usize> ByteArray<LENGTH> for Vec<u8> {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
+        assert!(
+            self.len() >= LENGTH,
+            "invalid vec length {}, expecting at least {}",
+            self.len(),
+            LENGTH
+        );
         let arr = self.as_ptr() as *const [u8; LENGTH];
         unsafe { &*arr }
     }
