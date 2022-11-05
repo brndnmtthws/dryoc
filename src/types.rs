@@ -142,6 +142,12 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
 impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
     #[inline]
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+        assert!(
+            self.len() >= LENGTH,
+            "invalid vec length {}, expecting at least {}",
+            self.len(),
+            LENGTH
+        );
         let arr = self.as_ptr() as *mut [u8; LENGTH];
         unsafe { &mut *arr }
     }
@@ -516,8 +522,27 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "invalid vec length 2, expecting at least 3")]
-    fn test_vec_as_array_out_of_bounds() {
+    fn test_vec_as_array_out_of_bounds_panic() {
         let vec = vec![1, 2];
         let _ = <Vec<u8> as ByteArray<3>>::as_array(&vec)[2];
+    }
+
+    #[test]
+    fn test_vec_as_array_out_of_bounds_ok() {
+        let vec = vec![1, 2];
+        let _ = <Vec<u8> as ByteArray<2>>::as_array(&vec)[1];
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid vec length 2, expecting at least 3")]
+    fn test_vec_as_mut_array_out_of_bounds_panic() {
+        let mut vec = vec![1, 2];
+        let _ = <Vec<u8> as MutByteArray<3>>::as_mut_array(&mut vec)[2];
+    }
+
+    #[test]
+    fn test_vec_as_mut_array_out_of_bounds_ok() {
+        let mut vec = vec![1, 2];
+        let _ = <Vec<u8> as MutByteArray<2>>::as_mut_array(&mut vec)[1];
     }
 }
