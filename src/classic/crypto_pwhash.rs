@@ -151,13 +151,18 @@ pub fn crypto_pwhash(
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8]) -> String {
+    let base64_engine = base64::engine::fast_portable::FastPortable::from(
+        &base64::alphabet::STANDARD,
+        base64::engine::fast_portable::NO_PAD,
+    );
+
     format!(
         "$argon2id$v={}$m={},t={},p=1${}${}",
         argon2::ARGON2_VERSION_NUMBER,
         m_cost,
         t_cost,
-        base64::encode_config(salt, base64::STANDARD_NO_PAD),
-        base64::encode_config(hash, base64::STANDARD_NO_PAD)
+        base64::encode_engine(salt, &base64_engine),
+        base64::encode_engine(hash, &base64_engine),
     )
 }
 
@@ -225,6 +230,10 @@ pub(crate) struct Pwhash {
 impl Pwhash {
     pub(crate) fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
         let mut pwhash = Pwhash::default();
+        let base64_engine = base64::engine::fast_portable::FastPortable::from(
+            &base64::alphabet::STANDARD,
+            base64::engine::fast_portable::NO_PAD,
+        );
 
         for s in hashed_password.split('$') {
             if s.is_empty() {
@@ -258,9 +267,9 @@ impl Pwhash {
                     }
                 }
             } else if pwhash.salt.is_none() {
-                pwhash.salt = base64::decode_config(s, base64::STANDARD_NO_PAD).ok();
+                pwhash.salt = base64::decode_engine(s, &base64_engine).ok();
             } else if pwhash.pwhash.is_none() {
-                pwhash.pwhash = base64::decode_config(s, base64::STANDARD_NO_PAD).ok();
+                pwhash.pwhash = base64::decode_engine(s, &base64_engine).ok();
             }
         }
 
