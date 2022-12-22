@@ -130,7 +130,7 @@ pub mod protected {
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
-/// A public-key authenticated encrypted box, compatible with a libsodium box.
+/// An authenticated secret-key encrypted box, compatible with a libsodium box.
 /// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
 ///
 /// Refer to [crate::dryocsecretbox] for sample usage.
