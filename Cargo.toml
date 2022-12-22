@@ -10,7 +10,7 @@ name = "dryoc"
 readme = "README.md"
 repository = "https://github.com/brndnmtthws/dryoc"
 rust-version = "1.56"
-version = "0.4.3"
+version = "0.4.4"
 
 [dependencies]
 base64 = { version = "0.20", optional = true }
