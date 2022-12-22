@@ -145,8 +145,8 @@ pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableBytes>
     DryocSecretBox<Mac, Data>
 {
-    /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new [DryocSecretBox] with ciphertext and tag
+    /// Encrypts a message using `secret_key`, and returns a new
+    /// [DryocSecretBox] with ciphertext and tag
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -221,9 +221,8 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
 }
 
 impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac, Data> {
-    /// Decrypts `ciphertext` using `recipient_secret_key` and
-    /// `sender_public_key`, returning a new [DryocSecretBox] with decrypted
-    /// message
+    /// Decrypts `ciphertext` using `secret_key`, returning a new
+    /// [DryocSecretBox] with decrypted message
     pub fn decrypt<
         Output: ResizableBytes + NewBytes,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -261,8 +260,8 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
 }
 
 impl DryocSecretBox<Mac, Vec<u8>> {
-    /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new [DryocSecretBox] with ciphertext and tag
+    /// Encrypts a message using `secret_key`, and returns a new
+    /// [DryocSecretBox] with ciphertext and tag
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -275,9 +274,8 @@ impl DryocSecretBox<Mac, Vec<u8>> {
         Self::encrypt(message, nonce, secret_key)
     }
 
-    /// Decrypts `ciphertext` using `recipient_secret_key` and
-    /// `sender_public_key`, returning a new [DryocSecretBox] with decrypted
-    /// message
+    /// Decrypts `ciphertext` using `secret_key`, returning a new
+    /// [DryocSecretBox] with decrypted message
     pub fn decrypt_to_vec<
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
         SecretKey: ByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
