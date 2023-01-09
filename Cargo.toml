@@ -13,7 +13,7 @@ rust-version = "1.56"
 version = "0.4.4"
 
 [dependencies]
-base64 = { version = "0.20", optional = true }
+base64 = { version = "0.21", optional = true }
 bitflags = "1.0"
 chacha20 = { version = "0.9", features = ["zeroize"] }
 curve25519-dalek = "3.0"
@@ -40,7 +40,7 @@ winapi = { version = "0.3", features = [
 libc = "0.2"
 
 [dev-dependencies]
-base64 = "0.20"
+base64 = "0.21"
 bincode = "1"
 hex = "0.4"
 libc = "0.2"
