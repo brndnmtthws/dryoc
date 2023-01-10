@@ -151,6 +151,7 @@ pub fn crypto_pwhash(
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8]) -> String {
+    #[cfg(feature = "base64")]
     use base64::Engine;
 
     let base64_engine = base64::engine::general_purpose::GeneralPurpose::new(
