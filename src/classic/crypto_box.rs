@@ -462,7 +462,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
@@ -488,7 +489,10 @@ mod tests {
                 &SecretKey::from_slice(&sender_sk).unwrap(),
             );
 
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD_NO_PAD.encode(&ciphertext),
+                general_purpose::STANDARD_NO_PAD.encode(&so_ciphertext)
+            );
 
             let mut m = vec![0u8; ciphertext.len() - CRYPTO_BOX_MACBYTES];
             crypto_box_open_easy(
@@ -515,7 +519,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
@@ -537,7 +542,10 @@ mod tests {
                 &SecretKey::from_slice(&sender_sk).unwrap(),
             );
 
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD_NO_PAD.encode(&ciphertext),
+                general_purpose::STANDARD_NO_PAD.encode(&so_ciphertext)
+            );
 
             let mut ciphertext_clone = ciphertext.clone();
             crypto_box_open_easy_inplace(&mut ciphertext_clone, &nonce, &sender_pk, &recipient_sk)
@@ -552,8 +560,14 @@ mod tests {
             )
             .expect("decrypt failed");
 
-            assert_eq!(encode(&ciphertext_clone), encode(&message_copy));
-            assert_eq!(encode(&so_m), encode(&message_copy));
+            assert_eq!(
+                general_purpose::STANDARD_NO_PAD.encode(&ciphertext_clone),
+                general_purpose::STANDARD_NO_PAD.encode(&message_copy)
+            );
+            assert_eq!(
+                general_purpose::STANDARD_NO_PAD.encode(&so_m),
+                general_purpose::STANDARD_NO_PAD.encode(&message_copy)
+            );
         }
     }
 
@@ -574,7 +588,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
         for _ in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
 
             let (sender_pk, _sender_sk) = crypto_box_keypair();
             let (_recipient_pk, recipient_sk) = crypto_box_keypair();
@@ -594,15 +609,16 @@ mod tests {
 
             assert_eq!(ciphertext.len(), ciphertext_copy.len());
             assert_eq!(
-                encode(&ciphertext[0..CRYPTO_BOX_MACBYTES]),
-                encode(&ciphertext_copy[0..CRYPTO_BOX_MACBYTES])
+                general_purpose::STANDARD_NO_PAD.encode(&ciphertext[0..CRYPTO_BOX_MACBYTES]),
+                general_purpose::STANDARD_NO_PAD.encode(&ciphertext_copy[0..CRYPTO_BOX_MACBYTES])
             );
         }
     }
 
     #[test]
     fn test_crypto_box_seed_keypair() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use sodiumoxide::crypto::box_::{keypair_from_seed, Seed};
 
         for _ in 0..10 {
@@ -611,8 +627,14 @@ mod tests {
             let (pk, sk) = crypto_box_seed_keypair(&seed);
             let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());
 
-            assert_eq!(encode(&pk), encode(so_pk.as_ref()));
-            assert_eq!(encode(&sk), encode(so_sk.as_ref()));
+            assert_eq!(
+                general_purpose::STANDARD_NO_PAD.encode(&pk),
+                general_purpose::STANDARD_NO_PAD.encode(so_pk.as_ref())
+            );
+            assert_eq!(
+                general_purpose::STANDARD_NO_PAD.encode(&sk),
+                general_purpose::STANDARD_NO_PAD.encode(so_sk.as_ref())
+            );
         }
     }
 

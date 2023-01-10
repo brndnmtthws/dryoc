@@ -12,7 +12,7 @@
 //! ## Classic API example, key derivation
 //!
 //! ```
-//! use base64::encode;
+//! use base64::{Engine as _, engine::general_purpose};
 //! use dryoc::classic::crypto_pwhash::*;
 //! use dryoc::rng::copy_randombytes;
 //! use dryoc::constants::{CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
@@ -38,7 +38,7 @@
 //! .expect("pwhash failed");
 //!
 //! // now `key` can be used as a secret key
-//! println!("key = {}", encode(&key));
+//! println!("key = {}", general_purpose::STANDARD_NO_PAD.encode(&key));
 //! ```
 
 #[cfg(feature = "serde")]
@@ -151,9 +151,11 @@ pub fn crypto_pwhash(
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8]) -> String {
-    let base64_engine = base64::engine::fast_portable::FastPortable::from(
+    use base64::Engine;
+
+    let base64_engine = base64::engine::general_purpose::GeneralPurpose::new(
         &base64::alphabet::STANDARD,
-        base64::engine::fast_portable::NO_PAD,
+        base64::engine::general_purpose::NO_PAD,
     );
 
     format!(
@@ -161,8 +163,8 @@ pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8
         argon2::ARGON2_VERSION_NUMBER,
         m_cost,
         t_cost,
-        base64::encode_engine(salt, &base64_engine),
-        base64::encode_engine(hash, &base64_engine),
+        base64_engine.encode(salt),
+        base64_engine.encode(hash),
     )
 }
 
@@ -229,10 +231,11 @@ pub(crate) struct Pwhash {
 #[cfg(feature = "base64")]
 impl Pwhash {
     pub(crate) fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
+        use base64::Engine;
         let mut pwhash = Pwhash::default();
-        let base64_engine = base64::engine::fast_portable::FastPortable::from(
+        let base64_engine = base64::engine::general_purpose::GeneralPurpose::new(
             &base64::alphabet::STANDARD,
-            base64::engine::fast_portable::NO_PAD,
+            base64::engine::general_purpose::NO_PAD,
         );
 
         for s in hashed_password.split('$') {
@@ -267,9 +270,9 @@ impl Pwhash {
                     }
                 }
             } else if pwhash.salt.is_none() {
-                pwhash.salt = base64::decode_engine(s, &base64_engine).ok();
+                pwhash.salt = base64_engine.decode(s).ok();
             } else if pwhash.pwhash.is_none() {
-                pwhash.pwhash = base64::decode_engine(s, &base64_engine).ok();
+                pwhash.pwhash = base64_engine.decode(s).ok();
             }
         }
 
