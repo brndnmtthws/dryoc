@@ -215,7 +215,7 @@ pub struct PwHash<Hash: Bytes, Salt: Bytes> {
     config: Config,
 }
 
-/// Vec<u8>-based PwHash type alias, provided for convenience.
+/// `Vec<u8>`-based PwHash type alias, provided for convenience.
 pub type VecPwHash = PwHash<Hash, Salt>;
 
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
@@ -465,7 +465,7 @@ impl<Salt: Bytes> PwHash<Hash, Salt> {
 
 impl PwHash<Hash, Salt> {
     /// Hashes `password` using default (interactive) config parameters,
-    /// returning the Vec<u8>-based hash and salt, with config, upon success.
+    /// returning the `Vec<u8>`-based hash and salt, with config, upon success.
     ///
     /// This function provides reasonable defaults, and is provided for
     /// convenience.
