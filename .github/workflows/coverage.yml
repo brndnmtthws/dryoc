@@ -24,9 +24,18 @@ jobs:
           toolchain: nightly
           override: true
       - uses: Swatinem/rust-cache@v2
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
+      - uses: actions-rs/cargo@v1
         with:
+          command: install
+          args: cargo-binstall
+      - uses: actions-rs/cargo@v1
+        with:
+          command: binstall
+          args: cargo-tarpaulin
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/cargo@v1
+        with:
+          command: tarpaulin
           args: --features serde,nightly
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
