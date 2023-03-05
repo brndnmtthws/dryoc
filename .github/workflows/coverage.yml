@@ -18,25 +18,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           profile: minimal
           toolchain: nightly
-          override: true
       - uses: Swatinem/rust-cache@v2
-      - uses: actions-rs/cargo@v1
+      - uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
-          command: install
-          args: cargo-binstall
-      - uses: actions-rs/cargo@v1
-        with:
-          command: binstall
-          args: cargo-tarpaulin
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/cargo@v1
-        with:
-          command: tarpaulin
-          args: --features serde,nightly
+          packages: cargo-tarpaulin
+      - run: cargo tarpaulin --features serde,nightly
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v3
         with:
