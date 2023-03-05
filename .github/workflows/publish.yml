@@ -12,10 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Install Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@v1
+      - uses: brndnmtthws/rust-action@v1
         with:
-          profile: minimal
           toolchain: stable
       - run: cargo build
       - run: cargo test
