@@ -43,34 +43,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --features ${{ env.FEATURES }}
-      - name: Test
-        uses: actions-rs/cargo@v1
+      - run: cargo build --features ${{ env.FEATURES }}
+      - run: cargo test --features ${{ env.FEATURES }}
         env:
           RUST_BACKTRACE: 1
-        with:
-          command: test
-          args: --features ${{ env.FEATURES }}
-      - name: Rustfmt
+      - run: cargo fmt --all -- --check
         if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' }}
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-      - name: Clippy
-        if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' }}
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --features ${{ env.FEATURES }} -- -D warnings
+      - run: cargo clippy --features ${{ env.FEATURES }} -- -D warnings
