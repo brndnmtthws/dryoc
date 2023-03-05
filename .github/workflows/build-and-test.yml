@@ -42,13 +42,28 @@ jobs:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
     steps:
       - uses: actions/checkout@v3
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+            cargo-
+      - name: Cache target
+        uses: actions/cache@v3
+        with:
+          path: |
+            target
+          key: target-${{ runner.os }}-${{ runner.arch }}-${{ matrix.features }}
       - name: Install Rust toolchain
         uses: brndnmtthws/rust-action-rustup@v1
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
       - run: cargo build --features ${{ env.FEATURES }}
       - run: cargo test --features ${{ env.FEATURES }}
         env:
