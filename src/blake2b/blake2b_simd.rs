@@ -1,7 +1,7 @@
 use std::simd::Which::{First, Second};
 use std::simd::{simd_swizzle, Simd};
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::Error;
 use crate::utils::load_u64_le;
@@ -47,8 +47,7 @@ impl Default for Params {
     }
 }
 
-#[derive(Zeroize, Debug, Default)]
-#[zeroize(drop)]
+#[derive(Zeroize, ZeroizeOnDrop, Debug, Default)]
 pub struct State {
     t: [u64; 2],
     f: [u64; 2],

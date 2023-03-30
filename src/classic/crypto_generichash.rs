@@ -8,7 +8,8 @@
 //! # Classic API example, one-time interface
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::classic::crypto_generichash::*;
 //! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
 //!
@@ -18,7 +19,7 @@
 //! crypto_generichash(&mut output, b"a string of bytes", None).ok();
 //!
 //! assert_eq!(
-//!     encode(output),
+//!     general_purpose::STANDARD.encode(output),
 //!     "GdztjR9nU/rLh8VJt8e74+/seKTUnHgBexhGSpxLau0="
 //! );
 //! ```
@@ -26,7 +27,8 @@
 //! # Classic API example, incremental interface
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::classic::crypto_generichash::*;
 //! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
 //!
@@ -40,7 +42,7 @@
 //! crypto_generichash_final(state, &mut output).expect("final failed");
 //!
 //! assert_eq!(
-//!     encode(output),
+//!     general_purpose::STANDARD.encode(output),
 //!     "GdztjR9nU/rLh8VJt8e74+/seKTUnHgBexhGSpxLau0="
 //! );
 //! ```

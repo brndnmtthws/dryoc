@@ -200,9 +200,9 @@ pub mod protected {
 ///
 /// Refer to [crate::dryocbox] for sample usage.
 pub struct DryocBox<
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: Bytes,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
+    Data: Bytes + Zeroize,
 > {
     ephemeral_pk: Option<EphemeralPublicKey>,
     tag: Mac,
@@ -213,9 +213,9 @@ pub struct DryocBox<
 pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
 
 impl<
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: NewByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: NewBytes + ResizableBytes,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    Mac: NewByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
+    Data: NewBytes + ResizableBytes + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
@@ -255,9 +255,9 @@ impl<
 }
 
 impl<
-    EphemeralPublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: NewByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: NewBytes + ResizableBytes,
+    EphemeralPublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    Mac: NewByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
+    Data: NewBytes + ResizableBytes + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
@@ -304,9 +304,9 @@ impl<
 
 impl<
     'a,
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + std::convert::TryFrom<&'a [u8]>,
-    Data: Bytes + From<&'a [u8]>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Data: Bytes + From<&'a [u8]> + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Initializes a [`DryocBox`] from a slice. Expects the first
@@ -356,9 +356,9 @@ impl<
 }
 
 impl<
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: Bytes,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
+    Data: Bytes + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Returns a new box with `tag`, `data` and (optional) `ephemeral_pk`,
@@ -415,9 +415,9 @@ impl<
     /// Decrypts this sealed box using `recipient_secret_key`, and
     /// returning the decrypted message upon success.
     pub fn unseal<
-        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        Output: ResizableBytes + NewBytes,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
+        Output: ResizableBytes + NewBytes + Zeroize,
     >(
         &self,
         recipient_keypair: &crate::keypair::KeyPair<RecipientPublicKey, RecipientSecretKey>,
@@ -515,8 +515,8 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Decrypts this sealed box using `recipient_secret_key`, returning the
     /// decrypted message upon success.
     pub fn unseal_to_vec<
-        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
     >(
         &self,
         recipient_keypair: &crate::keypair::KeyPair<RecipientPublicKey, RecipientSecretKey>,
@@ -527,9 +527,9 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
 
 impl<
     'a,
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: Bytes + ResizableBytes + From<&'a [u8]>,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
+    Data: Bytes + ResizableBytes + From<&'a [u8]> + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Returns a new box with `data` and `tag`, with data copied from `input`
@@ -559,9 +559,9 @@ impl<
 }
 
 impl<
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES>,
-    Data: Bytes,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
+    Data: Bytes + Zeroize,
 > PartialEq<DryocBox<EphemeralPublicKey, Mac, Data>> for DryocBox<EphemeralPublicKey, Mac, Data>
 {
     fn eq(&self, other: &Self) -> bool {
@@ -599,7 +599,8 @@ mod tests {
     #[test]
     fn test_dryocbox_vecbox() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
@@ -628,7 +629,10 @@ mod tests {
                 &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
             );
 
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let keypair_sender = keypair_sender_copy.clone();
             let keypair_recipient = keypair_recipient_copy.clone();
@@ -656,7 +660,8 @@ mod tests {
     #[test]
     fn test_decrypt_failure() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{
                 Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
@@ -687,7 +692,10 @@ mod tests {
                 &SOSecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
             );
 
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let invalid_key = KeyPair::gen();
             let invalid_key_copy_1 = invalid_key.clone();

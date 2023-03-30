@@ -74,7 +74,7 @@ use std::marker::PhantomData;
 use std::ptr;
 
 use lazy_static::lazy_static;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error;
 use crate::rng::copy_randombytes;
@@ -800,16 +800,14 @@ unsafe impl Allocator for PageAlignedAllocator {
 /// [page-aligned allocator](PageAlignedAllocator). Required for working with
 /// protected memory regions. Wraps a [`Vec`] with custom [`Allocator`]
 /// implementation.
-#[derive(Zeroize, Debug, PartialEq, Eq, Clone)]
-#[zeroize(drop)]
+#[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 
 /// A heap-allocated resizable byte array, using the
 /// [page-aligned allocator](PageAlignedAllocator). Required for working with
 /// protected memory regions. Wraps a [`Vec`] with custom [`Allocator`]
 /// implementation.
-#[derive(Zeroize, Debug, PartialEq, Eq, Clone)]
-#[zeroize(drop)]
+#[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct HeapBytes(Vec<u8, PageAlignedAllocator>);
 
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
@@ -1420,6 +1418,14 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
     for Protected<A, PM, LM>
 {
     fn drop(&mut self) {
+        self.zeroize()
+    }
+}
+
+impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
+    for Protected<A, PM, LM>
+{
+    fn zeroize(&mut self) {
         match &mut self.i {
             Some(d) => {
                 if !d.a.as_slice().is_empty() {

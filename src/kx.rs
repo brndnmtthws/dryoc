@@ -72,7 +72,7 @@ pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// Key derivation implemantation based on Curve25519, Diffie-Hellman, and
 /// Blake2b. Compatible with libsodium's `crypto_kx_*` functions.
-pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES>> {
+pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> {
     rx_key: SessionKey,
     tx_key: SessionKey,
 }
@@ -144,12 +144,12 @@ pub mod protected {
     pub type LockedSession = Session<Locked<SessionKey>>;
 }
 
-impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES>> Session<SessionKey> {
+impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> Session<SessionKey> {
     /// Computes client session keys, given `client_keypair` and
     /// `server_public_key`, returning a new session upon success.
     pub fn new_client<
-        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES>,
-        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES>,
+        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
+        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
     >(
         client_keypair: &crate::keypair::KeyPair<PublicKey, SecretKey>,
         server_public_key: &PublicKey,
@@ -171,8 +171,8 @@ impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES>> Session<SessionKey> {
     /// Computes server session keys, given `server_keypair` and
     /// `client_public_key`, returning a new session upon success.
     pub fn new_server<
-        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES>,
-        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES>,
+        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
+        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
     >(
         server_keypair: &crate::keypair::KeyPair<PublicKey, SecretKey>,
         client_public_key: &PublicKey,
@@ -197,8 +197,8 @@ impl Session<SessionKey> {
     /// the given `client_keypair` and `server_public_key`. Wraps
     /// [`Session::new_client`], provided for convenience.
     pub fn new_client_with_defaults<
-        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES>,
-        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES>,
+        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
+        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
     >(
         client_keypair: &crate::keypair::KeyPair<PublicKey, SecretKey>,
         server_public_key: &PublicKey,
@@ -210,8 +210,8 @@ impl Session<SessionKey> {
     /// the given `server_keypair` and `client_public_key`. Wraps
     /// [`Session::new_server`], provided for convenience.
     pub fn new_server_with_defaults<
-        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES>,
-        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES>,
+        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
+        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
     >(
         server_keypair: &crate::keypair::KeyPair<PublicKey, SecretKey>,
         client_public_key: &PublicKey,
@@ -220,7 +220,7 @@ impl Session<SessionKey> {
     }
 }
 
-impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES>> Session<SessionKey> {
+impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> Session<SessionKey> {
     /// Moves the rx_key and tx_key out of this instance, returning them as a
     /// tuple with `(rx_key, tx_key)`.
     pub fn into_parts(self) -> (SessionKey, SessionKey) {

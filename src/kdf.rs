@@ -13,7 +13,8 @@
 //! # Rustaceous API example
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::kdf::*;
 //!
 //! // Randomly generate a main key and context, using the default stack-allocated
@@ -22,7 +23,11 @@
 //! let subkey_id = 0;
 //!
 //! let subkey = key.derive_subkey_to_vec(subkey_id).expect("derive failed");
-//! println!("Subkey {}: {}", subkey_id, encode(&subkey));
+//! println!(
+//!     "Subkey {}: {}",
+//!     subkey_id,
+//!     general_purpose::STANDARD.encode(&subkey)
+//! );
 //! ```
 //!
 //! ## Additional resources
@@ -51,7 +56,10 @@ pub type Context = StackByteArray<CRYPTO_KDF_CONTEXTBYTES>;
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// Key derivation implementation based on Blake2b, compatible with libsodium's
 /// `crypto_kdf_*` functions.
-pub struct Kdf<Key: ByteArray<CRYPTO_KDF_KEYBYTES>, Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES>> {
+pub struct Kdf<
+    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize,
+    Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
+> {
     main_key: Key,
     context: Context,
 }
@@ -71,7 +79,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use base64::encode;
+    //! use base64::engine::general_purpose;
+    //! use base64::Engine as _;
     //! use dryoc::kdf::protected::*;
     //! use dryoc::kdf::Kdf;
     //!
@@ -80,7 +89,11 @@ pub mod protected {
     //! let subkey_id = 0;
     //!
     //! let subkey: Locked<Key> = key.derive_subkey(subkey_id).expect("derive failed");
-    //! println!("Subkey {}: {}", subkey_id, encode(&subkey));
+    //! println!(
+    //!     "Subkey {}: {}",
+    //!     subkey_id,
+    //!     general_purpose::STANDARD.encode(&subkey)
+    //! );
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -97,8 +110,10 @@ pub mod protected {
     pub type LockedKdf = Kdf<Locked<Key>, Locked<Context>>;
 }
 
-impl<Key: NewByteArray<CRYPTO_KDF_KEYBYTES>, Context: NewByteArray<CRYPTO_KDF_CONTEXTBYTES>>
-    Kdf<Key, Context>
+impl<
+    Key: NewByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize,
+    Context: NewByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
+> Kdf<Key, Context>
 {
     /// Randomly generates a new pair of main key and context.
     pub fn gen() -> Self {
@@ -109,8 +124,10 @@ impl<Key: NewByteArray<CRYPTO_KDF_KEYBYTES>, Context: NewByteArray<CRYPTO_KDF_CO
     }
 }
 
-impl<Key: ByteArray<CRYPTO_KDF_KEYBYTES>, Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES>>
-    Kdf<Key, Context>
+impl<
+    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize,
+    Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
+> Kdf<Key, Context>
 {
     /// Derives a subkey for `subkey_id`, returning it.
     pub fn derive_subkey<Subkey: NewByteArray<CRYPTO_KDF_KEYBYTES>>(

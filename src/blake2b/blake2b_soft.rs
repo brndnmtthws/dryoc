@@ -1,4 +1,4 @@
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::Error;
 use crate::utils::{load_u64_le, rotr64};
@@ -44,8 +44,7 @@ impl Default for Params {
     }
 }
 
-#[derive(Zeroize, Debug, Default)]
-#[zeroize(drop)]
+#[derive(Zeroize, ZeroizeOnDrop, Debug, Default)]
 pub struct State {
     h: [u64; 8],
     t: [u64; 2],

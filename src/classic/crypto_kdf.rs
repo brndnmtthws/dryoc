@@ -7,7 +7,8 @@
 //! # Classic API example
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::classic::crypto_kdf::*;
 //!
 //! // Generate a random main key
@@ -19,7 +20,7 @@
 //! for i in 0..20 {
 //!     let mut key = Key::default();
 //!     crypto_kdf_derive_from_key(&mut key, i, context, &main_key).expect("kdf failed");
-//!     println!("Subkey {}: {}", i, encode(&key));
+//!     println!("Subkey {}: {}", i, general_purpose::STANDARD.encode(&key));
 //! }
 //! ```
 

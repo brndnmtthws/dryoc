@@ -179,7 +179,8 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -197,7 +198,10 @@ mod tests {
                 &SONonce::from_slice(&nonce).unwrap(),
                 &SOKey::from_slice(&key).unwrap(),
             );
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let mut decrypted = vec![0u8; message.len()];
             crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key)
@@ -217,7 +221,8 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy_inplace() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -236,7 +241,10 @@ mod tests {
                 &SONonce::from_slice(&nonce).unwrap(),
                 &SOKey::from_slice(&key).unwrap(),
             );
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let mut decrypted = ciphertext.clone();
             crypto_secretbox_open_easy_inplace(&mut decrypted, &nonce, &key)

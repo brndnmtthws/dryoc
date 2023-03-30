@@ -6,7 +6,8 @@
 //! # Classic API single-part example
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::classic::crypto_onetimeauth::{
 //!     crypto_onetimeauth, crypto_onetimeauth_keygen, crypto_onetimeauth_verify, Mac,
 //! };
@@ -26,7 +27,8 @@
 //! # Classic API multi-part example
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::classic::crypto_onetimeauth::{
 //!     crypto_onetimeauth_final, crypto_onetimeauth_init, crypto_onetimeauth_keygen,
 //!     crypto_onetimeauth_update, crypto_onetimeauth_verify, Mac,

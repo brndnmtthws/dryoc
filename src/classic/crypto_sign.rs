@@ -203,7 +203,8 @@ mod tests {
 
     #[test]
     fn test_crypto_sign() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use sodiumoxide::crypto::sign;
 
         for _ in 0..10 {
@@ -217,7 +218,10 @@ mod tests {
                 &sign::SecretKey::from_slice(&secret_key).expect("secret key failed"),
             );
 
-            assert_eq!(encode(&signed_message), encode(&so_signed_message));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&signed_message),
+                general_purpose::STANDARD.encode(&so_signed_message)
+            );
 
             let so_m = sign::verify(
                 &signed_message,
@@ -231,7 +235,8 @@ mod tests {
 
     #[test]
     fn test_crypto_sign_open() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use sodiumoxide::crypto::sign;
 
         for _ in 0..10 {
@@ -245,7 +250,10 @@ mod tests {
                 &sign::SecretKey::from_slice(&secret_key).expect("secret key failed"),
             );
 
-            assert_eq!(encode(&signed_message), encode(&so_signed_message));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&signed_message),
+                general_purpose::STANDARD.encode(&so_signed_message)
+            );
 
             let so_m = sign::verify(
                 &signed_message,
