@@ -6,7 +6,8 @@
 //! # Rustaceous API example, one-time interface
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
 //! // NOTE: The type for `key` param must be specified, the compiler cannot infer it when
@@ -15,7 +16,7 @@
 //!     GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 //!
 //! assert_eq!(
-//!     encode(&hash),
+//!     general_purpose::STANDARD.encode(&hash),
 //!     "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
 //! );
 //! ```
@@ -23,7 +24,8 @@
 //! # Rustaceous API example, incremental interface
 //!
 //! ```
-//! use base64::encode;
+//! use base64::engine::general_purpose;
+//! use base64::Engine as _;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
 //! // The compiler cannot infer the `Key` type, so we pass it below.
@@ -32,7 +34,7 @@
 //! let hash = hasher.finalize_to_vec().expect("finalize failed");
 //!
 //! assert_eq!(
-//!     encode(&hash),
+//!     general_purpose::STANDARD.encode(&hash),
 //!     "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
 //! );
 //! ```
@@ -62,7 +64,6 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use base64::encode;
     //! use dryoc::generichash::protected::*;
     //! use dryoc::generichash::GenericHash;
     //!
@@ -125,14 +126,15 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     /// # Example
     ///
     /// ```
-    /// use base64::encode;
+    /// use base64::engine::general_purpose;
+    /// use base64::Engine as _;
     /// use dryoc::generichash::{GenericHash, Hash};
     ///
     /// let output: Hash =
     ///     GenericHash::hash(b"hello", Some(b"a very secret key")).expect("hash failed");
     ///
     /// assert_eq!(
-    ///     encode(&output),
+    ///     general_purpose::STANDARD.encode(&output),
     ///     "AECDe+XJsB6nOkbCsbS/OPXdzpcRm3AolW/Bg1LFY9A="
     /// );
     /// ```
@@ -205,7 +207,8 @@ mod tests {
 
     #[test]
     fn test_generichash() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
 
         let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new hash failed");
         hasher.update(b"hello");
@@ -213,7 +216,7 @@ mod tests {
         let output: Vec<u8> = hasher.finalize().expect("finalize failed");
 
         assert_eq!(
-            encode(&output),
+            general_purpose::STANDARD.encode(&output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
@@ -223,20 +226,21 @@ mod tests {
         let output = hasher.finalize_to_vec().expect("finalize failed");
 
         assert_eq!(
-            encode(&output),
+            general_purpose::STANDARD.encode(&output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
     }
 
     #[test]
     fn test_generichash_onetime() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
 
         let output: Hash =
             GenericHash::hash(b"hello", Some(b"a very secret key")).expect("hash failed");
 
         assert_eq!(
-            encode(&output),
+            general_purpose::STANDARD.encode(&output),
             "AECDe+XJsB6nOkbCsbS/OPXdzpcRm3AolW/Bg1LFY9A="
         );
 
@@ -244,7 +248,7 @@ mod tests {
             GenericHash::hash_with_defaults::<_, Key, _>(b"hello", None).expect("hash failed");
 
         assert_eq!(
-            encode(&output),
+            general_purpose::STANDARD.encode(&output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
@@ -252,19 +256,20 @@ mod tests {
             GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 
         assert_eq!(
-            encode(&output),
+            general_purpose::STANDARD.encode(&output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
     }
     #[test]
     fn test_generichash_onetime_empty() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
 
         let output =
             GenericHash::hash_with_defaults_to_vec::<_, Key>(&[], None).expect("hash failed");
 
         assert_eq!(
-            encode(&output),
+            general_purpose::STANDARD.encode(&output),
             "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH+qtFzfEv46g="
         );
     }

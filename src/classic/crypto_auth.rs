@@ -6,7 +6,6 @@
 //! # Classic API single-part example
 //!
 //! ```
-//! use base64::encode;
 //! use dryoc::classic::crypto_auth::{crypto_auth, crypto_auth_keygen, crypto_auth_verify, Mac};
 //!
 //! let key = crypto_auth_keygen();
@@ -24,7 +23,6 @@
 //! # Classic API multi-part example
 //!
 //! ```
-//! use base64::encode;
 //! use dryoc::classic::crypto_auth::{
 //!     crypto_auth_final, crypto_auth_init, crypto_auth_keygen, crypto_auth_update,
 //!     crypto_auth_verify, Mac,

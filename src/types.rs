@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use lazy_static::__Deref;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(any(feature = "serde"))]
 pub use crate::bytes_serde::*;
@@ -9,8 +9,7 @@ use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
 /// optional [Serde](https://serde.rs) features.
-#[derive(Zeroize, Debug, PartialEq, Eq, Clone)]
-#[zeroize(drop)]
+#[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
 
 /// Fixed-length byte array.

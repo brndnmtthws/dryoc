@@ -134,7 +134,10 @@ pub mod protected {
 /// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
 ///
 /// Refer to [crate::dryocsecretbox] for sample usage.
-pub struct DryocSecretBox<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> {
+pub struct DryocSecretBox<
+    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
+    Data: Bytes + Zeroize,
+> {
     tag: Mac,
     data: Data,
 }
@@ -142,8 +145,10 @@ pub struct DryocSecretBox<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes
 /// [Vec]-based authenticated secret box.
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 
-impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableBytes>
-    DryocSecretBox<Mac, Data>
+impl<
+    Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
+    Data: NewBytes + ResizableBytes + Zeroize,
+> DryocSecretBox<Mac, Data>
 {
     /// Encrypts a message using `secret_key`, and returns a new
     /// [DryocSecretBox] with ciphertext and tag
@@ -178,8 +183,8 @@ impl<Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: NewBytes + ResizableByt
 
 impl<
     'a,
-    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + std::convert::TryFrom<&'a [u8]>,
-    Data: Bytes + From<&'a [u8]>,
+    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Data: Bytes + From<&'a [u8]> + Zeroize,
 > DryocSecretBox<Mac, Data>
 {
     /// Initializes a [`DryocSecretBox`] from a slice. Expects the first
@@ -203,7 +208,9 @@ impl<
     }
 }
 
-impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac, Data> {
+impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
+    DryocSecretBox<Mac, Data>
+{
     /// Returns a new box with `tag` and `data`, consuming both
     pub fn from_parts(tag: Mac, data: Data) -> Self {
         Self { tag, data }
@@ -220,7 +227,9 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac,
     }
 }
 
-impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> DryocSecretBox<Mac, Data> {
+impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
+    DryocSecretBox<Mac, Data>
+{
     /// Decrypts `ciphertext` using `secret_key`, returning a new
     /// [DryocSecretBox] with decrypted message
     pub fn decrypt<
@@ -299,8 +308,8 @@ impl DryocSecretBox<Mac, Vec<u8>> {
 
 impl<
     'a,
-    Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES>,
-    Data: NewBytes + ResizableBytes + From<&'a [u8]>,
+    Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
+    Data: NewBytes + ResizableBytes + From<&'a [u8]> + Zeroize,
 > DryocSecretBox<Mac, Data>
 {
     /// Returns a box with `data` copied from slice `input`.
@@ -312,8 +321,11 @@ impl<
     }
 }
 
-impl<'a, Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes + ResizableBytes + From<&'a [u8]>>
-    DryocSecretBox<Mac, Data>
+impl<
+    'a,
+    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
+    Data: Bytes + ResizableBytes + From<&'a [u8]> + Zeroize,
+> DryocSecretBox<Mac, Data>
 {
     /// Returns a new box with `data` and `tag`, with data copied from `input`
     /// and `tag` consumed.
@@ -325,8 +337,8 @@ impl<'a, Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes + ResizableBytes
     }
 }
 
-impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES>, Data: Bytes> PartialEq<DryocSecretBox<Mac, Data>>
-    for DryocSecretBox<Mac, Data>
+impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
+    PartialEq<DryocSecretBox<Mac, Data>> for DryocSecretBox<Mac, Data>
 {
     fn eq(&self, other: &Self) -> bool {
         self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
@@ -346,7 +358,8 @@ mod tests {
     #[test]
     fn test_dryocbox() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -369,7 +382,10 @@ mod tests {
                 &SONonce::from_slice(&nonce).unwrap(),
                 &SOKey::from_slice(&secret_key).unwrap(),
             );
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,
@@ -392,7 +408,8 @@ mod tests {
     #[test]
     fn test_dryocbox_vec() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -415,7 +432,10 @@ mod tests {
                 &SONonce::from_slice(&nonce).unwrap(),
                 &SOKey::from_slice(&secret_key).unwrap(),
             );
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,
@@ -477,7 +497,8 @@ mod tests {
     #[test]
     fn test_dryocbox_locked() {
         for i in 0..20 {
-            use base64::encode;
+            use base64::engine::general_purpose;
+            use base64::Engine as _;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -501,7 +522,10 @@ mod tests {
                 &SONonce::from_slice(nonce.as_slice()).unwrap(),
                 &SOKey::from_slice(secret_key.as_slice()).unwrap(),
             );
-            assert_eq!(encode(&ciphertext), encode(&so_ciphertext));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&ciphertext),
+                general_purpose::STANDARD.encode(&so_ciphertext)
+            );
 
             let so_decrypted = secretbox::open(
                 &ciphertext_copy,

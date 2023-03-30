@@ -219,7 +219,8 @@ mod tests {
 
     #[test]
     fn test_crypto_scalarmult_base() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         for _ in 0..20 {
             use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
 
@@ -232,13 +233,17 @@ mod tests {
 
             let ge = scalarmult_base(&Scalar::from_slice(&sk).unwrap());
 
-            assert_eq!(encode(ge.as_ref()), encode(public_key));
+            assert_eq!(
+                general_purpose::STANDARD.encode(ge.as_ref()),
+                general_purpose::STANDARD.encode(public_key)
+            );
         }
     }
 
     #[test]
     fn test_crypto_scalarmult() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         for _ in 0..20 {
             use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult, GroupElement, Scalar};
 
@@ -254,13 +259,17 @@ mod tests {
             )
             .expect("scalarmult failed");
 
-            assert_eq!(encode(ge.as_ref()), encode(shared_secret));
+            assert_eq!(
+                general_purpose::STANDARD.encode(ge.as_ref()),
+                general_purpose::STANDARD.encode(shared_secret)
+            );
         }
     }
 
     #[test]
     fn test_crypto_core_hchacha20() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
 
         use crate::rng::copy_randombytes;
@@ -284,13 +293,17 @@ mod tests {
                 );
                 assert_eq!(ret, 0);
             }
-            assert_eq!(encode(&out), encode(&so_out));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&out),
+                general_purpose::STANDARD.encode(&so_out)
+            );
         }
     }
 
     #[test]
     fn test_crypto_core_hsalsa20() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libsodium_sys::crypto_core_hsalsa20 as so_crypto_core_hsalsa20;
 
         use crate::rng::copy_randombytes;
@@ -314,7 +327,10 @@ mod tests {
                 );
                 assert_eq!(ret, 0);
             }
-            assert_eq!(encode(&out), encode(&so_out));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&out),
+                general_purpose::STANDARD.encode(&so_out)
+            );
         }
     }
 }

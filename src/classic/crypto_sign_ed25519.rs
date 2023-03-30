@@ -329,7 +329,8 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
 
 #[cfg(test)]
 mod tests {
-    use base64::encode;
+    use base64::engine::general_purpose;
+    use base64::Engine as _;
 
     use super::*;
     use crate::rng::copy_randombytes;
@@ -347,8 +348,14 @@ mod tests {
             let (so_pk, so_sk) =
                 sign::keypair_from_seed(&sign::Seed::from_slice(&seed).expect("seed failed"));
 
-            assert_eq!(encode(pk), encode(so_pk.0));
-            assert_eq!(encode(sk), encode(so_sk.0));
+            assert_eq!(
+                general_purpose::STANDARD.encode(pk),
+                general_purpose::STANDARD.encode(so_pk.0)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(sk),
+                general_purpose::STANDARD.encode(so_sk.0)
+            );
         }
     }
 
@@ -380,8 +387,14 @@ mod tests {
                 );
             }
 
-            assert_eq!(encode(xpk), encode(so_xpk));
-            assert_eq!(encode(xsk), encode(so_xsk));
+            assert_eq!(
+                general_purpose::STANDARD.encode(xpk),
+                general_purpose::STANDARD.encode(so_xpk)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(xsk),
+                general_purpose::STANDARD.encode(so_xsk)
+            );
         }
     }
 }

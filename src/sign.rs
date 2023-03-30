@@ -76,7 +76,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_sign::{
     crypto_sign_detached, crypto_sign_final_create, crypto_sign_final_verify, crypto_sign_init,
@@ -101,13 +101,13 @@ pub type Message = Vec<u8>;
 
 #[cfg_attr(
     feature = "serde",
-    derive(Zeroize, Serialize, Deserialize, Debug, Clone)
+    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Debug, Clone)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Debug, Clone))]
 /// An Ed25519 keypair for public-key signatures
 pub struct SigningKeyPair<
-    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
-    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
 > {
     /// Public key
     pub public_key: PublicKey,
@@ -116,8 +116,8 @@ pub struct SigningKeyPair<
 }
 
 impl<
-    PublicKey: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
-    SecretKey: NewByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
+    PublicKey: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: NewByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Creates a new, empty signing keypair.
@@ -182,8 +182,8 @@ impl
 
 impl<
     'a,
-    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
-    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Constructs a new signing keypair from key slices, consuming them. Does
@@ -304,20 +304,23 @@ pub mod protected {
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A signed message, for use with [`SigningKeyPair`].
-pub struct SignedMessage<Signature: ByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes> {
+pub struct SignedMessage<
+    Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize,
+    Message: Bytes + Zeroize,
+> {
     signature: Signature,
     message: Message,
 }
 
 impl<
-    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
-    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Signs `message` using this keypair, consuming the message, and returning
     /// a new [`SignedMessage`]. The type of `message` should match that of the
     /// target signed message.
-    pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes>(
+    pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>(
         &self,
         message: Message,
     ) -> Result<SignedMessage<Signature, Message>, Error> {
@@ -402,7 +405,9 @@ impl Default for IncrementalSigner {
     }
 }
 
-impl<Signature: ByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes> SignedMessage<Signature, Message> {
+impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>
+    SignedMessage<Signature, Message>
+{
     /// Verifies that this signed message is valid for `public_key`.
     pub fn verify<PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(
         &self,
@@ -418,8 +423,8 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes> SignedMessage<Sign
 
 impl<
     'a,
-    Signature: ByteArray<CRYPTO_SIGN_BYTES> + std::convert::TryFrom<&'a [u8]>,
-    Message: Bytes + From<&'a [u8]>,
+    Signature: ByteArray<CRYPTO_SIGN_BYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Message: Bytes + From<&'a [u8]> + Zeroize,
 > SignedMessage<Signature, Message>
 {
     /// Initializes a [`SignedMessage`] from a slice. Expects the first
@@ -443,7 +448,9 @@ impl<
     }
 }
 
-impl<Signature: ByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes> SignedMessage<Signature, Message> {
+impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>
+    SignedMessage<Signature, Message>
+{
     /// Returns a new box with `tag`, `data` and (optional) `ephemeral_pk`,
     /// consuming each.
     pub fn from_parts(signature: Signature, message: Message) -> Self {
@@ -475,8 +482,8 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes> SignedMessage<Sign
 }
 
 impl<
-    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
-    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
 > PartialEq<SigningKeyPair<PublicKey, SecretKey>> for SigningKeyPair<PublicKey, SecretKey>
 {
     fn eq(&self, other: &Self) -> bool {
@@ -494,7 +501,7 @@ impl<
     }
 }
 
-impl<Signature: ByteArray<CRYPTO_SIGN_BYTES>, Message: Bytes>
+impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>
     PartialEq<SignedMessage<Signature, Message>> for SignedMessage<Signature, Message>
 {
     fn eq(&self, other: &Self) -> bool {

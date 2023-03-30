@@ -151,21 +151,16 @@ pub fn crypto_pwhash(
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8]) -> String {
-    #[cfg(feature = "base64")]
-    use base64::Engine;
-
-    let base64_engine = base64::engine::general_purpose::GeneralPurpose::new(
-        &base64::alphabet::STANDARD,
-        base64::engine::general_purpose::NO_PAD,
-    );
+    use base64::engine::general_purpose;
+    use base64::Engine as _;
 
     format!(
         "$argon2id$v={}$m={},t={},p=1${}${}",
         argon2::ARGON2_VERSION_NUMBER,
         m_cost,
         t_cost,
-        base64_engine.encode(salt),
-        base64_engine.encode(hash),
+        general_purpose::STANDARD_NO_PAD.encode(salt),
+        general_purpose::STANDARD_NO_PAD.encode(hash),
     )
 }
 

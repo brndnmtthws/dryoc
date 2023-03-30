@@ -8,7 +8,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
 use crate::constants::{
@@ -27,14 +27,14 @@ pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
 
 #[cfg_attr(
     feature = "serde",
-    derive(Zeroize, Serialize, Deserialize, Debug, Clone)
+    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Debug, Clone)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Debug, Clone))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Debug, Clone))]
 /// Public/private keypair for use with [`crate::dryocbox::DryocBox`], aka
 /// libsodium box
 pub struct KeyPair<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > {
     /// Public key
     pub public_key: PublicKey,
@@ -43,8 +43,8 @@ pub struct KeyPair<
 }
 
 impl<
-    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > KeyPair<PublicKey, SecretKey>
 {
     /// Creates a new, empty keypair.
@@ -112,8 +112,8 @@ impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BO
 
 impl<
     'a,
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
-    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + std::convert::TryFrom<&'a [u8]>,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
 > KeyPair<PublicKey, SecretKey>
 {
     /// Constructs a new keypair from key slices, consuming them. Does not check
@@ -129,13 +129,13 @@ impl<
 }
 
 impl<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > KeyPair<PublicKey, SecretKey>
 {
     /// Creates new client session keys using this keypair and
     /// `server_public_key`, assuming this keypair is for the client.
-    pub fn kx_new_client_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES>>(
+    pub fn kx_new_client_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize>(
         &self,
         server_public_key: &PublicKey,
     ) -> Result<kx::Session<SessionKey>, Error> {
@@ -144,7 +144,7 @@ impl<
 
     /// Creates new server session keys using this keypair and
     /// `client_public_key`, assuming this keypair is for the server.
-    pub fn kx_new_server_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES>>(
+    pub fn kx_new_server_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize>(
         &self,
         client_public_key: &PublicKey,
     ) -> Result<kx::Session<SessionKey>, Error> {
@@ -153,8 +153,8 @@ impl<
 }
 
 impl<
-    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > Default for KeyPair<PublicKey, SecretKey>
 {
     fn default() -> Self {
@@ -222,8 +222,8 @@ pub mod protected {
 }
 
 impl<
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > PartialEq<KeyPair<PublicKey, SecretKey>> for KeyPair<PublicKey, SecretKey>
 {
     fn eq(&self, other: &Self) -> bool {

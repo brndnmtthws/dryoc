@@ -87,7 +87,7 @@
 //! ```
 
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_core::{crypto_core_hchacha20, HChaCha20Key};
 use crate::constants::{
@@ -113,8 +113,7 @@ pub type Nonce = [u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES];
 pub type Header = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
 
 /// Stream state data
-#[derive(PartialEq, Eq, Clone, Zeroize, Default)]
-#[zeroize(drop)]
+#[derive(PartialEq, Eq, Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct State {
     k: Key,
     nonce: Nonce,
@@ -480,7 +479,8 @@ mod tests {
 
     #[test]
     fn test_secretstream_basic_push() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
             crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
@@ -535,9 +535,18 @@ mod tests {
             );
             assert_eq!(ret, 0);
             so_output.resize(clen_p as usize, 0);
-            assert_eq!(encode(&so_output), encode(&output));
-            assert_eq!(encode(&so_state.k), encode(&push_state.k));
-            assert_eq!(encode(&so_state.nonce), encode(&push_state.nonce));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&so_output),
+                general_purpose::STANDARD.encode(&output)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(&so_state.k),
+                general_purpose::STANDARD.encode(&push_state.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(&so_state.nonce),
+                general_purpose::STANDARD.encode(&push_state.nonce)
+            );
 
             let mut so_state = crypto_secretstream_xchacha20poly1305_state {
                 k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
@@ -552,8 +561,14 @@ mod tests {
                 key.as_ptr(),
             );
             assert_eq!(ret, 0);
-            assert_eq!(encode(&so_state.k), encode(&push_state_init.k));
-            assert_eq!(encode(&so_state.nonce), encode(&push_state_init.nonce));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&so_state.k),
+                general_purpose::STANDARD.encode(&push_state_init.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(&so_state.nonce),
+                general_purpose::STANDARD.encode(&push_state_init.nonce)
+            );
             assert!(so_output.len() >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES);
             let ret = so_crypto_secretstream_xchacha20poly1305_pull(
                 &mut so_state,
@@ -568,13 +583,22 @@ mod tests {
             assert_eq!(ret, 0);
             so_output.resize(mlen_p as usize, 0);
         }
-        assert_eq!(encode(&message), encode(&so_output));
+        assert_eq!(
+            general_purpose::STANDARD.encode(&message),
+            general_purpose::STANDARD.encode(&so_output)
+        );
 
         let mut pull_state = State::default();
         crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
 
-        assert_eq!(encode(pull_state.k), encode(push_state_init.k));
-        assert_eq!(encode(pull_state.nonce), encode(push_state_init.nonce));
+        assert_eq!(
+            general_purpose::STANDARD.encode(pull_state.k),
+            general_purpose::STANDARD.encode(push_state_init.k)
+        );
+        assert_eq!(
+            general_purpose::STANDARD.encode(pull_state.nonce),
+            general_purpose::STANDARD.encode(push_state_init.nonce)
+        );
 
         let mut pull_result_message =
             vec![0u8; output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
@@ -589,12 +613,16 @@ mod tests {
         .expect("pull failed");
 
         assert_eq!(Tag::MESSAGE, Tag::from_bits(tag).expect("tag"));
-        assert_eq!(encode(&pull_result_message), encode(&message));
+        assert_eq!(
+            general_purpose::STANDARD.encode(&pull_result_message),
+            general_purpose::STANDARD.encode(&message)
+        );
     }
 
     #[test]
     fn test_rekey() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_rekey as so_crypto_secretstream_xchacha20poly1305_rekey,
             crypto_secretstream_xchacha20poly1305_state,
@@ -622,13 +650,20 @@ mod tests {
         unsafe {
             so_crypto_secretstream_xchacha20poly1305_rekey(&mut so_state);
         }
-        assert_eq!(encode(so_state.k), encode(push_state.k));
-        assert_eq!(encode(so_state.nonce), encode(push_state.nonce));
+        assert_eq!(
+            general_purpose::STANDARD.encode(so_state.k),
+            general_purpose::STANDARD.encode(push_state.k)
+        );
+        assert_eq!(
+            general_purpose::STANDARD.encode(so_state.nonce),
+            general_purpose::STANDARD.encode(push_state.nonce)
+        );
     }
 
     #[test]
     fn test_secretstream_lots_of_messages_push() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libc::{c_uchar, c_ulonglong};
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
@@ -650,8 +685,14 @@ mod tests {
         let mut pull_state = State::default();
         crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
 
-        assert_eq!(encode(pull_state.k), encode(push_state_init.k));
-        assert_eq!(encode(pull_state.nonce), encode(push_state_init.nonce));
+        assert_eq!(
+            general_purpose::STANDARD.encode(pull_state.k),
+            general_purpose::STANDARD.encode(push_state_init.k)
+        );
+        assert_eq!(
+            general_purpose::STANDARD.encode(pull_state.nonce),
+            general_purpose::STANDARD.encode(push_state_init.nonce)
+        );
 
         let mut so_state = crypto_secretstream_xchacha20poly1305_state {
             k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
@@ -676,8 +717,14 @@ mod tests {
             );
             assert_eq!(ret, 0);
         }
-        assert_eq!(encode(so_state.k), encode(push_state_init.k));
-        assert_eq!(encode(so_state.nonce), encode(push_state_init.nonce));
+        assert_eq!(
+            general_purpose::STANDARD.encode(so_state.k),
+            general_purpose::STANDARD.encode(push_state_init.k)
+        );
+        assert_eq!(
+            general_purpose::STANDARD.encode(so_state.nonce),
+            general_purpose::STANDARD.encode(push_state_init.nonce)
+        );
 
         for i in 0..100 {
             let message = format!("hello {}", i);
@@ -711,7 +758,10 @@ mod tests {
                 assert_eq!(ret, 0);
                 so_output.resize(mlen_p as usize, 0);
             }
-            assert_eq!(encode(&message), encode(&so_output));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&message),
+                general_purpose::STANDARD.encode(&so_output)
+            );
 
             let mut pull_result_message =
                 vec![0u8; output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
@@ -726,13 +776,17 @@ mod tests {
             .expect("pull failed");
 
             assert_eq!(tag, Tag::from_bits(pull_result_tag).expect("tag"));
-            assert_eq!(encode(&pull_result_message), encode(&message));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&pull_result_message),
+                general_purpose::STANDARD.encode(&message)
+            );
         }
     }
 
     #[test]
     fn test_secretstream_basic_pull() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libc::c_ulonglong;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
@@ -794,13 +848,17 @@ mod tests {
         .expect("decrypt failed");
         output.resize(mlen, 0);
 
-        assert_eq!(encode(&output), encode(message));
+        assert_eq!(
+            general_purpose::STANDARD.encode(&output),
+            general_purpose::STANDARD.encode(message)
+        );
         assert_eq!(tag, 0);
     }
 
     #[test]
     fn test_secretstream_lots_of_messages_pull() {
-        use base64::encode;
+        use base64::engine::general_purpose;
+        use base64::Engine as _;
         use libc::c_ulonglong;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
@@ -867,10 +925,19 @@ mod tests {
             )
             .expect("decrypt failed");
 
-            assert_eq!(encode(so_state.k), encode(pull_state.k));
-            assert_eq!(encode(so_state.nonce), encode(pull_state.nonce));
+            assert_eq!(
+                general_purpose::STANDARD.encode(so_state.k),
+                general_purpose::STANDARD.encode(pull_state.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(so_state.nonce),
+                general_purpose::STANDARD.encode(pull_state.nonce)
+            );
 
-            assert_eq!(encode(&output), encode(message));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&output),
+                general_purpose::STANDARD.encode(message)
+            );
             assert_eq!(outtag, tag.bits());
         }
     }

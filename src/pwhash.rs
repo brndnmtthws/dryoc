@@ -209,7 +209,7 @@ impl Default for Config {
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// Password hash implementation based on Argon2, compatible with libsodium's
 /// `crypto_pwhash_*` functions.
-pub struct PwHash<Hash: Bytes, Salt: Bytes> {
+pub struct PwHash<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> {
     hash: Hash,
     salt: Salt,
     config: Config,
@@ -261,7 +261,9 @@ pub mod protected {
     pub type LockedPwHash = PwHash<Locked<Hash>, Locked<Salt>>;
 }
 
-impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Hash, Salt> {
+impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes + Zeroize>
+    PwHash<Hash, Salt>
+{
     /// Hashes `password` with a random salt and `config`, returning
     /// the hash, salt, and config upon success.
     pub fn hash<Password: Bytes>(password: &Password, config: Config) -> Result<Self, Error> {
@@ -347,7 +349,7 @@ impl<Hash: NewBytes + ResizableBytes, Salt: NewBytes + ResizableBytes> PwHash<Ha
     }
 }
 
-impl<Hash: NewBytes + ResizableBytes, Salt: Bytes + Clone> PwHash<Hash, Salt> {
+impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> PwHash<Hash, Salt> {
     /// Verifies that this hash, salt, and config is valid for `password`.
     pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
         let computed = Self::hash_with_salt(password, self.salt.clone(), self.config.clone())?;
@@ -391,7 +393,9 @@ impl<Hash: NewBytes + ResizableBytes, Salt: Bytes + Clone> PwHash<Hash, Salt> {
 
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
-impl<Hash: Bytes + From<Vec<u8>>, Salt: Bytes + From<Vec<u8>>> PwHash<Hash, Salt> {
+impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroize>
+    PwHash<Hash, Salt>
+{
     /// Creates a new password hash instance by parsing `hashed_password`.
     /// Compatible with libsodium's `crypto_pwhash_str*` functions, and supports
     /// variable-length encoding for the hash and salt.
@@ -421,7 +425,7 @@ impl<Hash: Bytes + From<Vec<u8>>, Salt: Bytes + From<Vec<u8>>> PwHash<Hash, Salt
     }
 }
 
-impl<Hash: Bytes, Salt: Bytes> PwHash<Hash, Salt> {
+impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Constructs a new instance from `hash`, `salt`, and `config`, consuming
     /// them.
     pub fn from_parts(hash: Hash, salt: Salt, config: Config) -> Self {
@@ -435,12 +439,12 @@ impl<Hash: Bytes, Salt: Bytes> PwHash<Hash, Salt> {
     }
 }
 
-impl<Salt: Bytes> PwHash<Hash, Salt> {
+impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Derives a keypair from `password` and `salt`, using `config`.
     pub fn derive_keypair<
-        Password: Bytes,
-        PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-        SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        Password: Bytes + Zeroize,
+        PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+        SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
     >(
         password: &Password,
         salt: Salt,
