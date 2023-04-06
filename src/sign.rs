@@ -312,6 +312,9 @@ pub struct SignedMessage<
     message: Message,
 }
 
+/// [Vec]-based signed message.
+pub type VecSignedMessage = SignedMessage<Signature, Vec<u8>>;
+
 impl<
     PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
