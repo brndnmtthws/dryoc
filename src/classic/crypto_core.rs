@@ -46,7 +46,7 @@ pub fn crypto_scalarmult(
 }
 
 #[inline]
-fn chacha20_round(x: &mut u32, y: &mut u32, z: &mut u32, rot: u32) {
+fn chacha20_round(x: &mut u32, y: &u32, z: &mut u32, rot: u32) {
     *x = x.wrapping_add(*y);
     *z = (*z ^ *x).rotate_left(rot);
 }

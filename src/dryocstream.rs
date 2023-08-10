@@ -176,6 +176,7 @@ pub mod protected {
 
 bitflags! {
     /// Message tag definitions
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Tag: u8 {
         /// Describes a normal message in a stream.
         const MESSAGE = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE;
@@ -185,7 +186,7 @@ bitflags! {
         /// Derives a new key for the stream.
         const REKEY = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY;
         /// Indicates the end of the stream.
-        const FINAL = Self::PUSH.bits | Self::REKEY.bits;
+        const FINAL = Self::PUSH.bits() | Self::REKEY.bits();
     }
 }
 
