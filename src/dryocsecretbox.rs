@@ -518,7 +518,7 @@ mod tests {
             let ciphertext_copy = ciphertext.clone();
 
             let so_ciphertext = secretbox::seal(
-                &message_copy.as_bytes(),
+                message_copy.as_bytes(),
                 &SONonce::from_slice(nonce.as_slice()).unwrap(),
                 &SOKey::from_slice(secret_key.as_slice()).unwrap(),
             );

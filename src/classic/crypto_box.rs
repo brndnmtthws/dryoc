@@ -628,11 +628,11 @@ mod tests {
             let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());
 
             assert_eq!(
-                general_purpose::STANDARD_NO_PAD.encode(&pk),
+                general_purpose::STANDARD_NO_PAD.encode(pk),
                 general_purpose::STANDARD_NO_PAD.encode(so_pk.as_ref())
             );
             assert_eq!(
-                general_purpose::STANDARD_NO_PAD.encode(&sk),
+                general_purpose::STANDARD_NO_PAD.encode(sk),
                 general_purpose::STANDARD_NO_PAD.encode(so_sk.as_ref())
             );
         }

@@ -109,7 +109,7 @@ fn g1(
     b: &mut Simd<u64, 4>,
     c: &mut Simd<u64, 4>,
     d: &mut Simd<u64, 4>,
-    m: &mut Simd<u64, 4>,
+    m: &Simd<u64, 4>,
 ) {
     *a = *a + *b + *m;
     *d = rotru64(*d ^ *a, 32);
@@ -123,7 +123,7 @@ fn g2(
     b: &mut Simd<u64, 4>,
     c: &mut Simd<u64, 4>,
     d: &mut Simd<u64, 4>,
-    m: &mut Simd<u64, 4>,
+    m: &Simd<u64, 4>,
 ) {
     *a = *a + *b + *m;
     *d = rotru64(*d ^ *a, 16);
@@ -149,8 +149,8 @@ fn unpermute(a: &mut Simd<u64, 4>, c: &mut Simd<u64, 4>, d: &mut Simd<u64, 4>) {
 fn compress(
     a: &mut Simd<u64, 4>,
     b: &mut Simd<u64, 4>,
-    st: &mut [u64; 2],
-    sf: &mut [u64; 2],
+    st: &[u64; 2],
+    sf: &[u64; 2],
     block: &[u8],
 ) {
     let mut c = Simd::<u64, 4>::from_slice(&IV[..4]);
@@ -169,240 +169,240 @@ fn compress(
     t0 = simd_swizzle!(m[0], m[1], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[2], m[3], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[0], m[1], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[2], m[3], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[7], m[4], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[5], m[6], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[7], m[4], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[5], m[6], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 2
     t0 = simd_swizzle!(m[7], m[2], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[4], m[6], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[5], m[4], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[3], m[7], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[2], m[0], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[5], m[0], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[6], m[1], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[3], m[1], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 3
     t0 = simd_swizzle!(m[6], m[5], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[2], m[7], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[4], m[0], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[6], m[1], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[5], m[4], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[1], m[3], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[2], m[7], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[0], m[3], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 4
     t0 = simd_swizzle!(m[3], m[1], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[6], m[5], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[4], m[0], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[6], m[7], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[1], m[7], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[2], [1, 0, 3, 2]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[4], m[3], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[5], m[0], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 5
     t0 = simd_swizzle!(m[4], m[2], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[1], m[5], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[3], m[0], [Second(0), First(1), Second(2), First(3)]);
     t1 = simd_swizzle!(m[7], m[2], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[7], m[1], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[3], m[5], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[6], m[0], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[6], m[4], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 6
     t0 = simd_swizzle!(m[1], m[3], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[0], m[4], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[6], m[5], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[5], m[1], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[2], m[0], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[3], m[7], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[4], m[6], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[7], m[2], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 7
     t0 = simd_swizzle!(m[0], m[6], [Second(0), First(1), Second(2), First(3)]);
     t1 = simd_swizzle!(m[7], m[2], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[2], m[7], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[5], m[6], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[4], m[0], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[4], m[3], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[5], m[3], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[1], [1, 0, 3, 2]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 8
     t0 = simd_swizzle!(m[6], m[3], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[1], m[6], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[7], m[5], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[0], m[4], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[2], m[1], [Second(0), First(1), Second(2), First(3)]);
     t1 = simd_swizzle!(m[4], m[7], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[5], m[0], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[2], m[3], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 9
     t0 = simd_swizzle!(m[3], m[7], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[0], m[5], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[7], m[4], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[4], m[1], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[5], m[6], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[6], m[0], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[1], m[2], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[2], m[3], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 10
     t0 = simd_swizzle!(m[5], m[4], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[3], m[0], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[1], m[2], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[2], m[3], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[6], m[7], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[4], m[1], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[5], m[0], [Second(0), First(1), Second(2), First(3)]);
     t1 = simd_swizzle!(m[7], m[6], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 11
     t0 = simd_swizzle!(m[0], m[1], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[2], m[3], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[0], m[1], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[2], m[3], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[7], m[4], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[5], m[6], [First(0), Second(0), First(2), Second(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[7], m[4], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[5], m[6], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     // round 12
     t0 = simd_swizzle!(m[7], m[2], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[4], m[6], [First(1), Second(1), First(3), Second(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[5], m[4], [First(0), Second(0), First(2), Second(2)]);
     t1 = simd_swizzle!(m[3], m[7], [Second(1), First(0), Second(3), First(2)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     permute(a, &mut c, &mut d);
     t0 = simd_swizzle!(m[2], m[0], [First(1), Second(1), First(3), Second(3)]);
     t1 = simd_swizzle!(m[5], m[0], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g1(a, b, &mut c, &mut d, &mut b0);
+    g1(a, b, &mut c, &mut d, &b0);
     t0 = simd_swizzle!(m[6], m[1], [Second(1), First(0), Second(3), First(2)]);
     t1 = simd_swizzle!(m[3], m[1], [Second(0), First(1), Second(2), First(3)]);
     b0 = simd_swizzle!(t0, t1, [First(0), First(1), Second(2), Second(3)]);
-    g2(a, b, &mut c, &mut d, &mut b0);
+    g2(a, b, &mut c, &mut d, &b0);
     unpermute(a, &mut c, &mut d);
 
     *a ^= c;
@@ -567,8 +567,8 @@ impl State {
             compress(
                 &mut self.a,
                 &mut self.b,
-                &mut self.t,
-                &mut self.f,
+                &self.t,
+                &self.f,
                 &self.buf[..BLOCKBYTES],
             );
 
@@ -581,8 +581,8 @@ impl State {
             compress(
                 &mut self.a,
                 &mut self.b,
-                &mut self.t,
-                &mut self.f,
+                &self.t,
+                &self.f,
                 &self.buf[BLOCKBYTES..],
             );
         } else {
@@ -592,13 +592,7 @@ impl State {
             // fill last block with zero padding
             self.buf.resize(BLOCKBYTES, 0);
 
-            compress(
-                &mut self.a,
-                &mut self.b,
-                &mut self.t,
-                &mut self.f,
-                &self.buf,
-            );
+            compress(&mut self.a, &mut self.b, &self.t, &self.f, &self.buf);
         }
 
         let mut buffer = [0u8; OUTBYTES];
@@ -750,8 +744,7 @@ mod tests {
             } else {
                 Some(hex::decode(&vector.key).unwrap())
             };
-            let mut state =
-                State::init(64, key.as_ref().map(|s| s.as_slice()), None, None).expect("init");
+            let mut state = State::init(64, key.as_deref(), None, None).expect("init");
             state.update(hex::decode(&vector.in_).unwrap().as_slice());
             let mut output = [0u8; 64];
 
@@ -875,7 +868,7 @@ mod tests {
 
         for i in 5..320 {
             let mut input = vec![0u8; i - 5_usize];
-            let mut output = vec![0u8; i as usize];
+            let mut output = vec![0u8; i];
             let mut so_output = output.clone();
             copy_randombytes(&mut input);
 

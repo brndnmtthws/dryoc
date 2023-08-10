@@ -216,7 +216,7 @@ mod tests {
         let output: Vec<u8> = hasher.finalize().expect("finalize failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(&output),
+            general_purpose::STANDARD.encode(output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
@@ -226,7 +226,7 @@ mod tests {
         let output = hasher.finalize_to_vec().expect("finalize failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(&output),
+            general_purpose::STANDARD.encode(output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
     }
@@ -248,7 +248,7 @@ mod tests {
             GenericHash::hash_with_defaults::<_, Key, _>(b"hello", None).expect("hash failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(&output),
+            general_purpose::STANDARD.encode(output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
@@ -256,7 +256,7 @@ mod tests {
             GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(&output),
+            general_purpose::STANDARD.encode(output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
     }
@@ -269,7 +269,7 @@ mod tests {
             GenericHash::hash_with_defaults_to_vec::<_, Key>(&[], None).expect("hash failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(&output),
+            general_purpose::STANDARD.encode(output),
             "DldRwCblQ7Loqy6wYJnaodHl30d3j3eH+qtFzfEv46g="
         );
     }
