@@ -540,12 +540,12 @@ mod tests {
                 general_purpose::STANDARD.encode(&output)
             );
             assert_eq!(
-                general_purpose::STANDARD.encode(&so_state.k),
-                general_purpose::STANDARD.encode(&push_state.k)
+                general_purpose::STANDARD.encode(so_state.k),
+                general_purpose::STANDARD.encode(push_state.k)
             );
             assert_eq!(
-                general_purpose::STANDARD.encode(&so_state.nonce),
-                general_purpose::STANDARD.encode(&push_state.nonce)
+                general_purpose::STANDARD.encode(so_state.nonce),
+                general_purpose::STANDARD.encode(push_state.nonce)
             );
 
             let mut so_state = crypto_secretstream_xchacha20poly1305_state {
@@ -562,12 +562,12 @@ mod tests {
             );
             assert_eq!(ret, 0);
             assert_eq!(
-                general_purpose::STANDARD.encode(&so_state.k),
-                general_purpose::STANDARD.encode(&push_state_init.k)
+                general_purpose::STANDARD.encode(so_state.k),
+                general_purpose::STANDARD.encode(push_state_init.k)
             );
             assert_eq!(
-                general_purpose::STANDARD.encode(&so_state.nonce),
-                general_purpose::STANDARD.encode(&push_state_init.nonce)
+                general_purpose::STANDARD.encode(so_state.nonce),
+                general_purpose::STANDARD.encode(push_state_init.nonce)
             );
             assert!(so_output.len() >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES);
             let ret = so_crypto_secretstream_xchacha20poly1305_pull(
@@ -584,7 +584,7 @@ mod tests {
             so_output.resize(mlen_p as usize, 0);
         }
         assert_eq!(
-            general_purpose::STANDARD.encode(&message),
+            general_purpose::STANDARD.encode(message),
             general_purpose::STANDARD.encode(&so_output)
         );
 
@@ -615,7 +615,7 @@ mod tests {
         assert_eq!(Tag::MESSAGE, Tag::from_bits(tag).expect("tag"));
         assert_eq!(
             general_purpose::STANDARD.encode(&pull_result_message),
-            general_purpose::STANDARD.encode(&message)
+            general_purpose::STANDARD.encode(message)
         );
     }
 

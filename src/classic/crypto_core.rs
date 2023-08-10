@@ -294,8 +294,8 @@ mod tests {
                 assert_eq!(ret, 0);
             }
             assert_eq!(
-                general_purpose::STANDARD.encode(&out),
-                general_purpose::STANDARD.encode(&so_out)
+                general_purpose::STANDARD.encode(out),
+                general_purpose::STANDARD.encode(so_out)
             );
         }
     }
@@ -328,8 +328,8 @@ mod tests {
                 assert_eq!(ret, 0);
             }
             assert_eq!(
-                general_purpose::STANDARD.encode(&out),
-                general_purpose::STANDARD.encode(&so_out)
+                general_purpose::STANDARD.encode(out),
+                general_purpose::STANDARD.encode(so_out)
             );
         }
     }
