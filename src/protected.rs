@@ -766,17 +766,15 @@ unsafe impl Allocator for PageAlignedAllocator {
         let ptr = ptr.as_ptr().offset(-(pagesize as isize));
 
         // unlock the fore protected region
-        let fore_protected_region = std::slice::from_raw_parts_mut(ptr as *mut u8, pagesize);
+        let fore_protected_region = std::slice::from_raw_parts_mut(ptr, pagesize);
         dryoc_mprotect_readwrite(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
             .ok();
 
         // unlock the aft protected region
         let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
-        let aft_protected_region = std::slice::from_raw_parts_mut(
-            ptr.add(aft_protected_region_offset) as *mut u8,
-            pagesize,
-        );
+        let aft_protected_region =
+            std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize);
 
         dryoc_mprotect_readwrite(aft_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
