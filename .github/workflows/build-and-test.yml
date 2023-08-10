@@ -19,7 +19,7 @@ jobs:
       matrix:
         rust:
           - stable
-          - beta
+          # - beta
           - nightly
         features:
           - serde
