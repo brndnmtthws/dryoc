@@ -16,7 +16,7 @@ version = "0.5.1"
 base64 = { version = "0.21", optional = true }
 bitflags = "1.0"
 chacha20 = { version = "0.9", features = ["zeroize"] }
-curve25519-dalek = "3.0"
+curve25519-dalek = "4.0"
 generic-array = "0.14"
 lazy_static = "1"
 rand_core = { version = "0.6", features = ["getrandom"] }
@@ -55,8 +55,8 @@ rand = "0.8"
 [features]
 default = ["u64_backend"]
 nightly = []
-simd_backend = ["curve25519-dalek/simd_backend", "sha2/asm"]
-u64_backend = ["curve25519-dalek/u64_backend"]
+simd_backend = ["sha2/asm"]
+u64_backend = []
 
 [package.metadata.docs.rs]
 # docs.rs uses nightly, enable feature flag to get all the juicy docs

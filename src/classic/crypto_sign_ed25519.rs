@@ -42,9 +42,9 @@ pub(crate) fn crypto_sign_ed25519_seed_keypair_inplace(
 ) {
     let hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
 
-    let mut sk = Scalar::from_bits(clamp_hash(hash));
+    let mut sk = Scalar::from_bytes_mod_order(clamp_hash(hash));
 
-    let pk = (&ED25519_BASEPOINT_TABLE * &sk).compress();
+    let pk = (ED25519_BASEPOINT_TABLE * &sk).compress();
     secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
     secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..].copy_from_slice(pk.as_bytes());
 
@@ -185,7 +185,7 @@ fn crypto_sign_ed25519_detached_impl(
         signature[32..].copy_from_slice(&secret_key[32..]);
 
         let r = Scalar::from_bytes_mod_order_wide(&nonce);
-        let big_r = (&ED25519_BASEPOINT_TABLE * &r).compress();
+        let big_r = (ED25519_BASEPOINT_TABLE * &r).compress();
 
         signature[..32].copy_from_slice(big_r.as_bytes());
 
@@ -199,7 +199,7 @@ fn crypto_sign_ed25519_detached_impl(
 
         let k = Scalar::from_bytes_mod_order_wide(&hram);
         let clamped = clamp_hash(az);
-        let sig = (k * Scalar::from_bits(clamped)) + r;
+        let sig = (k * Scalar::from_bytes_mod_order(clamped)) + r;
 
         signature[32..].copy_from_slice(sig.as_bytes());
 
@@ -224,20 +224,17 @@ fn crypto_sign_ed25519_verify_detached_impl(
     public_key: &PublicKey,
     prehashed: bool,
 ) -> Result<(), Error> {
-    let s = Scalar::from_bits(
+    let s = Scalar::from_bytes_mod_order(
         *<&[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]>::try_from(&signature[32..])
             .map_err(|_| dryoc_error!("bad signature"))?,
     );
-    let big_r = CompressedEdwardsY::from_slice(&signature[..32])
+    let big_r = CompressedEdwardsY::from_slice(&signature[..32])?
         .decompress()
         .ok_or_else(|| dryoc_error!("bad signature"))?;
     if big_r.is_small_order() {
         return Err(dryoc_error!("bad signature"));
     }
-    if !s.is_canonical() {
-        return Err(dryoc_error!("bad signature"));
-    }
-    let pk = CompressedEdwardsY::from_slice(public_key)
+    let pk = CompressedEdwardsY::from_slice(public_key)?
         .decompress()
         .ok_or_else(|| dryoc_error!("bad public key"))?;
     if pk.is_small_order() {
