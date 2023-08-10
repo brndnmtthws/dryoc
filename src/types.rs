@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use lazy_static::__Deref;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-#[cfg(any(feature = "serde"))]
+#[cfg(feature = "serde")]
 pub use crate::bytes_serde::*;
 use crate::rng::copy_randombytes;
 
@@ -311,6 +311,7 @@ impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
     }
 }
 
+#[allow(suspicious_double_ref_op)]
 impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
     #[inline]
     fn as_slice(&self) -> &[u8] {

@@ -79,7 +79,7 @@ const IV: [u64; 8] = [
     0x5be0cd19137e2179,
 ];
 
-fn compress(sh: &mut [u64; 8], st: &mut [u64; 2], sf: &mut [u64; 2], block: &[u8]) {
+fn compress(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8]) {
     let mut tm = [0u64; 16];
     let mut tv = [0u64; 16];
 
@@ -275,12 +275,7 @@ impl State {
 
         if self.buf.len() > BLOCKBYTES {
             increment_counter(&mut self.t, BLOCKBYTES);
-            compress(
-                &mut self.h,
-                &mut self.t,
-                &mut self.f,
-                &self.buf[..BLOCKBYTES],
-            );
+            compress(&mut self.h, &self.t, &self.f, &self.buf[..BLOCKBYTES]);
 
             increment_counter(&mut self.t, self.buf.len() - BLOCKBYTES);
             self.set_lastblock();
@@ -288,12 +283,7 @@ impl State {
             // fill last block with zero padding
             self.buf.resize(2 * BLOCKBYTES, 0);
 
-            compress(
-                &mut self.h,
-                &mut self.t,
-                &mut self.f,
-                &self.buf[BLOCKBYTES..],
-            );
+            compress(&mut self.h, &self.t, &self.f, &self.buf[BLOCKBYTES..]);
         } else {
             increment_counter(&mut self.t, self.buf.len());
             self.set_lastblock();
@@ -301,7 +291,7 @@ impl State {
             // fill last block with zero padding
             self.buf.resize(BLOCKBYTES, 0);
 
-            compress(&mut self.h, &mut self.t, &mut self.f, &self.buf);
+            compress(&mut self.h, &self.t, &self.f, &self.buf);
         }
         self.buf.zeroize();
 
