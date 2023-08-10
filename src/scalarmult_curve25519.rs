@@ -20,8 +20,8 @@ pub(crate) fn crypto_scalarmult_curve25519_base(
     q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
 ) {
-    let sk = Scalar::from_bits(clamp(n));
-    let pk = (&ED25519_BASEPOINT_TABLE * &sk).to_montgomery();
+    let sk = Scalar::from_bytes_mod_order(clamp(n));
+    let pk = (ED25519_BASEPOINT_TABLE * &sk).to_montgomery();
 
     q.copy_from_slice(pk.as_bytes());
 }
@@ -31,7 +31,7 @@ pub(crate) fn crypto_scalarmult_curve25519(
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
     p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
 ) {
-    let sk = Scalar::from_bits(clamp(n));
+    let sk = Scalar::from_bytes_mod_order(clamp(n));
     let pk = MontgomeryPoint(*p);
     let shared_secret = sk * pk;
 

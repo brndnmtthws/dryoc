@@ -12,6 +12,9 @@ pub enum Error {
 
     /// Some I/O problem occurred.
     Io(std::io::Error),
+
+    /// Unable to convert data from slice.
+    FromSlice(core::array::TryFromSliceError),
 }
 
 impl From<String> for Error {
@@ -32,11 +35,18 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<core::array::TryFromSliceError> for Error {
+    fn from(error: core::array::TryFromSliceError) -> Self {
+        Error::FromSlice(error)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Message(message) => f.write_str(message),
             Error::Io(err) => write!(f, "I/O error: {}", err),
+            Error::FromSlice(err) => write!(f, "From slice error: {}", err),
         }
     }
 }
@@ -46,6 +56,7 @@ impl std::error::Error for Error {
         match self {
             Error::Message(_) => None,
             Error::Io(err) => Some(err),
+            Error::FromSlice(err) => Some(err),
         }
     }
 }
