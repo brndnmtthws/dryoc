@@ -3,8 +3,6 @@ use std::convert::TryFrom;
 use lazy_static::__Deref;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-#[cfg(feature = "serde")]
-pub use crate::bytes_serde::*;
 use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with

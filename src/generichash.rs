@@ -75,7 +75,6 @@ pub mod protected {
     //! ```
     use super::*;
     pub use crate::protected::*;
-    pub use crate::types::*;
 
     /// Heap-allocated, page-aligned secret key for the generic hash algorithm,
     /// for use with protected memory.
