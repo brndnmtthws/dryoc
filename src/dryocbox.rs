@@ -164,9 +164,7 @@ pub mod protected {
     //! assert_eq!(message.as_slice(), decrypted.as_slice());
     //! ```
     use super::*;
-    pub use crate::keypair::protected::*;
     pub use crate::protected::*;
-    pub use crate::types::*;
 
     /// Heap-allocated, page-aligned public key for authenticated public-key
     /// boxes, for use with protected memory.

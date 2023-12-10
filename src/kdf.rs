@@ -97,7 +97,6 @@ pub mod protected {
     //! ```
     use super::*;
     pub use crate::protected::*;
-    pub use crate::types::*;
 
     /// Heap-allocated, page-aligned key type alias for key derivation with
     /// [`Kdf`].

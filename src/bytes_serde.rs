@@ -256,6 +256,3 @@ mod protected {
         }
     }
 }
-
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-pub use protected::*;

@@ -248,7 +248,6 @@ pub mod protected {
     //! ```
     use super::*;
     pub use crate::protected::*;
-    pub use crate::types::*;
 
     /// Heap-allocated, page-aligned salt type alias for protected password
     /// hashing with [`PwHash`].
