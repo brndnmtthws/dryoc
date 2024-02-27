@@ -443,7 +443,7 @@ mod tests {
                 Some(hex::decode(&vector.key).unwrap())
             };
             let mut state =
-                State::init(64, key.as_ref().map(|s| s.as_slice()), None, None).expect("init");
+                State::init(64, key.as_deref(), None, None).expect("init");
             state.update(hex::decode(&vector.in_).unwrap().as_slice());
             let mut output = [0u8; 64];
 
@@ -567,7 +567,7 @@ mod tests {
 
         for i in 5..320 {
             let mut input = vec![0u8; i - 5_usize];
-            let mut output = vec![0u8; i as usize];
+            let mut output = vec![0u8; i];
             let mut so_output = output.clone();
             copy_randombytes(&mut input);
 

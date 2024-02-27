@@ -8,8 +8,6 @@
 //! keypair. Additionally, an encrypted box doesn't need to be separately signed
 //! as it already includes a message authentication code.
 
-use std::convert::TryFrom;
-
 use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::Scalar;
@@ -374,14 +372,8 @@ mod tests {
             let mut so_xsk = [0u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES];
 
             unsafe {
-                so_crypto_sign_ed25519_pk_to_curve25519(
-                    so_xpk.as_mut_ptr() as *mut u8,
-                    pk.as_ptr() as *const u8,
-                );
-                so_crypto_sign_ed25519_sk_to_curve25519(
-                    so_xsk.as_mut_ptr() as *mut u8,
-                    sk.as_ptr() as *const u8,
-                );
+                so_crypto_sign_ed25519_pk_to_curve25519(so_xpk.as_mut_ptr(), pk.as_ptr());
+                so_crypto_sign_ed25519_sk_to_curve25519(so_xsk.as_mut_ptr(), sk.as_ptr());
             }
 
             assert_eq!(

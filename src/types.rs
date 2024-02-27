@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use lazy_static::__Deref;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

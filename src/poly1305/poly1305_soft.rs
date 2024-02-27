@@ -248,15 +248,12 @@ mod tests {
 
     #[test]
     fn test_example_vector() {
-        use std::convert::TryFrom;
-
         // from https://tools.ietf.org/html/rfc7539#section-2.5.2
-        let key = Key::try_from(&[
+        let key = Key::from(&[
             0x85, 0xd6, 0xbe, 0x78, 0x57, 0x55, 0x6d, 0x33, 0x7f, 0x44, 0x52, 0xfe, 0x42, 0xd5,
             0x06, 0xa8, 0x01, 0x03, 0x80, 0x8a, 0xfb, 0x0d, 0xb2, 0xfd, 0x4a, 0xbf, 0xf6, 0xaf,
             0x41, 0x49, 0xf5, 0x1b,
-        ])
-        .expect("key");
+        ]);
         let text = b"Cryptographic Forum Research Group";
 
         let mut mac = Poly1305::new(&key);
@@ -291,15 +288,12 @@ mod tests {
 
     #[test]
     fn test_vector_2() {
-        use std::convert::TryFrom;
-
         // from https://tools.ietf.org/html/rfc7539#appendix-A.3
-        let key = Key::try_from(&[
+        let key = Key::from(&[
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x36, 0xe5, 0xf6, 0xb5, 0xc5, 0xe0, 0x60, 0x70, 0xf0, 0xef, 0xca, 0x96,
             0x22, 0x7a, 0x86, 0x3e,
-        ])
-        .expect("key");
+        ]);
         let text = b"Any submission to the IETF intended by the Contributor for publication as all or part of an IETF Internet-Draft or RFC and any statement made within the context of an IETF activity is considered an \"IETF Contribution\". Such statements include oral statements in IETF sessions, as well as written and electronic communications made at any time or place, which are addressed to";
 
         let mut mac = Poly1305::new(&key);
@@ -317,15 +311,12 @@ mod tests {
 
     #[test]
     fn test_vector_3() {
-        use std::convert::TryFrom;
-
         // from https://tools.ietf.org/html/rfc7539#appendix-A.3
-        let key = Key::try_from(&[
+        let key = Key::from(&[
             0x36, 0xe5, 0xf6, 0xb5, 0xc5, 0xe0, 0x60, 0x70, 0xf0, 0xef, 0xca, 0x96, 0x22, 0x7a,
             0x86, 0x3e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
-        ])
-        .expect("key");
+        ]);
         let text = b"Any submission to the IETF intended by the Contributor for publication as all or part of an IETF Internet-Draft or RFC and any statement made within the context of an IETF activity is considered an \"IETF Contribution\". Such statements include oral statements in IETF sessions, as well as written and electronic communications made at any time or place, which are addressed to";
 
         let mut mac = Poly1305::new(&key);
@@ -343,15 +334,12 @@ mod tests {
 
     #[test]
     fn test_vector_4() {
-        use std::convert::TryFrom;
-
         // from https://tools.ietf.org/html/rfc7539#appendix-A.3
-        let key = Key::try_from(&[
+        let key = Key::from(&[
             0x1c, 0x92, 0x40, 0xa5, 0xeb, 0x55, 0xd3, 0x8a, 0xf3, 0x33, 0x88, 0x86, 0x04, 0xf6,
             0xb5, 0xf0, 0x47, 0x39, 0x17, 0xc1, 0x40, 0x2b, 0x80, 0x09, 0x9d, 0xca, 0x5c, 0xbc,
             0x20, 0x70, 0x75, 0xc0,
-        ])
-        .expect("key");
+        ]);
         let text = [
             0x27u8, 0x54u8, 0x77u8, 0x61u8, 0x73u8, 0x20u8, 0x62u8, 0x72u8, 0x69u8, 0x6cu8, 0x6cu8,
             0x69u8, 0x67u8, 0x2cu8, 0x20u8, 0x61u8, 0x6eu8, 0x64u8, 0x20u8, 0x74u8, 0x68u8, 0x65u8,
