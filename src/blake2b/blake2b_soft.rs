@@ -442,8 +442,7 @@ mod tests {
             } else {
                 Some(hex::decode(&vector.key).unwrap())
             };
-            let mut state =
-                State::init(64, key.as_deref(), None, None).expect("init");
+            let mut state = State::init(64, key.as_deref(), None, None).expect("init");
             state.update(hex::decode(&vector.in_).unwrap().as_slice());
             let mut output = [0u8; 64];
 
