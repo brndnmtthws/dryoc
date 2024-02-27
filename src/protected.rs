@@ -69,7 +69,6 @@
 //! Running the code above produces as `signal: 10, SIGBUS: access to undefined
 //! memory` panic.
 use std::alloc::{AllocError, Allocator, Layout};
-use std::convert::{AsMut, TryFrom};
 use std::marker::PhantomData;
 use std::ptr;
 

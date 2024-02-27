@@ -302,8 +302,6 @@ fn test_streams_rustaceous() {
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocbox_serde_known_good() {
-    use std::convert::TryFrom;
-
     use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::from_slices(
@@ -328,11 +326,10 @@ fn test_dryocbox_serde_known_good() {
         ],
     )
     .expect("recipient keypair failed");
-    let nonce = Nonce::try_from(&[
+    let nonce = Nonce::from(&[
         52, 53, 237, 208, 81, 208, 57, 122, 253, 6, 222, 28, 25, 157, 13, 108, 28, 38, 41, 60, 242,
         45, 126, 101,
-    ])
-    .expect("nonce");
+    ]);
     let message = b"hey friend";
 
     let dryocbox: VecBox = DryocBox::encrypt(

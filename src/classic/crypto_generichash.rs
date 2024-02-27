@@ -149,9 +149,9 @@ mod tests {
 
             unsafe {
                 so_crypto_generichash(
-                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.as_mut_ptr(),
                     so_output.len(),
-                    input.as_ptr() as *const u8,
+                    input.as_ptr(),
                     input.len() as u64,
                     std::ptr::null(),
                     0,
@@ -195,11 +195,11 @@ mod tests {
 
             unsafe {
                 so_crypto_generichash(
-                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.as_mut_ptr(),
                     so_output.len(),
-                    input.as_ptr() as *const u8,
+                    input.as_ptr(),
                     input.len() as u64,
-                    key.as_ptr() as *const u8,
+                    key.as_ptr(),
                     key.len(),
                 );
             }

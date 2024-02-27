@@ -428,7 +428,7 @@ mod tests {
 
         let pw_str = std::str::from_utf8(&pwhash.0)
             .expect("from ut8 failed")
-            .trim_end_matches("\x00");
+            .trim_end_matches('\x00');
 
         crypto_pwhash_str_verify(pw_str, password).expect("verify failed");
         crypto_pwhash_str_verify(pw_str, b"invalid password")

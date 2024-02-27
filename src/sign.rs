@@ -224,7 +224,6 @@ pub mod protected {
     //!     .expect("verification failed");
     //! ```
     use super::*;
-    use crate::classic::crypto_sign::crypto_sign_keypair_inplace;
     pub use crate::protected::*;
 
     /// Heap-allocated, page-aligned public-key for signed messages,
