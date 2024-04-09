@@ -41,7 +41,7 @@ jobs:
     env:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Setup ${{ matrix.rust }} Rust toolchain with caching
         uses: brndnmtthws/rust-action@v1
         with:
