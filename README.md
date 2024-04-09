@@ -57,7 +57,7 @@ set `RUSTFLAGS`:
 
 _Note that eventually this project will converge on portable SIMD implementations
 for all the core algos which will work across all platforms supported by LLVM,
-rather than relying on hand-coded assembly or intrinsics, but his is a work in
+rather than relying on hand-coded assembly or intrinsics, but this is a work in
 progress_.
 
 ## Project status
