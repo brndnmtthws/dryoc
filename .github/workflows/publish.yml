@@ -11,7 +11,7 @@ jobs:
   build-test-publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: brndnmtthws/rust-action@v1
         with:
           toolchain: stable
