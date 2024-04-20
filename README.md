@@ -1,6 +1,6 @@
 [![Docs](https://docs.rs/dryoc/badge.svg)](https://docs.rs/dryoc) [![Crates.io](https://img.shields.io/crates/v/dryoc)](https://crates.io/crates/dryoc) [![Build & test](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/brndnmtthws/dryoc/actions/workflows/build-and-test.yml) [![Codecov](https://img.shields.io/codecov/c/github/brndnmtthws/dryoc)](https://app.codecov.io/gh/brndnmtthws/dryoc/)
 
-[💬 Join the Matrix chat](https://matrix.to/#/#dryoc:frens.io)
+[💬 Join the Matrix chat](https://matrix.to/#/#dryoc:matrix.frens.io)
 
 # dryoc: Don't Roll Your Own Crypto™<sup>[^1]</sup>
 
@@ -51,6 +51,7 @@ For example usage, refer to the
 
 To enable all the SIMD backends through 3rd party crates, you'll need to also
 set `RUSTFLAGS`:
+
 * For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
 * For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
 * For Neon set `RUSTFLAGS=-Ctarget-feature=+neon`
