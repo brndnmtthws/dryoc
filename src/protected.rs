@@ -1423,25 +1423,20 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
     for Protected<A, PM, LM>
 {
     fn zeroize(&mut self) {
-        match &mut self.i {
-            Some(d) => {
-                if !d.a.as_slice().is_empty() {
-                    if d.pm != int::ProtectMode::ReadWrite {
-                        dryoc_mprotect_readwrite(d.a.as_slice())
-                            .map_err(|err| {
-                                eprintln!("mprotect_readwrite error on drop = {:?}", err)
-                            })
-                            .ok();
-                    }
-                    d.a.zeroize();
-                    if d.lm == int::LockMode::Locked {
-                        dryoc_munlock(d.a.as_slice())
-                            .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-                            .ok();
-                    }
+        if let Some(d) = &mut self.i {
+            if !d.a.as_slice().is_empty() {
+                if d.pm != int::ProtectMode::ReadWrite {
+                    dryoc_mprotect_readwrite(d.a.as_slice())
+                        .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
+                        .ok();
+                }
+                d.a.zeroize();
+                if d.lm == int::LockMode::Locked {
+                    dryoc_munlock(d.a.as_slice())
+                        .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
+                        .ok();
                 }
             }
-            None => (),
         }
     }
 }
