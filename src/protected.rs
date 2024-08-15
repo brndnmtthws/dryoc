@@ -101,7 +101,8 @@ mod int {
     }
 }
 
-mod traits {
+#[doc(hidden)] // Edit this PR to remove doc(hidden) or add a doc comment.
+pub mod traits {
     pub trait ProtectMode {}
     pub struct ReadOnly {}
     pub struct ReadWrite {}
