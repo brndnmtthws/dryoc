@@ -52,7 +52,7 @@ pub fn crypto_secretbox_keygen_inplace(key: &mut Key) {
 }
 
 /// Generates a random key using
-/// [`copy_randombytes`](crate::rng::copy_randombytes).
+/// [`copy_randombytes`].
 pub fn crypto_secretbox_keygen() -> Key {
     Key::gen()
 }

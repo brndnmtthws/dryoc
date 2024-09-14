@@ -794,14 +794,18 @@ unsafe impl Allocator for PageAlignedAllocator {
     }
 }
 
-/// A heap-allocated fixed-length byte array, using the
+/// Provides a heap-allocated, fixed-length, page-aligned memory region.
+///
+/// This struct provides a heap-allocated fixed-length byte array, using the
 /// [page-aligned allocator](PageAlignedAllocator). Required for working with
 /// protected memory regions. Wraps a [`Vec`] with custom [`Allocator`]
 /// implementation.
 #[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct HeapByteArray<const LENGTH: usize>(Vec<u8, PageAlignedAllocator>);
 
-/// A heap-allocated resizable byte array, using the
+/// Provides a heap-allocated, resizable memory region.
+///
+/// This struct provides heap-allocated resizable byte array, using the
 /// [page-aligned allocator](PageAlignedAllocator). Required for working with
 /// protected memory regions. Wraps a [`Vec`] with custom [`Allocator`]
 /// implementation.

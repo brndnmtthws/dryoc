@@ -130,6 +130,8 @@ pub fn crypto_onetimeauth_keygen() -> Key {
     Key::gen()
 }
 
+/// Initializes the incremental Poly1305-based one-time authentication.
+///
 /// Initialize the incremental interface for Poly1305-based one-time
 /// authentication, using `key`. Returns a state struct which is required for
 /// subsequent calls to [`crypto_onetimeauth_update`] and

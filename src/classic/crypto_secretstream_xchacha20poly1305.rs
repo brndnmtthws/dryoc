@@ -147,6 +147,8 @@ fn _crypto_secretstream_xchacha20poly1305_counter_reset(state: &mut State) {
     counter[0] = 1;
 }
 
+/// Initializes a push stream for streaming encryption.
+///
 /// Initializes a push stream into `state` using `key` and returns a stream
 /// header. The stream header can be used to initialize a pull stream using the
 /// same key (i.e., using [crypto_secretstream_xchacha20poly1305_init_pull]).
@@ -174,6 +176,8 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
     );
 }
 
+/// Initializes a pull stream for streaming decryption.
+///
 /// Initializes a pull stream from `header` into `state` using `key` and returns
 /// a stream header. The stream header can be generated using
 /// [crypto_secretstream_xchacha20poly1305_init_push].

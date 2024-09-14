@@ -156,7 +156,8 @@ pub fn crypto_box_detached_inplace(
 
     Ok(())
 }
-
+/// Encrypts a message in a box.
+///
 /// Encrypts `message` with recipient's public key `recipient_public_key`,
 /// sender's secret key `sender_secret_key`, and `nonce`. The result is placed
 /// into `ciphertext` which must be the length of the message plus
@@ -205,6 +206,8 @@ pub(crate) fn crypto_box_seal_nonce(nonce: &mut Nonce, epk: &PublicKey, rpk: &Se
     crypto_generichash_final(state, nonce).expect("hash error");
 }
 
+/// Encrypts and seals a message in a box.
+///
 /// Encrypts `message` with recipient's public key `recipient_public_key`, using
 /// an ephemeral keypair and nonce. The length of `ciphertext` must be the
 /// length of the message plus [`CRYPTO_BOX_SEALBYTES`] bytes for the message
@@ -245,6 +248,8 @@ pub fn crypto_box_seal(
     }
 }
 
+/// Encrypts a message in-place in a box.
+///
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
 /// sender's secret key `sender_secret_key` using `nonce` in-place in `data`,
 /// without allocated additional memory for the message.
@@ -378,6 +383,8 @@ pub fn crypto_box_open_easy(
     }
 }
 
+/// Decrypts a sealed box.
+///
 /// Decrypts a sealed box from `ciphertext` with recipient's secret key
 /// `recipient_secret_key`, placing the result into `message`. The nonce and
 /// public are derived from `ciphertext`. `message` length should be equal to
@@ -420,6 +427,8 @@ pub fn crypto_box_seal_open(
     }
 }
 
+/// Decrypts a sealed box in-place.
+///
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
 /// sender's public key `sender_public_key` with `nonce` in-place in `data`,
 /// without allocated additional memory for the message.

@@ -168,10 +168,12 @@ pub(crate) fn convert_costs(opslimit: u64, memlimit: usize) -> (u32, u32) {
     (opslimit as u32, (memlimit / 1024) as u32)
 }
 
-/// Wrapper for [`crypto_pwhash`] that returns a string encoding of a hashed
-/// password with a random salt, suitable for use with password hash storage
-/// (i.e., in a database). Can be used to verify a password using
-/// [`crypto_pwhash_str_verify`].
+/// Hash a password string with a random salt.
+///
+/// This function provides a wrapper for [`crypto_pwhash`] that returns a string
+/// encoding of a hashed password with a random salt, suitable for use with
+/// password hash storage (i.e., in a database). Can be used to verify a
+/// password using [`crypto_pwhash_str_verify`].
 ///
 /// Compatible with libsodium's `crypto_pwhash_str`.
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
