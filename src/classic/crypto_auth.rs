@@ -147,6 +147,8 @@ pub fn crypto_auth_keygen() -> Key {
     Key::gen()
 }
 
+/// Initialize the incremental interface for HMAC-SHA512-256 secret-key.
+///
 /// Initializes the incremental interface for HMAC-SHA512-256 secret-key
 /// authentication, using `key`. Returns a state struct which is required for
 /// subsequent calls to [`crypto_auth_update`] and

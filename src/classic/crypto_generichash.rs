@@ -57,7 +57,7 @@ Computes a hash from `input` and `key`, copying the result into `output`.
 | Parameter | Typical length | Minimum length | Maximum length |
 |-|-|-|-|
 | `output` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [ `CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
-| `key` | [`CRYPTO_GENERICHASH_KEYBYTES`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES) | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
+| `key` | [`CRYPTO_GENERICHASH_KEYBYTES`] | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
 
 Compatible with libsodium's `crypto_generichash_final`
 */
@@ -80,8 +80,8 @@ Initializes the state for the generic hash function using `outlen` for the expec
 
 | Parameter | Typical length | Minimum length | Maximum length |
 |-|-|-|-|
-| `outlen` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [ `CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
-| `key` | [`CRYPTO_GENERICHASH_KEYBYTES`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES) | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
+| `outlen` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [`CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
+| `key` | [`CRYPTO_GENERICHASH_KEYBYTES`] | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
 
 Equivalent to libsodium's `crypto_generichash_final`
 */
