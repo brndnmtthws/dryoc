@@ -399,7 +399,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     mac_key.zeroize();
 
     mac.update(associated_data);
-    mac.update(&_pad0[..((0x10 - associated_data.len()) & 0xf)]);
+    mac.update(&_pad0[..((0x10 - (associated_data.len() % 0x10)) & 0xf)]);
 
     let mut block = [0u8; 64];
     block[0] = ciphertext[0];
