@@ -100,6 +100,7 @@ use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES,
     CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
+use crate::dryocstream::Tag;
 use crate::error::*;
 use crate::rng::copy_randombytes;
 use crate::types::*;
@@ -950,9 +951,67 @@ mod tests {
 
             assert_eq!(
                 general_purpose::STANDARD.encode(&output),
-                general_purpose::STANDARD.encode(message)
+                general_purpose::STANDARD.encode(&message)
             );
             assert_eq!(outtag, tag.bits());
         }
+    }
+
+    #[test]
+    fn test_secretstream_large_aad() {
+        let mut key = Key::default();
+        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+        let mut push_state = State::new();
+        let mut push_header = Header::default();
+        crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut push_header, &key);
+
+        let message = b"hello world";
+        let large_aad = vec![0x42u8; 328]; // 328 bytes of 0x42
+
+        let mut ciphertext =
+            vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+        crypto_secretstream_xchacha20poly1305_push(
+            &mut push_state,
+            &mut ciphertext,
+            message,
+            Some(&large_aad),
+            Tag::MESSAGE.bits(),
+        )
+        .expect("push failed");
+
+        let mut pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
+
+        let mut decrypted = vec![0u8; message.len()];
+        let mut tag = 0u8;
+
+        crypto_secretstream_xchacha20poly1305_pull(
+            &mut pull_state,
+            &mut decrypted,
+            &mut tag,
+            &ciphertext,
+            Some(&large_aad),
+        )
+        .expect("pull failed");
+
+        assert_eq!(message.as_slice(), decrypted.as_slice());
+        assert_eq!(tag, Tag::MESSAGE.bits());
+
+        // Test with wrong AAD should fail
+        let mut wrong_aad = large_aad.clone();
+        wrong_aad[100] = 0x43; // Change one byte
+
+        let mut decrypted = vec![0u8; message.len()];
+        let mut tag = 0u8;
+
+        assert!(crypto_secretstream_xchacha20poly1305_pull(
+            &mut pull_state,
+            &mut decrypted,
+            &mut tag,
+            &ciphertext,
+            Some(&wrong_aad),
+        )
+        .is_err());
     }
 }
