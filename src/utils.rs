@@ -51,6 +51,11 @@ pub(crate) fn rotr64(x: u64, b: u64) -> u64 {
     (x >> b) | (x << (64 - b))
 }
 
+#[inline]
+pub(crate) fn pad16(n: usize) -> usize {
+    (0x10 - (n % 16)) & 0xf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +139,17 @@ mod tests {
 
             assert_eq!(data, data_copy);
         }
+    }
+
+    #[test]
+    fn test_pad16() {
+        assert_eq!(pad16(0), 0);
+        assert_eq!(pad16(1), 15);
+        assert_eq!(pad16(2), 14);
+        assert_eq!(pad16(15), 1);
+        assert_eq!(pad16(16), 0);
+        assert_eq!(pad16(17), 15);
+        assert_eq!(pad16(32), 0);
+        assert_eq!(pad16(33), 15);
     }
 }
