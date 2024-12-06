@@ -494,7 +494,7 @@ impl<const LENGTH: usize> From<[u8; LENGTH]> for StackByteArray<LENGTH> {
     }
 }
 
-impl<'a, const LENGTH: usize> TryFrom<&'a [u8]> for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
     type Error = crate::error::Error;
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
