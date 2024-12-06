@@ -24,6 +24,7 @@ jobs:
       - run: cargo tarpaulin --features serde,nightly --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v4
+        if: github.repository == 'brndnmtthws/dryoc'
         with:
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
