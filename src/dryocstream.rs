@@ -74,9 +74,9 @@ use bitflags::bitflags;
 use zeroize::Zeroize;
 
 use crate::classic::crypto_secretstream_xchacha20poly1305::{
-    crypto_secretstream_xchacha20poly1305_init_pull,
+    State, crypto_secretstream_xchacha20poly1305_init_pull,
     crypto_secretstream_xchacha20poly1305_init_push, crypto_secretstream_xchacha20poly1305_pull,
-    crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_rekey, State,
+    crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_rekey,
 };
 use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,

@@ -219,10 +219,10 @@ mod tests {
 
     #[test]
     fn test_crypto_scalarmult_base() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         for _ in 0..20 {
-            use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
+            use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
 
             let (pk, sk) = crypto_box_keypair();
 
@@ -242,10 +242,10 @@ mod tests {
 
     #[test]
     fn test_crypto_scalarmult() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         for _ in 0..20 {
-            use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult, GroupElement, Scalar};
+            use sodiumoxide::crypto::scalarmult::curve25519::{GroupElement, Scalar, scalarmult};
 
             let (_our_pk, our_sk) = crypto_box_keypair();
             let (their_pk, _their_sk) = crypto_box_keypair();
@@ -268,8 +268,8 @@ mod tests {
 
     #[test]
     fn test_crypto_core_hchacha20() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
 
         use crate::rng::copy_randombytes;
@@ -302,8 +302,8 @@ mod tests {
 
     #[test]
     fn test_crypto_core_hsalsa20() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libsodium_sys::crypto_core_hsalsa20 as so_crypto_core_hsalsa20;
 
         use crate::rng::copy_randombytes;

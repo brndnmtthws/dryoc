@@ -266,7 +266,7 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         #[cfg(target_os = "linux")]
         {
             // tell the kernel not to include this memory in a core dump
-            use libc::{madvise, MADV_DONTDUMP};
+            use libc::{MADV_DONTDUMP, madvise};
             unsafe {
                 madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DONTDUMP);
             }
@@ -302,7 +302,7 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
         #[cfg(target_os = "linux")]
         {
             // undo MADV_DONTDUMP
-            use libc::{madvise, MADV_DODUMP};
+            use libc::{MADV_DODUMP, madvise};
             unsafe {
                 madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DODUMP);
             }
@@ -335,7 +335,7 @@ fn dryoc_mprotect_readonly(data: &[u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(unix)]
     {
-        use libc::{c_void, mprotect as c_mprotect, PROT_READ};
+        use libc::{PROT_READ, c_void, mprotect as c_mprotect};
         let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len() - 1, PROT_READ) };
         match ret {
             0 => Ok(()),
@@ -372,7 +372,7 @@ fn dryoc_mprotect_readwrite(data: &[u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(unix)]
     {
-        use libc::{c_void, mprotect as c_mprotect, PROT_READ, PROT_WRITE};
+        use libc::{PROT_READ, PROT_WRITE, c_void, mprotect as c_mprotect};
         let ret = unsafe {
             c_mprotect(
                 data.as_ptr() as *mut c_void,
@@ -415,7 +415,7 @@ fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
     }
     #[cfg(unix)]
     {
-        use libc::{c_void, mprotect as c_mprotect, PROT_NONE};
+        use libc::{PROT_NONE, c_void, mprotect as c_mprotect};
         let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len() - 1, PROT_NONE) };
         match ret {
             0 => Ok(()),
@@ -680,7 +680,7 @@ lazy_static! {
     static ref PAGESIZE: usize = {
         #[cfg(unix)]
         {
-            use libc::{sysconf, _SC_PAGE_SIZE};
+            use libc::{_SC_PAGE_SIZE, sysconf};
             unsafe { sysconf(_SC_PAGE_SIZE) as usize }
         }
         #[cfg(windows)]

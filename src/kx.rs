@@ -92,8 +92,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::kx::protected::*;
     //! use dryoc::kx::Session;
+    //! use dryoc::kx::protected::*;
     //!
     //! // Generate random client/server keypairs
     //! let client_keypair =

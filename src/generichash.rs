@@ -6,8 +6,8 @@
 //! # Rustaceous API example, one-time interface
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
 //! // NOTE: The type for `key` param must be specified, the compiler cannot infer it when
@@ -24,8 +24,8 @@
 //! # Rustaceous API example, incremental interface
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
 //! // The compiler cannot infer the `Key` type, so we pass it below.
@@ -40,8 +40,8 @@
 //! ```
 
 use crate::classic::crypto_generichash::{
-    crypto_generichash, crypto_generichash_final, crypto_generichash_init,
-    crypto_generichash_update, GenericHashState,
+    GenericHashState, crypto_generichash, crypto_generichash_final, crypto_generichash_init,
+    crypto_generichash_update,
 };
 use crate::constants::{CRYPTO_GENERICHASH_BYTES, CRYPTO_GENERICHASH_KEYBYTES};
 use crate::error::Error;
@@ -64,8 +64,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::generichash::protected::*;
     //! use dryoc::generichash::GenericHash;
+    //! use dryoc::generichash::protected::*;
     //!
     //! // Create a randomly generated key, lock it, protect it as read-only
     //! let key = Key::gen_readonly_locked().expect("gen failed");
@@ -125,8 +125,8 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     /// # Example
     ///
     /// ```
-    /// use base64::engine::general_purpose;
     /// use base64::Engine as _;
+    /// use base64::engine::general_purpose;
     /// use dryoc::generichash::{GenericHash, Hash};
     ///
     /// let output: Hash =
@@ -206,8 +206,8 @@ mod tests {
 
     #[test]
     fn test_generichash() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
 
         let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new hash failed");
         hasher.update(b"hello");
@@ -232,8 +232,8 @@ mod tests {
 
     #[test]
     fn test_generichash_onetime() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
 
         let output: Hash =
             GenericHash::hash(b"hello", Some(b"a very secret key")).expect("hash failed");
@@ -261,8 +261,8 @@ mod tests {
     }
     #[test]
     fn test_generichash_onetime_empty() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
 
         let output =
             GenericHash::hash_with_defaults_to_vec::<_, Key>(&[], None).expect("hash failed");

@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use dryoc::classic::crypto_secretbox::{
-//!     crypto_secretbox_easy, crypto_secretbox_keygen, crypto_secretbox_open_easy, Key, Nonce,
+//!     Key, Nonce, crypto_secretbox_easy, crypto_secretbox_keygen, crypto_secretbox_open_easy,
 //! };
 //! use dryoc::constants::{CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES};
 //! use dryoc::rng::randombytes_buf;
@@ -179,8 +179,8 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn test_crypto_secretbox_easy_inplace() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 

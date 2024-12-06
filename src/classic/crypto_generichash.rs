@@ -8,8 +8,8 @@
 //! # Classic API example, one-time interface
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::classic::crypto_generichash::*;
 //! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
 //!
@@ -27,8 +27,8 @@
 //! # Classic API example, incremental interface
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::classic::crypto_generichash::*;
 //! use dryoc::constants::CRYPTO_GENERICHASH_BYTES;
 //!

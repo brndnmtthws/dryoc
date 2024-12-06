@@ -6,10 +6,10 @@
 //! # Classic API single-part example
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::classic::crypto_onetimeauth::{
-//!     crypto_onetimeauth, crypto_onetimeauth_keygen, crypto_onetimeauth_verify, Mac,
+//!     Mac, crypto_onetimeauth, crypto_onetimeauth_keygen, crypto_onetimeauth_verify,
 //! };
 //!
 //! let key = crypto_onetimeauth_keygen();
@@ -27,11 +27,11 @@
 //! # Classic API multi-part example
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::classic::crypto_onetimeauth::{
-//!     crypto_onetimeauth_final, crypto_onetimeauth_init, crypto_onetimeauth_keygen,
-//!     crypto_onetimeauth_update, crypto_onetimeauth_verify, Mac,
+//!     Mac, crypto_onetimeauth_final, crypto_onetimeauth_init, crypto_onetimeauth_keygen,
+//!     crypto_onetimeauth_update, crypto_onetimeauth_verify,
 //! };
 //!
 //! let key = crypto_onetimeauth_keygen();

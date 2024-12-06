@@ -60,8 +60,8 @@
 use subtle::ConstantTimeEq;
 
 use crate::classic::crypto_auth::{
-    crypto_auth, crypto_auth_final, crypto_auth_init, crypto_auth_update, crypto_auth_verify,
-    AuthState,
+    AuthState, crypto_auth, crypto_auth_final, crypto_auth_init, crypto_auth_update,
+    crypto_auth_verify,
 };
 use crate::constants::{CRYPTO_AUTH_BYTES, CRYPTO_AUTH_KEYBYTES};
 use crate::error::Error;
@@ -84,8 +84,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::auth::protected::*;
     //! use dryoc::auth::Auth;
+    //! use dryoc::auth::protected::*;
     //!
     //! // Create a randomly generated key, lock it, protect it as read-only
     //! let key = Key::gen_readonly_locked().expect("gen failed");

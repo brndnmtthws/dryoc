@@ -7,8 +7,8 @@
 //! # Classic API example
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::classic::crypto_kdf::*;
 //!
 //! // Generate a random main key
