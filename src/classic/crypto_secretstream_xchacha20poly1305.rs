@@ -104,7 +104,7 @@ use crate::dryocstream::Tag;
 use crate::error::*;
 use crate::rng::copy_randombytes;
 use crate::types::*;
-use crate::utils::{increment_bytes, xor_buf};
+use crate::utils::{increment_bytes, pad16, xor_buf};
 
 /// A secret for authenticated secret streams.
 pub type Key = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES];
@@ -296,7 +296,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     mac_key.zeroize();
 
     mac.update(associated_data);
-    mac.update(&_pad0[..((0x10 - (associated_data.len() % 0x10)) & 0xf)]);
+    mac.update(&_pad0[..pad16(associated_data.len())]);
 
     let mut block = [0u8; 64];
     block[0] = tag;
@@ -400,7 +400,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     mac_key.zeroize();
 
     mac.update(associated_data);
-    mac.update(&_pad0[..((0x10 - (associated_data.len() % 0x10)) & 0xf)]);
+    mac.update(&_pad0[..pad16(associated_data.len())]);
 
     let mut block = [0u8; 64];
     block[0] = ciphertext[0];
