@@ -1014,4 +1014,61 @@ mod tests {
         )
         .is_err());
     }
+
+    #[test]
+    fn test_secretstream_small_aad() {
+        let mut key = Key::default();
+        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+        let mut push_state = State::new();
+        let mut push_header = Header::default();
+        crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut push_header, &key);
+
+        let message = b"hello world";
+        let small_aad = b"abc"; // 3 bytes of AAD
+
+        let mut ciphertext =
+            vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+        crypto_secretstream_xchacha20poly1305_push(
+            &mut push_state,
+            &mut ciphertext,
+            message,
+            Some(small_aad),
+            Tag::MESSAGE.bits(),
+        )
+        .expect("push failed");
+
+        let mut pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
+
+        let mut decrypted = vec![0u8; message.len()];
+        let mut tag = 0u8;
+
+        crypto_secretstream_xchacha20poly1305_pull(
+            &mut pull_state,
+            &mut decrypted,
+            &mut tag,
+            &ciphertext,
+            Some(small_aad),
+        )
+        .expect("pull failed");
+
+        assert_eq!(message.as_slice(), decrypted.as_slice());
+        assert_eq!(tag, Tag::MESSAGE.bits());
+
+        // Test with wrong AAD should fail
+        let wrong_aad = b"xyz"; // Different 3 byte AAD
+
+        let mut decrypted = vec![0u8; message.len()];
+        let mut tag = 0u8;
+
+        assert!(crypto_secretstream_xchacha20poly1305_pull(
+            &mut pull_state,
+            &mut decrypted,
+            &mut tag,
+            &ciphertext,
+            Some(wrong_aad),
+        )
+        .is_err());
+    }
 }
