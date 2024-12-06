@@ -163,7 +163,12 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
     copy_randombytes(header);
 
     let mut k = HChaCha20Key::default();
-    crypto_core_hchacha20(k.as_mut_array(), header[..16].as_array(), key, None);
+    crypto_core_hchacha20(
+        k.as_mut_array(),
+        ByteArray::as_array(&header[..16]),
+        key,
+        None,
+    );
     // Copy key into state
     state.k.copy_from_slice(&k);
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
@@ -190,7 +195,12 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
     key: &Key,
 ) {
     let mut k = HChaCha20Key::default();
-    crypto_core_hchacha20(k.as_mut_array(), header[0..16].as_array(), key, None);
+    crypto_core_hchacha20(
+        k.as_mut_array(),
+        ByteArray::as_array(&header[0..16]),
+        key,
+        None,
+    );
     state.k.copy_from_slice(&k);
 
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
