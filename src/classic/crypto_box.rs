@@ -185,7 +185,7 @@ pub fn crypto_box_easy(
         )))
     } else {
         let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
-        let mac = mac.as_mut_array();
+        let mac = MutByteArray::as_mut_array(mac);
         crypto_box_detached(
             ciphertext,
             mac,
@@ -283,7 +283,7 @@ pub fn crypto_box_easy_inplace(
         data.rotate_right(CRYPTO_BOX_MACBYTES);
 
         let (mac, data) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
-        let mac = mac.as_mut_array();
+        let mac = MutByteArray::as_mut_array(mac);
 
         crypto_box_detached_inplace(data, mac, nonce, recipient_public_key, sender_secret_key)?;
 
@@ -370,7 +370,7 @@ pub fn crypto_box_open_easy(
         )))
     } else {
         let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
-        let mac = mac.as_array();
+        let mac = ByteArray::as_array(mac);
 
         crypto_box_open_detached(
             message,
@@ -453,7 +453,7 @@ pub fn crypto_box_open_easy_inplace(
         )))
     } else {
         let (mac, d) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
-        let mac = mac.as_array();
+        let mac = ByteArray::as_array(mac);
 
         crypto_box_open_detached_inplace(d, mac, nonce, sender_public_key, recipient_secret_key)?;
 

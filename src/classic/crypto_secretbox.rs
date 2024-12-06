@@ -126,7 +126,7 @@ pub fn crypto_secretbox_open_easy(
         )))
     } else {
         let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
-        let mac = mac.as_array();
+        let mac = ByteArray::as_array(mac);
         crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
     }
 }
@@ -140,7 +140,7 @@ pub fn crypto_secretbox_easy_inplace(
 ) -> Result<(), Error> {
     data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
     let (mac, data) = data.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
-    let mac = mac.as_mut_array();
+    let mac = MutByteArray::as_mut_array(mac);
 
     crypto_secretbox_detached_inplace(data, mac, nonce, key);
 
@@ -162,7 +162,7 @@ pub fn crypto_secretbox_open_easy_inplace(
         )))
     } else {
         let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
-        let mac = mac.as_array();
+        let mac = ByteArray::as_array(mac);
 
         crypto_secretbox_open_detached_inplace(data, mac, nonce, key)?;
 
