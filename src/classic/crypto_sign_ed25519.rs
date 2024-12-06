@@ -324,8 +324,8 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
 
 #[cfg(test)]
 mod tests {
-    use base64::engine::general_purpose;
     use base64::Engine as _;
+    use base64::engine::general_purpose;
 
     use super::*;
     use crate::rng::copy_randombytes;

@@ -1,4 +1,4 @@
-use std::simd::{simd_swizzle, Simd};
+use std::simd::{Simd, simd_swizzle};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

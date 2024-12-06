@@ -128,8 +128,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::dryocbox::protected::*;
     //! use dryoc::dryocbox::DryocBox;
+    //! use dryoc::dryocbox::protected::*;
     //!
     //! // Generate a random sender and recipient keypair, into locked, readonly
     //! // memory.
@@ -597,8 +597,8 @@ mod tests {
     #[test]
     fn test_dryocbox_vecbox() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
@@ -658,8 +658,8 @@ mod tests {
     #[test]
     fn test_decrypt_failure() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{
                 Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,

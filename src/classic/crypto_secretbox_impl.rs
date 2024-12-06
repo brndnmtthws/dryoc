@@ -1,6 +1,6 @@
 use generic_array::GenericArray;
-use salsa20::cipher::{KeyIvInit, StreamCipher};
 use salsa20::XSalsa20;
+use salsa20::cipher::{KeyIvInit, StreamCipher};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 

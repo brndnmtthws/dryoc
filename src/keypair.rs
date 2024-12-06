@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_gen_keypair() {
-        use sodiumoxide::crypto::scalarmult::curve25519::{scalarmult_base, Scalar};
+        use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
 
         use crate::classic::crypto_core::crypto_scalarmult_base;
 

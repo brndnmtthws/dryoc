@@ -390,8 +390,8 @@ fn test_dryocsecretbox_protected() {
 #[cfg(feature = "nightly")]
 #[test]
 fn test_dryocbox_protected() {
-    use dryoc::dryocbox::protected::*;
     use dryoc::dryocbox::DryocBox;
+    use dryoc::dryocbox::protected::*;
 
     let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
     let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");

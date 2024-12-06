@@ -11,8 +11,8 @@
 //! state.update(b"bytes");
 //! let hash = state.finalize_to_vec();
 //! ```
-use generic_array::typenum::U64;
 use generic_array::GenericArray;
+use generic_array::typenum::U64;
 use sha2::{Digest as DigestImpl, Sha512 as Sha512Impl};
 
 use crate::constants::CRYPTO_HASH_SHA512_BYTES;

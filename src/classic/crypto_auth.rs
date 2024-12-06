@@ -6,7 +6,7 @@
 //! # Classic API single-part example
 //!
 //! ```
-//! use dryoc::classic::crypto_auth::{crypto_auth, crypto_auth_keygen, crypto_auth_verify, Mac};
+//! use dryoc::classic::crypto_auth::{Mac, crypto_auth, crypto_auth_keygen, crypto_auth_verify};
 //!
 //! let key = crypto_auth_keygen();
 //! let mut mac = Mac::default();
@@ -24,8 +24,8 @@
 //!
 //! ```
 //! use dryoc::classic::crypto_auth::{
-//!     crypto_auth_final, crypto_auth_init, crypto_auth_keygen, crypto_auth_update,
-//!     crypto_auth_verify, Mac,
+//!     Mac, crypto_auth_final, crypto_auth_init, crypto_auth_keygen, crypto_auth_update,
+//!     crypto_auth_verify,
 //! };
 //!
 //! let key = crypto_auth_keygen();

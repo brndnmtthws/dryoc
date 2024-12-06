@@ -471,8 +471,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
@@ -528,8 +528,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
@@ -597,8 +597,8 @@ mod tests {
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
         for _ in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
 
             let (sender_pk, _sender_sk) = crypto_box_keypair();
             let (_recipient_pk, recipient_sk) = crypto_box_keypair();
@@ -626,9 +626,9 @@ mod tests {
 
     #[test]
     fn test_crypto_box_seed_keypair() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
-        use sodiumoxide::crypto::box_::{keypair_from_seed, Seed};
+        use base64::engine::general_purpose;
+        use sodiumoxide::crypto::box_::{Seed, keypair_from_seed};
 
         for _ in 0..10 {
             let seed = randombytes_buf(CRYPTO_BOX_SEEDBYTES);

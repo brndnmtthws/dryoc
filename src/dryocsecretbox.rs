@@ -83,8 +83,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::dryocsecretbox::protected::*;
     //! use dryoc::dryocsecretbox::DryocSecretBox;
+    //! use dryoc::dryocsecretbox::protected::*;
     //!
     //! // Generate a random secret key, lock it, protect memory as read-only
     //! let secret_key = Key::gen_readonly_locked().expect("key failed");
@@ -357,8 +357,8 @@ mod tests {
     #[test]
     fn test_dryocbox() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -407,8 +407,8 @@ mod tests {
     #[test]
     fn test_dryocbox_vec() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
@@ -496,8 +496,8 @@ mod tests {
     #[test]
     fn test_dryocbox_locked() {
         for i in 0..20 {
-            use base64::engine::general_purpose;
             use base64::Engine as _;
+            use base64::engine::general_purpose;
             use sodiumoxide::crypto::secretbox;
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 

@@ -89,7 +89,7 @@
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::classic::crypto_core::{crypto_core_hchacha20, HChaCha20Key};
+use crate::classic::crypto_core::{HChaCha20Key, crypto_core_hchacha20};
 use crate::constants::{
     CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES,
@@ -483,8 +483,8 @@ mod tests {
 
     #[test]
     fn test_secretstream_basic_push() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
             crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
@@ -625,8 +625,8 @@ mod tests {
 
     #[test]
     fn test_rekey() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_rekey as so_crypto_secretstream_xchacha20poly1305_rekey,
             crypto_secretstream_xchacha20poly1305_state,
@@ -666,8 +666,8 @@ mod tests {
 
     #[test]
     fn test_secretstream_lots_of_messages_push() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libc::{c_uchar, c_ulonglong};
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
@@ -789,8 +789,8 @@ mod tests {
 
     #[test]
     fn test_secretstream_basic_pull() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libc::c_ulonglong;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
@@ -861,8 +861,8 @@ mod tests {
 
     #[test]
     fn test_secretstream_lots_of_messages_pull() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use libc::c_ulonglong;
         use libsodium_sys::{
             crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,

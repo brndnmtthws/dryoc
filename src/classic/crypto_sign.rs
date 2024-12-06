@@ -203,8 +203,8 @@ mod tests {
 
     #[test]
     fn test_crypto_sign() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use sodiumoxide::crypto::sign;
 
         for _ in 0..10 {
@@ -235,8 +235,8 @@ mod tests {
 
     #[test]
     fn test_crypto_sign_open() {
-        use base64::engine::general_purpose;
         use base64::Engine as _;
+        use base64::engine::general_purpose;
         use sodiumoxide::crypto::sign;
 
         for _ in 0..10 {

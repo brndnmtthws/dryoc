@@ -79,9 +79,9 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_sign::{
-    crypto_sign_detached, crypto_sign_final_create, crypto_sign_final_verify, crypto_sign_init,
-    crypto_sign_keypair_inplace, crypto_sign_seed_keypair_inplace, crypto_sign_update,
-    crypto_sign_verify_detached, SignerState,
+    SignerState, crypto_sign_detached, crypto_sign_final_create, crypto_sign_final_verify,
+    crypto_sign_init, crypto_sign_keypair_inplace, crypto_sign_seed_keypair_inplace,
+    crypto_sign_update, crypto_sign_verify_detached,
 };
 use crate::constants::{
     CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES, CRYPTO_SIGN_SECRETKEYBYTES,
@@ -205,8 +205,8 @@ pub mod protected {
     //!
     //! ## Example
     //! ```
-    //! use dryoc::sign::protected::*;
     //! use dryoc::sign::SigningKeyPair;
+    //! use dryoc::sign::protected::*;
     //!
     //! // Generate a random keypair, using default types
     //! let keypair = SigningKeyPair::gen_locked_keypair().expect("keypair gen failed");

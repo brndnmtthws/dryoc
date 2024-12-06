@@ -64,8 +64,8 @@
 use subtle::ConstantTimeEq;
 
 use crate::classic::crypto_onetimeauth::{
-    crypto_onetimeauth, crypto_onetimeauth_final, crypto_onetimeauth_init,
-    crypto_onetimeauth_update, crypto_onetimeauth_verify, OnetimeauthState,
+    OnetimeauthState, crypto_onetimeauth, crypto_onetimeauth_final, crypto_onetimeauth_init,
+    crypto_onetimeauth_update, crypto_onetimeauth_verify,
 };
 use crate::constants::{CRYPTO_ONETIMEAUTH_BYTES, CRYPTO_ONETIMEAUTH_KEYBYTES};
 use crate::error::Error;
@@ -88,8 +88,8 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use dryoc::onetimeauth::protected::*;
     //! use dryoc::onetimeauth::OnetimeAuth;
+    //! use dryoc::onetimeauth::protected::*;
     //!
     //! // Create a randomly generated key, lock it, protect it as read-only
     //! let key = Key::gen_readonly_locked().expect("gen failed");

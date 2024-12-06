@@ -13,8 +13,8 @@
 //! # Rustaceous API example
 //!
 //! ```
-//! use base64::engine::general_purpose;
 //! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::kdf::*;
 //!
 //! // Randomly generate a main key and context, using the default stack-allocated
@@ -79,10 +79,10 @@ pub mod protected {
     //! ## Example
     //!
     //! ```
-    //! use base64::engine::general_purpose;
     //! use base64::Engine as _;
-    //! use dryoc::kdf::protected::*;
+    //! use base64::engine::general_purpose;
     //! use dryoc::kdf::Kdf;
+    //! use dryoc::kdf::protected::*;
     //!
     //! // Randomly generate a main key and context, using locked memory
     //! let key: LockedKdf = Kdf::gen();

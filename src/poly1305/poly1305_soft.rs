@@ -260,17 +260,14 @@ mod tests {
         mac.update(text);
         let mac = mac.finalize_to_array();
 
-        use sodiumoxide::crypto::onetimeauth::poly1305::{authenticate, Key as SOKey};
+        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
         let so_key = SOKey::from_slice(&key).expect("key");
         let so_mac = authenticate(text, &so_key);
         assert_eq!(mac, so_mac.as_ref());
-        assert_eq!(
-            mac,
-            [
-                0xa8, 0x06, 0x1d, 0xc1, 0x30, 0x51, 0x36, 0xc6, 0xc2, 0x2b, 0x8b, 0xaf, 0x0c, 0x01,
-                0x27, 0xa9,
-            ]
-        );
+        assert_eq!(mac, [
+            0xa8, 0x06, 0x1d, 0xc1, 0x30, 0x51, 0x36, 0xc6, 0xc2, 0x2b, 0x8b, 0xaf, 0x0c, 0x01,
+            0x27, 0xa9,
+        ]);
     }
 
     #[test]
@@ -300,13 +297,10 @@ mod tests {
         mac.update(text);
         let mac = mac.finalize_to_array();
 
-        assert_eq!(
-            mac,
-            [
-                0x36, 0xe5, 0xf6, 0xb5, 0xc5, 0xe0, 0x60, 0x70, 0xf0, 0xef, 0xca, 0x96, 0x22, 0x7a,
-                0x86, 0x3e,
-            ]
-        );
+        assert_eq!(mac, [
+            0x36, 0xe5, 0xf6, 0xb5, 0xc5, 0xe0, 0x60, 0x70, 0xf0, 0xef, 0xca, 0x96, 0x22, 0x7a,
+            0x86, 0x3e,
+        ]);
     }
 
     #[test]
@@ -323,13 +317,10 @@ mod tests {
         mac.update(text);
         let mac = mac.finalize_to_array();
 
-        assert_eq!(
-            mac,
-            [
-                0xf3, 0x47, 0x7e, 0x7c, 0xd9, 0x54, 0x17, 0xaf, 0x89, 0xa6, 0xb8, 0x79, 0x4c, 0x31,
-                0x0c, 0xf0,
-            ]
-        );
+        assert_eq!(mac, [
+            0xf3, 0x47, 0x7e, 0x7c, 0xd9, 0x54, 0x17, 0xaf, 0x89, 0xa6, 0xb8, 0x79, 0x4c, 0x31,
+            0x0c, 0xf0,
+        ]);
     }
 
     #[test]
@@ -359,19 +350,16 @@ mod tests {
         mac.update(&text);
         let mac = mac.finalize_to_array();
 
-        assert_eq!(
-            mac,
-            [
-                0x45, 0x41, 0x66, 0x9a, 0x7e, 0xaa, 0xee, 0x61, 0xe7, 0x08, 0xdc, 0x7c, 0xbc, 0xc5,
-                0xeb, 0x62,
-            ]
-        );
+        assert_eq!(mac, [
+            0x45, 0x41, 0x66, 0x9a, 0x7e, 0xaa, 0xee, 0x61, 0xe7, 0x08, 0xdc, 0x7c, 0xbc, 0xc5,
+            0xeb, 0x62,
+        ]);
     }
 
     #[test]
     fn test_libsodium() {
         use rand_core::{OsRng, RngCore};
-        use sodiumoxide::crypto::onetimeauth::poly1305::{authenticate, Key as SOKey};
+        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
         use crate::rng::copy_randombytes;
 
