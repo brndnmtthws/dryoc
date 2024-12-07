@@ -100,7 +100,6 @@ use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES,
     CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
-use crate::dryocstream::Tag;
 use crate::error::*;
 use crate::rng::copy_randombytes;
 use crate::types::*;
@@ -458,6 +457,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dryocstream::Tag;
 
     #[test]
     fn test_sizes() {
@@ -1005,14 +1005,16 @@ mod tests {
         let mut decrypted = vec![0u8; message.len()];
         let mut tag = 0u8;
 
-        assert!(crypto_secretstream_xchacha20poly1305_pull(
-            &mut pull_state,
-            &mut decrypted,
-            &mut tag,
-            &ciphertext,
-            Some(&wrong_aad),
-        )
-        .is_err());
+        assert!(
+            crypto_secretstream_xchacha20poly1305_pull(
+                &mut pull_state,
+                &mut decrypted,
+                &mut tag,
+                &ciphertext,
+                Some(&wrong_aad),
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -1062,13 +1064,15 @@ mod tests {
         let mut decrypted = vec![0u8; message.len()];
         let mut tag = 0u8;
 
-        assert!(crypto_secretstream_xchacha20poly1305_pull(
-            &mut pull_state,
-            &mut decrypted,
-            &mut tag,
-            &ciphertext,
-            Some(wrong_aad),
-        )
-        .is_err());
+        assert!(
+            crypto_secretstream_xchacha20poly1305_pull(
+                &mut pull_state,
+                &mut decrypted,
+                &mut tag,
+                &ciphertext,
+                Some(wrong_aad),
+            )
+            .is_err()
+        );
     }
 }
