@@ -46,8 +46,11 @@ jobs:
         uses: brndnmtthws/rust-action@v1
         with:
           toolchain: ${{ matrix.rust }}
+          cargo-packages: |
+            cargo-nextest
+            cargo-tarpaulin
       - run: cargo build --features ${{ env.FEATURES }}
-      - run: cargo test --features ${{ env.FEATURES }}
+      - run: cargo nextest run --features ${{ env.FEATURES }}
         env:
           RUST_BACKTRACE: 1
       - run: cargo fmt --all -- --check
