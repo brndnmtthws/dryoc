@@ -99,7 +99,7 @@ fn loadm(block: &[u8]) -> [Simd<u64, 4>; 8] {
 
 #[inline]
 fn rotru64(v: Simd<u64, 4>, n: u64) -> Simd<u64, 4> {
-    v >> Simd::from([n, n, n, n]) | v << Simd::from([64 - n, 64 - n, 64 - n, 64 - n])
+    (v >> Simd::from([n, n, n, n])) | (v << Simd::from([64 - n, 64 - n, 64 - n, 64 - n]))
 }
 
 #[inline]
