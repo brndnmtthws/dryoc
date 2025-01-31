@@ -123,23 +123,25 @@ pub fn crypto_generichash_keygen() -> [u8; CRYPTO_GENERICHASH_KEYBYTES] {
 
 #[cfg(test)]
 mod tests {
+    use rand::TryRngCore;
+
     use super::*;
 
     #[test]
     fn test_generichash() {
         use libsodium_sys::crypto_generichash as so_crypto_generichash;
-        use rand_core::{OsRng, RngCore};
+        use rand_core::OsRng;
 
         use crate::constants::{CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN};
         use crate::rng::copy_randombytes;
 
         for _ in 0..20 {
             let outlen = CRYPTO_GENERICHASH_BYTES_MIN
-                + (OsRng.next_u32() as usize
+                + (OsRng.try_next_u32().unwrap() as usize
                     % (CRYPTO_GENERICHASH_BYTES_MAX - CRYPTO_GENERICHASH_BYTES_MIN));
             let mut output = vec![0u8; outlen];
 
-            let mut input = vec![0u8; (OsRng.next_u32() % 5000) as usize];
+            let mut input = vec![0u8; (OsRng.try_next_u32().unwrap() % 5000) as usize];
 
             copy_randombytes(&mut input);
 
@@ -165,7 +167,7 @@ mod tests {
     #[test]
     fn test_generichash_key() {
         use libsodium_sys::crypto_generichash as so_crypto_generichash;
-        use rand_core::{OsRng, RngCore};
+        use rand_core::OsRng;
 
         use crate::constants::{
             CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
@@ -175,14 +177,14 @@ mod tests {
 
         for _ in 0..20 {
             let outlen = CRYPTO_GENERICHASH_BYTES_MIN
-                + (OsRng.next_u32() as usize
+                + (OsRng.try_next_u32().unwrap() as usize
                     % (CRYPTO_GENERICHASH_BYTES_MAX - CRYPTO_GENERICHASH_BYTES_MIN));
             let mut output = vec![0u8; outlen];
 
-            let mut input = vec![0u8; (OsRng.next_u32() % 5000) as usize];
+            let mut input = vec![0u8; (OsRng.try_next_u32().unwrap() % 5000) as usize];
 
             let keylen = CRYPTO_GENERICHASH_KEYBYTES_MIN
-                + (OsRng.next_u32() as usize
+                + (OsRng.try_next_u32().unwrap() as usize
                     % (CRYPTO_GENERICHASH_KEYBYTES_MAX - CRYPTO_GENERICHASH_KEYBYTES_MIN));
             let mut key = vec![0u8; keylen];
 

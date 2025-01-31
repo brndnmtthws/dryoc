@@ -244,6 +244,8 @@ impl Poly1305 {
 
 #[cfg(test)]
 mod tests {
+    use rand::TryRngCore;
+
     use super::*;
 
     #[test]
@@ -358,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_libsodium() {
-        use rand_core::{OsRng, RngCore};
+        use rand_core::OsRng;
         use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
         use crate::rng::copy_randombytes;
@@ -368,7 +370,7 @@ mod tests {
         let so_key = SOKey::from_slice(&key).unwrap();
 
         for _ in 0..20 {
-            let rand_usize = (OsRng.next_u32() % 1000) as usize;
+            let rand_usize = (OsRng.try_next_u32().unwrap() % 1000) as usize;
             let mut data = vec![0u8; rand_usize];
             copy_randombytes(&mut data);
 
