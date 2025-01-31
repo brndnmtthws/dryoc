@@ -61,6 +61,8 @@ pub(crate) fn pad16(n: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use rand::TryRngCore;
+
     use super::*;
 
     #[test]
@@ -125,12 +127,12 @@ mod tests {
     #[test]
     fn test_sodium_increment() {
         use libsodium_sys::sodium_increment as so_sodium_increment;
-        use rand_core::{OsRng, RngCore};
+        use rand_core::OsRng;
 
         use crate::rng::copy_randombytes;
 
         for _ in 0..20 {
-            let rand_usize = (OsRng.next_u32() % 1000) as usize;
+            let rand_usize = (OsRng.try_next_u32().unwrap() % 1000) as usize;
             let mut data = vec![0u8; rand_usize];
             copy_randombytes(&mut data);
 

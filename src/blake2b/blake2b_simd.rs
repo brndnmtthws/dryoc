@@ -697,6 +697,7 @@ mod tests {
     extern crate test;
     use lazy_static::lazy_static;
     use libc::*;
+    use rand::TryRngCore;
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -876,13 +877,13 @@ mod tests {
 
     #[test]
     fn test_blake2b_long_rand_length_simd() {
-        use rand_core::{OsRng, RngCore};
+        use rand_core::OsRng;
 
         use crate::rng::copy_randombytes;
 
         for _ in 0..25 {
-            let mut input = vec![0u8; (OsRng.next_u32() % 1000) as usize];
-            let mut output = vec![0u8; (OsRng.next_u32() % 1000 + 64) as usize];
+            let mut input = vec![0u8; (OsRng.try_next_u32().unwrap() % 1000) as usize];
+            let mut output = vec![0u8; (OsRng.try_next_u32().unwrap() % 1000 + 64) as usize];
             let mut so_output = output.clone();
             copy_randombytes(&mut input);
 

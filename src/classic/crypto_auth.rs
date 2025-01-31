@@ -173,18 +173,20 @@ pub fn crypto_auth_final(state: AuthState, output: &mut [u8; CRYPTO_AUTH_BYTES])
 
 #[cfg(test)]
 mod tests {
+    use rand::TryRngCore;
+
     use super::*;
 
     #[test]
     fn test_crypto_auth() {
-        use rand_core::{OsRng, RngCore};
+        use rand_core::OsRng;
         use sodiumoxide::crypto::auth;
         use sodiumoxide::crypto::auth::Key as SOKey;
 
         use crate::rng::copy_randombytes;
 
         for _ in 0..20 {
-            let mlen = (OsRng.next_u32() % 5000) as usize;
+            let mlen = (OsRng.try_next_u32().unwrap() % 5000) as usize;
             let mut message = vec![0u8; mlen];
             copy_randombytes(&mut message);
             let key = crypto_auth_keygen();
