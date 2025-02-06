@@ -101,6 +101,7 @@ use crate::constants::{
     CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES,
     CRYPTO_BOX_SECRETKEYBYTES,
 };
+use crate::dryocsecretbox::Key as SharedKey;
 use crate::error::*;
 pub use crate::types::*;
 
@@ -116,6 +117,28 @@ pub type Mac = StackByteArray<CRYPTO_BOX_MACBYTES>;
 /// Stack-allocated public/secret keypair for authenticated public-key
 /// boxes.
 pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
+
+/// Computes a stack-allocated [shared secret](SharedKey) for the given
+/// public_key and secret_key.
+///
+/// Resulting shared secret can be used for secret-key based
+/// encryption and decryption, see [`DryocSecretBox`](crate::dryocsecretbox)
+///
+/// Compatible with libsodium's `crypto_box_beforenm`.
+pub fn shared_secret<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+>(
+    public_key: &PublicKey,
+    secret_key: &SecretKey,
+) -> SharedKey {
+    use crate::classic::crypto_box::crypto_box_beforenm;
+
+    SharedKey::from(crypto_box_beforenm(
+        public_key.as_array(),
+        secret_key.as_array(),
+    ))
+}
 
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
@@ -164,6 +187,7 @@ pub mod protected {
     //! assert_eq!(message.as_slice(), decrypted.as_slice());
     //! ```
     use super::*;
+    use crate::dryocsecretbox::protected::Key as SharedKey;
     pub use crate::protected::*;
 
     /// Heap-allocated, page-aligned public key for authenticated public-key
@@ -187,6 +211,28 @@ pub mod protected {
     pub type LockedROKeyPair = crate::keypair::KeyPair<LockedRO<PublicKey>, LockedRO<SecretKey>>;
     /// Locked [DryocBox], provided as a type alias for convenience.
     pub type LockedBox = DryocBox<Locked<PublicKey>, Locked<Mac>, LockedBytes>;
+
+    /// Computes a heap-allocated, page-aligned [`shared secret`](SharedKey) for
+    /// the given public_key and secret_key.
+    ///
+    /// Resulting shared secret can be used for secret-key based
+    /// encryption and decryption, see [`DryocSecretBox`](crate::dryocsecretbox)
+    ///
+    /// Compatible with libsodium's `crypto_box_beforenm`.
+    pub fn shared_secret<
+        PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    >(
+        public_key: &PublicKey,
+        secret_key: &SecretKey,
+    ) -> SharedKey {
+        use crate::classic::crypto_box::crypto_box_beforenm;
+
+        SharedKey::from(crypto_box_beforenm(
+            public_key.as_array(),
+            secret_key.as_array(),
+        ))
+    }
 }
 
 #[cfg_attr(
