@@ -98,10 +98,11 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::constants::{
-    CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES,
-    CRYPTO_BOX_SECRETKEYBYTES,
+    CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES,
+    CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
 use crate::error::*;
+use crate::precalc::PrecalcSecretKey;
 pub use crate::types::*;
 
 /// Stack-allocated public key for authenticated public-key boxes.
@@ -246,6 +247,38 @@ impl<
             nonce.as_array(),
             recipient_public_key.as_array(),
             sender_secret_key.as_array(),
+        );
+
+        Ok(dryocbox)
+    }
+
+    /// Encrypts a message using `precalc_secret_key`,
+    /// and returns a new [DryocBox] with ciphertext and tag.
+    pub fn precalc_encrypt<
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        Message: Bytes + ?Sized,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+    >(
+        message: &Message,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Self, Error> {
+        use crate::classic::crypto_box::crypto_box_detached_afternm;
+
+        let mut dryocbox = Self {
+            ephemeral_pk: None,
+            tag: Mac::new_byte_array(),
+            data: Data::new_bytes(),
+        };
+
+        dryocbox.data.resize(message.as_slice().len(), 0);
+
+        crypto_box_detached_afternm(
+            dryocbox.data.as_mut_slice(),
+            dryocbox.tag.as_mut_array(),
+            message.as_slice(),
+            nonce.as_array(),
+            precalc_secret_key.as_array(),
         );
 
         Ok(dryocbox)
@@ -410,6 +443,33 @@ impl<
         Ok(message)
     }
 
+    /// Decrypts this box using `nonce`, `precalc_secret_key`, and
+    /// `sender_public_key`, returning the decrypted message upon success.
+    pub fn precalc_decrypt<
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+        Output: ResizableBytes + NewBytes,
+    >(
+        &self,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Output, Error> {
+        use crate::classic::crypto_box::crypto_box_open_detached_afternm;
+
+        let mut message = Output::new_bytes();
+        message.resize(self.data.as_slice().len(), 0);
+
+        crypto_box_open_detached_afternm(
+            message.as_mut_slice(),
+            self.tag.as_array(),
+            self.data.as_slice(),
+            nonce.as_array(),
+            precalc_secret_key.as_array(),
+        )?;
+
+        Ok(message)
+    }
+
     /// Decrypts this sealed box using `recipient_secret_key`, and
     /// returning the decrypted message upon success.
     pub fn unseal<
@@ -489,6 +549,19 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         Self::encrypt(message, nonce, recipient_public_key, sender_secret_key)
     }
 
+    /// Encrypts a message using `precalc_secret_key`,
+    /// and returns a new [DryocBox] with ciphertext and tag.
+    pub fn precalc_encrypt_to_vecbox<
+        Message: Bytes + ?Sized,
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+    >(
+        message: &Message,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Self, Error> {
+        Self::precalc_encrypt(message, nonce, precalc_secret_key)
+    }
+
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
     /// key and nonce, and returns a new [DryocBox] with the ciphertext,
     /// ephemeral public key, and tag.
@@ -508,6 +581,19 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         recipient_secret_key: &SecretKey,
     ) -> Result<Vec<u8>, Error> {
         self.decrypt(nonce, sender_public_key, recipient_secret_key)
+    }
+
+    /// Decrypts this box using `nonce` and
+    /// `precalc_secret_key`, returning the decrypted message upon
+    /// success.
+    pub fn precalc_decrypt_to_vecbox<
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+    >(
+        &self,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Vec<u8>, Error> {
+        self.precalc_decrypt(nonce, precalc_secret_key)
     }
 
     /// Decrypts this sealed box using `recipient_secret_key`, returning the
