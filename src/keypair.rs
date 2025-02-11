@@ -12,10 +12,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
 use crate::constants::{
-    CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES, CRYPTO_KX_SESSIONKEYBYTES,
+    CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
+    CRYPTO_KX_SESSIONKEYBYTES,
 };
 use crate::error::Error;
 use crate::kx;
+use crate::precalc::PrecalcSecretKey;
 use crate::types::*;
 
 /// Stack-allocated public key type alias.
@@ -150,6 +152,18 @@ impl<
     ) -> Result<kx::Session<SessionKey>, Error> {
         kx::Session::new_server(self, client_public_key)
     }
+
+    /// Computes a stack-allocated shared secret key using a secret key from
+    /// this keypair and `third_party_public_key`.
+    ///
+    /// Compatible with libsodium's `crypto_box_beforenm`.
+    #[inline]
+    pub fn precalculate(
+        &self,
+        third_party_public_key: &PublicKey,
+    ) -> PrecalcSecretKey<StackByteArray<CRYPTO_BOX_BEFORENMBYTES>> {
+        PrecalcSecretKey::precalculate(third_party_public_key, &self.secret_key)
+    }
 }
 
 impl<
@@ -195,6 +209,20 @@ pub mod protected {
 
             Ok(res)
         }
+
+        /// Computes a heap-allocated, page-aligned, locked shared secret key
+        /// using a secret key from this keypair and
+        /// `third_party_public_key`.
+        ///
+        /// Compatible with libsodium's `crypto_box_beforenm`.
+        #[inline]
+        pub fn precalculate_locked<OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(
+            &self,
+            third_party_public_key: &OtherPublicKey,
+        ) -> Result<PrecalcSecretKey<Locked<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>, std::io::Error>
+        {
+            PrecalcSecretKey::precalculate_locked(third_party_public_key, &self.secret_key)
+        }
     }
 
     impl
@@ -217,6 +245,24 @@ pub mod protected {
                 public_key,
                 secret_key,
             })
+        }
+
+        /// Computes a heap-allocated, page-aligned, locked, read-only shared
+        /// secret key using a secret key from this keypair and
+        /// `third_party_public_key`.
+        ///
+        /// Compatible with libsodium's `crypto_box_beforenm`.
+        #[inline]
+        pub fn precalculate_readonly_locked<
+            OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        >(
+            &self,
+            third_party_public_key: &OtherPublicKey,
+        ) -> Result<
+            PrecalcSecretKey<LockedRO<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>,
+            std::io::Error,
+        > {
+            PrecalcSecretKey::precalculate_readonly_locked(third_party_public_key, &self.secret_key)
         }
     }
 }
