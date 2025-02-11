@@ -252,16 +252,16 @@ impl<
         Ok(dryocbox)
     }
 
-    /// Encrypts a message using `precalculated_secret_key`,
+    /// Encrypts a message using `precalc_secret_key`,
     /// and returns a new [DryocBox] with ciphertext and tag.
-    pub fn precalculated_encrypt<
+    pub fn precalc_encrypt<
         InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
     >(
         message: &Message,
         nonce: &Nonce,
-        precalculated_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
     ) -> Result<Self, Error> {
         use crate::classic::crypto_box::crypto_box_detached_afternm;
 
@@ -278,7 +278,7 @@ impl<
             dryocbox.tag.as_mut_array(),
             message.as_slice(),
             nonce.as_array(),
-            precalculated_secret_key.as_array(),
+            precalc_secret_key.as_array(),
         );
 
         Ok(dryocbox)
@@ -443,16 +443,16 @@ impl<
         Ok(message)
     }
 
-    /// Decrypts this box using `nonce`, `precalculated_secret_key`, and
+    /// Decrypts this box using `nonce`, `precalc_secret_key`, and
     /// `sender_public_key`, returning the decrypted message upon success.
-    pub fn precalculated_decrypt<
+    pub fn precalc_decrypt<
         InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         Output: ResizableBytes + NewBytes,
     >(
         &self,
         nonce: &Nonce,
-        precalculated_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
     ) -> Result<Output, Error> {
         use crate::classic::crypto_box::crypto_box_open_detached_afternm;
 
@@ -464,7 +464,7 @@ impl<
             self.tag.as_array(),
             self.data.as_slice(),
             nonce.as_array(),
-            precalculated_secret_key.as_array(),
+            precalc_secret_key.as_array(),
         )?;
 
         Ok(message)
@@ -549,17 +549,17 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         Self::encrypt(message, nonce, recipient_public_key, sender_secret_key)
     }
 
-    /// Encrypts a message using `precalculated_secret_key`,
+    /// Encrypts a message using `precalc_secret_key`,
     /// and returns a new [DryocBox] with ciphertext and tag.
-    pub fn precalculated_encrypt_to_vecbox<
+    pub fn precalc_encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         message: &Message,
         nonce: &Nonce,
-        precalculated_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
     ) -> Result<Self, Error> {
-        Self::precalculated_encrypt(message, nonce, precalculated_secret_key)
+        Self::precalc_encrypt(message, nonce, precalc_secret_key)
     }
 
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
@@ -584,16 +584,16 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     }
 
     /// Decrypts this box using `nonce` and
-    /// `precalculated_secret_key`, returning the decrypted message upon
+    /// `precalc_secret_key`, returning the decrypted message upon
     /// success.
-    pub fn precalculated_decrypt_to_vecbox<
+    pub fn precalc_decrypt_to_vecbox<
         InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         &self,
         nonce: &Nonce,
-        precalculated_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
     ) -> Result<Vec<u8>, Error> {
-        self.precalculated_decrypt(nonce, precalculated_secret_key)
+        self.precalc_decrypt(nonce, precalc_secret_key)
     }
 
     /// Decrypts this sealed box using `recipient_secret_key`, returning the

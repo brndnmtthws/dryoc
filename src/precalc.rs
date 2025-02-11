@@ -7,10 +7,10 @@ use crate::types::{ByteArray, StackByteArray};
 
 type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 
-/// Precalculated secret key for use with `precalculated_*` functions in
+/// Precalculated secret key for use with `precalc_*` functions in
 /// [`crate::dryocbox::DryocBox`].
 ///
-/// You probably want to use `precalculated_*` functions if you need to
+/// You probably want to use `precalc_*` functions if you need to
 /// encrypt/decrypt multiple messages between the same sender and receiver.
 /// These functions save computation time by using [`PrecalcSecretKey`]
 /// instead of computing the shared secret every time.

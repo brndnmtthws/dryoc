@@ -34,7 +34,7 @@ fn test_dryocbox() {
         &sender_keypair.secret_key,
     );
 
-    let dryocbox = DryocBox::precalculated_encrypt_to_vecbox(
+    let dryocbox = DryocBox::precalc_encrypt_to_vecbox(
         message,
         &nonce,
         &shared_key,
@@ -450,7 +450,7 @@ fn test_dryocbox_protected() {
     )
     .expect("shared key");
 
-    let dryocbox: LockedBox = DryocBox::precalculated_encrypt(
+    let dryocbox: LockedBox = DryocBox::precalc_encrypt(
         &message,
         &nonce,
         &shared_key,
@@ -458,7 +458,7 @@ fn test_dryocbox_protected() {
     .expect("encrypt failed");
 
     let decrypted: LockedBytes = dryocbox
-    .precalculated_decrypt(&nonce, &shared_key)
+    .precalc_decrypt(&nonce, &shared_key)
     .expect("decrypt with shared key failed");
 
 assert_eq!(message.as_slice(), decrypted.as_slice());
