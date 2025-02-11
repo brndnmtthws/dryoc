@@ -1,5 +1,7 @@
 use std::vec;
 
+use dryoc::precalc::PrecalcSecretKey;
+
 #[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
@@ -14,6 +16,28 @@ fn test_dryocbox() {
         &nonce,
         &recipient_keypair.public_key,
         &sender_keypair.secret_key,
+    )
+    .expect("unable to encrypt");
+
+    let decrypted = dryocbox
+        .decrypt_to_vec(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("unable to decrypt");
+
+    assert_eq!(message, decrypted.as_slice());
+
+    let shared_key = PrecalcSecretKey::precalculate(
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    );
+
+    let dryocbox = DryocBox::precalculated_encrypt_to_vecbox(
+        message,
+        &nonce,
+        &shared_key,
     )
     .expect("unable to encrypt");
 
@@ -392,6 +416,7 @@ fn test_dryocsecretbox_protected() {
 fn test_dryocbox_protected() {
     use dryoc::dryocbox::DryocBox;
     use dryoc::dryocbox::protected::*;
+    use dryoc::precalc::PrecalcSecretKey;
 
     let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
     let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
@@ -418,6 +443,25 @@ fn test_dryocbox_protected() {
         .expect("decrypt failed");
 
     assert_eq!(message.as_slice(), decrypted.as_slice());
+
+    let shared_key = PrecalcSecretKey::precalculate_locked(
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("shared key");
+
+    let dryocbox: LockedBox = DryocBox::precalculated_encrypt(
+        &message,
+        &nonce,
+        &shared_key,
+    )
+    .expect("encrypt failed");
+
+    let decrypted: LockedBytes = dryocbox
+    .precalculated_decrypt(&nonce, &shared_key)
+    .expect("decrypt with shared key failed");
+
+assert_eq!(message.as_slice(), decrypted.as_slice());
 }
 
 #[cfg(feature = "nightly")]
