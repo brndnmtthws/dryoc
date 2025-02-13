@@ -1,3 +1,8 @@
+//! Precalculated secret key for use with `precalc_*` functions in
+//! [`crate::dryocbox::DryocBox`]
+//!
+//! You may want to use `precalc_*` functions if you need to
+//! encrypt/decrypt multiple messages between the same sender and receiver.
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::constants::{
@@ -14,6 +19,9 @@ type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 /// encrypt/decrypt multiple messages between the same sender and receiver.
 /// These functions save computation time by using [`PrecalcSecretKey`]
 /// instead of computing the shared secret every time.
+///
+/// Using precalculated secret keys is compatible with libsodium's
+/// `crypto_box_beforenm`.
 #[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct PrecalcSecretKey<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize>(InnerKey);
 
@@ -112,5 +120,37 @@ impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> std::ops::DerefMut
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
+
+    #[test]
+    fn test_precalculate() {
+        let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
+        let precalc_key = PrecalcSecretKey::precalculate(&public_key, &secret_key);
+        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_precalculate_locked() {
+        let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
+        let precalc_key = PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
+        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_precalculate_readonly_locked() {
+        let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
+        let precalc_key =
+            PrecalcSecretKey::precalculate_readonly_locked(&public_key, &secret_key).unwrap();
+        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
     }
 }

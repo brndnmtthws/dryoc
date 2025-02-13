@@ -905,4 +905,109 @@ mod tests {
             assert_eq!(m, message.as_bytes());
         }
     }
+
+    #[test]
+    fn test_precalc_encrypt_decrypt() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let message = b"To be, or not to be, that is the question:";
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        let dryocbox: VecBox = DryocBox::precalc_encrypt(message, &nonce, &precalc_secret_key)
+            .expect("unable to encrypt");
+
+        let decrypted: Vec<u8> = dryocbox
+            .precalc_decrypt(&nonce, &precalc_secret_key)
+            .expect("unable to decrypt");
+
+        assert_eq!(message, decrypted.as_slice());
+    }
+
+    #[test]
+    fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let message = b"All the world's a stage, and all the men and women merely players:";
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        let dryocbox = DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &precalc_secret_key)
+            .expect("unable to encrypt");
+
+        let decrypted = dryocbox
+            .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+            .expect("unable to decrypt");
+
+        assert_eq!(message, decrypted.as_slice());
+    }
+
+    #[test]
+    fn test_precalc_encrypt_decrypt_with_different_messages() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let messages: Vec<&[u8]> = vec![
+            b"Now is the winter of our discontent, made glorious summer by this sun of York;",
+            b"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
+            b"A horse! a horse! my kingdom for a horse!",
+            b"Good night, good night! parting is such sweet sorrow, that I shall say good night till it be morrow.",
+        ];
+
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        for message in &messages {
+            let dryocbox: VecBox = DryocBox::precalc_encrypt(message, &nonce, &precalc_secret_key)
+                .expect("unable to encrypt");
+
+            let decrypted: Vec<u8> = dryocbox
+                .precalc_decrypt(&nonce, &precalc_secret_key)
+                .expect("unable to decrypt");
+
+            assert_eq!(*message, decrypted.as_slice());
+        }
+    }
+
+    #[test]
+    fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox_with_different_messages() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let messages: Vec<&[u8]> = vec![
+            b"Out, out brief candle! Life's but a walking shadow, a poor player that struts and frets his hour upon the stage and then is heard no more.",
+            b"Some are born great, some achieve greatness, and some have greatness thrust upon them.",
+            b"The lady doth protest too much, methinks.",
+            b"What's in a name? That which we call a rose by any other name would smell as sweet.",
+        ];
+
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        for message in &messages {
+            let dryocbox =
+                DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &precalc_secret_key)
+                    .expect("unable to encrypt");
+
+            let decrypted = dryocbox
+                .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+                .expect("unable to decrypt");
+
+            assert_eq!(*message, decrypted.as_slice());
+        }
+    }
 }
