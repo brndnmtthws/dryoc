@@ -98,10 +98,11 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::constants::{
-    CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES,
-    CRYPTO_BOX_SECRETKEYBYTES,
+    CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES,
+    CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
 use crate::error::*;
+use crate::precalc::PrecalcSecretKey;
 pub use crate::types::*;
 
 /// Stack-allocated public key for authenticated public-key boxes.
@@ -246,6 +247,38 @@ impl<
             nonce.as_array(),
             recipient_public_key.as_array(),
             sender_secret_key.as_array(),
+        );
+
+        Ok(dryocbox)
+    }
+
+    /// Encrypts a message using `precalc_secret_key`,
+    /// and returns a new [DryocBox] with ciphertext and tag.
+    pub fn precalc_encrypt<
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        Message: Bytes + ?Sized,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+    >(
+        message: &Message,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Self, Error> {
+        use crate::classic::crypto_box::crypto_box_detached_afternm;
+
+        let mut dryocbox = Self {
+            ephemeral_pk: None,
+            tag: Mac::new_byte_array(),
+            data: Data::new_bytes(),
+        };
+
+        dryocbox.data.resize(message.as_slice().len(), 0);
+
+        crypto_box_detached_afternm(
+            dryocbox.data.as_mut_slice(),
+            dryocbox.tag.as_mut_array(),
+            message.as_slice(),
+            nonce.as_array(),
+            precalc_secret_key.as_array(),
         );
 
         Ok(dryocbox)
@@ -410,6 +443,33 @@ impl<
         Ok(message)
     }
 
+    /// Decrypts this box using `nonce`, `precalc_secret_key`, and
+    /// `sender_public_key`, returning the decrypted message upon success.
+    pub fn precalc_decrypt<
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+        Output: ResizableBytes + NewBytes,
+    >(
+        &self,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Output, Error> {
+        use crate::classic::crypto_box::crypto_box_open_detached_afternm;
+
+        let mut message = Output::new_bytes();
+        message.resize(self.data.as_slice().len(), 0);
+
+        crypto_box_open_detached_afternm(
+            message.as_mut_slice(),
+            self.tag.as_array(),
+            self.data.as_slice(),
+            nonce.as_array(),
+            precalc_secret_key.as_array(),
+        )?;
+
+        Ok(message)
+    }
+
     /// Decrypts this sealed box using `recipient_secret_key`, and
     /// returning the decrypted message upon success.
     pub fn unseal<
@@ -489,6 +549,19 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         Self::encrypt(message, nonce, recipient_public_key, sender_secret_key)
     }
 
+    /// Encrypts a message using `precalc_secret_key`,
+    /// and returns a new [DryocBox] with ciphertext and tag.
+    pub fn precalc_encrypt_to_vecbox<
+        Message: Bytes + ?Sized,
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+    >(
+        message: &Message,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Self, Error> {
+        Self::precalc_encrypt(message, nonce, precalc_secret_key)
+    }
+
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
     /// key and nonce, and returns a new [DryocBox] with the ciphertext,
     /// ephemeral public key, and tag.
@@ -508,6 +581,19 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         recipient_secret_key: &SecretKey,
     ) -> Result<Vec<u8>, Error> {
         self.decrypt(nonce, sender_public_key, recipient_secret_key)
+    }
+
+    /// Decrypts this box using `nonce` and
+    /// `precalc_secret_key`, returning the decrypted message upon
+    /// success.
+    pub fn precalc_decrypt_to_vecbox<
+        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+    >(
+        &self,
+        nonce: &Nonce,
+        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+    ) -> Result<Vec<u8>, Error> {
+        self.precalc_decrypt(nonce, precalc_secret_key)
     }
 
     /// Decrypts this sealed box using `recipient_secret_key`, returning the
@@ -817,6 +903,111 @@ mod tests {
             let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
 
             assert_eq!(m, message.as_bytes());
+        }
+    }
+
+    #[test]
+    fn test_precalc_encrypt_decrypt() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let message = b"To be, or not to be, that is the question:";
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        let dryocbox: VecBox = DryocBox::precalc_encrypt(message, &nonce, &precalc_secret_key)
+            .expect("unable to encrypt");
+
+        let decrypted: Vec<u8> = dryocbox
+            .precalc_decrypt(&nonce, &precalc_secret_key)
+            .expect("unable to decrypt");
+
+        assert_eq!(message, decrypted.as_slice());
+    }
+
+    #[test]
+    fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let message = b"All the world's a stage, and all the men and women merely players:";
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        let dryocbox = DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &precalc_secret_key)
+            .expect("unable to encrypt");
+
+        let decrypted = dryocbox
+            .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+            .expect("unable to decrypt");
+
+        assert_eq!(message, decrypted.as_slice());
+    }
+
+    #[test]
+    fn test_precalc_encrypt_decrypt_with_different_messages() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let messages: Vec<&[u8]> = vec![
+            b"Now is the winter of our discontent, made glorious summer by this sun of York;",
+            b"Friends, Romans, countrymen, lend me your ears; I come to bury Caesar, not to praise him.",
+            b"A horse! a horse! my kingdom for a horse!",
+            b"Good night, good night! parting is such sweet sorrow, that I shall say good night till it be morrow.",
+        ];
+
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        for message in &messages {
+            let dryocbox: VecBox = DryocBox::precalc_encrypt(message, &nonce, &precalc_secret_key)
+                .expect("unable to encrypt");
+
+            let decrypted: Vec<u8> = dryocbox
+                .precalc_decrypt(&nonce, &precalc_secret_key)
+                .expect("unable to decrypt");
+
+            assert_eq!(*message, decrypted.as_slice());
+        }
+    }
+
+    #[test]
+    fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox_with_different_messages() {
+        let keypair_sender = KeyPair::gen();
+        let keypair_recipient = KeyPair::gen();
+        let nonce = Nonce::gen();
+
+        let messages: Vec<&[u8]> = vec![
+            b"Out, out brief candle! Life's but a walking shadow, a poor player that struts and frets his hour upon the stage and then is heard no more.",
+            b"Some are born great, some achieve greatness, and some have greatness thrust upon them.",
+            b"The lady doth protest too much, methinks.",
+            b"What's in a name? That which we call a rose by any other name would smell as sweet.",
+        ];
+
+        let precalc_secret_key = PrecalcSecretKey::precalculate(
+            &keypair_sender.secret_key,
+            &keypair_recipient.public_key,
+        );
+
+        for message in &messages {
+            let dryocbox =
+                DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &precalc_secret_key)
+                    .expect("unable to encrypt");
+
+            let decrypted = dryocbox
+                .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+                .expect("unable to decrypt");
+
+            assert_eq!(*message, decrypted.as_slice());
         }
     }
 }

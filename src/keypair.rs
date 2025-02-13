@@ -12,10 +12,12 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
 use crate::constants::{
-    CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES, CRYPTO_KX_SESSIONKEYBYTES,
+    CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
+    CRYPTO_KX_SESSIONKEYBYTES,
 };
 use crate::error::Error;
 use crate::kx;
+use crate::precalc::PrecalcSecretKey;
 use crate::types::*;
 
 /// Stack-allocated public key type alias.
@@ -150,6 +152,18 @@ impl<
     ) -> Result<kx::Session<SessionKey>, Error> {
         kx::Session::new_server(self, client_public_key)
     }
+
+    /// Computes a stack-allocated shared secret key using a secret key from
+    /// this keypair and `third_party_public_key`.
+    ///
+    /// Compatible with libsodium's `crypto_box_beforenm`.
+    #[inline]
+    pub fn precalculate(
+        &self,
+        third_party_public_key: &PublicKey,
+    ) -> PrecalcSecretKey<StackByteArray<CRYPTO_BOX_BEFORENMBYTES>> {
+        PrecalcSecretKey::precalculate(third_party_public_key, &self.secret_key)
+    }
 }
 
 impl<
@@ -195,6 +209,20 @@ pub mod protected {
 
             Ok(res)
         }
+
+        /// Computes a heap-allocated, page-aligned, locked shared secret key
+        /// using a secret key from this keypair and
+        /// `third_party_public_key`.
+        ///
+        /// Compatible with libsodium's `crypto_box_beforenm`.
+        #[inline]
+        pub fn precalculate_locked<OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(
+            &self,
+            third_party_public_key: &OtherPublicKey,
+        ) -> Result<PrecalcSecretKey<Locked<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>, std::io::Error>
+        {
+            PrecalcSecretKey::precalculate_locked(third_party_public_key, &self.secret_key)
+        }
     }
 
     impl
@@ -217,6 +245,24 @@ pub mod protected {
                 public_key,
                 secret_key,
             })
+        }
+
+        /// Computes a heap-allocated, page-aligned, locked, read-only shared
+        /// secret key using a secret key from this keypair and
+        /// `third_party_public_key`.
+        ///
+        /// Compatible with libsodium's `crypto_box_beforenm`.
+        #[inline]
+        pub fn precalculate_readonly_locked<
+            OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        >(
+            &self,
+            third_party_public_key: &OtherPublicKey,
+        ) -> Result<
+            PrecalcSecretKey<LockedRO<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>,
+            std::io::Error,
+        > {
+            PrecalcSecretKey::precalculate_readonly_locked(third_party_public_key, &self.secret_key)
         }
     }
 }
@@ -245,6 +291,7 @@ impl<
 mod tests {
 
     use super::*;
+    use crate::kx::Session;
 
     fn all_eq<T>(t: &[T], v: T) -> bool
     where
@@ -305,5 +352,70 @@ mod tests {
         let keypair_2 = KeyPair::from_secret_key(keypair_1.secret_key.clone());
 
         assert_eq!(keypair_1.public_key, keypair_2.public_key);
+    }
+
+    #[test]
+    fn test_keypair_precalculate() {
+        let kp1 = KeyPair::gen_with_defaults();
+        let kp2 = KeyPair::gen_with_defaults();
+        let precalc = kp1.precalculate(&kp2.public_key);
+        assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_keypair_precalculate_locked() {
+        use crate::keypair::protected::*;
+        let kp1 = KeyPair::gen_locked_keypair().unwrap();
+        let kp2 = KeyPair::gen_locked_keypair().unwrap();
+        let precalc = kp1.precalculate_locked(&kp2.public_key).unwrap();
+        assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
+    }
+
+    #[test]
+    fn test_keypair_kx_new_client_session() {
+        let server_kp = KeyPair::gen_with_defaults();
+        let client_kp = KeyPair::gen_with_defaults();
+        let session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = client_kp
+            .kx_new_client_session(&server_kp.public_key)
+            .unwrap();
+        assert_eq!(
+            session.rx_as_slice().len(),
+            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
+        );
+        assert_eq!(
+            session.tx_as_slice().len(),
+            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
+        );
+    }
+
+    #[test]
+    fn test_keypair_kx_new_server_session() {
+        let client_kp = KeyPair::gen_with_defaults();
+        let server_kp = KeyPair::gen_with_defaults();
+        let session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = server_kp
+            .kx_new_server_session(&client_kp.public_key)
+            .unwrap();
+        assert_eq!(
+            session.rx_as_slice().len(),
+            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
+        );
+        assert_eq!(
+            session.tx_as_slice().len(),
+            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
+        );
+    }
+
+    #[test]
+    fn test_keypair_from_seed() {
+        let seed = [42u8; 32];
+        let kp: StackKeyPair = KeyPair::from_seed(&seed);
+        assert!(!kp.public_key.iter().all(|x| *x == 0));
+    }
+
+    #[test]
+    fn test_keypair_gen_with_defaults() {
+        let kp = KeyPair::gen_with_defaults();
+        assert!(!kp.public_key.iter().all(|x| *x == 0));
     }
 }
