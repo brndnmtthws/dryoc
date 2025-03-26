@@ -49,7 +49,7 @@ impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> ByteArray<CRYPTO_B
 {
     #[inline]
     fn as_array(&self) -> &[u8; CRYPTO_BOX_BEFORENMBYTES] {
-        &self.0.as_array()
+        self.0.as_array()
     }
 }
 
