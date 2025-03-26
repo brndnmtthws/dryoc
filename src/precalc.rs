@@ -8,7 +8,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::constants::{
     CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
-use crate::types::{ByteArray, StackByteArray};
+use crate::types::{ByteArray, Bytes, StackByteArray};
 
 type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 
@@ -24,6 +24,34 @@ type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 /// `crypto_box_beforenm`.
 #[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct PrecalcSecretKey<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize>(InnerKey);
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Bytes + Zeroize> Bytes
+    for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> ByteArray<CRYPTO_BOX_BEFORENMBYTES>
+    for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_array(&self) -> &[u8; CRYPTO_BOX_BEFORENMBYTES] {
+        &self.0.as_array()
+    }
+}
 
 impl PrecalcSecretKey<InnerKey> {
     /// Computes a stack-allocated shared secret key for the given
