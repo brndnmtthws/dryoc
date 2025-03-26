@@ -585,7 +585,7 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Decrypts this box using `nonce` and
     /// `precalc_secret_key`, returning the decrypted message upon
     /// success.
-    pub fn precalc_decrypt_to_vecbox<
+    pub fn precalc_decrypt_to_vec<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         &self,
@@ -678,6 +678,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::precalc::PrecalcSecretKey;
 
     #[test]
     fn test_dryocbox_vecbox() {
@@ -943,7 +944,7 @@ mod tests {
             .expect("unable to encrypt");
 
         let decrypted = dryocbox
-            .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+            .precalc_decrypt_to_vec(&nonce, &precalc_secret_key)
             .expect("unable to decrypt");
 
         assert_eq!(message, decrypted.as_slice());
@@ -1003,7 +1004,7 @@ mod tests {
                     .expect("unable to encrypt");
 
             let decrypted = dryocbox
-                .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+                .precalc_decrypt_to_vec(&nonce, &precalc_secret_key)
                 .expect("unable to decrypt");
 
             assert_eq!(*message, decrypted.as_slice());
