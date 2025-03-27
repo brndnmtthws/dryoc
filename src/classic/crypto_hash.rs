@@ -12,16 +12,9 @@ pub fn crypto_hash_sha512(output: &mut Digest, input: &[u8]) {
 }
 
 /// Internal state for `crypto_hash_*` functions.
+#[derive(Default)]
 pub struct Sha512State {
     pub(super) hasher: Sha512,
-}
-
-impl Default for Sha512State {
-    fn default() -> Self {
-        Self {
-            hasher: Sha512::new(),
-        }
-    }
 }
 
 /// Initializes a SHA-512 hasher.
