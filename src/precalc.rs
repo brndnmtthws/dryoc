@@ -8,7 +8,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::constants::{
     CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
-use crate::types::{ByteArray, Bytes, StackByteArray};
+use crate::types::{ByteArray, Bytes, MutByteArray, MutBytes, StackByteArray};
 
 type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 
@@ -50,6 +50,29 @@ impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> ByteArray<CRYPTO_B
     #[inline]
     fn as_array(&self) -> &[u8; CRYPTO_BOX_BEFORENMBYTES] {
         self.0.as_array()
+    }
+}
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize + MutBytes> MutBytes
+    for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+
+    #[inline]
+    fn copy_from_slice(&mut self, other: &[u8]) {
+        self.0.copy_from_slice(other);
+    }
+}
+
+impl<InnerKey: MutByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize>
+    MutByteArray<CRYPTO_BOX_BEFORENMBYTES> for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_mut_array(&mut self) -> &mut [u8; CRYPTO_BOX_BEFORENMBYTES] {
+        self.0.as_mut_array()
     }
 }
 
