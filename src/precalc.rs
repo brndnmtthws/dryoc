@@ -183,7 +183,8 @@ mod tests {
         let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
         let precalc_key = PrecalcSecretKey::precalculate(&public_key, &secret_key);
-        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+        assert!(!precalc_key.is_empty());
+        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
     }
 
     #[cfg(feature = "nightly")]
@@ -191,8 +192,15 @@ mod tests {
     fn test_precalculate_locked() {
         let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
-        let precalc_key = PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
-        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+        let mut precalc_key =
+            PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
+        assert!(!precalc_key.is_empty());
+        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+
+        // should be able to write now without blowing up
+        precalc_key.as_mut_slice()[0] = 0;
+        precalc_key.as_mut_array()[0] = 1;
+        precalc_key.copy_from_slice(&precalc_key.as_slice().to_owned());
     }
 
     #[cfg(feature = "nightly")]
@@ -202,6 +210,7 @@ mod tests {
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
         let precalc_key =
             PrecalcSecretKey::precalculate_readonly_locked(&public_key, &secret_key).unwrap();
-        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+        assert!(!precalc_key.is_empty());
+        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
     }
 }
