@@ -8,7 +8,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::constants::{
     CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
-use crate::types::{ByteArray, StackByteArray};
+use crate::types::{ByteArray, Bytes, MutByteArray, MutBytes, StackByteArray};
 
 type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 
@@ -24,6 +24,57 @@ type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 /// `crypto_box_beforenm`.
 #[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct PrecalcSecretKey<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize>(InnerKey);
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Bytes + Zeroize> Bytes
+    for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> ByteArray<CRYPTO_BOX_BEFORENMBYTES>
+    for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_array(&self) -> &[u8; CRYPTO_BOX_BEFORENMBYTES] {
+        self.0.as_array()
+    }
+}
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize + MutBytes> MutBytes
+    for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+
+    #[inline]
+    fn copy_from_slice(&mut self, other: &[u8]) {
+        self.0.copy_from_slice(other);
+    }
+}
+
+impl<InnerKey: MutByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize>
+    MutByteArray<CRYPTO_BOX_BEFORENMBYTES> for PrecalcSecretKey<InnerKey>
+{
+    #[inline]
+    fn as_mut_array(&mut self) -> &mut [u8; CRYPTO_BOX_BEFORENMBYTES] {
+        self.0.as_mut_array()
+    }
+}
 
 impl PrecalcSecretKey<InnerKey> {
     /// Computes a stack-allocated shared secret key for the given
@@ -132,7 +183,8 @@ mod tests {
         let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
         let precalc_key = PrecalcSecretKey::precalculate(&public_key, &secret_key);
-        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+        assert!(!precalc_key.is_empty());
+        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
     }
 
     #[cfg(feature = "nightly")]
@@ -140,8 +192,15 @@ mod tests {
     fn test_precalculate_locked() {
         let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
-        let precalc_key = PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
-        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+        let mut precalc_key =
+            PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
+        assert!(!precalc_key.is_empty());
+        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+
+        // should be able to write now without blowing up
+        precalc_key.as_mut_slice()[0] = 0;
+        precalc_key.as_mut_array()[0] = 1;
+        precalc_key.copy_from_slice(&precalc_key.as_slice().to_owned());
     }
 
     #[cfg(feature = "nightly")]
@@ -151,6 +210,7 @@ mod tests {
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
         let precalc_key =
             PrecalcSecretKey::precalculate_readonly_locked(&public_key, &secret_key).unwrap();
-        assert_eq!(precalc_key.0.len(), CRYPTO_BOX_BEFORENMBYTES);
+        assert!(!precalc_key.is_empty());
+        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
     }
 }

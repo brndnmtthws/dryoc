@@ -102,7 +102,6 @@ use crate::constants::{
     CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
 use crate::error::*;
-use crate::precalc::PrecalcSecretKey;
 pub use crate::types::*;
 
 /// Stack-allocated public key for authenticated public-key boxes.
@@ -255,13 +254,13 @@ impl<
     /// Encrypts a message using `precalc_secret_key`,
     /// and returns a new [DryocBox] with ciphertext and tag.
     pub fn precalc_encrypt<
-        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
     >(
         message: &Message,
         nonce: &Nonce,
-        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey,
     ) -> Result<Self, Error> {
         use crate::classic::crypto_box::crypto_box_detached_afternm;
 
@@ -446,13 +445,13 @@ impl<
     /// Decrypts this box using `nonce`, `precalc_secret_key`, and
     /// `sender_public_key`, returning the decrypted message upon success.
     pub fn precalc_decrypt<
-        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         Output: ResizableBytes + NewBytes,
     >(
         &self,
         nonce: &Nonce,
-        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey,
     ) -> Result<Output, Error> {
         use crate::classic::crypto_box::crypto_box_open_detached_afternm;
 
@@ -553,11 +552,11 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// and returns a new [DryocBox] with ciphertext and tag.
     pub fn precalc_encrypt_to_vecbox<
         Message: Bytes + ?Sized,
-        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         message: &Message,
         nonce: &Nonce,
-        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey,
     ) -> Result<Self, Error> {
         Self::precalc_encrypt(message, nonce, precalc_secret_key)
     }
@@ -586,12 +585,12 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Decrypts this box using `nonce` and
     /// `precalc_secret_key`, returning the decrypted message upon
     /// success.
-    pub fn precalc_decrypt_to_vecbox<
-        InnerSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
+    pub fn precalc_decrypt_to_vec<
+        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         &self,
         nonce: &Nonce,
-        precalc_secret_key: &PrecalcSecretKey<InnerSecretKey>,
+        precalc_secret_key: &PrecalcSecretKey,
     ) -> Result<Vec<u8>, Error> {
         self.precalc_decrypt(nonce, precalc_secret_key)
     }
@@ -679,6 +678,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::precalc::PrecalcSecretKey;
 
     #[test]
     fn test_dryocbox_vecbox() {
@@ -944,7 +944,7 @@ mod tests {
             .expect("unable to encrypt");
 
         let decrypted = dryocbox
-            .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+            .precalc_decrypt_to_vec(&nonce, &precalc_secret_key)
             .expect("unable to decrypt");
 
         assert_eq!(message, decrypted.as_slice());
@@ -1004,7 +1004,7 @@ mod tests {
                     .expect("unable to encrypt");
 
             let decrypted = dryocbox
-                .precalc_decrypt_to_vecbox(&nonce, &precalc_secret_key)
+                .precalc_decrypt_to_vec(&nonce, &precalc_secret_key)
                 .expect("unable to decrypt");
 
             assert_eq!(*message, decrypted.as_slice());
