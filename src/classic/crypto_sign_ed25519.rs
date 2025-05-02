@@ -73,7 +73,7 @@ pub(crate) fn crypto_sign_ed25519_keypair_inplace(
     use crate::rng::copy_randombytes;
     let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
     copy_randombytes(&mut seed);
-    crypto_sign_ed25519_seed_keypair_inplace(public_key, secret_key, &seed)
+    crypto_sign_ed25519_seed_keypair_inplace(public_key, secret_key, &seed);
 }
 
 /// Generates a random Ed25519 keypair which can be used for signing
