@@ -500,13 +500,7 @@ mod tests {
             let mut output = [0u8; 64];
             let mut so_output = [0u8; 64];
 
-            unsafe {
-                blake2b_final(
-                    &mut s,
-                    so_output.as_mut_ptr(),
-                    so_output.len() as u64,
-                )
-            };
+            unsafe { blake2b_final(&mut s, so_output.as_mut_ptr(), so_output.len() as u64) };
 
             state.finalize(&mut output).ok();
 
@@ -547,13 +541,7 @@ mod tests {
         let mut output = [0u8; 64];
         let mut so_output = [0u8; 64];
 
-        unsafe {
-            blake2b_final(
-                &mut s,
-                so_output.as_mut_ptr(),
-                so_output.len() as u64,
-            )
-        };
+        unsafe { blake2b_final(&mut s, so_output.as_mut_ptr(), so_output.len() as u64) };
 
         state.finalize(&mut output).ok();
 
