@@ -212,12 +212,13 @@ fn crypto_core_ed25519_is_valid_point_internal(p: &Ed25519Point, ignore_high_bit
         return false;
     }
 
-    // Check 4: Use curve25519-dalek decompression for point-on-curve check.
-    // This will also reject points not in the prime-order subgroup if the feature
-    // `serde` is not enabled for curve25519-dalek, but we explicitly checked
-    // identity.
+    // Check 4: Use curve25519-dalek decompression for point-on-curve check and
+    // reject points with a torsion component (not in the main subgroup).
     match CompressedEdwardsY::from_slice(p) {
-        Ok(compressed) => compressed.decompress().is_some(),
+        Ok(compressed) => match compressed.decompress() {
+            Some(point) => point.is_torsion_free(),
+            None => false,
+        },
         Err(_) => false, // Should not happen if length is correct, but handle defensively.
     }
 }
@@ -470,6 +471,47 @@ mod tests {
         assert!(
             !crypto_core_ed25519_is_valid_point(&small_order_point_identity),
             "Small-order point (identity element) should be rejected by stricter validation"
+        );
+
+        // Test torsion points and mixed-order points to ensure we reject anything
+        // outside the main subgroup.
+        use curve25519_dalek::traits::IsIdentity;
+
+        let torsion_point = curve25519_dalek::constants::EIGHT_TORSION
+            .iter()
+            .find(|point| {
+                let torsion_bytes = point.compress().to_bytes();
+                let mixed_point = curve25519_dalek::constants::ED25519_BASEPOINT_POINT + *point;
+                let mixed_bytes = mixed_point.compress().to_bytes();
+                torsion_bytes[31] & 0x80 == 0
+                    && mixed_bytes[31] & 0x80 == 0
+                    && !point.is_identity()
+                    && !mixed_point.is_torsion_free()
+            })
+            .copied()
+            .expect("expected a non-identity torsion point with canonical encoding");
+
+        let torsion_bytes = torsion_point.compress().to_bytes();
+        assert!(
+            !crypto_core_ed25519_is_valid_point(&torsion_bytes),
+            "Torsion point should be rejected"
+        );
+        assert!(
+            !crypto_core_ed25519_is_valid_point_relaxed(&torsion_bytes),
+            "Torsion point should be rejected even with relaxed validation"
+        );
+
+        let mixed_bytes =
+            (curve25519_dalek::constants::ED25519_BASEPOINT_POINT + torsion_point)
+                .compress()
+                .to_bytes();
+        assert!(
+            !crypto_core_ed25519_is_valid_point(&mixed_bytes),
+            "Mixed-order point should be rejected"
+        );
+        assert!(
+            !crypto_core_ed25519_is_valid_point_relaxed(&mixed_bytes),
+            "Mixed-order point should be rejected even with relaxed validation"
         );
 
         // Test a point that is not on the curve (but is canonically encoded)
