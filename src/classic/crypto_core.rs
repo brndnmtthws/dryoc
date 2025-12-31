@@ -501,10 +501,9 @@ mod tests {
             "Torsion point should be rejected even with relaxed validation"
         );
 
-        let mixed_bytes =
-            (curve25519_dalek::constants::ED25519_BASEPOINT_POINT + torsion_point)
-                .compress()
-                .to_bytes();
+        let mixed_bytes = (curve25519_dalek::constants::ED25519_BASEPOINT_POINT + torsion_point)
+            .compress()
+            .to_bytes();
         assert!(
             !crypto_core_ed25519_is_valid_point(&mixed_bytes),
             "Mixed-order point should be rejected"
