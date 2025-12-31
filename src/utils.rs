@@ -44,14 +44,9 @@ pub(crate) fn load_u32_le(bytes: &[u8]) -> u32 {
         | ((bytes[3] as u32) << 24)
 }
 
-// #[inline]
-// pub(crate) fn load_i32_le(bytes: &[u8]) -> i32 {
-//     (bytes[0] as i32) | (bytes[1] as i32) << 8 | (bytes[2] as i32) << 16 |
-// (bytes[3] as i32) << 24 }
-
 #[inline]
-pub(crate) fn rotr64(x: u64, b: u64) -> u64 {
-    (x >> b) | (x << (64 - b))
+pub(crate) fn rotr64(x: u64, b: u32) -> u64 {
+    x.rotate_right(b)
 }
 
 #[inline]
