@@ -489,11 +489,11 @@ mod tests {
             let mut block = vec![0u8; i];
             copy_randombytes(&mut block);
 
-            unsafe { blake2b_update(&mut s, block.as_ptr() as *const u8, block.len() as u64) };
+            unsafe { blake2b_update(&mut s, block.as_ptr(), block.len() as u64) };
 
             state.update(&block);
 
-            unsafe { blake2b_update(&mut s, block.as_ptr() as *const u8, block.len() as u64) };
+            unsafe { blake2b_update(&mut s, block.as_ptr(), block.len() as u64) };
 
             state.update(&block);
 
@@ -503,7 +503,7 @@ mod tests {
             unsafe {
                 blake2b_final(
                     &mut s,
-                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.as_mut_ptr(),
                     so_output.len() as u64,
                 )
             };
@@ -550,7 +550,7 @@ mod tests {
         unsafe {
             blake2b_final(
                 &mut s,
-                so_output.as_mut_ptr() as *mut u8,
+                so_output.as_mut_ptr(),
                 so_output.len() as u64,
             )
         };
@@ -574,9 +574,9 @@ mod tests {
 
             unsafe {
                 blake2b_long(
-                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.as_mut_ptr(),
                     so_output.len() as u64,
-                    input.as_ptr() as *const u8,
+                    input.as_ptr(),
                     input.len() as u64,
                 )
             };
@@ -601,9 +601,9 @@ mod tests {
 
             unsafe {
                 blake2b_long(
-                    so_output.as_mut_ptr() as *mut u8,
+                    so_output.as_mut_ptr(),
                     so_output.len() as u64,
-                    input.as_ptr() as *const u8,
+                    input.as_ptr(),
                     input.len() as u64,
                 )
             };

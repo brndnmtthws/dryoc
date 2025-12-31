@@ -4,8 +4,8 @@ use crate::utils::load_u64_le;
 pub(crate) type Hash = [u8; CRYPTO_SHORTHASH_SIPHASH24_BYTES];
 pub(crate) type Key = [u8; CRYPTO_SHORTHASH_SIPHASH24_KEYBYTES];
 
-fn rotl64(x: u64, b: u64) -> u64 {
-    (x << b) | (x >> (64 - b))
+fn rotl64(x: u64, b: u32) -> u64 {
+    x.rotate_left(b)
 }
 
 pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
