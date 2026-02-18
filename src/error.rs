@@ -73,7 +73,7 @@ macro_rules! validate {
             )));
         } else if $value > $max {
             return Err(dryoc_error!(format!(
-                "{} value of {} greater than minimum {}",
+                "{} value of {} greater than maximum {}",
                 $name, $value, $max
             )));
         }

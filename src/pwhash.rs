@@ -501,6 +501,19 @@ mod tests {
             .expect_err("verification should have failed");
     }
 
+    #[test]
+    fn test_pwhash_uses_random_salt() {
+        let password = b"super secrit password";
+
+        let pwhash1 = PwHash::hash_with_defaults(password).expect("unable to hash");
+        let pwhash2 = PwHash::hash_with_defaults(password).expect("unable to hash");
+
+        assert_ne!(pwhash1.salt.as_slice(), pwhash2.salt.as_slice());
+
+        pwhash1.verify(password).expect("verification failed");
+        pwhash2.verify(password).expect("verification failed");
+    }
+
     #[cfg(feature = "base64")]
     #[test]
     fn test_pwhash_str() {
