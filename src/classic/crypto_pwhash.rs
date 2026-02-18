@@ -192,8 +192,9 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
         "memlimit"
     );
 
-    let salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
+    let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
     let mut hash = [0u8; STR_HASHBYTES];
+    crate::rng::copy_randombytes(&mut salt);
 
     let (t_cost, m_cost) = convert_costs(opslimit, memlimit);
 
@@ -403,6 +404,21 @@ mod tests {
             CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
         )
         .expect("pwhash failed");
+        let pwhash2 = crypto_pwhash_str(
+            password,
+            CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
+            CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
+        )
+        .expect("pwhash failed");
+
+        let parsed = Pwhash::parse_encoded_pwhash(&pwhash).expect("couldn't parse pwhash");
+        let parsed2 = Pwhash::parse_encoded_pwhash(&pwhash2).expect("couldn't parse pwhash");
+
+        assert_ne!(
+            parsed.salt.as_ref().expect("missing salt"),
+            &vec![0u8; CRYPTO_PWHASH_SALTBYTES]
+        );
+        assert_ne!(parsed.salt, parsed2.salt);
 
         let mut pwhash_bytes = [0u8; CRYPTO_PWHASH_STRBYTES];
         pwhash_bytes[..pwhash.len()].copy_from_slice(pwhash.as_bytes());
