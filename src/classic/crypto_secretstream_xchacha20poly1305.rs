@@ -311,8 +311,8 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     cipher.apply_keystream(&mut ciphertext[1..(1 + mlen)]);
 
     let mut size_data = [0u8; 16];
-    size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
-    size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
+    size_data[..8].copy_from_slice(&(associated_data.len() as u64).to_le_bytes());
+    size_data[8..16].copy_from_slice(&((block.len() + mlen) as u64).to_le_bytes());
 
     mac.update(&ciphertext[1..(1 + mlen)]);
     // this is to workaround an unfortunate padding bug in libsodium, there's a
@@ -423,8 +423,8 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     mac.update(&_pad0[..buffer_mac_pad]);
 
     let mut size_data = [0u8; 16];
-    size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
-    size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
+    size_data[..8].copy_from_slice(&(associated_data.len() as u64).to_le_bytes());
+    size_data[8..16].copy_from_slice(&((block.len() + mlen) as u64).to_le_bytes());
     mac.update(&size_data);
     let mac = mac.finalize_to_array();
 
