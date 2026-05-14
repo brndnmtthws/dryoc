@@ -34,8 +34,6 @@ jobs:
         exclude:
           - rust: stable
             features: simd_backend
-          - rust: beta
-            features: simd_backend
           - os: windows-latest
             features: simd_backend
     runs-on: ${{ matrix.os }}
