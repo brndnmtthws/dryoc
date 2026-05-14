@@ -21,6 +21,10 @@ jobs:
         uses: brndnmtthws/rust-action@v1
         with:
           toolchain: nightly
+          cargo-packages: |
+            cargo-tarpaulin
+            cargo-hold
+      - run: cargo hold voyage
       - run: cargo tarpaulin --features serde,nightly --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v4
