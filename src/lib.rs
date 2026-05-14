@@ -140,7 +140,7 @@
     all(feature = "simd_backend", feature = "nightly"),
     feature(portable_simd)
 )]
-#![cfg_attr(feature = "nightly", feature(test))]
+#![cfg_attr(all(test, feature = "nightly"), feature(test))]
 #[macro_use]
 mod error;
 #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
