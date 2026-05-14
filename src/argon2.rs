@@ -363,7 +363,7 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
         0
     };
 
-    let mut curr_offset = position.lane * instance.lane_length
+    let curr_offset = position.lane * instance.lane_length
         + position.slice as u32 * instance.segment_length
         + starting_index;
 
@@ -373,7 +373,7 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
         curr_offset - 1
     };
 
-    for i in starting_index..instance.segment_length {
+    for (curr_offset, i) in (curr_offset..).zip(starting_index..instance.segment_length) {
         if curr_offset % instance.lane_length == 1 {
             prev_offset = curr_offset - 1;
         }
@@ -406,8 +406,6 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
         fill_block(prev_block, ref_block, &mut next_block, position.pass != 0);
 
         instance.region.memory[curr_offset as usize] = next_block;
-
-        curr_offset += 1;
         prev_offset += 1;
     }
 }
