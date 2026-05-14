@@ -50,6 +50,13 @@ jobs:
           cargo-packages: |
             cargo-nextest
             cargo-tarpaulin
+      - name: Install cargo-hold
+        if: runner.os != 'Windows'
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: cargo-hold
+      - run: cargo hold voyage
+        if: runner.os != 'Windows'
       - run: cargo build --features ${{ env.FEATURES }}
       - run: cargo nextest run --features ${{ env.FEATURES }}
         env:
