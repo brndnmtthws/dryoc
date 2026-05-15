@@ -1,4 +1,5 @@
-use lazy_static::__Deref;
+use std::ops::Deref;
+
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::rng::copy_randombytes;

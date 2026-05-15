@@ -71,8 +71,8 @@
 use std::alloc::{AllocError, Allocator, Layout};
 use std::marker::PhantomData;
 use std::ptr;
+use std::sync::LazyLock;
 
-use lazy_static::lazy_static;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error;
@@ -695,26 +695,24 @@ impl Lockable<HeapBytes> for HeapBytes {
 /// allocated region of memory.
 pub struct PageAlignedAllocator;
 
-lazy_static! {
-    static ref PAGESIZE: usize = {
-        #[cfg(unix)]
-        {
-            use libc::{_SC_PAGE_SIZE, sysconf};
-            // SAFETY: `sysconf(_SC_PAGE_SIZE)` has no pointer arguments and
-            // returns the host page size or an error sentinel.
-            unsafe { sysconf(_SC_PAGE_SIZE) as usize }
-        }
-        #[cfg(windows)]
-        {
-            use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
-            let mut si = SYSTEM_INFO::default();
-            // SAFETY: `si` is a valid writable `SYSTEM_INFO` out-parameter for
-            // the duration of the call.
-            unsafe { GetSystemInfo(&mut si) };
-            si.dwPageSize as usize
-        }
-    };
-}
+static PAGESIZE: LazyLock<usize> = LazyLock::new(|| {
+    #[cfg(unix)]
+    {
+        use libc::{_SC_PAGE_SIZE, sysconf};
+        // SAFETY: `sysconf(_SC_PAGE_SIZE)` has no pointer arguments and returns
+        // the host page size or an error sentinel.
+        unsafe { sysconf(_SC_PAGE_SIZE) as usize }
+    }
+    #[cfg(windows)]
+    {
+        use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
+        let mut si = SYSTEM_INFO::default();
+        // SAFETY: `si` is a valid writable `SYSTEM_INFO` out-parameter for the
+        // duration of the call.
+        unsafe { GetSystemInfo(&mut si) };
+        si.dwPageSize as usize
+    }
+});
 
 fn _page_round(size: usize, pagesize: usize) -> Option<usize> {
     let rem = size % pagesize;

@@ -398,7 +398,8 @@ pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
 mod tests {
     #[cfg(feature = "nightly")]
     extern crate test;
-    use lazy_static::lazy_static;
+    use std::sync::LazyLock;
+
     use libc::*;
     use serde::{Deserialize, Serialize};
 
@@ -432,10 +433,9 @@ mod tests {
         out: String,
     }
 
-    lazy_static! {
-        static ref TEST_VECTORS: Vec<TestVector> =
-            serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap();
-    }
+    static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| {
+        serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap()
+    });
 
     #[test]
     fn test_vectors() {
