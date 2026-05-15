@@ -15,7 +15,7 @@
 //! use dryoc::types::*;
 //!
 //! let key: Key = crypto_secretbox_keygen();
-//! let nonce = Nonce::r#gen();
+//! let nonce = Nonce::generate();
 //!
 //! let message = "I Love Doge!";
 //!
@@ -54,7 +54,7 @@ pub fn crypto_secretbox_keygen_inplace(key: &mut Key) {
 /// Generates a random key using
 /// [`copy_randombytes`].
 pub fn crypto_secretbox_keygen() -> Key {
-    Key::r#gen()
+    Key::generate()
 }
 
 /// Detached version of [`crypto_secretbox_easy`].
@@ -185,7 +185,7 @@ mod tests {
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
             let key: Key = crypto_secretbox_keygen();
-            let nonce = Nonce::r#gen();
+            let nonce = Nonce::generate();
 
             let words = vec!["love Doge".to_string(); i];
             let message = words.join(" <3 ");
@@ -227,7 +227,7 @@ mod tests {
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
             let key = crypto_secretbox_keygen();
-            let nonce = Nonce::r#gen();
+            let nonce = Nonce::generate();
 
             let words = vec!["love Doge".to_string(); i];
             let message: Vec<u8> = words.join(" <3 ").into();

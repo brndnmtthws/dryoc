@@ -1457,7 +1457,7 @@ mod tests {
     fn test_lock_unlock() {
         use crate::dryocstream::Key;
 
-        let key = Key::r#gen();
+        let key = Key::generate();
         let key_clone = key.clone();
 
         let locked_key = key.mlock().expect("lock failed");
@@ -1471,7 +1471,7 @@ mod tests {
     fn test_protect_unprotect() {
         use crate::dryocstream::Key;
 
-        let key = Key::r#gen();
+        let key = Key::generate();
         let key_clone = key.clone();
 
         let readonly_key = key.mprotect_readonly().expect("mprotect failed");

@@ -33,7 +33,7 @@
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
-//! let keypair = SigningKeyPair::gen_with_defaults();
+//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
 //! let message = b"Fair is foul, and foul is fair: Hover through the fog and filthy air.";
 //!
 //! // Sign the message, using default types (stack-allocated byte array, Vec<u8>)
@@ -51,7 +51,7 @@
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
-//! let keypair = SigningKeyPair::gen_with_defaults();
+//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
 //!
 //! // Initialize the incremental signer interface
 //! let mut signer = IncrementalSigner::new();
@@ -129,7 +129,7 @@ impl<
     }
 
     /// Generates a random signing keypair.
-    pub fn r#gen() -> Self {
+    pub fn generate() -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
         crypto_sign_keypair_inplace(public_key.as_mut_array(), secret_key.as_mut_array());
@@ -137,6 +137,14 @@ impl<
             public_key,
             secret_key,
         }
+    }
+
+    /// Generates a random signing keypair.
+    ///
+    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
+    /// and will be deprecated in a future release.
+    pub fn r#gen() -> Self {
+        Self::generate()
     }
 
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
@@ -175,8 +183,17 @@ impl
 {
     /// Randomly generates a new signing keypair, using default types
     /// (stack-allocated byte arrays). Provided for convenience.
+    pub fn generate_with_defaults() -> Self {
+        Self::generate()
+    }
+
+    /// Randomly generates a new signing keypair, using default types
+    /// (stack-allocated byte arrays). Provided for convenience.
+    ///
+    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
+    /// method is retained for compatibility.
     pub fn gen_with_defaults() -> Self {
-        Self::r#gen()
+        Self::generate_with_defaults()
     }
 }
 
@@ -527,7 +544,7 @@ mod tests {
 
     #[test]
     fn test_message_signing() {
-        let keypair = SigningKeyPair::gen_with_defaults();
+        let keypair = SigningKeyPair::generate_with_defaults();
         let message = b"hello my frens";
 
         let signed_message = keypair.sign_with_defaults(message).expect("signing failed");

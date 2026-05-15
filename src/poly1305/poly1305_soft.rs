@@ -377,7 +377,7 @@ mod tests {
 
         use crate::rng::copy_randombytes;
 
-        let key = Key::r#gen();
+        let key = Key::generate();
 
         let so_key = SOKey::from_slice(&key).unwrap();
 

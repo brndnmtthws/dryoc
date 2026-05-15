@@ -35,6 +35,16 @@ pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> + NewBytes {
     /// Returns a new fixed-length byte array, initialized with zeroes.
     fn new_byte_array() -> Self;
     /// Returns a new fixed-length byte array, filled with random values.
+    fn generate() -> Self
+    where
+        Self: Sized,
+    {
+        Self::r#gen()
+    }
+    /// Returns a new fixed-length byte array, filled with random values.
+    ///
+    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
+    /// and will be deprecated in a future release.
     fn r#gen() -> Self;
 }
 

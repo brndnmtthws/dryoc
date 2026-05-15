@@ -58,7 +58,7 @@ impl<
     }
 
     /// Generates a random keypair.
-    pub fn r#gen() -> Self {
+    pub fn generate() -> Self {
         use crate::classic::crypto_box::crypto_box_keypair_inplace;
 
         let mut public_key = PublicKey::new_byte_array();
@@ -69,6 +69,14 @@ impl<
             public_key,
             secret_key,
         }
+    }
+
+    /// Generates a random keypair.
+    ///
+    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
+    /// and will be deprecated in a future release.
+    pub fn r#gen() -> Self {
+        Self::generate()
     }
 
     /// Derives a keypair from `secret_key`, and consumes it, and returns a new
@@ -107,8 +115,17 @@ impl<
 impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>> {
     /// Randomly generates a new keypair, using default types
     /// (stack-allocated byte arrays). Provided for convenience.
+    pub fn generate_with_defaults() -> Self {
+        Self::generate()
+    }
+
+    /// Randomly generates a new keypair, using default types
+    /// (stack-allocated byte arrays). Provided for convenience.
+    ///
+    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
+    /// method is retained for compatibility.
     pub fn gen_with_defaults() -> Self {
-        Self::r#gen()
+        Self::generate_with_defaults()
     }
 }
 
@@ -426,7 +443,7 @@ mod tests {
         let keypair = KeyPair::<
             StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
             StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::r#gen();
+        >::generate();
 
         let mut public_key = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
         crypto_scalarmult_base(&mut public_key, keypair.secret_key.as_array());
@@ -443,7 +460,7 @@ mod tests {
         let keypair_1 = KeyPair::<
             StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
             StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::r#gen();
+        >::generate();
         let keypair_2 = KeyPair::from_secret_key(keypair_1.secret_key.clone());
 
         assert_eq!(keypair_1.public_key, keypair_2.public_key);
@@ -451,8 +468,8 @@ mod tests {
 
     #[test]
     fn test_keypair_precalculate() {
-        let kp1 = KeyPair::gen_with_defaults();
-        let kp2 = KeyPair::gen_with_defaults();
+        let kp1 = KeyPair::generate_with_defaults();
+        let kp2 = KeyPair::generate_with_defaults();
         let precalc = kp1.precalculate(&kp2.public_key);
         assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
     }
@@ -469,8 +486,8 @@ mod tests {
 
     #[test]
     fn test_keypair_kx_new_client_session() {
-        let server_kp = KeyPair::gen_with_defaults();
-        let client_kp = KeyPair::gen_with_defaults();
+        let server_kp = KeyPair::generate_with_defaults();
+        let client_kp = KeyPair::generate_with_defaults();
         let session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = client_kp
             .kx_new_client_session(&server_kp.public_key)
             .unwrap();
@@ -486,8 +503,8 @@ mod tests {
 
     #[test]
     fn test_keypair_kx_new_server_session() {
-        let client_kp = KeyPair::gen_with_defaults();
-        let server_kp = KeyPair::gen_with_defaults();
+        let client_kp = KeyPair::generate_with_defaults();
+        let server_kp = KeyPair::generate_with_defaults();
         let session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = server_kp
             .kx_new_server_session(&client_kp.public_key)
             .unwrap();
@@ -509,8 +526,8 @@ mod tests {
     }
 
     #[test]
-    fn test_keypair_gen_with_defaults() {
-        let kp = KeyPair::gen_with_defaults();
+    fn test_keypair_generate_with_defaults() {
+        let kp = KeyPair::generate_with_defaults();
         assert!(!kp.public_key.iter().all(|x| *x == 0));
     }
 
@@ -549,7 +566,7 @@ mod tests {
         // unlike Ed25519 validation. We don't explicitly test its rejection here.
 
         // Generated key should be valid
-        let kp = KeyPair::gen_with_defaults();
+        let kp = KeyPair::generate_with_defaults();
         assert!(
             KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&kp.public_key),
             "Generated key failed validation"

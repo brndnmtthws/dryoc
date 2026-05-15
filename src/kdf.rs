@@ -19,7 +19,7 @@
 //!
 //! // Randomly generate a main key and context, using the default stack-allocated
 //! // types
-//! let key = Kdf::gen_with_defaults();
+//! let key = StackKdf::generate();
 //! let subkey_id = 0;
 //!
 //! let subkey = key.derive_subkey_to_vec(subkey_id).expect("derive failed");
@@ -85,7 +85,7 @@ pub mod protected {
     //! use dryoc::kdf::protected::*;
     //!
     //! // Randomly generate a main key and context, using locked memory
-    //! let key: LockedKdf = Kdf::r#gen();
+    //! let key: LockedKdf = Kdf::generate();
     //! let subkey_id = 0;
     //!
     //! let subkey: Locked<Key> = key.derive_subkey(subkey_id).expect("derive failed");
@@ -115,11 +115,19 @@ impl<
 > Kdf<Key, Context>
 {
     /// Randomly generates a new pair of main key and context.
-    pub fn r#gen() -> Self {
+    pub fn generate() -> Self {
         Self {
-            main_key: Key::r#gen(),
-            context: Context::r#gen(),
+            main_key: Key::generate(),
+            context: Context::generate(),
         }
+    }
+
+    /// Randomly generates a new pair of main key and context.
+    ///
+    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
+    /// and will be deprecated in a future release.
+    pub fn r#gen() -> Self {
+        Self::generate()
     }
 }
 
@@ -163,11 +171,19 @@ impl<
 
 impl Kdf<Key, Context> {
     /// Randomly generates a new pair of main key and context.
-    pub fn gen_with_defaults() -> Self {
+    pub fn generate_with_defaults() -> Self {
         Self {
-            main_key: Key::r#gen(),
-            context: Context::r#gen(),
+            main_key: Key::generate(),
+            context: Context::generate(),
         }
+    }
+
+    /// Randomly generates a new pair of main key and context.
+    ///
+    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
+    /// method is retained for compatibility.
+    pub fn gen_with_defaults() -> Self {
+        Self::generate_with_defaults()
     }
 }
 
@@ -177,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_kdf() {
-        let key = StackKdf::r#gen();
+        let key = StackKdf::generate();
 
         let _subkey = key.derive_subkey_to_vec(0).expect("derive failed");
     }
