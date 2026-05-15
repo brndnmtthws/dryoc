@@ -645,7 +645,7 @@ fn store_block(output: &mut [u8], block: &Block) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     #[cfg(feature = "nightly")]
     extern crate test;

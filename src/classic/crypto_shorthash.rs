@@ -57,7 +57,7 @@ pub fn crypto_shorthash(output: &mut Hash, input: &[u8], key: &Key) {
     siphash24(output, input, key)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use rand::TryRng;
 

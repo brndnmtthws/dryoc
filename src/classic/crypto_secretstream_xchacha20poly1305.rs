@@ -462,7 +462,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     Ok(mlen)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
     use crate::dryocstream::Tag;

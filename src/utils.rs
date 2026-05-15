@@ -55,7 +55,7 @@ pub(crate) fn pad16(n: usize) -> usize {
     (0x10 - (n % 16)) & 0xf
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use rand::TryRng;
 

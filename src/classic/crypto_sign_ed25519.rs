@@ -322,7 +322,7 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
     res
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose;

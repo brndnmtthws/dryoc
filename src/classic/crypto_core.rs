@@ -312,7 +312,7 @@ pub fn crypto_core_hsalsa20(
     output[28..32].copy_from_slice(&x9.to_le_bytes());
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
     use crate::classic::crypto_box::*;

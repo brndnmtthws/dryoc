@@ -33,7 +33,7 @@ pub fn crypto_hash_sha512_final(state: Sha512State, output: &mut Digest) {
     state.hasher.finalize_into_bytes(output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
 

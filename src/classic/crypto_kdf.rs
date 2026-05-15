@@ -79,7 +79,7 @@ pub fn crypto_kdf_derive_from_key(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
 

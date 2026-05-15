@@ -351,7 +351,7 @@ pub fn crypto_pwhash_str_needs_rehash(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
 

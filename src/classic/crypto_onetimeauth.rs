@@ -162,7 +162,7 @@ pub fn crypto_onetimeauth_final(
     crypto_onetimeauth_poly1305_final(state.state, output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
 

@@ -143,7 +143,7 @@ pub fn crypto_kx_server_session_keys(
     crypto_kx(tx, rx, client_pk, server_pk, shared_secret)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use super::*;
 

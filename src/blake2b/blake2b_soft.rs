@@ -394,7 +394,7 @@ pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     #[cfg(feature = "nightly")]
     extern crate test;

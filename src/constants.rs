@@ -6,6 +6,9 @@ const fn min(a: usize, b: usize) -> usize {
 const fn max(a: usize, b: usize) -> usize {
     [a, b][(a < b) as usize]
 }
+const fn min_usize_u64(a: usize, b: u64) -> usize {
+    if (a as u64) < b { a } else { b as usize }
+}
 
 const SODIUM_SIZE_MAX: usize = min(usize::MAX, u64::MAX as usize);
 
@@ -153,7 +156,7 @@ pub const CRYPTO_PWHASH_ARGON2I_BYTES_MAX: usize = min(SODIUM_SIZE_MAX, 42949672
 pub const CRYPTO_PWHASH_ARGON2I_BYTES_MIN: usize = 16;
 pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_INTERACTIVE: usize = 33554432;
 pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MAX: usize = max(
-    min(SODIUM_SIZE_MAX, 4398046510080),
+    min_usize_u64(SODIUM_SIZE_MAX, 4398046510080),
     max(
         min(SODIUM_SIZE_MAX, 2147483648),
         min(SODIUM_SIZE_MAX, 32768),
@@ -181,7 +184,7 @@ pub const CRYPTO_PWHASH_ARGON2ID_BYTES_MIN: usize = 16;
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_INTERACTIVE: usize = 67108864;
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MIN: usize = 8192;
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MAX: usize = max(
-    min(SODIUM_SIZE_MAX, 4398046510080),
+    min_usize_u64(SODIUM_SIZE_MAX, 4398046510080),
     max(
         min(SODIUM_SIZE_MAX, 2147483648),
         min(SODIUM_SIZE_MAX, 32768),

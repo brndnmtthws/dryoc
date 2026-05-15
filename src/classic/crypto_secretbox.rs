@@ -172,7 +172,7 @@ pub fn crypto_secretbox_open_easy_inplace(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     #[cfg(feature = "nightly")]
     extern crate test;

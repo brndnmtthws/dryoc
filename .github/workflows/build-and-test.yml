@@ -15,6 +15,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  wasm:
+    name: wasm32-unknown-unknown
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup stable Rust toolchain with caching
+        uses: brndnmtthws/rust-action@v1
+        with:
+          toolchain: stable
+      - run: rustup target add wasm32-unknown-unknown
+      - name: Install matching wasm-bindgen test runner
+        run: |
+          WASM_BINDGEN_VERSION="$(
+            cargo tree --target wasm32-unknown-unknown --features serde,base64,wincode \
+              | sed -n 's/.*wasm-bindgen v\([0-9.]*\).*/\1/p' \
+              | head -n 1
+          )"
+          cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+      - run: cargo test --target wasm32-unknown-unknown --features serde,base64,wincode
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+
   build:
     strategy:
       matrix:

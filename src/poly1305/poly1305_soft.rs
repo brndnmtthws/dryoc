@@ -235,7 +235,7 @@ impl Poly1305 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
 mod tests {
     use rand::TryRng;
 
