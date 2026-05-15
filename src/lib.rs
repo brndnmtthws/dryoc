@@ -33,6 +33,8 @@
 //! * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
 //!   equivalents)
 //! * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
+//! * [wincode](https://crates.io/crates/wincode) support for direct binary
+//!   serialization of Rustaceous box types (with `features = ["wincode"]`)
 //! * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html)
 //!   implementation for Blake2b (used by generic hashing, password hashing, and
 //!   key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
@@ -97,6 +99,14 @@
 //! [`Serialize`](serde::ser::Serialize) and
 //! [`Deserialize`](serde::de::Deserialize) traits are provided for data
 //! structures.
+//!
+//! ## Using wincode
+//!
+//! This crate includes optional [wincode](https://crates.io/crates/wincode)
+//! support which can be enabled with the `wincode` feature flag. When enabled,
+//! [`wincode::SchemaWrite`] and [`wincode::SchemaRead`] are provided for
+//! supported Rustaceous box types, including [`DryocBox`](dryocbox::DryocBox)
+//! and [`DryocSecretBox`](dryocsecretbox::DryocSecretBox).
 //!
 //! ## Security notes
 //!
