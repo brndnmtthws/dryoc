@@ -1,7 +1,15 @@
-#[cfg(all(feature = "simd_backend", feature = "nightly"))]
+#[cfg(all(
+    feature = "simd_backend",
+    feature = "nightly",
+    not(target_arch = "aarch64")
+))]
 pub(crate) mod poly1305_simd;
 
-#[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
+#[cfg(any(
+    test,
+    target_arch = "aarch64",
+    not(all(feature = "simd_backend", feature = "nightly"))
+))]
 pub(crate) mod poly1305_soft;
 
 const BLOCK_SIZE: usize = 16;
@@ -24,7 +32,16 @@ mod bench_inputs {
     pub(super) const MIB_1: usize = 1024 * 1024;
 }
 
-#[cfg(all(feature = "simd_backend", feature = "nightly"))]
+// On aarch64, the portable-SIMD Poly1305 backend is slower than the u128
+// 3-limb implementation. Keep the soft backend there even with simd_backend.
+#[cfg(all(
+    feature = "simd_backend",
+    feature = "nightly",
+    not(target_arch = "aarch64")
+))]
 pub(crate) use poly1305_simd::*;
-#[cfg(not(all(feature = "simd_backend", feature = "nightly")))]
+#[cfg(any(
+    target_arch = "aarch64",
+    not(all(feature = "simd_backend", feature = "nightly"))
+))]
 pub(crate) use poly1305_soft::*;
