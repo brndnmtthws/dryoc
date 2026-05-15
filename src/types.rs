@@ -4,7 +4,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
-/// optional [Serde](https://serde.rs) features.
+/// optional [Serde](https://serde.rs) and `wincode` features.
+#[cfg_attr(feature = "wincode", derive(wincode::SchemaWrite, wincode::SchemaRead))]
 #[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
 
