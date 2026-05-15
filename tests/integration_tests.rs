@@ -200,8 +200,7 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
     let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
     let tag = protected::Mac::from_slice_into_locked(tag).expect("doesn't deserialize tag");
     let data = HeapBytes::from_slice_into_locked(data).expect("doesn't deserialize data");
-    let dryocsecretbox: protected::LockedBox =
-        protected::LockedBox::from_parts(tag, data);
+    let dryocsecretbox: protected::LockedBox = protected::LockedBox::from_parts(tag, data);
 
     let decrypted: LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)

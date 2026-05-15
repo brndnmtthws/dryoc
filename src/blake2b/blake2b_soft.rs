@@ -10,7 +10,7 @@ const KEYBYTES: usize = 64;
 const SALTBYTES: usize = 16;
 const PERSONALBYTES: usize = 16;
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(dead_code)]
 struct Params {
     digest_length: u8,
@@ -233,7 +233,7 @@ impl State {
                 0
             };
             let remaining = input.len() - start;
-            let end = if remaining > BLOCKBYTES && remaining % BLOCKBYTES == 0 {
+            let end = if remaining > BLOCKBYTES && remaining.is_multiple_of(BLOCKBYTES) {
                 input.len() - BLOCKBYTES
             } else if remaining > BLOCKBYTES {
                 input.len() - remaining % BLOCKBYTES
@@ -371,7 +371,7 @@ pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
         in_buffer.copy_from_slice(&output[..OUTBYTES]);
 
         let outlen = output.len() - HALFOUTBYTES;
-        let chunk_count = if outlen % HALFOUTBYTES == 0 {
+        let chunk_count = if outlen.is_multiple_of(HALFOUTBYTES) {
             outlen / HALFOUTBYTES - 2
         } else {
             outlen / HALFOUTBYTES - 1
@@ -575,7 +575,8 @@ mod tests {
 
     #[test]
     fn test_blake2b_long_rand_length() {
-        use rand::{TryRng, rngs::SysRng};
+        use rand::TryRng;
+        use rand::rngs::SysRng;
 
         use crate::rng::copy_randombytes;
 

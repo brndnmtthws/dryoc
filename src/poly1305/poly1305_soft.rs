@@ -164,7 +164,7 @@ impl Poly1305 {
         // process any remaining block
         if !self.buffer.is_empty() {
             self.buffer.push(1);
-            if self.buffer.len() % BLOCK_SIZE != 0 {
+            if !self.buffer.len().is_multiple_of(BLOCK_SIZE) {
                 self.buffer.resize(
                     self.buffer.len() + (BLOCK_SIZE - self.buffer.len() % BLOCK_SIZE),
                     0,
