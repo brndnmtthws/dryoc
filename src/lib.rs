@@ -45,7 +45,9 @@
 //!   * Blake2b (used by generic hashing, password hashing, and key derivation)
 //!   * Argon2 block mixing (used by password hashing)
 //!   * Salsa20 (used by XSalsa20-Poly1305 secretbox)
-//!   * Poly1305 (used by one-time authentication and secret boxes)
+//!   * Poly1305 (used by one-time authentication and secret boxes), except on
+//!     AArch64 where dryoc keeps the soft backend because the portable-SIMD
+//!     path is slower there
 //! * [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
 //!   (used by public/private key functions) selects its own serial or x86_64
 //!   vector backend at build time
@@ -67,6 +69,10 @@
 //!
 //! The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 //! `simd_backend` feature.
+//!
+//! Poly1305 is a special exception on AArch64: even with `simd_backend` and
+//! `nightly` enabled, dryoc uses the soft Poly1305 backend because profiling
+//! shows the portable-SIMD implementation is slower on that architecture.
 //!
 //! _Note that eventually this project will converge on portable SIMD
 //! implementations for all the core algos which will work across all platforms
