@@ -543,12 +543,19 @@ mod tests {
         let mut wrong_aad = large_aad.clone();
         wrong_aad[100] = 0x43; // Change one byte
 
+        let mut wrong_aad_pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(
+            &mut wrong_aad_pull_state,
+            &push_header,
+            &key,
+        );
+
         let mut decrypted = vec![0u8; message.len()];
         let mut tag = 0u8;
 
         assert!(
             crypto_secretstream_xchacha20poly1305_pull(
-                &mut pull_state,
+                &mut wrong_aad_pull_state,
                 &mut decrypted,
                 &mut tag,
                 &ciphertext,
@@ -602,12 +609,19 @@ mod tests {
         // Test with wrong AAD should fail
         let wrong_aad = b"xyz"; // Different 3 byte AAD
 
+        let mut wrong_aad_pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(
+            &mut wrong_aad_pull_state,
+            &push_header,
+            &key,
+        );
+
         let mut decrypted = vec![0u8; message.len()];
         let mut tag = 0u8;
 
         assert!(
             crypto_secretstream_xchacha20poly1305_pull(
-                &mut pull_state,
+                &mut wrong_aad_pull_state,
                 &mut decrypted,
                 &mut tag,
                 &ciphertext,
