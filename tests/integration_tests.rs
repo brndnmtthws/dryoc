@@ -156,9 +156,9 @@ fn test_dryocbox_wincode_bytes() {
 fn test_dryocbox_wincode() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::gen();
-    let recipient_keypair = KeyPair::gen();
-    let nonce = Nonce::gen();
+    let sender_keypair = KeyPair::r#gen();
+    let recipient_keypair = KeyPair::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey friend";
 
     let dryocbox: VecBox = DryocBox::encrypt(
@@ -188,7 +188,7 @@ fn test_dryocbox_wincode() {
 fn test_dryocbox_sealed_wincode() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::gen();
+    let recipient_keypair = KeyPair::r#gen();
     let message = b"hey sealed friend";
 
     let dryocbox: VecBox =
@@ -231,8 +231,8 @@ fn test_dryocsecretbox_wincode_bytes() {
 fn test_dryocsecretbox_wincode() {
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = Key::gen();
-    let nonce = Nonce::gen();
+    let secret_key = Key::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey buddy bro";
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
