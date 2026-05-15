@@ -22,12 +22,16 @@ Commands used for the rows below:
 ```sh
 RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features nightly blake2b_bench
 RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features simd_backend,nightly blake2b_bench
+RUSTFLAGS="-Ctarget-cpu=native" cargo +nightly bench --features nightly poly1305
+RUSTFLAGS="-Ctarget-cpu=native" cargo +nightly bench --features simd_backend,nightly poly1305
 RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features nightly crypto_secretbox_detached
 RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features simd_backend,nightly crypto_secretbox_detached
 ```
 
-`neon` is already reported by `rustc +nightly --print cfg` on this target, but
-the benchmark commands include it explicitly along with `target-cpu=native`.
+`neon` is already reported by `rustc +nightly --print cfg` on this target.
+Some commands include it explicitly along with `target-cpu=native`; adding
+`-Ctarget-feature=+neon` is not expected to change native Apple Silicon
+results.
 Run `cargo +nightly bench` without a benchmark-name filter to collect the full
 suite.
 
@@ -43,6 +47,50 @@ Benchmark: hash a 694,200-byte buffer and produce a 64-byte output.
 The portable SIMD backend is about 31.8% faster than the software backend for
 this workload on this machine.
 
+## One-Time Authentication: Poly1305
+
+Benchmark: authenticate fixed-size messages with Poly1305. The scalar rows come
+from the scalar/default build, and the SIMD rows come from the
+`simd_backend,nightly` build.
+
+| Message size | Software time | Software throughput | SIMD time | SIMD throughput | Relative |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 B | `26.81 ns/iter` | `2461 MB/s` | `52.38 ns/iter` | `1230 MB/s` | `1.95x slower` |
+| 1 KiB | `384.91 ns/iter` | `2666 MB/s` | `399.52 ns/iter` | `2566 MB/s` | `1.04x slower` |
+| 16 KiB | `5,980.91 ns/iter` | `2739 MB/s` | `5,906.60 ns/iter` | `2774 MB/s` | `1.01x faster` |
+| 1 MiB | `385,375.05 ns/iter` | `2720 MB/s` | `376,518.75 ns/iter` | `2784 MB/s` | `1.02x faster` |
+
+The portable SIMD backend uses a 4-way decimated Horner evaluation with 5x26-bit
+limbs. On this Apple Silicon target it is close to scalar for large messages,
+but the large-input edge is small enough to treat as benchmark noise rather than
+a reliable production speedup. It remains intentionally opt-in.
+
+External libsodium baseline from the scalar/default run:
+
+| Message size | dryoc software time | dryoc throughput | libsodium time | libsodium throughput | Relative |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 B | `26.81 ns/iter` | `2461 MB/s` | `29.21 ns/iter` | `2206 MB/s` | `1.09x slower` |
+| 1 KiB | `384.91 ns/iter` | `2666 MB/s` | `361.69 ns/iter` | `2836 MB/s` | `1.06x faster` |
+| 16 KiB | `5,980.91 ns/iter` | `2739 MB/s` | `5,735.08 ns/iter` | `2856 MB/s` | `1.04x faster` |
+| 1 MiB | `385,375.05 ns/iter` | `2720 MB/s` | `366,554.15 ns/iter` | `2860 MB/s` | `1.05x faster` |
+
+The useful portable SIMD shape is narrower than it first appears:
+
+- The direct RFC formulation is serial:
+  `a = (r * (a + block)) % p` for every 16-byte block. SIMD implementations
+  have to rewrite this as decimated Horner streams and fold those streams back
+  together.
+- Fast target-specific implementations use a 5x26-bit representation, precompute
+  key powers such as `r^2` and `r^4`, and process multiple blocks per
+  iteration.
+- On AArch64, Rust portable SIMD cannot express the widening
+  multiply-accumulate shape exposed by target-specific NEON intrinsics such as
+  `vmull_u32`, `vmlal_u32`, and `vmlal_high_u32`.
+
+References: [RFC 8439](https://www.rfc-editor.org/rfc/rfc8439),
+[Improved SIMD Implementation of Poly1305, ePrint 2019/842](https://eprint.iacr.org/2019/842.pdf),
+and [BoringSSL's Poly1305 NEON source](https://boringssl.googlesource.com/boringssl/+/8e5174b1186e/crypto/poly1305/poly1305_arm.cc).
+
 ## Secretbox: XSalsa20-Poly1305
 
 Benchmark: `crypto_secretbox_detached` encrypts a fixed-size message into a
@@ -51,15 +99,15 @@ combined XSalsa20 stream and Poly1305 authentication path used by secretbox.
 
 | Message size | Software time | Software throughput | SIMD time | SIMD throughput | Relative |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 B | `287.06 ns/iter` | `222 MB/s` | `300.90 ns/iter` | `213 MB/s` | `0.95x` |
-| 1 KiB | `1,621.30 ns/iter` | `631 MB/s` | `1,491.99 ns/iter` | `686 MB/s` | `1.09x faster` |
-| 16 KiB | `22,893.99 ns/iter` | `715 MB/s` | `18,996.15 ns/iter` | `862 MB/s` | `1.21x faster` |
-| 1 MiB | `1,447,766.70 ns/iter` | `724 MB/s` | `1,200,971.88 ns/iter` | `873 MB/s` | `1.21x faster` |
+| 64 B | `281.52 ns/iter` | `227 MB/s` | `327.97 ns/iter` | `195 MB/s` | `1.17x slower` |
+| 1 KiB | `1,607.85 ns/iter` | `637 MB/s` | `1,516.26 ns/iter` | `675 MB/s` | `1.06x faster` |
+| 16 KiB | `22,886.41 ns/iter` | `715 MB/s` | `18,726.82 ns/iter` | `874 MB/s` | `1.22x faster` |
+| 1 MiB | `1,433,748.95 ns/iter` | `731 MB/s` | `1,175,895.90 ns/iter` | `891 MB/s` | `1.22x faster` |
 
-The portable SIMD Salsa20 path helps larger messages by processing four
-independent Salsa20 counter blocks in parallel. Very small messages mostly
-measure fixed XSalsa20 setup plus Poly1305 overhead, so the 64-byte case can be
-slightly slower while the SIMD advantage grows with payload size.
+The SIMD build uses portable SIMD for both Salsa20 and Poly1305. Larger
+messages benefit from the Salsa20 path processing four independent counter
+blocks in parallel. Small messages are slower in this run because fixed XSalsa20
+setup plus Poly1305 SIMD overhead dominates the short payload.
 
 ## Benchmark Coverage
 
@@ -68,7 +116,8 @@ Current side-by-side software/SIMD benchmark coverage:
 | Algorithm | Software implementation | SIMD implementation | Benchmarked |
 | --- | --- | --- | --- |
 | BLAKE2b | `blake2b_soft` | `blake2b_simd` | Yes |
-| XSalsa20-Poly1305 secretbox | RustCrypto `salsa20` + `poly1305_soft` | portable-SIMD Salsa20 + `poly1305_soft` | Yes |
+| Poly1305 | `poly1305_soft` | `poly1305_simd` | Yes |
+| XSalsa20-Poly1305 secretbox | RustCrypto `salsa20` + `poly1305_soft` | portable-SIMD Salsa20 + `poly1305_simd` | Yes |
 
 Algorithms without side-by-side benchmark coverage should get their own section
 when a second implementation is added or when performance work begins.

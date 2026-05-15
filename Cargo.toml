@@ -59,6 +59,9 @@ simd_backend = []
 u64_backend = []
 wincode = ["dep:wincode"]
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
+
 [package.metadata.docs.rs]
 # docs.rs uses nightly, enable feature flag to get all the juicy docs
 features = ["nightly", "serde", "base64", "wincode"]

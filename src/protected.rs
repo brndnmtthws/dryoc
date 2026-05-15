@@ -1453,6 +1453,10 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
 mod tests {
     use super::*;
 
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
     #[test]
     fn test_lock_unlock() {
         use crate::dryocstream::Key;
@@ -1467,6 +1471,10 @@ mod tests {
         assert_eq!(unlocked_key.as_slice(), key_clone.as_slice());
     }
 
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
     #[test]
     fn test_protect_unprotect() {
         use crate::dryocstream::Key;
@@ -1512,6 +1520,10 @@ mod tests {
         assert_eq!(_page_round(usize::MAX, pagesize), None);
     }
 
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
     #[test]
     fn test_mprotect_handles_single_byte_slice() {
         let mut vec: Vec<u8, _> = Vec::new_in(PageAlignedAllocator);
@@ -1525,6 +1537,10 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
     #[test]
     fn test_mprotect_noaccess_covers_page_boundary_tail() {
         let pagesize = *PAGESIZE;
