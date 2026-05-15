@@ -370,6 +370,14 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     let _pad0 = [0u8; 16];
 
+    if ciphertext.len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
+        return Err(dryoc_error!(format!(
+            "Ciphertext length was {}, should be at least {}",
+            ciphertext.len(),
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        )));
+    }
+
     if message.len() < ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
         return Err(dryoc_error!(format!(
             "Message length was {}, should be at least {}",

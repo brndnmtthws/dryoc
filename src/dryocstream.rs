@@ -313,6 +313,14 @@ impl DryocStream<Pull> {
         associated_data: Option<&Input>,
     ) -> Result<(Output, Tag), Error> {
         use crate::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+        if ciphertext.as_slice().len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
+            return Err(dryoc_error!(format!(
+                "Ciphertext length was {}, should be at least {}",
+                ciphertext.as_slice().len(),
+                CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+            )));
+        }
+
         let mut message = Output::default();
         message.resize(
             ciphertext.as_slice().len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
