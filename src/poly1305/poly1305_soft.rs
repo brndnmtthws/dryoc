@@ -235,10 +235,8 @@ impl Poly1305 {
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
-    use rand::TryRng;
-
     use super::*;
 
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
@@ -258,10 +256,14 @@ mod tests {
         mac.update(text);
         let mac = mac.finalize_to_array();
 
-        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
-        let so_key = SOKey::from_slice(&key).expect("key");
-        let so_mac = authenticate(text, &so_key);
-        assert_eq!(mac, so_mac.as_ref());
+        #[cfg(dryoc_native_tests)]
+        {
+            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
+
+            let so_key = SOKey::from_slice(&key).expect("key");
+            let so_mac = authenticate(text, &so_key);
+            assert_eq!(mac, so_mac.as_ref());
+        }
         assert_eq!(
             mac,
             [
@@ -366,8 +368,10 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_libsodium() {
+        use rand::TryRng;
         use rand::rngs::SysRng;
         use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
@@ -408,6 +412,7 @@ mod tests {
         });
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     fn bench_sodiumoxide_poly1305(b: &mut test::Bencher, len: usize) {
         use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
@@ -454,24 +459,28 @@ mod tests {
         bench_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_64b_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_1k_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_16k_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_1m_bench(b: &mut test::Bencher) {

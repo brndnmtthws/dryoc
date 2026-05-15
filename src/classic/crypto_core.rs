@@ -312,13 +312,14 @@ pub fn crypto_core_hsalsa20(
     output[28..32].copy_from_slice(&x9.to_le_bytes());
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::classic::crypto_box::*;
     use crate::classic::crypto_sign::crypto_sign_keypair;
     use crate::keypair::{KeyPair, PublicKey, SecretKey};
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_scalarmult_base() {
         use base64::Engine as _;
@@ -342,6 +343,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_scalarmult() {
         use base64::Engine as _;
@@ -368,6 +370,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_core_hchacha20() {
         use base64::Engine as _;
@@ -402,6 +405,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_core_hsalsa20() {
         use base64::Engine as _;

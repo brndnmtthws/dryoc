@@ -462,7 +462,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     Ok(mlen)
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::dryocstream::Tag;
@@ -500,6 +500,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_secretstream_basic_push() {
         use base64::Engine as _;
@@ -642,6 +643,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_rekey() {
         use base64::Engine as _;
@@ -683,6 +685,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_secretstream_lots_of_messages_push() {
         use base64::Engine as _;
@@ -806,6 +809,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_secretstream_basic_pull() {
         use base64::Engine as _;
@@ -878,6 +882,7 @@ mod tests {
         assert_eq!(tag, 0);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_secretstream_lots_of_messages_pull() {
         use base64::Engine as _;

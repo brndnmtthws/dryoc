@@ -55,10 +55,8 @@ pub(crate) fn pad16(n: usize) -> usize {
     (0x10 - (n % 16)) & 0xf
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
-    use rand::TryRng;
-
     use super::*;
 
     #[test]
@@ -120,9 +118,11 @@ mod tests {
         assert_eq!([1, 0, 0], a);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_sodium_increment() {
         use libsodium_sys::sodium_increment as so_sodium_increment;
+        use rand::TryRng;
         use rand::rngs::SysRng;
 
         use crate::rng::copy_randombytes;

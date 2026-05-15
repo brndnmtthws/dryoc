@@ -197,7 +197,7 @@ pub fn crypto_sign_final_verify(
     crypto_sign_ed25519ph_final_verify(state.state, signature, public_key)
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

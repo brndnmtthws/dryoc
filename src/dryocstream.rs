@@ -349,7 +349,7 @@ impl DryocStream<Pull> {
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

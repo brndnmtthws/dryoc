@@ -645,7 +645,7 @@ fn store_block(output: &mut [u8], block: &Block) {
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     #[cfg(feature = "nightly")]
     extern crate test;
@@ -746,6 +746,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     unsafe extern "C" {
         fn argon2_hash(
             t_cost: u32,
@@ -795,6 +796,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_vector_argon2id_so() {
         let password = [1u8; 32];

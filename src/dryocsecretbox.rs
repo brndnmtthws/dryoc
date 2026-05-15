@@ -397,10 +397,11 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_dryocbox() {
         for i in 0..20 {
@@ -451,6 +452,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_dryocbox_vec() {
         for i in 0..20 {
@@ -538,6 +540,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
     #[cfg(feature = "nightly")]
     #[test]

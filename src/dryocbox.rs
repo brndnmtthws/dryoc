@@ -733,11 +733,12 @@ impl<
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::precalc::PrecalcSecretKey;
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_dryocbox_vecbox() {
         for i in 0..20 {
@@ -799,6 +800,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_decrypt_failure() {
         for i in 0..20 {
@@ -911,6 +913,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_dryocbox_seal_vecbox() {
         for i in 0..20 {
@@ -940,6 +943,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_dryocbox_unseal_vecbox() {
         for i in 0..20 {

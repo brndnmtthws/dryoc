@@ -121,7 +121,7 @@ pub fn crypto_generichash_keygen() -> [u8; CRYPTO_GENERICHASH_KEYBYTES] {
     key
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use rand::TryRng;
 

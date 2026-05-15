@@ -394,16 +394,18 @@ pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     #[cfg(feature = "nightly")]
     extern crate test;
     use lazy_static::lazy_static;
+    #[cfg(dryoc_native_tests)]
     use libc::*;
     use serde::{Deserialize, Serialize};
 
     use super::*;
 
+    #[cfg(dryoc_native_tests)]
     #[repr(C)]
     #[derive(Debug)]
     struct B2state {
@@ -415,6 +417,7 @@ mod tests {
         last_node: u8,
     }
 
+    #[cfg(dryoc_native_tests)]
     unsafe extern "C" {
         fn blake2b_init(S: *mut B2state, outlen: c_uchar);
         fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
@@ -471,6 +474,7 @@ mod tests {
         });
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_b2() {
         use crate::rng::copy_randombytes;
@@ -511,6 +515,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_b2_key() {
         use crate::rng::copy_randombytes;
@@ -551,6 +556,7 @@ mod tests {
         assert_eq!(output, so_output);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_blake2b_long() {
         use crate::rng::copy_randombytes;
@@ -576,6 +582,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_blake2b_long_rand_length() {
         use rand::TryRng;

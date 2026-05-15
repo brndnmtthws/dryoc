@@ -350,7 +350,7 @@ impl DerefMut for U130<Unreduced> {
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     use num_bigint::BigUint;
 

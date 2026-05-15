@@ -463,11 +463,12 @@ pub fn crypto_box_open_easy_inplace(
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::rng::*;
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_box_easy() {
         for i in 0..20 {
@@ -525,6 +526,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_box_easy_inplace() {
         for i in 0..20 {
@@ -624,6 +626,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_box_seed_keypair() {
         use base64::Engine as _;
@@ -647,6 +650,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_box_seal() {
         for i in 0..20 {
@@ -675,6 +679,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_box_seal_open() {
         for i in 0..20 {

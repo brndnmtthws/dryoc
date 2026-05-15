@@ -399,7 +399,7 @@ impl<
     }
 }
 
-#[cfg(all(test, not(all(target_arch = "wasm32", target_os = "unknown"))))]
+#[cfg(test)]
 mod tests {
 
     use super::*;
@@ -434,6 +434,7 @@ mod tests {
         assert!(all_eq(&keypair.secret_key, 0));
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_gen_keypair() {
         use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
