@@ -41,10 +41,10 @@ Benchmark: hash a 694,200-byte buffer and produce a 64-byte output.
 
 | Implementation | Feature set | Time | Relative |
 | --- | --- | ---: | ---: |
-| Software | `nightly` | `795,501.04 ns/iter` | `1.00x` |
-| Portable SIMD | `simd_backend,nightly` | `612,945.90 ns/iter` | `1.30x faster` |
+| Software | `nightly` | `781,221.36 ns/iter` | `1.00x` |
+| Portable SIMD | `simd_backend,nightly` | `592,678.12 ns/iter` | `1.32x faster` |
 
-The portable SIMD backend is about 29.8% faster than the software backend for
+The portable SIMD backend is about 31.8% faster than the software backend for
 this workload on this machine.
 
 ## One-Time Authentication: Poly1305
