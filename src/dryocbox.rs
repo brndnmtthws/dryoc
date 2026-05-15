@@ -19,8 +19,8 @@
 //!
 //! If the `serde` feature is enabled, the [`serde::Deserialize`] and
 //! [`serde::Serialize`] traits will be implemented for [`DryocBox`]. If the
-//! `wincode` feature is enabled, the [`wincode::SchemaRead`] and
-//! [`wincode::SchemaWrite`] traits will be implemented.
+//! `wincode` feature is enabled, the `wincode::SchemaRead` and
+//! `wincode::SchemaWrite` traits will be implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -195,7 +195,6 @@ pub mod protected {
     feature = "serde",
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
-#[cfg_attr(feature = "wincode", derive(wincode::SchemaWrite, wincode::SchemaRead))]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A libsodium public-key authenticated encrypted box.
 ///
@@ -212,6 +211,57 @@ pub struct DryocBox<
 
 /// [Vec]-based authenticated public-key box.
 pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
+
+#[cfg(feature = "wincode")]
+unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
+    type Src = Self;
+
+    fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
+        Ok(
+            <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaWrite<C>>::size_of(
+                &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
+            )? + <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaWrite<C>>::size_of(
+                src.tag.as_array(),
+            )? + <Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?,
+        )
+    }
+
+    fn write(mut writer: impl wincode::io::Writer, src: &Self::Src) -> wincode::WriteResult<()> {
+        <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaWrite<C>>::write(
+            writer.by_ref(),
+            &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
+        )?;
+        <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaWrite<C>>::write(
+            writer.by_ref(),
+            src.tag.as_array(),
+        )?;
+        <Vec<u8> as wincode::SchemaWrite<C>>::write(writer, &src.data)
+    }
+}
+
+#[cfg(feature = "wincode")]
+unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for VecBox {
+    type Dst = Self;
+
+    fn read(
+        mut reader: impl wincode::io::Reader<'de>,
+        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+    ) -> wincode::ReadResult<()> {
+        let ephemeral_pk = <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaRead<
+            'de,
+            C,
+        >>::get(reader.by_ref())?
+        .map(Into::into);
+        let tag = <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
+        let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader)?;
+        dst.write(Self {
+            ephemeral_pk,
+            tag: tag.into(),
+            data,
+        });
+        Ok(())
+    }
+}
 
 impl<
     EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,

@@ -104,7 +104,7 @@
 //!
 //! This crate includes optional [wincode](https://crates.io/crates/wincode)
 //! support which can be enabled with the `wincode` feature flag. When enabled,
-//! [`wincode::SchemaWrite`] and [`wincode::SchemaRead`] are provided for
+//! `wincode::SchemaWrite` and `wincode::SchemaRead` are provided for
 //! supported Rustaceous box types, including [`DryocBox`](dryocbox::DryocBox)
 //! and [`DryocSecretBox`](dryocsecretbox::DryocSecretBox).
 //!

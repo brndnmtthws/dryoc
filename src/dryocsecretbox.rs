@@ -16,8 +16,8 @@
 //!
 //! If the `serde` feature is enabled, the [`serde::Deserialize`] and
 //! [`serde::Serialize`] traits will be implemented for [`DryocSecretBox`]. If
-//! the `wincode` feature is enabled, the [`wincode::SchemaRead`] and
-//! [`wincode::SchemaWrite`] traits will be implemented.
+//! the `wincode` feature is enabled, the `wincode::SchemaRead` and
+//! `wincode::SchemaWrite` traits will be implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -130,7 +130,6 @@ pub mod protected {
     feature = "serde",
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
-#[cfg_attr(feature = "wincode", derive(wincode::SchemaWrite, wincode::SchemaRead))]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// An authenticated secret-key encrypted box, compatible with a libsodium box.
 /// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
@@ -146,6 +145,46 @@ pub struct DryocSecretBox<
 
 /// [Vec]-based authenticated secret box.
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
+
+#[cfg(feature = "wincode")]
+unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
+    type Src = Self;
+
+    fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
+        Ok(
+            <[u8; CRYPTO_SECRETBOX_MACBYTES] as wincode::SchemaWrite<C>>::size_of(
+                src.tag.as_array(),
+            )? + <Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?,
+        )
+    }
+
+    fn write(mut writer: impl wincode::io::Writer, src: &Self::Src) -> wincode::WriteResult<()> {
+        <[u8; CRYPTO_SECRETBOX_MACBYTES] as wincode::SchemaWrite<C>>::write(
+            writer.by_ref(),
+            src.tag.as_array(),
+        )?;
+        <Vec<u8> as wincode::SchemaWrite<C>>::write(writer, &src.data)
+    }
+}
+
+#[cfg(feature = "wincode")]
+unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for VecBox {
+    type Dst = Self;
+
+    fn read(
+        mut reader: impl wincode::io::Reader<'de>,
+        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+    ) -> wincode::ReadResult<()> {
+        let tag =
+            <[u8; CRYPTO_SECRETBOX_MACBYTES] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
+        let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader)?;
+        dst.write(Self {
+            tag: tag.into(),
+            data,
+        });
+        Ok(())
+    }
+}
 
 impl<
     Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
