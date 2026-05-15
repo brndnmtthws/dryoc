@@ -16,7 +16,7 @@ fn pad_partial_block(buffer: &[u8]) -> [u8; BLOCK_SIZE] {
     block
 }
 
-#[cfg(all(test, feature = "nightly"))]
+#[cfg(all(test, feature = "nightly", not(tarpaulin)))]
 mod bench_inputs {
     pub(super) const BYTES_64: usize = 64;
     pub(super) const KIB_1: usize = 1024;

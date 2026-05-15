@@ -241,7 +241,7 @@ mod tests {
 
     use super::*;
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     extern crate test;
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     fn bench_poly1305(b: &mut test::Bencher, len: usize) {
         use crate::rng::copy_randombytes;
 
@@ -408,7 +408,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     fn bench_sodiumoxide_poly1305(b: &mut test::Bencher, len: usize) {
         use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
@@ -430,49 +430,49 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn poly1305_64b_bench(b: &mut test::Bencher) {
         bench_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn poly1305_1k_bench(b: &mut test::Bencher) {
         bench_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn poly1305_16k_bench(b: &mut test::Bencher) {
         bench_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn poly1305_1m_bench(b: &mut test::Bencher) {
         bench_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_64b_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_1k_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_16k_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", not(tarpaulin)))]
     #[bench]
     fn sodiumoxide_poly1305_1m_bench(b: &mut test::Bencher) {
         bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
