@@ -434,28 +434,6 @@ mod tests {
         assert!(all_eq(&keypair.secret_key, 0));
     }
 
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_gen_keypair() {
-        use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
-
-        use crate::classic::crypto_core::crypto_scalarmult_base;
-
-        let keypair = KeyPair::<
-            StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-            StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::generate();
-
-        let mut public_key = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
-        crypto_scalarmult_base(&mut public_key, keypair.secret_key.as_array());
-
-        assert_eq!(keypair.public_key.as_array(), &public_key);
-
-        let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key).unwrap());
-
-        assert_eq!(ge.as_ref(), public_key);
-    }
-
     #[test]
     fn test_from_secret_key() {
         let keypair_1 = KeyPair::<
@@ -605,5 +583,31 @@ mod tests {
             !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&identity_pk),
             "Identity element (small order point) should be invalid even with relaxed validation"
         );
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+
+        #[test]
+        fn test_gen_keypair() {
+            use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
+
+            use crate::classic::crypto_core::crypto_scalarmult_base;
+
+            let keypair = KeyPair::<
+                StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+                StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+            >::generate();
+
+            let mut public_key = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
+            crypto_scalarmult_base(&mut public_key, keypair.secret_key.as_array());
+
+            assert_eq!(keypair.public_key.as_array(), &public_key);
+
+            let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key).unwrap());
+
+            assert_eq!(ge.as_ref(), public_key);
+        }
     }
 }

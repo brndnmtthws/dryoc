@@ -746,24 +746,6 @@ mod tests {
         );
     }
 
-    #[cfg(dryoc_native_tests)]
-    unsafe extern "C" {
-        fn argon2_hash(
-            t_cost: u32,
-            m_cost: u32,
-            parallelism: u32,
-            pwd: *const u8,
-            pwdlen: usize,
-            salt: *const u8,
-            saltlen: usize,
-            hash: *mut u8,
-            hashlen: usize,
-            encoded: *mut u8,
-            encodedlen: usize,
-            type_: i32,
-        ) -> i32;
-    }
-
     #[test]
     fn test_vector_argon2id() {
         let password = [1u8; 32];
@@ -796,56 +778,6 @@ mod tests {
         );
     }
 
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_vector_argon2id_so() {
-        let password = [1u8; 32];
-        let salt = [2u8; 16];
-
-        let mut hash = [0u8; 32];
-        let mut so_hash = [0u8; 32];
-
-        super::argon2_hash(
-            3,
-            32,
-            4,
-            &password,
-            &salt,
-            None,
-            None,
-            &mut hash,
-            Argon2Type::Argon2id,
-        )
-        .expect("argon2_hash failed");
-
-        unsafe {
-            argon2_hash(
-                3,
-                32,
-                4,
-                password.as_ptr(),
-                password.len(),
-                salt.as_ptr(),
-                salt.len(),
-                so_hash.as_mut_ptr(),
-                so_hash.len(),
-                std::ptr::null_mut(),
-                0,
-                Argon2Type::Argon2id as i32,
-            );
-        }
-
-        assert_eq!(hash, so_hash);
-
-        assert_eq!(
-            hash,
-            [
-                3, 170, 185, 101, 193, 32, 1, 201, 215, 208, 210, 222, 51, 25, 44, 4, 148, 182,
-                132, 187, 20, 129, 150, 215, 60, 29, 241, 172, 175, 109, 12, 46
-            ]
-        );
-    }
-
     #[cfg(feature = "nightly")]
     #[bench]
     fn argon2id_64kib_bench(b: &mut test::Bencher) {
@@ -856,5 +788,76 @@ mod tests {
     #[bench]
     fn argon2id_1mib_bench(b: &mut test::Bencher) {
         bench_argon2id(b, 2, 1024);
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+
+        unsafe extern "C" {
+            fn argon2_hash(
+                t_cost: u32,
+                m_cost: u32,
+                parallelism: u32,
+                pwd: *const u8,
+                pwdlen: usize,
+                salt: *const u8,
+                saltlen: usize,
+                hash: *mut u8,
+                hashlen: usize,
+                encoded: *mut u8,
+                encodedlen: usize,
+                type_: i32,
+            ) -> i32;
+        }
+
+        #[test]
+        fn test_vector_argon2id_so() {
+            let password = [1u8; 32];
+            let salt = [2u8; 16];
+
+            let mut hash = [0u8; 32];
+            let mut so_hash = [0u8; 32];
+
+            super::argon2_hash(
+                3,
+                32,
+                4,
+                &password,
+                &salt,
+                None,
+                None,
+                &mut hash,
+                Argon2Type::Argon2id,
+            )
+            .expect("argon2_hash failed");
+
+            unsafe {
+                argon2_hash(
+                    3,
+                    32,
+                    4,
+                    password.as_ptr(),
+                    password.len(),
+                    salt.as_ptr(),
+                    salt.len(),
+                    so_hash.as_mut_ptr(),
+                    so_hash.len(),
+                    std::ptr::null_mut(),
+                    0,
+                    Argon2Type::Argon2id as i32,
+                );
+            }
+
+            assert_eq!(hash, so_hash);
+
+            assert_eq!(
+                hash,
+                [
+                    3, 170, 185, 101, 193, 32, 1, 201, 215, 208, 210, 222, 51, 25, 44, 4, 148, 182,
+                    132, 187, 20, 129, 150, 215, 60, 29, 241, 172, 175, 109, 12, 46
+                ]
+            );
+        }
     }
 }

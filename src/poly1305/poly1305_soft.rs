@@ -256,14 +256,6 @@ mod tests {
         mac.update(text);
         let mac = mac.finalize_to_array();
 
-        #[cfg(dryoc_native_tests)]
-        {
-            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
-
-            let so_key = SOKey::from_slice(&key).expect("key");
-            let so_mac = authenticate(text, &so_key);
-            assert_eq!(mac, so_mac.as_ref());
-        }
         assert_eq!(
             mac,
             [
@@ -368,34 +360,6 @@ mod tests {
         );
     }
 
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_libsodium() {
-        use rand::TryRng;
-        use rand::rngs::SysRng;
-        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
-
-        use crate::rng::copy_randombytes;
-
-        let key = Key::generate();
-
-        let so_key = SOKey::from_slice(&key).unwrap();
-
-        for _ in 0..20 {
-            let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
-            let mut data = vec![0u8; rand_usize];
-            copy_randombytes(&mut data);
-
-            let mut mac = Poly1305::new(&key);
-            mac.update(&data);
-            let mac = mac.finalize_to_array();
-
-            let so_mac = authenticate(&data, &so_key);
-
-            assert_eq!(mac, so_mac.as_ref());
-        }
-    }
-
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     fn bench_poly1305(b: &mut test::Bencher, len: usize) {
         use crate::rng::copy_randombytes;
@@ -409,29 +373,6 @@ mod tests {
             let mut mac = Poly1305::new(test::black_box(&key));
             mac.update(test::black_box(&input));
             test::black_box(mac.finalize_to_array());
-        });
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[cfg(all(feature = "nightly", not(tarpaulin)))]
-    fn bench_sodiumoxide_poly1305(b: &mut test::Bencher, len: usize) {
-        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
-
-        use crate::rng::copy_randombytes;
-
-        sodiumoxide::init().expect("sodiumoxide init");
-
-        let key = Key::r#gen();
-        let so_key = SOKey::from_slice(&key).expect("key");
-        let mut input = vec![0u8; len];
-        copy_randombytes(&mut input);
-        b.bytes = len as u64;
-
-        b.iter(|| {
-            let _ = test::black_box(authenticate(
-                test::black_box(&input),
-                test::black_box(&so_key),
-            ));
         });
     }
 
@@ -460,30 +401,80 @@ mod tests {
     }
 
     #[cfg(dryoc_native_tests)]
-    #[cfg(all(feature = "nightly", not(tarpaulin)))]
-    #[bench]
-    fn sodiumoxide_poly1305_64b_bench(b: &mut test::Bencher) {
-        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
-    }
+    mod native_tests {
+        use super::*;
 
-    #[cfg(dryoc_native_tests)]
-    #[cfg(all(feature = "nightly", not(tarpaulin)))]
-    #[bench]
-    fn sodiumoxide_poly1305_1k_bench(b: &mut test::Bencher) {
-        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
-    }
+        #[test]
+        fn test_libsodium() {
+            use rand::TryRng;
+            use rand::rngs::SysRng;
+            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
-    #[cfg(dryoc_native_tests)]
-    #[cfg(all(feature = "nightly", not(tarpaulin)))]
-    #[bench]
-    fn sodiumoxide_poly1305_16k_bench(b: &mut test::Bencher) {
-        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
-    }
+            use crate::rng::copy_randombytes;
 
-    #[cfg(dryoc_native_tests)]
-    #[cfg(all(feature = "nightly", not(tarpaulin)))]
-    #[bench]
-    fn sodiumoxide_poly1305_1m_bench(b: &mut test::Bencher) {
-        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
+            let key = Key::generate();
+
+            let so_key = SOKey::from_slice(&key).unwrap();
+
+            for _ in 0..20 {
+                let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
+                let mut data = vec![0u8; rand_usize];
+                copy_randombytes(&mut data);
+
+                let mut mac = Poly1305::new(&key);
+                mac.update(&data);
+                let mac = mac.finalize_to_array();
+
+                let so_mac = authenticate(&data, &so_key);
+
+                assert_eq!(mac, so_mac.as_ref());
+            }
+        }
+
+        #[cfg(all(feature = "nightly", not(tarpaulin)))]
+        fn bench_sodiumoxide_poly1305(b: &mut test::Bencher, len: usize) {
+            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
+
+            use crate::rng::copy_randombytes;
+
+            sodiumoxide::init().expect("sodiumoxide init");
+
+            let key = Key::r#gen();
+            let so_key = SOKey::from_slice(&key).expect("key");
+            let mut input = vec![0u8; len];
+            copy_randombytes(&mut input);
+            b.bytes = len as u64;
+
+            b.iter(|| {
+                let _ = test::black_box(authenticate(
+                    test::black_box(&input),
+                    test::black_box(&so_key),
+                ));
+            });
+        }
+
+        #[cfg(all(feature = "nightly", not(tarpaulin)))]
+        #[bench]
+        fn sodiumoxide_poly1305_64b_bench(b: &mut test::Bencher) {
+            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
+        }
+
+        #[cfg(all(feature = "nightly", not(tarpaulin)))]
+        #[bench]
+        fn sodiumoxide_poly1305_1k_bench(b: &mut test::Bencher) {
+            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
+        }
+
+        #[cfg(all(feature = "nightly", not(tarpaulin)))]
+        #[bench]
+        fn sodiumoxide_poly1305_16k_bench(b: &mut test::Bencher) {
+            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
+        }
+
+        #[cfg(all(feature = "nightly", not(tarpaulin)))]
+        #[bench]
+        fn sodiumoxide_poly1305_1m_bench(b: &mut test::Bencher) {
+            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
+        }
     }
 }

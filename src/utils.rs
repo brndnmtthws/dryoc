@@ -118,30 +118,6 @@ mod tests {
         assert_eq!([1, 0, 0], a);
     }
 
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_sodium_increment() {
-        use libsodium_sys::sodium_increment as so_sodium_increment;
-        use rand::TryRng;
-        use rand::rngs::SysRng;
-
-        use crate::rng::copy_randombytes;
-
-        for _ in 0..20 {
-            let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
-            let mut data = vec![0u8; rand_usize];
-            copy_randombytes(&mut data);
-
-            let mut data_copy = data.clone();
-
-            sodium_increment(&mut data);
-
-            unsafe { so_sodium_increment(data_copy.as_mut_ptr(), data_copy.len()) };
-
-            assert_eq!(data, data_copy);
-        }
-    }
-
     #[test]
     fn test_pad16() {
         assert_eq!(pad16(0), 0);
@@ -152,5 +128,33 @@ mod tests {
         assert_eq!(pad16(17), 15);
         assert_eq!(pad16(32), 0);
         assert_eq!(pad16(33), 15);
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+
+        #[test]
+        fn test_sodium_increment() {
+            use libsodium_sys::sodium_increment as so_sodium_increment;
+            use rand::TryRng;
+            use rand::rngs::SysRng;
+
+            use crate::rng::copy_randombytes;
+
+            for _ in 0..20 {
+                let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
+                let mut data = vec![0u8; rand_usize];
+                copy_randombytes(&mut data);
+
+                let mut data_copy = data.clone();
+
+                sodium_increment(&mut data);
+
+                unsafe { so_sodium_increment(data_copy.as_mut_ptr(), data_copy.len()) };
+
+                assert_eq!(data, data_copy);
+            }
+        }
     }
 }

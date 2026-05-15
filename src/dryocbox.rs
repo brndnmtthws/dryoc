@@ -738,130 +738,6 @@ mod tests {
     use super::*;
     use crate::precalc::PrecalcSecretKey;
 
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_dryocbox_vecbox() {
-        for i in 0..20 {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
-            use sodiumoxide::crypto::box_;
-            use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
-
-            let keypair_sender = KeyPair::generate();
-            let keypair_recipient = KeyPair::generate();
-            let keypair_sender_copy = keypair_sender.clone();
-            let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = Nonce::generate();
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ");
-            let message_copy = message.clone();
-            let dryocbox = DryocBox::encrypt_to_vecbox(
-                message.as_bytes(),
-                &nonce,
-                &keypair_recipient.public_key,
-                &keypair_sender.secret_key,
-            )
-            .unwrap();
-
-            let ciphertext = dryocbox.to_vec();
-
-            let so_ciphertext = box_::seal(
-                message_copy.as_bytes(),
-                &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
-            );
-
-            assert_eq!(
-                general_purpose::STANDARD.encode(&ciphertext),
-                general_purpose::STANDARD.encode(&so_ciphertext)
-            );
-
-            let keypair_sender = keypair_sender_copy.clone();
-            let keypair_recipient = keypair_recipient_copy.clone();
-
-            let m = dryocbox
-                .decrypt_to_vec(
-                    &nonce,
-                    &keypair_sender.public_key,
-                    &keypair_recipient.secret_key,
-                )
-                .expect("hmm");
-            let so_m = box_::open(
-                &ciphertext,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &PublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
-                &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
-            )
-            .expect("HMMM");
-
-            assert_eq!(m, message_copy.as_bytes());
-            assert_eq!(m, so_m);
-        }
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_decrypt_failure() {
-        for i in 0..20 {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
-            use sodiumoxide::crypto::box_;
-            use sodiumoxide::crypto::box_::{
-                Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
-            };
-
-            let keypair_sender = KeyPair::generate();
-            let keypair_recipient = KeyPair::generate();
-            let keypair_sender_copy = keypair_sender.clone();
-            let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = Nonce::generate();
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ");
-            let message_copy = message.clone();
-            let dryocbox = DryocBox::encrypt_to_vecbox(
-                message.as_bytes(),
-                &nonce,
-                &keypair_recipient.public_key,
-                &keypair_sender.secret_key,
-            )
-            .unwrap();
-
-            let ciphertext = dryocbox.to_vec();
-
-            let so_ciphertext = box_::seal(
-                message_copy.as_bytes(),
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOPublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
-                &SOSecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
-            );
-
-            assert_eq!(
-                general_purpose::STANDARD.encode(&ciphertext),
-                general_purpose::STANDARD.encode(&so_ciphertext)
-            );
-
-            let invalid_key = KeyPair::generate();
-            let invalid_key_copy_1 = invalid_key.clone();
-            let invalid_key_copy_2 = invalid_key.clone();
-
-            DryocBox::decrypt::<Nonce, PublicKey, SecretKey, Vec<u8>>(
-                &dryocbox,
-                &nonce,
-                &invalid_key_copy_1.public_key,
-                &invalid_key_copy_2.secret_key,
-            )
-            .expect_err("hmm");
-            box_::open(
-                &ciphertext,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOPublicKey::from_slice(&invalid_key.public_key).unwrap(),
-                &SOSecretKey::from_slice(&invalid_key.secret_key).unwrap(),
-            )
-            .expect_err("HMMM");
-        }
-    }
-
     #[test]
     fn test_decrypt_failure_empty() {
         for _ in 0..20 {
@@ -910,61 +786,6 @@ mod tests {
                 DryocBox::new_with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
             assert_eq!(dryocbox.data.as_slice(), &data1_copy[CRYPTO_BOX_MACBYTES..]);
             assert_eq!(dryocbox.tag.as_array(), &data1_copy[..CRYPTO_BOX_MACBYTES]);
-        }
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_dryocbox_seal_vecbox() {
-        for i in 0..20 {
-            use sodiumoxide::crypto::box_::{PublicKey as SOPublicKey, SecretKey as SOSecretKey};
-            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
-
-            let keypair_recipient = KeyPair::generate();
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ");
-            let message_copy = message.clone();
-            let dryocbox =
-                DryocBox::seal_to_vecbox(message.as_bytes(), &keypair_recipient.public_key)
-                    .unwrap();
-
-            let ciphertext = dryocbox.to_vec();
-
-            let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
-            let so_m = curve25519blake2bxsalsa20poly1305::open(
-                ciphertext.as_slice(),
-                &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
-                &SOSecretKey::from_slice(keypair_recipient.secret_key.as_slice()).unwrap(),
-            )
-            .unwrap();
-
-            assert_eq!(m, message_copy.as_bytes());
-            assert_eq!(m, so_m);
-        }
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_dryocbox_unseal_vecbox() {
-        for i in 0..20 {
-            use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
-            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
-
-            let keypair_recipient = KeyPair::generate();
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ");
-
-            let ciphertext = curve25519blake2bxsalsa20poly1305::seal(
-                message.as_bytes(),
-                &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
-            );
-
-            let dryocbox =
-                DryocBox::from_sealed_bytes(&ciphertext).expect("from sealed bytes failed");
-
-            let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
-
-            assert_eq!(m, message.as_bytes());
         }
     }
 
@@ -1070,6 +891,188 @@ mod tests {
                 .expect("unable to decrypt");
 
             assert_eq!(*message, decrypted.as_slice());
+        }
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+
+        #[test]
+        fn test_dryocbox_vecbox() {
+            for i in 0..20 {
+                use base64::Engine as _;
+                use base64::engine::general_purpose;
+                use sodiumoxide::crypto::box_;
+                use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+
+                let keypair_sender = KeyPair::generate();
+                let keypair_recipient = KeyPair::generate();
+                let keypair_sender_copy = keypair_sender.clone();
+                let keypair_recipient_copy = keypair_recipient.clone();
+                let nonce = Nonce::generate();
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ");
+                let message_copy = message.clone();
+                let dryocbox = DryocBox::encrypt_to_vecbox(
+                    message.as_bytes(),
+                    &nonce,
+                    &keypair_recipient.public_key,
+                    &keypair_sender.secret_key,
+                )
+                .unwrap();
+
+                let ciphertext = dryocbox.to_vec();
+
+                let so_ciphertext = box_::seal(
+                    message_copy.as_bytes(),
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &PublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
+                    &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
+                );
+
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&ciphertext),
+                    general_purpose::STANDARD.encode(&so_ciphertext)
+                );
+
+                let keypair_sender = keypair_sender_copy.clone();
+                let keypair_recipient = keypair_recipient_copy.clone();
+
+                let m = dryocbox
+                    .decrypt_to_vec(
+                        &nonce,
+                        &keypair_sender.public_key,
+                        &keypair_recipient.secret_key,
+                    )
+                    .expect("hmm");
+                let so_m = box_::open(
+                    &ciphertext,
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &PublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
+                    &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
+                )
+                .expect("HMMM");
+
+                assert_eq!(m, message_copy.as_bytes());
+                assert_eq!(m, so_m);
+            }
+        }
+
+        #[test]
+        fn test_decrypt_failure() {
+            for i in 0..20 {
+                use base64::Engine as _;
+                use base64::engine::general_purpose;
+                use sodiumoxide::crypto::box_;
+                use sodiumoxide::crypto::box_::{
+                    Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
+                };
+
+                let keypair_sender = KeyPair::generate();
+                let keypair_recipient = KeyPair::generate();
+                let keypair_sender_copy = keypair_sender.clone();
+                let keypair_recipient_copy = keypair_recipient.clone();
+                let nonce = Nonce::generate();
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ");
+                let message_copy = message.clone();
+                let dryocbox = DryocBox::encrypt_to_vecbox(
+                    message.as_bytes(),
+                    &nonce,
+                    &keypair_recipient.public_key,
+                    &keypair_sender.secret_key,
+                )
+                .unwrap();
+
+                let ciphertext = dryocbox.to_vec();
+
+                let so_ciphertext = box_::seal(
+                    message_copy.as_bytes(),
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &SOPublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
+                    &SOSecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
+                );
+
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&ciphertext),
+                    general_purpose::STANDARD.encode(&so_ciphertext)
+                );
+
+                let invalid_key = KeyPair::generate();
+                let invalid_key_copy_1 = invalid_key.clone();
+                let invalid_key_copy_2 = invalid_key.clone();
+
+                DryocBox::decrypt::<Nonce, PublicKey, SecretKey, Vec<u8>>(
+                    &dryocbox,
+                    &nonce,
+                    &invalid_key_copy_1.public_key,
+                    &invalid_key_copy_2.secret_key,
+                )
+                .expect_err("hmm");
+                box_::open(
+                    &ciphertext,
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &SOPublicKey::from_slice(&invalid_key.public_key).unwrap(),
+                    &SOSecretKey::from_slice(&invalid_key.secret_key).unwrap(),
+                )
+                .expect_err("HMMM");
+            }
+        }
+
+        #[test]
+        fn test_dryocbox_seal_vecbox() {
+            for i in 0..20 {
+                use sodiumoxide::crypto::box_::{
+                    PublicKey as SOPublicKey, SecretKey as SOSecretKey,
+                };
+                use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+                let keypair_recipient = KeyPair::generate();
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ");
+                let message_copy = message.clone();
+                let dryocbox =
+                    DryocBox::seal_to_vecbox(message.as_bytes(), &keypair_recipient.public_key)
+                        .unwrap();
+
+                let ciphertext = dryocbox.to_vec();
+
+                let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
+                let so_m = curve25519blake2bxsalsa20poly1305::open(
+                    ciphertext.as_slice(),
+                    &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                    &SOSecretKey::from_slice(keypair_recipient.secret_key.as_slice()).unwrap(),
+                )
+                .unwrap();
+
+                assert_eq!(m, message_copy.as_bytes());
+                assert_eq!(m, so_m);
+            }
+        }
+
+        #[test]
+        fn test_dryocbox_unseal_vecbox() {
+            for i in 0..20 {
+                use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
+                use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+                let keypair_recipient = KeyPair::generate();
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ");
+
+                let ciphertext = curve25519blake2bxsalsa20poly1305::seal(
+                    message.as_bytes(),
+                    &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
+                );
+
+                let dryocbox =
+                    DryocBox::from_sealed_bytes(&ciphertext).expect("from sealed bytes failed");
+
+                let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
+
+                assert_eq!(m, message.as_bytes());
+            }
         }
     }
 }

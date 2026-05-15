@@ -319,127 +319,6 @@ mod tests {
     use crate::classic::crypto_sign::crypto_sign_keypair;
     use crate::keypair::{KeyPair, PublicKey, SecretKey};
 
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_crypto_scalarmult_base() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        for _ in 0..20 {
-            use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
-
-            let (pk, sk) = crypto_box_keypair();
-
-            let mut public_key = [0u8; CRYPTO_SCALARMULT_BYTES];
-            crypto_scalarmult_base(&mut public_key, &sk);
-
-            assert_eq!(&pk, &public_key);
-
-            let ge = scalarmult_base(&Scalar::from_slice(&sk).unwrap());
-
-            assert_eq!(
-                general_purpose::STANDARD.encode(ge.as_ref()),
-                general_purpose::STANDARD.encode(public_key)
-            );
-        }
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_crypto_scalarmult() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        for _ in 0..20 {
-            use sodiumoxide::crypto::scalarmult::curve25519::{GroupElement, Scalar, scalarmult};
-
-            let (_our_pk, our_sk) = crypto_box_keypair();
-            let (their_pk, _their_sk) = crypto_box_keypair();
-
-            let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
-            crypto_scalarmult(&mut shared_secret, &our_sk, &their_pk);
-
-            let ge = scalarmult(
-                &Scalar::from_slice(&our_sk).unwrap(),
-                &GroupElement::from_slice(&their_pk).unwrap(),
-            )
-            .expect("scalarmult failed");
-
-            assert_eq!(
-                general_purpose::STANDARD.encode(ge.as_ref()),
-                general_purpose::STANDARD.encode(shared_secret)
-            );
-        }
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_crypto_core_hchacha20() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
-
-        use crate::rng::copy_randombytes;
-
-        for _ in 0..10 {
-            let mut key = [0u8; 32];
-            let mut data = [0u8; 16];
-            copy_randombytes(&mut key);
-            copy_randombytes(&mut data);
-
-            let mut out = [0u8; CRYPTO_CORE_HCHACHA20_OUTPUTBYTES];
-            crypto_core_hchacha20(&mut out, &data, &key, None);
-
-            let mut so_out = [0u8; 32];
-            unsafe {
-                let ret = so_crypto_core_hchacha20(
-                    so_out.as_mut_ptr(),
-                    data.as_ptr(),
-                    key.as_ptr(),
-                    std::ptr::null(),
-                );
-                assert_eq!(ret, 0);
-            }
-            assert_eq!(
-                general_purpose::STANDARD.encode(out),
-                general_purpose::STANDARD.encode(so_out)
-            );
-        }
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_crypto_core_hsalsa20() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libsodium_sys::crypto_core_hsalsa20 as so_crypto_core_hsalsa20;
-
-        use crate::rng::copy_randombytes;
-
-        for _ in 0..10 {
-            let mut key = [0u8; CRYPTO_CORE_HSALSA20_KEYBYTES];
-            let mut data = [0u8; CRYPTO_CORE_HSALSA20_INPUTBYTES];
-            copy_randombytes(&mut key);
-            copy_randombytes(&mut data);
-
-            let mut out = [0u8; CRYPTO_CORE_HSALSA20_OUTPUTBYTES];
-            crypto_core_hsalsa20(&mut out, &data, &key, None);
-
-            let mut so_out = [0u8; 32];
-            unsafe {
-                let ret = so_crypto_core_hsalsa20(
-                    so_out.as_mut_ptr(),
-                    data.as_ptr(),
-                    key.as_ptr(),
-                    std::ptr::null(),
-                );
-                assert_eq!(ret, 0);
-            }
-            assert_eq!(
-                general_purpose::STANDARD.encode(out),
-                general_purpose::STANDARD.encode(so_out)
-            );
-        }
-    }
-
     #[test]
     fn test_crypto_core_ed25519_is_valid_point() {
         // Test with a known valid public key (from one of the crypto_sign test vectors)
@@ -623,5 +502,129 @@ mod tests {
         );
 
         println!("X25519 key validation: Success");
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+
+        #[test]
+        fn test_crypto_scalarmult_base() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            for _ in 0..20 {
+                use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
+
+                let (pk, sk) = crypto_box_keypair();
+
+                let mut public_key = [0u8; CRYPTO_SCALARMULT_BYTES];
+                crypto_scalarmult_base(&mut public_key, &sk);
+
+                assert_eq!(&pk, &public_key);
+
+                let ge = scalarmult_base(&Scalar::from_slice(&sk).unwrap());
+
+                assert_eq!(
+                    general_purpose::STANDARD.encode(ge.as_ref()),
+                    general_purpose::STANDARD.encode(public_key)
+                );
+            }
+        }
+
+        #[test]
+        fn test_crypto_scalarmult() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            for _ in 0..20 {
+                use sodiumoxide::crypto::scalarmult::curve25519::{
+                    GroupElement, Scalar, scalarmult,
+                };
+
+                let (_our_pk, our_sk) = crypto_box_keypair();
+                let (their_pk, _their_sk) = crypto_box_keypair();
+
+                let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+                crypto_scalarmult(&mut shared_secret, &our_sk, &their_pk);
+
+                let ge = scalarmult(
+                    &Scalar::from_slice(&our_sk).unwrap(),
+                    &GroupElement::from_slice(&their_pk).unwrap(),
+                )
+                .expect("scalarmult failed");
+
+                assert_eq!(
+                    general_purpose::STANDARD.encode(ge.as_ref()),
+                    general_purpose::STANDARD.encode(shared_secret)
+                );
+            }
+        }
+
+        #[test]
+        fn test_crypto_core_hchacha20() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
+
+            use crate::rng::copy_randombytes;
+
+            for _ in 0..10 {
+                let mut key = [0u8; 32];
+                let mut data = [0u8; 16];
+                copy_randombytes(&mut key);
+                copy_randombytes(&mut data);
+
+                let mut out = [0u8; CRYPTO_CORE_HCHACHA20_OUTPUTBYTES];
+                crypto_core_hchacha20(&mut out, &data, &key, None);
+
+                let mut so_out = [0u8; 32];
+                unsafe {
+                    let ret = so_crypto_core_hchacha20(
+                        so_out.as_mut_ptr(),
+                        data.as_ptr(),
+                        key.as_ptr(),
+                        std::ptr::null(),
+                    );
+                    assert_eq!(ret, 0);
+                }
+                assert_eq!(
+                    general_purpose::STANDARD.encode(out),
+                    general_purpose::STANDARD.encode(so_out)
+                );
+            }
+        }
+
+        #[test]
+        fn test_crypto_core_hsalsa20() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libsodium_sys::crypto_core_hsalsa20 as so_crypto_core_hsalsa20;
+
+            use crate::rng::copy_randombytes;
+
+            for _ in 0..10 {
+                let mut key = [0u8; CRYPTO_CORE_HSALSA20_KEYBYTES];
+                let mut data = [0u8; CRYPTO_CORE_HSALSA20_INPUTBYTES];
+                copy_randombytes(&mut key);
+                copy_randombytes(&mut data);
+
+                let mut out = [0u8; CRYPTO_CORE_HSALSA20_OUTPUTBYTES];
+                crypto_core_hsalsa20(&mut out, &data, &key, None);
+
+                let mut so_out = [0u8; 32];
+                unsafe {
+                    let ret = so_crypto_core_hsalsa20(
+                        so_out.as_mut_ptr(),
+                        data.as_ptr(),
+                        key.as_ptr(),
+                        std::ptr::null(),
+                    );
+                    assert_eq!(ret, 0);
+                }
+                assert_eq!(
+                    general_purpose::STANDARD.encode(out),
+                    general_purpose::STANDARD.encode(so_out)
+                );
+            }
+        }
     }
 }
