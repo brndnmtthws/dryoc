@@ -99,11 +99,12 @@ for supported Rustaceous box types, including `DryocBox` and
 ## Project status
 
 The following libsodium features are currently implemented, or awaiting
-implementation:
+implementation. This list has been reviewed against
+[libsodium 1.0.22](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE):
 
 * [x] [Public-key cryptography](https://docs.rs/dryoc/latest/dryoc/dryocbox/index.html) (`crypto_box_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography)
 * [x] [Secret-key cryptography](https://docs.rs/dryoc/latest/dryoc/dryocsecretbox/index.html) (`crypto_secretbox_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography)
-* [x] [Point*scalar multiplication](https://docs.rs/dryoc/latest/dryoc/classic/crypto_core/index.html) (`crypto_scalarmult*`) [libsodium link](https://doc.libsodium.org/advanced/scalar_multiplication)
+* [x] [Curve25519 point*scalar multiplication](https://docs.rs/dryoc/latest/dryoc/classic/crypto_core/index.html) (`crypto_scalarmult*`) [libsodium link](https://doc.libsodium.org/advanced/scalar_multiplication)
 * [x] Zeroing memory (`sodium_memzero`) with [zeroize](https://crates.io/crates/zeroize) [libsodium link](https://doc.libsodium.org/memory_management)
 * [x] [Generating random data](https://docs.rs/dryoc/latest/dryoc/rng/index.html) (`randombytes_buf`) [libsodium link](https://doc.libsodium.org/generating_random_data)
 * [x] [Encrypted streams](https://docs.rs/dryoc/latest/dryoc/dryocstream/index.html) (`crypto_secretstream_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/secretstream)
@@ -117,6 +118,7 @@ implementation:
 * [x] [Key exchange](https://docs.rs/dryoc/latest/dryoc/kx/index.html) (`crypto_kx_*`) [libsodium link](https://doc.libsodium.org/key_exchange)
 * [x] [Public-key signatures](https://docs.rs/dryoc/latest/dryoc/sign/index.html) (`crypto_sign_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [x] [Ed25519 to Curve25519](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_*`) [libsodium link](https://doc.libsodium.org/advanced/ed25519-curve25519)
+* [x] [SHA-512 hashing](https://docs.rs/dryoc/latest/dryoc/sha512/index.html) (`crypto_hash_sha512_*`) [libsodium link](https://doc.libsodium.org/hashing/sha-2)
 * [x] [Short-input hashing](https://docs.rs/dryoc/latest/dryoc/classic/crypto_shorthash/index.html) (`crypto_shorthash`) [libsodium link](https://doc.libsodium.org/hashing/short-input_hashing)
 * [x] [Password hashing](https://docs.rs/dryoc/latest/dryoc/pwhash/index.html) (`crypto_pwhash_*`) [libsodium link](https://doc.libsodium.org/password_hashing/default_phf)
 
@@ -124,11 +126,24 @@ The following libsodium features are either incomplete, not exposed as public
 APIs, or not implemented; you may find equivalent functionality in other
 crates:
 
-* Standalone [stream cipher](https://doc.libsodium.org/advanced/stream_ciphers) APIs (use the [salsa20](https://crates.io/crates/salsa20) crate directly instead)
-* [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
-* [Advanced features](https://doc.libsodium.org/advanced):
-  * [Scrypt](https://doc.libsodium.org/advanced/scrypt) (use [scrypt](https://crates.io/crates/scrypt) crate directly instead)
-  * [Finite field arithmetic](https://doc.libsodium.org/advanced/point-arithmetic) (try the [curve25519-dalek](https://crates.io/crates/curve25519-dalek) crate)
+* [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) (`crypto_aead_*`), including AEGIS-128L/256, AES256-GCM, ChaCha20-Poly1305, and XChaCha20-Poly1305
+* [ ] XChaCha20-Poly1305 box and secretbox variants (`crypto_box_curve25519xchacha20poly1305_*`, `crypto_secretbox_xchacha20poly1305_*`)
+* [ ] HKDF key derivation variants (`crypto_kdf_hkdf_sha256_*`, `crypto_kdf_hkdf_sha512_*`)
+* [ ] SHA-2/SHA-3 hash variants beyond SHA-512 (`crypto_hash_sha256_*`, `crypto_hash_sha3256_*`, `crypto_hash_sha3512_*`)
+* [ ] Extendable-output functions (`crypto_xof_shake*`, `crypto_xof_turboshake*`), added in libsodium 1.0.21
+* [ ] [Key encapsulation](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE) (`crypto_kem_*`, `crypto_kem_mlkem768_*`, `crypto_kem_xwing_*`), added in libsodium 1.0.22
+* [ ] Direct HMAC authentication variants (`crypto_auth_hmacsha256_*`, `crypto_auth_hmacsha512_*`, `crypto_auth_hmacsha512256_*`)
+* [ ] Signature secret-key extraction helpers (`crypto_sign_ed25519_sk_to_seed`, `crypto_sign_ed25519_sk_to_pk`)
+* [ ] Deterministic random data for reproducible tests (`randombytes_buf_deterministic`)
+* [ ] Short-input hash variants beyond SipHash-2-4 with 64-bit output (`crypto_shorthash_siphashx24_*`)
+* [ ] [IP address encryption](https://doc.libsodium.org/secret-key_cryptography/ip_address_encryption) (`crypto_ipcrypt_*`, `sodium_ip2bin`, `sodium_bin2ip`), added in libsodium 1.0.21
+* [ ] [Helpers](https://doc.libsodium.org/helpers), [padding](https://doc.libsodium.org/padding), and constant-time verify utilities (`sodium_*`, `crypto_verify_*`)
+* [ ] Standalone [stream cipher](https://doc.libsodium.org/advanced/stream_ciphers) APIs (`crypto_stream_*`; use the [salsa20](https://crates.io/crates/salsa20) or [chacha20](https://crates.io/crates/chacha20) crates directly instead)
+* [ ] [Advanced features](https://doc.libsodium.org/advanced):
+  * [ ] Keccak-f[1600] core permutation (`crypto_core_keccak1600_*`)
+  * [ ] [Scrypt](https://doc.libsodium.org/advanced/scrypt) (`crypto_pwhash_scryptsalsa208sha256_*`; use the [scrypt](https://crates.io/crates/scrypt) crate directly instead)
+  * [ ] [Finite field and group arithmetic](https://doc.libsodium.org/advanced/point-arithmetic) (`crypto_core_ed25519_*`, `crypto_core_ristretto255_*`; try the [curve25519-dalek](https://crates.io/crates/curve25519-dalek) crate)
+  * [ ] Ed25519 and Ristretto255 scalar multiplication variants (`crypto_scalarmult_ed25519_*`, `crypto_scalarmult_ristretto255_*`)
 
 ## Stargazers over time
 
