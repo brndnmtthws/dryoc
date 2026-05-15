@@ -44,6 +44,7 @@ For example usage, refer to the
 * Many libsodium features implemented with both Classic and Rustaceous API
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
+* [wincode](https://crates.io/crates/wincode) support for direct binary serialization of Rustaceous box types (with `features = ["wincode"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Blake2b (used by generic hashing, password hashing, and key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
 * SIMD backend for Curve25519 (used by public/private key functions) on nightly with `features = ["simd_backend", "nightly"]`
 * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
@@ -59,6 +60,17 @@ _Note that eventually this project will converge on portable SIMD implementation
 for all the core algos which will work across all platforms supported by LLVM,
 rather than relying on hand-coded assembly or intrinsics, but this is a work in
 progress_.
+
+## Optional serialization
+
+Enable `serde` to derive [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
+and [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
+for supported data structures.
+
+Enable `wincode` to derive [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
+and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
+for supported Rustaceous box types, including `DryocBox` and
+`DryocSecretBox`.
 
 ## Project status
 

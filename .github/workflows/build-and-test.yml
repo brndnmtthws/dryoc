@@ -25,6 +25,7 @@ jobs:
         features:
           - serde
           - base64
+          - wincode
           - simd_backend
           - default
         os:
