@@ -21,8 +21,11 @@
 //! own crypto", as it often results in avoidable mistakes. In the context of
 //! cryptography, mistakes can be very costly.
 //!
-//! The minimum supported Rust version (MSRV) for this crate is **Rust 1.51** or
-//! newer.
+//! This crate uses the Rust 2024 edition. The minimum supported Rust version
+//! (MSRV) is **Rust 1.89** or newer.
+//!
+//! Rust 2024 reserves `gen` as a keyword, so generation APIs are called with
+//! raw identifier syntax such as `Key::r#gen()`.
 //!
 //! ## Features
 //!
@@ -55,7 +58,7 @@
 //! _Note that eventually this project will converge on portable SIMD
 //! implementations for all the core algos which will work across all platforms
 //! supported by LLVM, rather than relying on hand-coded assembly or intrinsics,
-//! but his is a work in progress_.
+//! but this is a work in progress_.
 //!
 //! ## APIs
 //!

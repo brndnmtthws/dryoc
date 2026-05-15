@@ -16,12 +16,16 @@ than convenience refactors.
 
 ## Toolchain And Features
 
-- The crate uses Rust 2021. `Cargo.toml` declares `rust-version = "1.56"`;
+- The crate uses Rust 2024. `Cargo.toml` declares `rust-version = "1.89"`;
   avoid newer language features unless the MSRV is intentionally changed.
+- Rust 2024 reserves `gen` as a keyword. Existing generation APIs retain their
+  public name through raw identifier syntax; define and call them as `r#gen`
+  (for example, `Key::r#gen()`).
 - Default features are `u64_backend`.
 - Optional features:
   - `serde`: serialization support for supported types.
   - `base64`: password-hash string helpers.
+  - `wincode`: direct binary serialization support for Rustaceous box types.
   - `nightly`: protected memory APIs and extra doc cfg support.
   - `simd_backend`: SIMD-backed internals; in CI this is used with `nightly`.
 - Do not commit a `Cargo.lock` for routine library changes unless the project
@@ -36,6 +40,7 @@ cargo check
 cargo test
 cargo test --features serde
 cargo test --features base64
+cargo test --features wincode
 cargo +nightly test --features serde,nightly
 cargo +nightly test --features simd_backend,nightly
 cargo clippy --features default -- -D warnings
@@ -48,13 +53,14 @@ CI uses `cargo nextest` when available:
 cargo nextest run --features default
 cargo nextest run --features serde
 cargo nextest run --features base64
+cargo nextest run --features wincode
 cargo +nightly nextest run --features simd_backend,nightly
 ```
 
 Coverage is generated on nightly with:
 
 ```sh
-cargo +nightly tarpaulin --features serde,nightly --out Xml
+cargo +nightly tarpaulin --features serde,nightly,wincode --out Xml
 ```
 
 Fuzzing lives in `fuzz/` and is isolated as its own workspace:
