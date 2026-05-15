@@ -77,7 +77,7 @@ pub fn crypto_box_seed_keypair_inplace(
 }
 
 /// Generates a public/secret key pair using OS provided data using
-/// [`rand_core::OsRng`].
+/// [`rand::rngs::SysRng`].
 pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_keypair()
 }

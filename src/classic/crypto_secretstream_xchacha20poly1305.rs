@@ -218,8 +218,8 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
 /// Compatible with libsodium's
 /// `crypto_secretstream_xchacha20poly1305_init_push`.
 pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
+    use chacha20::ChaCha20;
     use chacha20::cipher::{KeyIvInit, StreamCipher};
-    use chacha20::{ChaCha20, Key, Nonce};
 
     let mut new_state = [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES
         + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES];
@@ -228,9 +228,9 @@ pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
     new_state[CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES..]
         .copy_from_slice(state_inonce(&mut state.nonce));
 
-    let key = Key::from_slice(&state.k);
-    let nonce = Nonce::from_slice(&state.nonce);
-    let mut cipher = ChaCha20::new(key, nonce);
+    let key = state.k.into();
+    let nonce = state.nonce.into();
+    let mut cipher = ChaCha20::new(&key, &nonce);
     cipher.apply_keystream(&mut new_state);
 
     state
@@ -258,8 +258,8 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     associated_data: Option<&[u8]>,
     tag: u8,
 ) -> Result<(), Error> {
+    use chacha20::ChaCha20;
     use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-    use chacha20::{ChaCha20, Key, Nonce};
 
     use crate::poly1305::Poly1305;
 
@@ -286,9 +286,9 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     let mut mac_key = crate::poly1305::Key::new();
     let _pad0 = [0u8; 16];
 
-    let key = Key::from_slice(&state.k);
-    let nonce = Nonce::from_slice(&state.nonce);
-    let mut cipher = ChaCha20::new(key, nonce);
+    let key = state.k.into();
+    let nonce = state.nonce.into();
+    let mut cipher = ChaCha20::new(&key, &nonce);
 
     cipher.apply_keystream(&mut mac_key);
     let mut mac = Poly1305::new(&mac_key);
@@ -363,8 +363,8 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     ciphertext: &[u8],
     associated_data: Option<&[u8]>,
 ) -> Result<usize, Error> {
+    use chacha20::ChaCha20;
     use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-    use chacha20::{ChaCha20, Key, Nonce};
 
     use crate::poly1305::Poly1305;
 
@@ -390,9 +390,9 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     let mut mac_key = crate::poly1305::Key::new();
 
-    let key = Key::from_slice(&state.k);
-    let nonce = Nonce::from_slice(&state.nonce);
-    let mut cipher = ChaCha20::new(key, nonce);
+    let key = state.k.into();
+    let nonce = state.nonce.into();
+    let mut cipher = ChaCha20::new(&key, &nonce);
 
     cipher.apply_keystream(&mut mac_key);
     let mut mac = Poly1305::new(&mac_key);

@@ -1,9 +1,9 @@
 /// Provides random data up to `len` from the OS's random number generator.
 pub fn randombytes_buf(len: usize) -> Vec<u8> {
-    use rand_core::{OsRng, TryRngCore};
+    use rand::{TryRng, rngs::SysRng};
 
     let mut r: Vec<u8> = vec![0; len];
-    OsRng
+    SysRng
         .try_fill_bytes(r.as_mut_slice())
         .expect("failed to fill random bytes");
 
@@ -13,9 +13,9 @@ pub fn randombytes_buf(len: usize) -> Vec<u8> {
 /// Provides random data up to length of `data` from the OS's random number
 /// generator.
 pub fn copy_randombytes(dest: &mut [u8]) {
-    use rand_core::{OsRng, TryRngCore};
+    use rand::{TryRng, rngs::SysRng};
 
-    OsRng
+    SysRng
         .try_fill_bytes(dest)
         .expect("failed to fill random bytes");
 }

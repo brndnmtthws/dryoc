@@ -1,6 +1,5 @@
-use generic_array::GenericArray;
-use salsa20::XSalsa20;
 use salsa20::cipher::{KeyIvInit, StreamCipher};
+use salsa20::{Key as SalsaKey, XNonce, XSalsa20};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -14,10 +13,9 @@ pub(crate) fn crypto_secretbox_detached_inplace(
     nonce: &Nonce,
     key: &Key,
 ) {
-    let mut cipher = XSalsa20::new(
-        GenericArray::from_slice(key),
-        GenericArray::from_slice(nonce),
-    );
+    let key = SalsaKey::from(*key);
+    let nonce = XNonce::from(*nonce);
+    let mut cipher = XSalsa20::new(&key, &nonce);
 
     let mut mac_key = crate::poly1305::Key::new();
     cipher.apply_keystream(&mut mac_key);
@@ -38,10 +36,9 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let mut cipher = XSalsa20::new(
-        GenericArray::from_slice(key),
-        GenericArray::from_slice(nonce),
-    );
+    let key = SalsaKey::from(*key);
+    let nonce = XNonce::from(*nonce);
+    let mut cipher = XSalsa20::new(&key, &nonce);
 
     let mut mac_key = crate::poly1305::Key::new();
     cipher.apply_keystream(&mut mac_key);
