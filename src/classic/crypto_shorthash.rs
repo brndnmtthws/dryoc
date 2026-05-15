@@ -59,18 +59,18 @@ pub fn crypto_shorthash(output: &mut Hash, input: &[u8], key: &Key) {
 
 #[cfg(test)]
 mod tests {
-    use rand::TryRngCore;
+    use rand::TryRng;
 
     use super::*;
 
     #[test]
     fn test_shorthash() {
-        use rand_core::OsRng;
+        use rand::rngs::SysRng;
         use sodiumoxide::crypto::shorthash;
 
         for _ in 0..20 {
             let key = crypto_shorthash_keygen();
-            let mut input = vec![0u8; (OsRng.try_next_u32().unwrap() % 69) as usize];
+            let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 69) as usize];
             copy_randombytes(&mut input);
             let mut output = Hash::default();
 

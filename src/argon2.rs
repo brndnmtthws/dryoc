@@ -367,7 +367,7 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
         + position.slice as u32 * instance.segment_length
         + starting_index;
 
-    let mut prev_offset = if curr_offset % instance.lane_length == 0 {
+    let mut prev_offset = if curr_offset.is_multiple_of(instance.lane_length) {
         curr_offset + instance.lane_length - 1
     } else {
         curr_offset - 1
@@ -486,7 +486,7 @@ fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) 
     input_block.v[5] = instance.type_ as u64;
 
     for i in 0..instance.segment_length {
-        if i % ARGON2_ADDRESSES_IN_BLOCK == 0 {
+        if i.is_multiple_of(ARGON2_ADDRESSES_IN_BLOCK) {
             input_block.v[6] += 1;
             tmp_block.v.fill(0);
             address_block.v.fill(0);

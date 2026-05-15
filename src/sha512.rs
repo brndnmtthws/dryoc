@@ -11,8 +11,6 @@
 //! state.update(b"bytes");
 //! let hash = state.finalize_to_vec();
 //! ```
-use generic_array::GenericArray;
-use generic_array::typenum::U64;
 use sha2::{Digest as DigestImpl, Sha512 as Sha512Impl};
 
 use crate::constants::CRYPTO_HASH_SHA512_BYTES;
@@ -77,11 +75,11 @@ impl Sha512 {
 
     /// Consumes hasher and writes final computed hash into `output`.
     pub fn finalize_into_bytes<Output: MutByteArray<CRYPTO_HASH_SHA512_BYTES>>(
-        mut self,
+        self,
         output: &mut Output,
     ) {
-        let arr = GenericArray::<_, U64>::from_mut_slice(output.as_mut_slice());
-        self.hasher.finalize_into_reset(arr);
+        let digest = self.hasher.finalize();
+        output.as_mut_slice().copy_from_slice(&digest);
     }
 
     /// Consumes hasher and returns final computed hash as a [`Vec`].

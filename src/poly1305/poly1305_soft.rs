@@ -164,7 +164,7 @@ impl Poly1305 {
         // process any remaining block
         if !self.buffer.is_empty() {
             self.buffer.push(1);
-            if self.buffer.len() % BLOCK_SIZE != 0 {
+            if !self.buffer.len().is_multiple_of(BLOCK_SIZE) {
                 self.buffer.resize(
                     self.buffer.len() + (BLOCK_SIZE - self.buffer.len() % BLOCK_SIZE),
                     0,
@@ -244,7 +244,7 @@ impl Poly1305 {
 
 #[cfg(test)]
 mod tests {
-    use rand::TryRngCore;
+    use rand::TryRng;
 
     use super::*;
 
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_libsodium() {
-        use rand_core::OsRng;
+        use rand::rngs::SysRng;
         use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
         use crate::rng::copy_randombytes;
@@ -382,7 +382,7 @@ mod tests {
         let so_key = SOKey::from_slice(&key).unwrap();
 
         for _ in 0..20 {
-            let rand_usize = (OsRng.try_next_u32().unwrap() % 1000) as usize;
+            let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
             let mut data = vec![0u8; rand_usize];
             copy_randombytes(&mut data);
 

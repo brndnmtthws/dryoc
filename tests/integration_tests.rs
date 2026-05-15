@@ -118,9 +118,8 @@ fn test_dryocsecretbox_serde_json() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "serde")]
 #[test]
-fn test_dryocbox_serde_bincode() {
+fn test_dryocbox_wincode_bytes() {
     use dryoc::dryocbox::*;
 
     let sender_keypair = KeyPair::gen();
@@ -136,9 +135,10 @@ fn test_dryocbox_serde_bincode() {
     )
     .expect("unable to encrypt");
 
-    let encoded = bincode::serialize(&dryocbox).expect("doesn't serialize");
+    let encoded = wincode::serialize(&dryocbox.to_vec()).expect("doesn't serialize");
 
-    let dryocbox: VecBox = bincode::deserialize(&encoded).unwrap();
+    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
+    let dryocbox = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
 
     let decrypted: Vec<u8> = dryocbox
         .decrypt(
@@ -151,9 +151,8 @@ fn test_dryocbox_serde_bincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "serde")]
 #[test]
-fn test_dryocsecretbox_serde_bincode() {
+fn test_dryocsecretbox_wincode_bytes() {
     use dryoc::dryocsecretbox::*;
 
     let secret_key = Key::gen();
@@ -162,9 +161,10 @@ fn test_dryocsecretbox_serde_bincode() {
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
 
-    let encoded = bincode::serialize(&dryocsecretbox).expect("doesn't serialize");
+    let encoded = wincode::serialize(&dryocsecretbox.to_vec()).expect("doesn't serialize");
 
-    let dryocsecretbox: VecBox = bincode::deserialize(&encoded).unwrap();
+    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
+    let dryocsecretbox = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
 
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
@@ -173,9 +173,10 @@ fn test_dryocsecretbox_serde_bincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(all(feature = "serde", feature = "nightly"))]
+#[cfg(feature = "nightly")]
 #[test]
-fn test_dryocsecretbox_serde_protected_bincode() {
+fn test_dryocsecretbox_protected_wincode_bytes() {
+    use dryoc::constants::CRYPTO_SECRETBOX_MACBYTES;
     use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
 
@@ -192,9 +193,14 @@ fn test_dryocsecretbox_serde_protected_bincode() {
     let dryocsecretbox: protected::LockedBox =
         DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
-    let encoded = bincode::serialize(&dryocsecretbox).expect("doesn't serialize");
+    let bytes: Vec<u8> = dryocsecretbox.to_bytes();
+    let encoded = wincode::serialize(&bytes).expect("doesn't serialize");
 
-    let dryocsecretbox: protected::LockedBox = bincode::deserialize(&encoded).unwrap();
+    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
+    let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
+    let tag = protected::Mac::from_slice_into_locked(tag).expect("doesn't deserialize tag");
+    let data = HeapBytes::from_slice_into_locked(data).expect("doesn't deserialize data");
+    let dryocsecretbox: protected::LockedBox = protected::LockedBox::from_parts(tag, data);
 
     let decrypted: LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)
