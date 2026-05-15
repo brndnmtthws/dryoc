@@ -196,6 +196,12 @@ impl Tag {
     }
 }
 
+impl Default for Tag {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 impl fmt::Debug for Tag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Tag(")?;
@@ -404,5 +410,161 @@ impl Iterator for TagIterNames {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tag;
+
+    #[test]
+    fn tag_constructors_and_names_cover_known_and_unknown_bits() {
+        assert_eq!(Tag::default(), Tag::empty());
+        assert_eq!(Tag::default(), Tag::MESSAGE);
+        assert_eq!(Tag::all(), Tag::FINAL);
+
+        for bits in 0..=u8::MAX {
+            let retained = Tag::from_bits_retain(bits);
+            assert_eq!(retained.bits(), bits);
+            assert_eq!(Tag::from_bits_truncate(bits).bits(), bits & Tag::KNOWN_BITS);
+
+            let expected = if bits & !Tag::KNOWN_BITS == 0 {
+                Some(retained)
+            } else {
+                None
+            };
+            assert_eq!(Tag::from_bits(bits), expected);
+        }
+
+        assert_eq!(Tag::from(Tag::FINAL.bits()), Tag::FINAL);
+        assert_eq!(Tag::from_name("MESSAGE"), Some(Tag::MESSAGE));
+        assert_eq!(Tag::from_name("PUSH"), Some(Tag::PUSH));
+        assert_eq!(Tag::from_name("REKEY"), Some(Tag::REKEY));
+        assert_eq!(Tag::from_name("FINAL"), Some(Tag::FINAL));
+        assert_eq!(Tag::from_name("UNKNOWN"), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to parse tag")]
+    fn tag_from_u8_rejects_unknown_bits() {
+        let _ = Tag::from(0x80);
+    }
+
+    #[test]
+    fn tag_predicates_and_mutators_match_flag_semantics() {
+        assert!(Tag::empty().is_empty());
+        assert!(Tag::MESSAGE.is_empty());
+        assert!(!Tag::PUSH.is_empty());
+        assert!(Tag::FINAL.is_all());
+        assert!(Tag::from_bits_retain(Tag::FINAL.bits() | 0x80).is_all());
+        assert!(!Tag::PUSH.is_all());
+
+        assert!(Tag::FINAL.contains(Tag::PUSH));
+        assert!(Tag::PUSH.contains(Tag::MESSAGE));
+        assert!(!Tag::PUSH.contains(Tag::REKEY));
+        assert!(Tag::FINAL.intersects(Tag::PUSH));
+        assert!(!Tag::PUSH.intersects(Tag::REKEY));
+
+        let mut tag = Tag::empty();
+        tag.insert(Tag::PUSH);
+        assert_eq!(tag, Tag::PUSH);
+        tag.insert(Tag::REKEY);
+        assert_eq!(tag, Tag::FINAL);
+        tag.remove(Tag::PUSH);
+        assert_eq!(tag, Tag::REKEY);
+        tag.toggle(Tag::PUSH);
+        assert_eq!(tag, Tag::FINAL);
+        tag.set(Tag::REKEY, false);
+        assert_eq!(tag, Tag::PUSH);
+        tag.set(Tag::REKEY, true);
+        assert_eq!(tag, Tag::FINAL);
+        tag.clear();
+        assert_eq!(tag, Tag::empty());
+    }
+
+    #[test]
+    fn tag_set_operations_and_operators_match_flag_semantics() {
+        assert_eq!(Tag::PUSH.union(Tag::REKEY), Tag::FINAL);
+        assert_eq!(Tag::FINAL.intersection(Tag::PUSH), Tag::PUSH);
+        assert_eq!(Tag::FINAL.difference(Tag::PUSH), Tag::REKEY);
+        assert_eq!(Tag::FINAL.symmetric_difference(Tag::PUSH), Tag::REKEY);
+        assert_eq!(Tag::PUSH.complement(), Tag::REKEY);
+
+        assert_eq!(Tag::PUSH | Tag::REKEY, Tag::FINAL);
+        assert_eq!(Tag::FINAL & Tag::PUSH, Tag::PUSH);
+        assert_eq!(Tag::FINAL ^ Tag::PUSH, Tag::REKEY);
+        assert_eq!(Tag::FINAL - Tag::PUSH, Tag::REKEY);
+        assert_eq!(!Tag::PUSH, Tag::REKEY);
+
+        let mut tag = Tag::PUSH;
+        tag |= Tag::REKEY;
+        assert_eq!(tag, Tag::FINAL);
+        tag &= Tag::PUSH;
+        assert_eq!(tag, Tag::PUSH);
+        tag ^= Tag::REKEY;
+        assert_eq!(tag, Tag::FINAL);
+        tag -= Tag::PUSH;
+        assert_eq!(tag, Tag::REKEY);
+    }
+
+    #[test]
+    fn tag_iterators_skip_zero_bit_message_and_retain_unknown_bits() {
+        assert_eq!(Tag::MESSAGE.iter().collect::<Vec<_>>(), Vec::<Tag>::new());
+        assert_eq!(
+            Tag::FINAL.iter().collect::<Vec<_>>(),
+            vec![Tag::PUSH, Tag::REKEY]
+        );
+        assert_eq!(
+            Tag::FINAL.iter_names().collect::<Vec<_>>(),
+            vec![("PUSH", Tag::PUSH), ("REKEY", Tag::REKEY)]
+        );
+
+        let unknown = Tag::from_bits_retain(0x80);
+        let retained = Tag::from_bits_retain(Tag::FINAL.bits() | unknown.bits());
+
+        assert_eq!(
+            retained.iter().collect::<Vec<_>>(),
+            vec![Tag::PUSH, Tag::REKEY, unknown]
+        );
+        assert_eq!(
+            retained.iter_names().collect::<Vec<_>>(),
+            vec![("PUSH", Tag::PUSH), ("REKEY", Tag::REKEY)]
+        );
+        assert_eq!(unknown.iter().collect::<Vec<_>>(), vec![unknown]);
+        assert_eq!(unknown.iter_names().collect::<Vec<_>>(), Vec::new());
+        assert_eq!(
+            Tag::FINAL.into_iter().collect::<Vec<_>>(),
+            vec![Tag::PUSH, Tag::REKEY]
+        );
+    }
+
+    #[test]
+    fn tag_formatting_matches_bitflags_style() {
+        assert_eq!(format!("{:?}", Tag::empty()), "Tag(0x0)");
+        assert_eq!(format!("{:?}", Tag::MESSAGE), "Tag(0x0)");
+        assert_eq!(format!("{:?}", Tag::PUSH), "Tag(PUSH)");
+        assert_eq!(format!("{:?}", Tag::REKEY), "Tag(REKEY)");
+        assert_eq!(format!("{:?}", Tag::FINAL), "Tag(PUSH | REKEY)");
+
+        let retained = Tag::from_bits_retain(Tag::FINAL.bits() | 0x80);
+        assert_eq!(format!("{retained:?}"), "Tag(PUSH | REKEY | 0x80)");
+        assert_eq!(format!("{retained:b}"), format!("{:b}", retained.bits()));
+        assert_eq!(format!("{retained:o}"), format!("{:o}", retained.bits()));
+        assert_eq!(format!("{retained:x}"), format!("{:x}", retained.bits()));
+        assert_eq!(format!("{retained:X}"), format!("{:X}", retained.bits()));
+        assert_eq!(
+            format!("{retained:#04x}"),
+            format!("{:#04x}", retained.bits())
+        );
+    }
+
+    #[test]
+    fn tag_collection_traits_accumulate_flags() {
+        let mut tag = Tag::empty();
+        tag.extend([Tag::PUSH, Tag::REKEY]);
+        assert_eq!(tag, Tag::FINAL);
+
+        let tag: Tag = [Tag::PUSH, Tag::REKEY].into_iter().collect();
+        assert_eq!(tag, Tag::FINAL);
     }
 }

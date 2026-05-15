@@ -695,13 +695,26 @@ impl Lockable<HeapBytes> for HeapBytes {
 /// allocated region of memory.
 pub struct PageAlignedAllocator;
 
+#[cfg(unix)]
+const DEFAULT_PAGESIZE: usize = 4096;
+
+#[cfg(unix)]
+fn page_size_from_sysconf(page_size: libc::c_long) -> usize {
+    if page_size > 0 {
+        page_size as usize
+    } else {
+        DEFAULT_PAGESIZE
+    }
+}
+
 static PAGESIZE: LazyLock<usize> = LazyLock::new(|| {
     #[cfg(unix)]
     {
         use libc::{_SC_PAGE_SIZE, sysconf};
         // SAFETY: `sysconf(_SC_PAGE_SIZE)` has no pointer arguments and returns
         // the host page size or an error sentinel.
-        unsafe { sysconf(_SC_PAGE_SIZE) as usize }
+        let page_size = unsafe { sysconf(_SC_PAGE_SIZE) };
+        page_size_from_sysconf(page_size)
     }
     #[cfg(windows)]
     {
@@ -1593,6 +1606,14 @@ mod tests {
         assert_eq!(_page_round(pagesize, pagesize), Some(pagesize));
         assert_eq!(_page_round(pagesize + 1, pagesize), Some(pagesize * 2));
         assert_eq!(_page_round(usize::MAX, pagesize), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_page_size_from_sysconf_handles_error_sentinel() {
+        assert_eq!(page_size_from_sysconf(-1), DEFAULT_PAGESIZE);
+        assert_eq!(page_size_from_sysconf(0), DEFAULT_PAGESIZE);
+        assert_eq!(page_size_from_sysconf(8192), 8192);
     }
 
     #[cfg_attr(

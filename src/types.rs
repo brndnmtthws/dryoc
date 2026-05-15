@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -449,7 +449,7 @@ impl<const LENGTH: usize> std::convert::AsMut<[u8]> for StackByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> std::ops::Deref for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> Deref for StackByteArray<LENGTH> {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
@@ -457,7 +457,7 @@ impl<const LENGTH: usize> std::ops::Deref for StackByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> std::ops::DerefMut for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> DerefMut for StackByteArray<LENGTH> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
