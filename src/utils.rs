@@ -45,6 +45,7 @@ pub(crate) fn load_u32_le(bytes: &[u8]) -> u32 {
 }
 
 #[inline]
+#[cfg_attr(all(feature = "simd_backend", feature = "nightly"), allow(dead_code))]
 pub(crate) fn rotr64(x: u64, b: u32) -> u64 {
     x.rotate_right(b)
 }

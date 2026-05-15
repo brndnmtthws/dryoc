@@ -2,7 +2,7 @@ use zeroize::Zeroize;
 
 use crate::blake2b;
 use crate::error::Error;
-use crate::utils::{load_u64_le, rotr64};
+use crate::utils::load_u64_le;
 
 // Version of the algorithm
 pub(crate) const ARGON2_VERSION_NUMBER: u32 = 0x13;
@@ -69,6 +69,7 @@ pub(crate) enum Argon2Type {
 }
 
 #[derive(Clone)]
+#[repr(align(64))]
 struct Block {
     v: [u64; ARGON2_QWORDS_IN_BLOCK],
 }
@@ -81,6 +82,64 @@ impl Default for Block {
         }
     }
 }
+
+macro_rules! apply_block_rounds {
+    ($block:expr, $round:ident) => {{
+        for i in 0..8 {
+            $round(
+                $block,
+                16 * i,
+                16 * i + 1,
+                16 * i + 2,
+                16 * i + 3,
+                16 * i + 4,
+                16 * i + 5,
+                16 * i + 6,
+                16 * i + 7,
+                16 * i + 8,
+                16 * i + 9,
+                16 * i + 10,
+                16 * i + 11,
+                16 * i + 12,
+                16 * i + 13,
+                16 * i + 14,
+                16 * i + 15,
+            );
+        }
+
+        for i in 0..8 {
+            $round(
+                $block,
+                2 * i,
+                2 * i + 1,
+                2 * i + 16,
+                2 * i + 17,
+                2 * i + 32,
+                2 * i + 33,
+                2 * i + 48,
+                2 * i + 49,
+                2 * i + 64,
+                2 * i + 65,
+                2 * i + 80,
+                2 * i + 81,
+                2 * i + 96,
+                2 * i + 97,
+                2 * i + 112,
+                2 * i + 113,
+            );
+        }
+    }};
+}
+
+#[cfg(all(feature = "simd_backend", feature = "nightly"))]
+mod argon2_simd;
+#[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
+mod argon2_soft;
+
+#[cfg(all(feature = "simd_backend", feature = "nightly"))]
+use argon2_simd::fill_block;
+#[cfg(not(all(feature = "simd_backend", feature = "nightly")))]
+use argon2_soft::fill_block;
 
 #[derive(Default)]
 struct BlockRegion {
@@ -398,12 +457,19 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
             ref_lane == position.lane as u64,
         );
 
-        let prev_block = &instance.region.memory[prev_offset as usize];
-        let ref_block = &instance.region.memory
-            [(instance.lane_length as u64 * ref_lane + ref_index as u64) as usize];
-        let mut next_block = instance.region.memory[curr_offset as usize].clone();
+        let next_block = {
+            let memory = &instance.region.memory;
+            let prev_block = &memory[prev_offset as usize];
+            let ref_block =
+                &memory[(instance.lane_length as u64 * ref_lane + ref_index as u64) as usize];
+            let curr_block = if position.pass == 0 {
+                None
+            } else {
+                Some(&memory[curr_offset as usize])
+            };
 
-        fill_block(prev_block, ref_block, &mut next_block, position.pass != 0);
+            fill_block(prev_block, ref_block, curr_block)
+        };
 
         instance.region.memory[curr_offset as usize] = next_block;
         prev_offset += 1;
@@ -476,7 +542,6 @@ fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) 
     let mut input_block = Block::default();
     let zero_block = Block::default();
     let mut address_block = Block::default();
-    let mut tmp_block = Block::default();
 
     input_block.v[0] = position.pass as u64;
     input_block.v[1] = position.lane as u64;
@@ -488,10 +553,8 @@ fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) 
     for i in 0..instance.segment_length {
         if i.is_multiple_of(ARGON2_ADDRESSES_IN_BLOCK) {
             input_block.v[6] += 1;
-            tmp_block.v.fill(0);
-            address_block.v.fill(0);
-            fill_block(&zero_block, &input_block, &mut tmp_block, true);
-            fill_block(&zero_block, &tmp_block, &mut address_block, true);
+            let tmp_block = fill_block(&zero_block, &input_block, None);
+            address_block = fill_block(&zero_block, &tmp_block, None);
         }
 
         instance.pseudo_rands[i as usize] =
@@ -500,112 +563,26 @@ fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) 
 }
 
 #[inline]
-fn fill_block(prev_block: &Block, ref_block: &Block, next_block: &mut Block, with_xor: bool) {
-    let mut block_r = Block::default();
-    let mut block_tmp = Block::default();
-
-    copy_block(&mut block_r, ref_block);
+fn prepare_block(
+    prev_block: &Block,
+    ref_block: &Block,
+    next_block: Option<&Block>,
+) -> (Block, Block) {
+    let mut block_r = ref_block.clone();
     xor_block(&mut block_r, prev_block);
-    copy_block(&mut block_tmp, &block_r);
-    if with_xor {
+
+    let mut block_tmp = block_r.clone();
+    if let Some(next_block) = next_block {
         xor_block(&mut block_tmp, next_block);
     }
 
-    for i in 0..8 {
-        blake2_round_nomsg(
-            &mut block_r,
-            16 * i,
-            16 * i + 1,
-            16 * i + 2,
-            16 * i + 3,
-            16 * i + 4,
-            16 * i + 5,
-            16 * i + 6,
-            16 * i + 7,
-            16 * i + 8,
-            16 * i + 9,
-            16 * i + 10,
-            16 * i + 11,
-            16 * i + 12,
-            16 * i + 13,
-            16 * i + 14,
-            16 * i + 15,
-        );
-    }
-
-    for i in 0..8 {
-        blake2_round_nomsg(
-            &mut block_r,
-            2 * i,
-            2 * i + 1,
-            2 * i + 16,
-            2 * i + 17,
-            2 * i + 32,
-            2 * i + 33,
-            2 * i + 48,
-            2 * i + 49,
-            2 * i + 64,
-            2 * i + 65,
-            2 * i + 80,
-            2 * i + 81,
-            2 * i + 96,
-            2 * i + 97,
-            2 * i + 112,
-            2 * i + 113,
-        );
-    }
-
-    copy_block(next_block, &block_tmp);
-    xor_block(next_block, &block_r);
+    (block_r, block_tmp)
 }
 
 #[inline]
-#[allow(clippy::too_many_arguments)]
-fn blake2_round_nomsg(
-    block: &mut Block,
-    v0: usize,
-    v1: usize,
-    v2: usize,
-    v3: usize,
-    v4: usize,
-    v5: usize,
-    v6: usize,
-    v7: usize,
-    v8: usize,
-    v9: usize,
-    v10: usize,
-    v11: usize,
-    v12: usize,
-    v13: usize,
-    v14: usize,
-    v15: usize,
-) {
-    let g = |block: &mut Block, a, b, c, d| {
-        block.v[a] = fblamka(block.v[a], block.v[b]);
-        block.v[d] = rotr64(block.v[d] ^ block.v[a], 32);
-        block.v[c] = fblamka(block.v[c], block.v[d]);
-        block.v[b] = rotr64(block.v[b] ^ block.v[c], 24);
-        block.v[a] = fblamka(block.v[a], block.v[b]);
-        block.v[d] = rotr64(block.v[d] ^ block.v[a], 16);
-        block.v[c] = fblamka(block.v[c], block.v[d]);
-        block.v[b] = rotr64(block.v[b] ^ block.v[c], 63);
-    };
-
-    g(block, v0, v4, v8, v12);
-    g(block, v1, v5, v9, v13);
-    g(block, v2, v6, v10, v14);
-    g(block, v3, v7, v11, v15);
-    g(block, v0, v5, v10, v15);
-    g(block, v1, v6, v11, v12);
-    g(block, v2, v7, v8, v13);
-    g(block, v3, v4, v9, v14);
-}
-
-#[inline]
-fn fblamka(x: u64, y: u64) -> u64 {
-    let m = 0xFFFFFFFFu64;
-    let xy = (x & m) * (y & m);
-    x.wrapping_add(y).wrapping_add(2u64.wrapping_mul(xy))
+fn finalize_block(mut block_tmp: Block, block_r: &Block) -> Block {
+    xor_block(&mut block_tmp, block_r);
+    block_tmp
 }
 
 fn copy_block(dst: &mut Block, src: &Block) {
@@ -670,7 +647,72 @@ fn store_block(output: &mut [u8], block: &Block) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "nightly")]
+    extern crate test;
+
     use super::*;
+
+    #[cfg(feature = "nightly")]
+    fn bench_argon2id(b: &mut test::Bencher, t_cost: u32, m_cost: u32) {
+        let password = [1u8; 32];
+        let salt = [2u8; 16];
+        let mut hash = [0u8; 32];
+
+        b.bytes = t_cost as u64 * m_cost as u64 * 1024;
+        b.iter(|| {
+            super::argon2_hash(
+                test::black_box(t_cost),
+                test::black_box(m_cost),
+                1,
+                test::black_box(&password),
+                test::black_box(&salt),
+                None,
+                None,
+                test::black_box(&mut hash),
+                Argon2Type::Argon2id,
+            )
+            .expect("argon2_hash failed");
+            test::black_box(&hash);
+        });
+    }
+
+    #[cfg(all(feature = "simd_backend", feature = "nightly"))]
+    fn test_block(seed: u64) -> Block {
+        let mut block = Block::default();
+        for (i, word) in block.v.iter_mut().enumerate() {
+            let i = i as u64;
+            *word = seed
+                .wrapping_add(i.wrapping_mul(0x9e37_79b9_7f4a_7c15))
+                .rotate_left((i % 64) as u32);
+        }
+        block
+    }
+
+    #[cfg(all(feature = "simd_backend", feature = "nightly"))]
+    #[test]
+    fn test_fill_block_simd_matches_soft() {
+        let cases = [
+            (Block::default(), Block::default(), None),
+            (test_block(0), test_block(1), None),
+            (
+                test_block(0x0123_4567_89ab_cdef),
+                test_block(0xfedc_ba98_7654_3210),
+                None,
+            ),
+            (
+                test_block(0x1111_2222_3333_4444),
+                test_block(0x5555_6666_7777_8888),
+                Some(test_block(0x9999_aaaa_bbbb_cccc)),
+            ),
+        ];
+
+        for (prev_block, ref_block, next_block) in cases {
+            let soft = argon2_soft::fill_block(&prev_block, &ref_block, next_block.as_ref());
+            let simd = argon2_simd::fill_block(&prev_block, &ref_block, next_block.as_ref());
+
+            assert_eq!(soft.v, simd.v);
+        }
+    }
 
     #[test]
     fn test_vector_argon2i() {
@@ -800,5 +842,17 @@ mod tests {
                 132, 187, 20, 129, 150, 215, 60, 29, 241, 172, 175, 109, 12, 46
             ]
         );
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn argon2id_64kib_bench(b: &mut test::Bencher) {
+        bench_argon2id(b, 2, 64);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn argon2id_1mib_bench(b: &mut test::Bencher) {
+        bench_argon2id(b, 2, 1024);
     }
 }

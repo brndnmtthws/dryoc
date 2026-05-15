@@ -20,18 +20,21 @@ These results were collected on:
 Commands used for the rows below:
 
 ```sh
-RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features nightly blake2b_bench
-RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features simd_backend,nightly blake2b_bench
-RUSTFLAGS="-Ctarget-cpu=native" cargo +nightly bench --features nightly poly1305
-RUSTFLAGS="-Ctarget-cpu=native" cargo +nightly bench --features simd_backend,nightly poly1305
-RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features nightly crypto_secretbox_detached
-RUSTFLAGS="-Ctarget-cpu=native -Ctarget-feature=+neon" cargo +nightly bench --features simd_backend,nightly crypto_secretbox_detached
+export RUSTFLAGS="-Ctarget-cpu=native"
+
+bench_pair() {
+    cargo +nightly bench --features nightly "$1"
+    cargo +nightly bench --features simd_backend,nightly "$1"
+}
+
+bench_pair blake2b_bench
+bench_pair poly1305
+bench_pair crypto_secretbox_detached
+bench_pair argon2id_64kib_bench
+bench_pair argon2id_1mib_bench
 ```
 
-`neon` is already reported by `rustc +nightly --print cfg` on this target.
-Some commands include it explicitly along with `target-cpu=native`; adding
-`-Ctarget-feature=+neon` is not expected to change native Apple Silicon
-results.
+On Apple Silicon, `target-cpu=native` already enables NEON for this target.
 Run `cargo +nightly bench` without a benchmark-name filter to collect the full
 suite.
 
@@ -109,6 +112,20 @@ messages benefit from the Salsa20 path processing four independent counter
 blocks in parallel. Small messages are slower in this run because fixed XSalsa20
 setup plus Poly1305 SIMD overhead dominates the short payload.
 
+## Password Hashing: Argon2id
+
+Benchmark: `argon2_hash` with a fixed 32-byte password, 16-byte salt, 32-byte
+output, `t=2`, and `p=1`.
+
+| Memory cost | Software time | Software throughput | SIMD time | SIMD throughput | Relative |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 KiB | `74,998.33 ns/iter` | `1,747 MB/s` | `48,813.80 ns/iter` | `2,685 MB/s` | `1.54x faster` |
+| 1 MiB | `813,129.10 ns/iter` | `2,579 MB/s` | `587,006.25 ns/iter` | `3,572 MB/s` | `1.39x faster` |
+
+The portable SIMD Argon2 path vectorizes the four independent BlaMka G
+operations inside each block-mixing round. The surrounding memory indexing and
+lane scheduling remain shared with the software path.
+
 ## Benchmark Coverage
 
 Current side-by-side software/SIMD benchmark coverage:
@@ -118,6 +135,7 @@ Current side-by-side software/SIMD benchmark coverage:
 | BLAKE2b | `blake2b_soft` | `blake2b_simd` | Yes |
 | Poly1305 | `poly1305_soft` | `poly1305_simd` | Yes |
 | XSalsa20-Poly1305 secretbox | RustCrypto `salsa20` + `poly1305_soft` | portable-SIMD Salsa20 + `poly1305_simd` | Yes |
+| Argon2id password hashing | scalar Argon2 block mixer | portable-SIMD Argon2 block mixer | Yes |
 
 Algorithms without side-by-side benchmark coverage should get their own section
 when a second implementation is added or when performance work begins.
