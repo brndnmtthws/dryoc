@@ -46,7 +46,7 @@ impl Default for Params {
     }
 }
 
-#[derive(Zeroize, ZeroizeOnDrop, Debug, Default)]
+#[derive(Zeroize, ZeroizeOnDrop, Debug)]
 pub struct State {
     t: [u64; 2],
     f: [u64; 2],
@@ -55,7 +55,22 @@ pub struct State {
     #[zeroize(skip)]
     b: Simd<u64, 4>,
     last_node: u8,
-    buf: Vec<u8>,
+    buf: [u8; BLOCKBYTES],
+    buflen: usize,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            t: [0u64; 2],
+            f: [0u64; 2],
+            a: Simd::splat(0),
+            b: Simd::splat(0),
+            last_node: 0,
+            buf: [0u8; BLOCKBYTES],
+            buflen: 0,
+        }
+    }
 }
 
 const IV: [u64; 8] = [
@@ -69,40 +84,34 @@ const IV: [u64; 8] = [
     0x5be0cd19137e2179,
 ];
 
-#[inline]
-fn loadm(block: &[u8]) -> [Simd<u64, 4>; 8] {
-    macro_rules! swizzle_my_jizzle {
-        ($arr:expr, $start:expr, $mid:expr, $end:expr) => {{
-            {
-                simd_swizzle!(
-                    Simd::<u64, 2>::from([
-                        load_u64_le(&$arr[$start..$mid]),
-                        load_u64_le(&block[$mid..$end])
-                    ]),
-                    [0, 1, 0, 1]
-                )
-            }
+#[inline(always)]
+fn loadm(block: &[u8; BLOCKBYTES]) -> [Simd<u64, 4>; 8] {
+    macro_rules! load_pair {
+        ($start:expr) => {{
+            let m0 = load_u64_le(&block[$start..$start + 8]);
+            let m1 = load_u64_le(&block[$start + 8..$start + 16]);
+            Simd::from_array([m0, m1, m0, m1])
         }};
     }
 
     [
-        swizzle_my_jizzle!(block, 0, 8, 16),
-        swizzle_my_jizzle!(block, 16, 24, 32),
-        swizzle_my_jizzle!(block, 32, 40, 48),
-        swizzle_my_jizzle!(block, 48, 56, 64),
-        swizzle_my_jizzle!(block, 64, 72, 80),
-        swizzle_my_jizzle!(block, 80, 88, 96),
-        swizzle_my_jizzle!(block, 96, 104, 112),
-        swizzle_my_jizzle!(block, 112, 120, 128),
+        load_pair!(0),
+        load_pair!(16),
+        load_pair!(32),
+        load_pair!(48),
+        load_pair!(64),
+        load_pair!(80),
+        load_pair!(96),
+        load_pair!(112),
     ]
 }
 
-#[inline]
-fn rotru64(v: Simd<u64, 4>, n: u64) -> Simd<u64, 4> {
-    (v >> Simd::from([n, n, n, n])) | (v << Simd::from([64 - n, 64 - n, 64 - n, 64 - n]))
+#[inline(always)]
+fn rotru64<const N: u64>(v: Simd<u64, 4>) -> Simd<u64, 4> {
+    (v >> Simd::splat(N)) | (v << Simd::splat(64 - N))
 }
 
-#[inline]
+#[inline(always)]
 fn g1(
     a: &mut Simd<u64, 4>,
     b: &mut Simd<u64, 4>,
@@ -111,12 +120,12 @@ fn g1(
     m: &Simd<u64, 4>,
 ) {
     *a = *a + *b + *m;
-    *d = rotru64(*d ^ *a, 32);
+    *d = rotru64::<32>(*d ^ *a);
     *c += *d;
-    *b = rotru64(*b ^ *c, 24);
+    *b = rotru64::<24>(*b ^ *c);
 }
 
-#[inline]
+#[inline(always)]
 fn g2(
     a: &mut Simd<u64, 4>,
     b: &mut Simd<u64, 4>,
@@ -125,36 +134,36 @@ fn g2(
     m: &Simd<u64, 4>,
 ) {
     *a = *a + *b + *m;
-    *d = rotru64(*d ^ *a, 16);
+    *d = rotru64::<16>(*d ^ *a);
     *c += *d;
-    *b = rotru64(*b ^ *c, 63);
+    *b = rotru64::<63>(*b ^ *c);
 }
 
-#[inline]
+#[inline(always)]
 fn permute(a: &mut Simd<u64, 4>, c: &mut Simd<u64, 4>, d: &mut Simd<u64, 4>) {
     *a = simd_swizzle!(*a, [3, 0, 1, 2]);
     *d = simd_swizzle!(*d, [2, 3, 0, 1]);
     *c = simd_swizzle!(*c, [1, 2, 3, 0]);
 }
 
-#[inline]
+#[inline(always)]
 fn unpermute(a: &mut Simd<u64, 4>, c: &mut Simd<u64, 4>, d: &mut Simd<u64, 4>) {
     *a = simd_swizzle!(*a, [1, 2, 3, 0]);
     *d = simd_swizzle!(*d, [2, 3, 0, 1]);
     *c = simd_swizzle!(*c, [3, 0, 1, 2]);
 }
 
-#[inline]
+#[inline(always)]
 fn compress(
     a: &mut Simd<u64, 4>,
     b: &mut Simd<u64, 4>,
     st: &[u64; 2],
     sf: &[u64; 2],
-    block: &[u8],
+    block: &[u8; BLOCKBYTES],
 ) {
-    let mut c = Simd::<u64, 4>::from_slice(&IV[..4]);
-    let flags = Simd::<u64, 4>::from([st[0], st[1], sf[0], sf[1]]);
-    let mut d = Simd::<u64, 4>::from_slice(&IV[4..]) ^ flags;
+    let mut c = Simd::<u64, 4>::from_array([IV[0], IV[1], IV[2], IV[3]]);
+    let mut d =
+        Simd::<u64, 4>::from_array([IV[4] ^ st[0], IV[5] ^ st[1], IV[6] ^ sf[0], IV[7] ^ sf[1]]);
 
     let m = loadm(block);
 
@@ -411,10 +420,10 @@ fn compress(
 }
 
 fn increment_counter(t: &mut [u64; 2], inc: usize) {
-    let mut c: u128 = ((t[1] as u128) << 64) | t[0] as u128;
-    c += inc as u128;
-    t[0] = c as u64;
-    t[1] = (c >> 64) as u64;
+    let inc = inc as u64;
+    let (lo, carry) = t[0].overflowing_add(inc);
+    t[0] = lo;
+    t[1] = t[1].wrapping_add(carry as u64);
 }
 
 impl State {
@@ -446,8 +455,8 @@ impl State {
     }
 
     fn init0(&mut self) {
-        self.a = Simd::from_slice(&IV[..4]);
-        self.b = Simd::from_slice(&IV[4..8]);
+        self.a = Simd::from_array([IV[0], IV[1], IV[2], IV[3]]);
+        self.b = Simd::from_array([IV[4], IV[5], IV[6], IV[7]]);
     }
 
     pub(crate) fn init(
@@ -502,50 +511,39 @@ impl State {
         Ok(state)
     }
 
-    pub(crate) fn update(&mut self, input: &[u8]) {
+    pub(crate) fn update(&mut self, mut input: &[u8]) {
         if input.is_empty() {
             // return early if the input is empty
             return;
         }
-        if input.len() + self.buf.len() <= BLOCKBYTES {
-            // do nothing, not enough data to make a block, just append input to buf
-            self.buf.extend_from_slice(input);
-        } else {
-            let start = if !self.buf.is_empty() && self.buf.len() < BLOCKBYTES {
-                let start = BLOCKBYTES - self.buf.len();
-                self.buf.extend_from_slice(&input[..start]);
-                start
-            } else {
-                0
-            };
-            let remaining = input.len() - start;
-            let end = if remaining > BLOCKBYTES && remaining.is_multiple_of(BLOCKBYTES) {
-                input.len() - BLOCKBYTES
-            } else if remaining > BLOCKBYTES {
-                input.len() - remaining % BLOCKBYTES
-            } else {
-                start
-            };
 
-            let t = &mut self.t;
-            let f = &mut self.f;
-
-            let a = &mut self.a;
-            let b = &mut self.b;
-
-            for chunk in self.buf.chunks_exact(BLOCKBYTES) {
-                increment_counter(t, BLOCKBYTES);
-                compress(a, b, t, f, chunk);
-            }
-            for chunk in input[start..end].chunks_exact(BLOCKBYTES) {
-                increment_counter(t, BLOCKBYTES);
-                compress(a, b, t, f, chunk);
+        if self.buflen != 0 {
+            let fill = BLOCKBYTES - self.buflen;
+            if input.len() <= fill {
+                self.buf[self.buflen..self.buflen + input.len()].copy_from_slice(input);
+                self.buflen += input.len();
+                return;
             }
 
-            // finally, copy whatever's leftover from the input into buf
-            self.buf.resize(input[end..].len(), 0);
-            self.buf.copy_from_slice(&input[end..]);
+            self.buf[self.buflen..].copy_from_slice(&input[..fill]);
+            self.buflen = 0;
+            increment_counter(&mut self.t, BLOCKBYTES);
+            compress(&mut self.a, &mut self.b, &self.t, &self.f, &self.buf);
+            self.buf.zeroize();
+            input = &input[fill..];
         }
+
+        while input.len() > BLOCKBYTES {
+            let block = input[..BLOCKBYTES]
+                .try_into()
+                .expect("input block should be exactly BLOCKBYTES");
+            increment_counter(&mut self.t, BLOCKBYTES);
+            compress(&mut self.a, &mut self.b, &self.t, &self.f, block);
+            input = &input[BLOCKBYTES..];
+        }
+
+        self.buf[..input.len()].copy_from_slice(input);
+        self.buflen = input.len();
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
@@ -561,38 +559,11 @@ impl State {
             return Err(dryoc_error!("already on last block"));
         }
 
-        if self.buf.len() > BLOCKBYTES {
-            increment_counter(&mut self.t, BLOCKBYTES);
-            compress(
-                &mut self.a,
-                &mut self.b,
-                &self.t,
-                &self.f,
-                &self.buf[..BLOCKBYTES],
-            );
+        increment_counter(&mut self.t, self.buflen);
+        self.set_lastblock();
 
-            increment_counter(&mut self.t, self.buf.len() - BLOCKBYTES);
-            self.set_lastblock();
-
-            // fill last block with zero padding
-            self.buf.resize(2 * BLOCKBYTES, 0);
-
-            compress(
-                &mut self.a,
-                &mut self.b,
-                &self.t,
-                &self.f,
-                &self.buf[BLOCKBYTES..],
-            );
-        } else {
-            increment_counter(&mut self.t, self.buf.len());
-            self.set_lastblock();
-
-            // fill last block with zero padding
-            self.buf.resize(BLOCKBYTES, 0);
-
-            compress(&mut self.a, &mut self.b, &self.t, &self.f, &self.buf);
-        }
+        self.buf[self.buflen..].fill(0);
+        compress(&mut self.a, &mut self.b, &self.t, &self.f, &self.buf);
 
         let mut buffer = [0u8; OUTBYTES];
         buffer[0..8].copy_from_slice(&self.a[0].to_le_bytes());
