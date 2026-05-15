@@ -47,9 +47,10 @@ For example usage, refer to the
 * [wincode](https://crates.io/crates/wincode) support for direct binary serialization of Rustaceous box types (with `features = ["wincode"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Blake2b (used by generic hashing, password hashing, and key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Salsa20 (used by XSalsa20-Poly1305 secretbox) on nightly, with `features = ["simd_backend", "nightly"]`
+* [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Poly1305 (used by one-time authentication and secret boxes) on nightly, with `features = ["simd_backend", "nightly"]`
 * [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend at build time
 * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
-* [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for Neon, AVX2, and SSE2
+* [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for NEON, AVX2, and SSE2
 
 ## Rust version
 
@@ -66,9 +67,10 @@ backends. CPU-specific dependency backends and local benchmarking may also
 benefit from target-specific `RUSTFLAGS`:
 * For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
 * For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
-* For Neon set `RUSTFLAGS=-Ctarget-feature=+neon`
-* For local Apple silicon benchmarks, use
-  `RUSTFLAGS=-Ctarget-cpu=native -Ctarget-feature=+neon`
+* For NEON set `RUSTFLAGS=-Ctarget-feature=+neon`
+* For local Apple Silicon benchmarks, use `RUSTFLAGS=-Ctarget-cpu=native`.
+  NEON is part of the AArch64 macOS baseline target, so adding
+  `-Ctarget-feature=+neon` is not expected to change native results.
 
 The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 `simd_backend` feature.

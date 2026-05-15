@@ -1,9 +1,8 @@
 use zeroize::Zeroize;
 
+use super::{BLOCK_SIZE, pad_partial_block};
 use crate::types::*;
 use crate::utils::load_u64_le;
-
-const BLOCK_SIZE: usize = 16;
 
 #[derive(Default, Zeroize)]
 pub struct Poly1305 {
@@ -69,12 +68,12 @@ impl Poly1305 {
                 return;
             }
 
-            // process block
-            let b = self.buffer.clone();
-            self.blocks(&b, false);
+            let mut block = [0u8; BLOCK_SIZE];
+            block.copy_from_slice(&self.buffer);
             self.buffer.clear();
+            self.blocks(&block, false);
 
-            m = &m[input_block_end..]
+            m = &m[input_block_end..];
         }
 
         // process all full blocks
@@ -106,7 +105,9 @@ impl Poly1305 {
         let s1 = r1 * (5 << 2);
         let s2 = r2 * (5 << 2);
 
-        for m in input.chunks(BLOCK_SIZE) {
+        debug_assert_eq!(input.len() % BLOCK_SIZE, 0);
+
+        for m in input.chunks_exact(BLOCK_SIZE) {
             // h += m[i]
             let t0 = load_u64_le(&m[0..8]);
             let t1 = load_u64_le(&m[8..]);
@@ -163,15 +164,7 @@ impl Poly1305 {
     pub fn finalize(&mut self, output: &mut [u8]) {
         // process any remaining block
         if !self.buffer.is_empty() {
-            self.buffer.push(1);
-            if !self.buffer.len().is_multiple_of(BLOCK_SIZE) {
-                self.buffer.resize(
-                    self.buffer.len() + (BLOCK_SIZE - self.buffer.len() % BLOCK_SIZE),
-                    0,
-                );
-            }
-
-            self.blocks(&self.buffer.clone(), true);
+            self.blocks(&pad_partial_block(&self.buffer), true);
         }
 
         // fully carry h
@@ -247,6 +240,9 @@ mod tests {
     use rand::TryRng;
 
     use super::*;
+
+    #[cfg(feature = "nightly")]
+    extern crate test;
 
     #[test]
     fn test_example_vector() {
@@ -394,5 +390,91 @@ mod tests {
 
             assert_eq!(mac, so_mac.as_ref());
         }
+    }
+
+    #[cfg(feature = "nightly")]
+    fn bench_poly1305(b: &mut test::Bencher, len: usize) {
+        use crate::rng::copy_randombytes;
+
+        let key = Key::r#gen();
+        let mut input = vec![0u8; len];
+        copy_randombytes(&mut input);
+        b.bytes = len as u64;
+
+        b.iter(|| {
+            let mut mac = Poly1305::new(test::black_box(&key));
+            mac.update(test::black_box(&input));
+            test::black_box(mac.finalize_to_array());
+        });
+    }
+
+    #[cfg(feature = "nightly")]
+    fn bench_sodiumoxide_poly1305(b: &mut test::Bencher, len: usize) {
+        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
+
+        use crate::rng::copy_randombytes;
+
+        sodiumoxide::init().expect("sodiumoxide init");
+
+        let key = Key::r#gen();
+        let so_key = SOKey::from_slice(&key).expect("key");
+        let mut input = vec![0u8; len];
+        copy_randombytes(&mut input);
+        b.bytes = len as u64;
+
+        b.iter(|| {
+            let _ = test::black_box(authenticate(
+                test::black_box(&input),
+                test::black_box(&so_key),
+            ));
+        });
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn poly1305_64b_bench(b: &mut test::Bencher) {
+        bench_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn poly1305_1k_bench(b: &mut test::Bencher) {
+        bench_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn poly1305_16k_bench(b: &mut test::Bencher) {
+        bench_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn poly1305_1m_bench(b: &mut test::Bencher) {
+        bench_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn sodiumoxide_poly1305_64b_bench(b: &mut test::Bencher) {
+        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn sodiumoxide_poly1305_1k_bench(b: &mut test::Bencher) {
+        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn sodiumoxide_poly1305_16k_bench(b: &mut test::Bencher) {
+        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn sodiumoxide_poly1305_1m_bench(b: &mut test::Bencher) {
+        bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
     }
 }
