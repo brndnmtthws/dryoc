@@ -24,8 +24,10 @@
 //! This crate uses the Rust 2024 edition. The minimum supported Rust version
 //! (MSRV) is **Rust 1.89** or newer.
 //!
-//! Rust 2024 reserves `gen` as a keyword, so generation APIs are called with
-//! raw identifier syntax such as `Key::r#gen()`.
+//! Rust 2024 reserves `gen` as a keyword. Prefer generation APIs such as
+//! `Key::generate()`. Existing `gen` APIs remain available through raw
+//! identifier syntax, such as `Key::r#gen()`, for compatibility and will be
+//! deprecated in a future release.
 //!
 //! ## Features
 //!

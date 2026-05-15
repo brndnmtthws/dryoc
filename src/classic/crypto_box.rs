@@ -18,7 +18,7 @@
 //! let (recipient_pk, recipient_sk) = crypto_box_keypair();
 //!
 //! // Generate a random nonce
-//! let nonce = Nonce::r#gen();
+//! let nonce = Nonce::generate();
 //!
 //! let message = "hello".as_bytes();
 //! // Encrypt message
@@ -478,7 +478,7 @@ mod tests {
 
             let (sender_pk, sender_sk) = crypto_box_keypair();
             let (recipient_pk, recipient_sk) = crypto_box_keypair();
-            let nonce = Nonce::r#gen();
+            let nonce = Nonce::generate();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_MACBYTES];
@@ -535,7 +535,7 @@ mod tests {
 
             let (sender_pk, sender_sk) = crypto_box_keypair();
             let (recipient_pk, recipient_sk) = crypto_box_keypair();
-            let nonce = Nonce::r#gen();
+            let nonce = Nonce::generate();
             let words = vec!["hello1".to_string(); i];
             let message: Vec<u8> = words.join(" :D ").as_bytes().to_vec();
             let message_copy = message.clone();
@@ -585,7 +585,7 @@ mod tests {
         for _ in 0..20 {
             let (sender_pk, _sender_sk) = crypto_box_keypair();
             let (_recipient_pk, recipient_sk) = crypto_box_keypair();
-            let nonce = Nonce::r#gen();
+            let nonce = Nonce::generate();
 
             let mut ciphertext: Vec<u8> = vec![];
             let message: Vec<u8> = vec![];
@@ -602,7 +602,7 @@ mod tests {
 
             let (sender_pk, _sender_sk) = crypto_box_keypair();
             let (_recipient_pk, recipient_sk) = crypto_box_keypair();
-            let nonce = Nonce::r#gen();
+            let nonce = Nonce::generate();
 
             let mut ciphertext: Vec<u8> = vec![];
 

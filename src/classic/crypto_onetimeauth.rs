@@ -127,7 +127,7 @@ pub struct OnetimeauthState {
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_keygen`.
 pub fn crypto_onetimeauth_keygen() -> Key {
-    Key::r#gen()
+    Key::generate()
 }
 
 /// Initializes the incremental Poly1305-based one-time authentication.
