@@ -146,6 +146,24 @@ fn xor_4words(data: &mut [u8], offset: usize, words: U32x4) {
     }
 }
 
+#[cfg(target_endian = "little")]
+#[inline]
+fn xor_4words_b2b(output: &mut [u8], input: &[u8], offset: usize, words: U32x4) {
+    debug_assert!(offset + 16 <= output.len());
+    debug_assert!(offset + 16 <= input.len());
+
+    // SAFETY: `offset..offset + 16` is in bounds for both buffers at all call
+    // sites in the 256-byte four-block loop. The unaligned read/write operate
+    // on initialized bytes, `u32` has no invalid bit patterns, and native word
+    // order is the required little-endian Salsa20 order on this cfg path.
+    unsafe {
+        let input_ptr = input.as_ptr().add(offset).cast::<[u32; 4]>();
+        let output_ptr = output.as_mut_ptr().add(offset).cast::<[u32; 4]>();
+        let input_words = U32x4::from(ptr::read_unaligned(input_ptr));
+        ptr::write_unaligned(output_ptr, (input_words ^ words).to_array());
+    }
+}
+
 #[cfg(not(target_endian = "little"))]
 #[inline]
 fn xor_4words(data: &mut [u8], offset: usize, words: U32x4) {
@@ -157,6 +175,20 @@ fn xor_4words(data: &mut [u8], offset: usize, words: U32x4) {
     ]);
     for (i, word) in (data_words ^ words).to_array().iter().enumerate() {
         data[offset + i * 4..offset + (i + 1) * 4].copy_from_slice(&word.to_le_bytes());
+    }
+}
+
+#[cfg(not(target_endian = "little"))]
+#[inline]
+fn xor_4words_b2b(output: &mut [u8], input: &[u8], offset: usize, words: U32x4) {
+    let input_words = U32x4::from([
+        load_u32_le(&input[offset..offset + 4]),
+        load_u32_le(&input[offset + 4..offset + 8]),
+        load_u32_le(&input[offset + 8..offset + 12]),
+        load_u32_le(&input[offset + 12..offset + 16]),
+    ]);
+    for (i, word) in (input_words ^ words).to_array().iter().enumerate() {
+        output[offset + i * 4..offset + (i + 1) * 4].copy_from_slice(&word.to_le_bytes());
     }
 }
 
@@ -196,6 +228,47 @@ fn transpose_and_xor_4words(
     );
 }
 
+#[inline]
+fn transpose_and_xor_4words_b2b(
+    output: &mut [u8],
+    input: &[u8],
+    word_offset: usize,
+    w0: U32x4,
+    w1: U32x4,
+    w2: U32x4,
+    w3: U32x4,
+) {
+    let b01_lo = simd_swizzle!(w0, w1, [0, 4, 1, 5]);
+    let b01_hi = simd_swizzle!(w0, w1, [2, 6, 3, 7]);
+    let b23_lo = simd_swizzle!(w2, w3, [0, 4, 1, 5]);
+    let b23_hi = simd_swizzle!(w2, w3, [2, 6, 3, 7]);
+
+    xor_4words_b2b(
+        output,
+        input,
+        word_offset,
+        simd_swizzle!(b01_lo, b23_lo, [0, 1, 4, 5]),
+    );
+    xor_4words_b2b(
+        output,
+        input,
+        64 + word_offset,
+        simd_swizzle!(b01_lo, b23_lo, [2, 3, 6, 7]),
+    );
+    xor_4words_b2b(
+        output,
+        input,
+        128 + word_offset,
+        simd_swizzle!(b01_hi, b23_hi, [0, 1, 4, 5]),
+    );
+    xor_4words_b2b(
+        output,
+        input,
+        192 + word_offset,
+        simd_swizzle!(b01_hi, b23_hi, [2, 3, 6, 7]),
+    );
+}
+
 fn salsa20_xor_4blocks(data: &mut [u8], input_lanes: &[U32x4; 16], counter: u64) {
     debug_assert_eq!(data.len(), 256);
 
@@ -210,6 +283,36 @@ fn salsa20_xor_4blocks(data: &mut [u8], input_lanes: &[U32x4; 16], counter: u64)
     for word_offset in (0..16).step_by(4) {
         transpose_and_xor_4words(
             data,
+            word_offset * 4,
+            state[word_offset] + orig[word_offset],
+            state[word_offset + 1] + orig[word_offset + 1],
+            state[word_offset + 2] + orig[word_offset + 2],
+            state[word_offset + 3] + orig[word_offset + 3],
+        );
+    }
+}
+
+fn salsa20_xor_4blocks_b2b(
+    output: &mut [u8],
+    input: &[u8],
+    input_lanes: &[U32x4; 16],
+    counter: u64,
+) {
+    debug_assert_eq!(output.len(), 256);
+    debug_assert_eq!(input.len(), 256);
+
+    let mut state = *input_lanes;
+    let (counter_low, counter_high) = counter_lanes(counter);
+    state[8] = counter_low;
+    state[9] = counter_high;
+
+    let orig = state;
+    salsa20_rounds(&mut state);
+
+    for word_offset in (0..16).step_by(4) {
+        transpose_and_xor_4words_b2b(
+            output,
+            input,
             word_offset * 4,
             state[word_offset] + orig[word_offset],
             state[word_offset + 1] + orig[word_offset + 1],
@@ -302,6 +405,53 @@ impl XSalsa20 {
             block.zeroize();
             counter = checked_counter_add(counter, 1);
             remaining = &mut remaining[xor_len..];
+        }
+    }
+
+    pub(crate) fn xor_after_first_block_b2b(
+        &self,
+        output: &mut [u8],
+        input: &[u8],
+        first_block: &FirstBlock,
+    ) {
+        debug_assert_eq!(output.len(), input.len());
+
+        let first_xor_len = input.len().min(32);
+        for ((out, byte), keystream) in output
+            .iter_mut()
+            .zip(input.iter())
+            .take(first_xor_len)
+            .zip(first_block.block[32..].iter())
+        {
+            *out = *byte ^ *keystream;
+        }
+
+        let mut remaining_output = &mut output[first_xor_len..];
+        let mut remaining_input = &input[first_xor_len..];
+        let mut counter = 1u64;
+        while remaining_input.len() >= 256 {
+            let (output_chunk, output_rest) = remaining_output.split_at_mut(256);
+            let (input_chunk, input_rest) = remaining_input.split_at(256);
+            salsa20_xor_4blocks_b2b(output_chunk, input_chunk, &self.input_lanes, counter);
+            counter = checked_counter_add(counter, 4);
+            remaining_output = output_rest;
+            remaining_input = input_rest;
+        }
+        while !remaining_input.is_empty() {
+            let mut block = salsa20_block(&self.input, counter);
+            let xor_len = remaining_input.len().min(64);
+            for ((out, byte), keystream) in remaining_output
+                .iter_mut()
+                .take(xor_len)
+                .zip(remaining_input.iter())
+                .zip(block.iter())
+            {
+                *out = *byte ^ *keystream;
+            }
+            block.zeroize();
+            counter = checked_counter_add(counter, 1);
+            remaining_output = &mut remaining_output[xor_len..];
+            remaining_input = &remaining_input[xor_len..];
         }
     }
 }

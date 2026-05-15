@@ -67,8 +67,7 @@ pub fn crypto_secretbox_detached(
     nonce: &Nonce,
     key: &Key,
 ) {
-    ciphertext[..message.len()].copy_from_slice(message);
-    crypto_secretbox_detached_inplace(ciphertext, mac, nonce, key);
+    crypto_secretbox_detached_b2b(&mut ciphertext[..message.len()], mac, message, nonce, key);
 }
 
 /// Detached version of [`crypto_secretbox_open_easy`].
@@ -82,8 +81,7 @@ pub fn crypto_secretbox_open_detached(
     key: &Key,
 ) -> Result<(), Error> {
     let c_len = ciphertext.len();
-    message[..c_len].copy_from_slice(ciphertext);
-    crypto_secretbox_open_detached_inplace(message, mac, nonce, key)
+    crypto_secretbox_open_detached_b2b(&mut message[..c_len], mac, ciphertext, nonce, key)
 }
 
 /// Encrypts `message` with `nonce` and `key`.
@@ -263,6 +261,56 @@ mod tests {
             assert_eq!(&decrypted, &message_copy);
             assert_eq!(decrypted, so_decrypted);
         }
+    }
+
+    #[test]
+    fn test_crypto_secretbox_detached_only_touches_message_len() {
+        let key = crypto_secretbox_keygen();
+        let nonce = Nonce::generate();
+        let message = b"detached secretbox buffer prefix";
+        let mut ciphertext = vec![0xa5; message.len() + 8];
+        let mut mac = Mac::default();
+
+        crypto_secretbox_detached(&mut ciphertext, &mut mac, message, &nonce, &key);
+
+        assert_eq!(&ciphertext[message.len()..], &[0xa5; 8]);
+
+        let mut decrypted = vec![0x5a; message.len() + 8];
+        crypto_secretbox_open_detached(
+            &mut decrypted,
+            &mac,
+            &ciphertext[..message.len()],
+            &nonce,
+            &key,
+        )
+        .expect("decrypt failed");
+
+        assert_eq!(&decrypted[..message.len()], message);
+        assert_eq!(&decrypted[message.len()..], &[0x5a; 8]);
+    }
+
+    #[test]
+    fn test_crypto_secretbox_open_failure_keeps_output() {
+        let key = crypto_secretbox_keygen();
+        let nonce = Nonce::generate();
+        let message = b"authenticated plaintext";
+        let mut ciphertext = vec![0u8; message.len()];
+        let mut mac = Mac::default();
+
+        crypto_secretbox_detached(&mut ciphertext, &mut mac, message, &nonce, &key);
+        mac[0] ^= 1;
+
+        let mut decrypted = vec![0x5a; message.len()];
+        let original_decrypted = decrypted.clone();
+        assert!(
+            crypto_secretbox_open_detached(&mut decrypted, &mac, &ciphertext, &nonce, &key)
+                .is_err()
+        );
+        assert_eq!(decrypted, original_decrypted);
+
+        let mut inplace = ciphertext.clone();
+        assert!(crypto_secretbox_open_detached_inplace(&mut inplace, &mac, &nonce, &key).is_err());
+        assert_eq!(inplace, ciphertext);
     }
 
     #[cfg(feature = "nightly")]
