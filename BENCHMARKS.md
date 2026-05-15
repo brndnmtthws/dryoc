@@ -99,10 +99,10 @@ combined XSalsa20 stream and Poly1305 authentication path used by secretbox.
 
 | Message size | Software time | Software throughput | SIMD time | SIMD throughput | Relative |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 B | `282.73 ns/iter` | `226 MB/s` | `327.27 ns/iter` | `195 MB/s` | `1.16x slower` |
-| 1 KiB | `1,619.71 ns/iter` | `632 MB/s` | `1,505.93 ns/iter` | `680 MB/s` | `1.08x faster` |
-| 16 KiB | `22,647.52 ns/iter` | `723 MB/s` | `18,721.46 ns/iter` | `875 MB/s` | `1.21x faster` |
-| 1 MiB | `1,466,233.40 ns/iter` | `715 MB/s` | `1,183,574.90 ns/iter` | `885 MB/s` | `1.24x faster` |
+| 64 B | `281.52 ns/iter` | `227 MB/s` | `327.97 ns/iter` | `195 MB/s` | `1.17x slower` |
+| 1 KiB | `1,607.85 ns/iter` | `637 MB/s` | `1,516.26 ns/iter` | `675 MB/s` | `1.06x faster` |
+| 16 KiB | `22,886.41 ns/iter` | `715 MB/s` | `18,726.82 ns/iter` | `874 MB/s` | `1.22x faster` |
+| 1 MiB | `1,433,748.95 ns/iter` | `731 MB/s` | `1,175,895.90 ns/iter` | `891 MB/s` | `1.22x faster` |
 
 The SIMD build uses portable SIMD for both Salsa20 and Poly1305. Larger
 messages benefit from the Salsa20 path processing four independent counter
