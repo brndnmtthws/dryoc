@@ -168,6 +168,8 @@ in Rust. Some optional SIMD code, including dependency-provided SIMD
 implementations and small internal helpers, may contain unsafe code. In
 particular, many SIMD implementations are considered "unsafe" due to their use
 of assembly or intrinsics, however without SIMD-based cryptography you may be
-exposed to timing attacks. See the
-[rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
-for the non-test unsafe inventory in this crate.
+exposed to timing attacks. The in-crate unsafe inventory includes fixed-size
+byte views, optional wincode schema impls, BLAKE2b parameter byte views,
+protected memory, and Salsa20 SIMD unaligned in-place and buffer-to-buffer XOR.
+See the [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
+for the full non-test unsafe inventory in this crate.

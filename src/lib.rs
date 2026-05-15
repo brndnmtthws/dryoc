@@ -143,7 +143,7 @@
 //! | `src/dryocbox.rs` and `src/dryocsecretbox.rs` wincode impls | `wincode` | Implements `unsafe` wincode schema traits for the Rustaceous box wire format. The implementations write and read initialized fields in the same order. |
 //! | `src/blake2b/blake2b_soft.rs` and `src/blake2b/blake2b_simd.rs` parameter blocks | Always available for the soft backend; `simd_backend,nightly` for SIMD | Views a `repr(C, packed)` BLAKE2b parameter block as bytes so the initialization vector is mixed exactly as specified. The parameter type contains only initialized byte fields. |
 //! | `src/protected.rs` protected memory | `nightly` | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements a page-aligned guard-page allocator, and exposes exact-size byte-array views over protected heap buffers. |
-//! | `src/classic/salsa20_simd.rs` Salsa20 SIMD backend | `simd_backend,nightly` | Performs little-endian unaligned word XOR in 256-byte chunks and volatile zeroization of cached SIMD lanes containing derived key material. |
+//! | `src/classic/salsa20_simd.rs` Salsa20 SIMD backend | `simd_backend,nightly` | Performs little-endian unaligned in-place and buffer-to-buffer word XOR in 256-byte chunks, plus volatile zeroization of cached SIMD lanes containing derived key material. |
 //!
 //! Test-only unsafe code is used for libsodium and Argon2 compatibility checks
 //! and protected-memory platform probes; it is not part of the runtime crate
