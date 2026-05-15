@@ -412,7 +412,7 @@ mod tests {
         last_node: u8,
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn blake2b_init(S: *mut B2state, outlen: c_uchar);
         fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
         fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);

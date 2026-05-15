@@ -129,7 +129,7 @@ impl<
     }
 
     /// Generates a random signing keypair.
-    pub fn gen() -> Self {
+    pub fn r#gen() -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
         crypto_sign_keypair_inplace(public_key.as_mut_array(), secret_key.as_mut_array());
@@ -176,7 +176,7 @@ impl
     /// Randomly generates a new signing keypair, using default types
     /// (stack-allocated byte arrays). Provided for convenience.
     pub fn gen_with_defaults() -> Self {
-        Self::gen()
+        Self::r#gen()
     }
 }
 

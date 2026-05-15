@@ -35,7 +35,7 @@ pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> + NewBytes {
     /// Returns a new fixed-length byte array, initialized with zeroes.
     fn new_byte_array() -> Self;
     /// Returns a new fixed-length byte array, filled with random values.
-    fn gen() -> Self;
+    fn r#gen() -> Self;
 }
 
 /// Arbitrary-length array of mutable bytes.
@@ -96,7 +96,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
         res
@@ -127,7 +127,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         let mut res = vec![0u8; LENGTH];
         copy_randombytes(&mut res);
         res
@@ -174,7 +174,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for [u8; LENGTH] {
     }
 
     /// Returns a new byte array filled with random data.
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         let mut res = Self::new_byte_array();
         copy_randombytes(&mut res);
         res

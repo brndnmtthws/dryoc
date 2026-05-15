@@ -58,7 +58,7 @@ impl<
     }
 
     /// Generates a random keypair.
-    pub fn gen() -> Self {
+    pub fn r#gen() -> Self {
         use crate::classic::crypto_box::crypto_box_keypair_inplace;
 
         let mut public_key = PublicKey::new_byte_array();
@@ -108,7 +108,7 @@ impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BO
     /// Randomly generates a new keypair, using default types
     /// (stack-allocated byte arrays). Provided for convenience.
     pub fn gen_with_defaults() -> Self {
-        Self::gen()
+        Self::r#gen()
     }
 }
 
@@ -426,7 +426,7 @@ mod tests {
         let keypair = KeyPair::<
             StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
             StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::gen();
+        >::r#gen();
 
         let mut public_key = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
         crypto_scalarmult_base(&mut public_key, keypair.secret_key.as_array());
@@ -443,7 +443,7 @@ mod tests {
         let keypair_1 = KeyPair::<
             StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
             StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::gen();
+        >::r#gen();
         let keypair_2 = KeyPair::from_secret_key(keypair_1.secret_key.clone());
 
         assert_eq!(keypair_1.public_key, keypair_2.public_key);

@@ -18,8 +18,8 @@
 //! use dryoc::kx::*;
 //!
 //! // Generate random client/server keypairs
-//! let client_keypair = KeyPair::gen();
-//! let server_keypair = KeyPair::gen();
+//! let client_keypair = KeyPair::r#gen();
+//! let server_keypair = KeyPair::r#gen();
 //!
 //! // Compute client session keys, into default stack-allocated byte array
 //! let client_session_keys =
@@ -256,8 +256,8 @@ mod tests {
 
     #[test]
     fn test_kx() {
-        let client_keypair = KeyPair::gen();
-        let server_keypair = KeyPair::gen();
+        let client_keypair = KeyPair::r#gen();
+        let server_keypair = KeyPair::r#gen();
 
         let client_session_keys =
             Session::new_client_with_defaults(&client_keypair, &server_keypair.public_key)

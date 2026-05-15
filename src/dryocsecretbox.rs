@@ -23,8 +23,8 @@
 //! use dryoc::dryocsecretbox::*;
 //!
 //! // Generate a random secret key and nonce
-//! let secret_key = Key::gen();
-//! let nonce = Nonce::gen();
+//! let secret_key = Key::r#gen();
+//! let nonce = Nonce::r#gen();
 //! let message = b"Why hello there, fren";
 //!
 //! // Encrypt `message`, into a Vec-based box
@@ -364,8 +364,8 @@ mod tests {
 
             use crate::dryocsecretbox::*;
 
-            let secret_key = Key::gen();
-            let nonce = Nonce::gen();
+            let secret_key = Key::r#gen();
+            let nonce = Nonce::r#gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ").into_bytes();
             let message_copy = message.clone();
@@ -414,8 +414,8 @@ mod tests {
 
             use crate::dryocsecretbox::*;
 
-            let secret_key = Key::gen();
-            let nonce = Nonce::gen();
+            let secret_key = Key::r#gen();
+            let nonce = Nonce::r#gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ").into_bytes();
             let message_copy = message.clone();

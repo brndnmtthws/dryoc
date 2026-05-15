@@ -16,7 +16,7 @@
 //! use dryoc::types::*;
 //!
 //! // Generate a random key
-//! let key = Key::gen();
+//! let key = Key::r#gen();
 //!
 //! // Compute the mac in one shot. Here we clone the key for the purpose of this
 //! // example, but normally you would not do this as you never want to re-use a
@@ -34,7 +34,7 @@
 //! use dryoc::types::*;
 //!
 //! // Generate a random key
-//! let key = Key::gen();
+//! let key = Key::r#gen();
 //!
 //! // Initialize the MAC, clone the key (don't do this)
 //! let mut mac = Auth::new(key.clone());
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_single_part() {
-        let key = Key::gen();
+        let key = Key::r#gen();
         let mac = Auth::compute_to_vec(key.clone(), b"Data to authenticate");
 
         Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_multi_part() {
-        let key = Key::gen();
+        let key = Key::r#gen();
 
         let mut mac = Auth::new(key.clone());
         mac.update(b"Multi-part");
