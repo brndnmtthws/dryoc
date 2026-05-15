@@ -151,6 +151,59 @@ fn test_dryocbox_wincode_bytes() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "wincode")]
+#[test]
+fn test_dryocbox_wincode() {
+    use dryoc::dryocbox::*;
+
+    let sender_keypair = KeyPair::gen();
+    let recipient_keypair = KeyPair::gen();
+    let nonce = Nonce::gen();
+    let message = b"hey friend";
+
+    let dryocbox: VecBox = DryocBox::encrypt(
+        message,
+        &nonce,
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("unable to encrypt");
+
+    let encoded = wincode::serialize(&dryocbox).expect("doesn't serialize");
+    let dryocbox: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
+
+    let decrypted: Vec<u8> = dryocbox
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("decrypt failed");
+
+    assert_eq!(message, decrypted.as_slice());
+}
+
+#[cfg(feature = "wincode")]
+#[test]
+fn test_dryocbox_sealed_wincode() {
+    use dryoc::dryocbox::*;
+
+    let recipient_keypair = KeyPair::gen();
+    let message = b"hey sealed friend";
+
+    let dryocbox: VecBox =
+        DryocBox::seal(message, &recipient_keypair.public_key).expect("unable to seal");
+
+    let encoded = wincode::serialize(&dryocbox).expect("doesn't serialize");
+    let dryocbox: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
+
+    let decrypted: Vec<u8> = dryocbox
+        .unseal(&recipient_keypair)
+        .expect("unable to unseal");
+
+    assert_eq!(message, decrypted.as_slice());
+}
+
 #[test]
 fn test_dryocsecretbox_wincode_bytes() {
     use dryoc::dryocsecretbox::*;
@@ -165,6 +218,27 @@ fn test_dryocsecretbox_wincode_bytes() {
 
     let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
     let dryocsecretbox = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
+
+    let decrypted: Vec<u8> = dryocsecretbox
+        .decrypt(&nonce, &secret_key)
+        .expect("unable to decrypt");
+
+    assert_eq!(message, decrypted.as_slice());
+}
+
+#[cfg(feature = "wincode")]
+#[test]
+fn test_dryocsecretbox_wincode() {
+    use dryoc::dryocsecretbox::*;
+
+    let secret_key = Key::gen();
+    let nonce = Nonce::gen();
+    let message = b"hey buddy bro";
+
+    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+
+    let encoded = wincode::serialize(&dryocsecretbox).expect("doesn't serialize");
+    let dryocsecretbox: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
 
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)

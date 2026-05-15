@@ -25,7 +25,7 @@ jobs:
             cargo-tarpaulin
             cargo-hold
       - run: cargo hold voyage
-      - run: cargo tarpaulin --features serde,nightly --out Xml
+      - run: cargo tarpaulin --features serde,nightly,wincode --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v4
         if: github.repository == 'brndnmtthws/dryoc'
