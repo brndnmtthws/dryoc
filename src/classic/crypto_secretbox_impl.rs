@@ -87,18 +87,20 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let mut cipher = SecretBoxCipher::new(nonce, key);
-    let mut mac_key = Poly1305Key::new();
-    cipher.poly1305_key(&mut mac_key);
+    let computed_mac = {
+        let mut cipher = SecretBoxCipher::new(nonce, key);
+        let mut mac_key = Poly1305Key::new();
+        cipher.poly1305_key(&mut mac_key);
 
-    let mut computed_mac = Poly1305::new(&mac_key);
-    mac_key.zeroize();
+        let mut computed_mac = Poly1305::new(&mac_key);
+        mac_key.zeroize();
 
-    computed_mac.update(data);
-    let computed_mac = computed_mac.finalize_to_array();
+        computed_mac.update(data);
+        let computed_mac = computed_mac.finalize_to_array();
 
-    cipher.xor(data);
-    drop(cipher);
+        cipher.xor(data);
+        computed_mac
+    };
 
     if mac.ct_eq(&computed_mac).unwrap_u8() == 1 {
         Ok(())

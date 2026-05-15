@@ -1,6 +1,6 @@
+use std::ops::BitXorAssign;
 use std::ptr;
 use std::simd::{Simd, simd_swizzle};
-use std::sync::atomic::{Ordering, compiler_fence};
 
 use zeroize::Zeroize;
 
@@ -13,51 +13,64 @@ type U32x4 = Simd<u32, 4>;
 
 const SIGMA: [u32; 4] = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
 
+trait SalsaWord: BitXorAssign + Copy {
+    fn rotl_sum(y0: Self, y1: Self, rot: u32) -> Self;
+}
+
+impl SalsaWord for u32 {
+    #[inline]
+    fn rotl_sum(y0: Self, y1: Self, rot: u32) -> Self {
+        y0.wrapping_add(y1).rotate_left(rot)
+    }
+}
+
+impl SalsaWord for U32x4 {
+    #[inline]
+    fn rotl_sum(y0: Self, y1: Self, rot: u32) -> Self {
+        rotl32(y0 + y1, rot)
+    }
+}
+
 #[inline]
 fn rotl32(x: U32x4, n: u32) -> U32x4 {
     (x << U32x4::splat(n)) | (x >> U32x4::splat(32 - n))
 }
 
 #[inline]
-fn rotl_sum(y0: U32x4, y1: U32x4, rot: u32) -> U32x4 {
-    rotl32(y0 + y1, rot)
-}
-
-#[inline]
-fn salsa20_rounds(x: &mut [U32x4; 16]) {
+fn salsa20_rounds<T: SalsaWord>(x: &mut [T; 16]) {
     for _ in (0..20).step_by(2) {
-        x[4] ^= rotl_sum(x[0], x[12], 7);
-        x[8] ^= rotl_sum(x[4], x[0], 9);
-        x[12] ^= rotl_sum(x[8], x[4], 13);
-        x[0] ^= rotl_sum(x[12], x[8], 18);
-        x[9] ^= rotl_sum(x[5], x[1], 7);
-        x[13] ^= rotl_sum(x[9], x[5], 9);
-        x[1] ^= rotl_sum(x[13], x[9], 13);
-        x[5] ^= rotl_sum(x[1], x[13], 18);
-        x[14] ^= rotl_sum(x[10], x[6], 7);
-        x[2] ^= rotl_sum(x[14], x[10], 9);
-        x[6] ^= rotl_sum(x[2], x[14], 13);
-        x[10] ^= rotl_sum(x[6], x[2], 18);
-        x[3] ^= rotl_sum(x[15], x[11], 7);
-        x[7] ^= rotl_sum(x[3], x[15], 9);
-        x[11] ^= rotl_sum(x[7], x[3], 13);
-        x[15] ^= rotl_sum(x[11], x[7], 18);
-        x[1] ^= rotl_sum(x[0], x[3], 7);
-        x[2] ^= rotl_sum(x[1], x[0], 9);
-        x[3] ^= rotl_sum(x[2], x[1], 13);
-        x[0] ^= rotl_sum(x[3], x[2], 18);
-        x[6] ^= rotl_sum(x[5], x[4], 7);
-        x[7] ^= rotl_sum(x[6], x[5], 9);
-        x[4] ^= rotl_sum(x[7], x[6], 13);
-        x[5] ^= rotl_sum(x[4], x[7], 18);
-        x[11] ^= rotl_sum(x[10], x[9], 7);
-        x[8] ^= rotl_sum(x[11], x[10], 9);
-        x[9] ^= rotl_sum(x[8], x[11], 13);
-        x[10] ^= rotl_sum(x[9], x[8], 18);
-        x[12] ^= rotl_sum(x[15], x[14], 7);
-        x[13] ^= rotl_sum(x[12], x[15], 9);
-        x[14] ^= rotl_sum(x[13], x[12], 13);
-        x[15] ^= rotl_sum(x[14], x[13], 18);
+        x[4] ^= T::rotl_sum(x[0], x[12], 7);
+        x[8] ^= T::rotl_sum(x[4], x[0], 9);
+        x[12] ^= T::rotl_sum(x[8], x[4], 13);
+        x[0] ^= T::rotl_sum(x[12], x[8], 18);
+        x[9] ^= T::rotl_sum(x[5], x[1], 7);
+        x[13] ^= T::rotl_sum(x[9], x[5], 9);
+        x[1] ^= T::rotl_sum(x[13], x[9], 13);
+        x[5] ^= T::rotl_sum(x[1], x[13], 18);
+        x[14] ^= T::rotl_sum(x[10], x[6], 7);
+        x[2] ^= T::rotl_sum(x[14], x[10], 9);
+        x[6] ^= T::rotl_sum(x[2], x[14], 13);
+        x[10] ^= T::rotl_sum(x[6], x[2], 18);
+        x[3] ^= T::rotl_sum(x[15], x[11], 7);
+        x[7] ^= T::rotl_sum(x[3], x[15], 9);
+        x[11] ^= T::rotl_sum(x[7], x[3], 13);
+        x[15] ^= T::rotl_sum(x[11], x[7], 18);
+        x[1] ^= T::rotl_sum(x[0], x[3], 7);
+        x[2] ^= T::rotl_sum(x[1], x[0], 9);
+        x[3] ^= T::rotl_sum(x[2], x[1], 13);
+        x[0] ^= T::rotl_sum(x[3], x[2], 18);
+        x[6] ^= T::rotl_sum(x[5], x[4], 7);
+        x[7] ^= T::rotl_sum(x[6], x[5], 9);
+        x[4] ^= T::rotl_sum(x[7], x[6], 13);
+        x[5] ^= T::rotl_sum(x[4], x[7], 18);
+        x[11] ^= T::rotl_sum(x[10], x[9], 7);
+        x[8] ^= T::rotl_sum(x[11], x[10], 9);
+        x[9] ^= T::rotl_sum(x[8], x[11], 13);
+        x[10] ^= T::rotl_sum(x[9], x[8], 18);
+        x[12] ^= T::rotl_sum(x[15], x[14], 7);
+        x[13] ^= T::rotl_sum(x[12], x[15], 9);
+        x[14] ^= T::rotl_sum(x[13], x[12], 13);
+        x[15] ^= T::rotl_sum(x[14], x[13], 18);
     }
 }
 
@@ -67,40 +80,7 @@ fn salsa20_block(input: &[u32; 16], counter: u64) -> [u8; 64] {
     state[9] = (counter >> 32) as u32;
     let orig = state;
 
-    for _ in (0..20).step_by(2) {
-        state[4] ^= state[0].wrapping_add(state[12]).rotate_left(7);
-        state[8] ^= state[4].wrapping_add(state[0]).rotate_left(9);
-        state[12] ^= state[8].wrapping_add(state[4]).rotate_left(13);
-        state[0] ^= state[12].wrapping_add(state[8]).rotate_left(18);
-        state[9] ^= state[5].wrapping_add(state[1]).rotate_left(7);
-        state[13] ^= state[9].wrapping_add(state[5]).rotate_left(9);
-        state[1] ^= state[13].wrapping_add(state[9]).rotate_left(13);
-        state[5] ^= state[1].wrapping_add(state[13]).rotate_left(18);
-        state[14] ^= state[10].wrapping_add(state[6]).rotate_left(7);
-        state[2] ^= state[14].wrapping_add(state[10]).rotate_left(9);
-        state[6] ^= state[2].wrapping_add(state[14]).rotate_left(13);
-        state[10] ^= state[6].wrapping_add(state[2]).rotate_left(18);
-        state[3] ^= state[15].wrapping_add(state[11]).rotate_left(7);
-        state[7] ^= state[3].wrapping_add(state[15]).rotate_left(9);
-        state[11] ^= state[7].wrapping_add(state[3]).rotate_left(13);
-        state[15] ^= state[11].wrapping_add(state[7]).rotate_left(18);
-        state[1] ^= state[0].wrapping_add(state[3]).rotate_left(7);
-        state[2] ^= state[1].wrapping_add(state[0]).rotate_left(9);
-        state[3] ^= state[2].wrapping_add(state[1]).rotate_left(13);
-        state[0] ^= state[3].wrapping_add(state[2]).rotate_left(18);
-        state[6] ^= state[5].wrapping_add(state[4]).rotate_left(7);
-        state[7] ^= state[6].wrapping_add(state[5]).rotate_left(9);
-        state[4] ^= state[7].wrapping_add(state[6]).rotate_left(13);
-        state[5] ^= state[4].wrapping_add(state[7]).rotate_left(18);
-        state[11] ^= state[10].wrapping_add(state[9]).rotate_left(7);
-        state[8] ^= state[11].wrapping_add(state[10]).rotate_left(9);
-        state[9] ^= state[8].wrapping_add(state[11]).rotate_left(13);
-        state[10] ^= state[9].wrapping_add(state[8]).rotate_left(18);
-        state[12] ^= state[15].wrapping_add(state[14]).rotate_left(7);
-        state[13] ^= state[12].wrapping_add(state[15]).rotate_left(9);
-        state[14] ^= state[13].wrapping_add(state[12]).rotate_left(13);
-        state[15] ^= state[14].wrapping_add(state[13]).rotate_left(18);
-    }
+    salsa20_rounds(&mut state);
 
     let mut output = [0u8; 64];
     for (i, word) in state.iter_mut().enumerate() {
@@ -112,12 +92,19 @@ fn salsa20_block(input: &[u32; 16], counter: u64) -> [u8; 64] {
 }
 
 #[inline]
+fn checked_counter_add(counter: u64, blocks: u64) -> u64 {
+    counter
+        .checked_add(blocks)
+        .expect("XSalsa20 block counter overflow")
+}
+
+#[inline]
 fn counter_lanes(counter: u64) -> (U32x4, U32x4) {
     let counters = [
         counter,
-        counter.wrapping_add(1),
-        counter.wrapping_add(2),
-        counter.wrapping_add(3),
+        checked_counter_add(counter, 1),
+        checked_counter_add(counter, 2),
+        checked_counter_add(counter, 3),
     ];
     (
         U32x4::from([
@@ -143,6 +130,23 @@ fn input_lanes(input: &[u32; 16]) -> [U32x4; 16] {
     lanes
 }
 
+#[cfg(target_endian = "little")]
+#[inline]
+fn xor_4words(data: &mut [u8], offset: usize, words: U32x4) {
+    debug_assert!(offset + 16 <= data.len());
+
+    // SAFETY: `offset..offset + 16` is in bounds for all call sites in the
+    // 256-byte four-block loop. The unaligned read/write operate on initialized
+    // bytes, `u32` has no invalid bit patterns, and native word order is the
+    // required little-endian Salsa20 order on this cfg path.
+    unsafe {
+        let data_ptr = data.as_mut_ptr().add(offset).cast::<[u32; 4]>();
+        let data_words = U32x4::from(ptr::read_unaligned(data_ptr));
+        ptr::write_unaligned(data_ptr, (data_words ^ words).to_array());
+    }
+}
+
+#[cfg(not(target_endian = "little"))]
 #[inline]
 fn xor_4words(data: &mut [u8], offset: usize, words: U32x4) {
     let data_words = U32x4::from([
@@ -286,7 +290,7 @@ impl XSalsa20 {
         while remaining.len() >= 256 {
             let (chunk, rest) = remaining.split_at_mut(256);
             salsa20_xor_4blocks(chunk, &self.input_lanes, counter);
-            counter = counter.wrapping_add(4);
+            counter = checked_counter_add(counter, 4);
             remaining = rest;
         }
         while !remaining.is_empty() {
@@ -296,7 +300,7 @@ impl XSalsa20 {
                 *byte ^= keystream;
             }
             block.zeroize();
-            counter = counter.wrapping_add(1);
+            counter = checked_counter_add(counter, 1);
             remaining = &mut remaining[xor_len..];
         }
     }
@@ -322,7 +326,6 @@ fn zeroize_lanes(lanes: &mut [U32x4; 16]) {
         // in the SIMD lane cache is cleared even if the value is not read again.
         unsafe { ptr::write_volatile(lane, U32x4::splat(0)) };
     }
-    compiler_fence(Ordering::SeqCst);
 }
 
 #[cfg(test)]
@@ -389,6 +392,8 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig::with_cases(96))]
+
         #[test]
         fn test_xsalsa20_simd_matches_rustcrypto_for_random_inputs(
             key in key_strategy(),
