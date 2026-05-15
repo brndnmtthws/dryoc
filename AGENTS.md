@@ -111,8 +111,11 @@ cargo fuzz run fuzz_target_1
 - `src/rng.rs`: random byte generation.
 - `src/protected.rs`: nightly-only protected memory allocator and locked bytes.
 - `src/classic/`: libsodium-compatible API modules.
-- `src/blake2b/`, `src/poly1305/`, `src/argon2.rs`, `src/scalarmult_curve25519.rs`:
-  primitive implementations and backend selection.
+- `src/blake2b/`, `src/poly1305/`, `src/argon2.rs`,
+  `src/scalarmult_curve25519.rs`: primitive implementations and backend
+  selection.
+- `src/classic/salsa20_simd.rs`: nightly-only portable SIMD Salsa20 backend
+  used internally by `crypto_secretbox` when `simd_backend` is enabled.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
 
