@@ -143,7 +143,7 @@ pub fn crypto_kx_server_session_keys(
     crypto_kx(tx, rx, client_pk, server_pk, shared_secret)
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

@@ -424,7 +424,7 @@ pub fn crypto_pwhash_str_needs_rehash(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

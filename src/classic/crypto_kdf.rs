@@ -79,7 +79,7 @@ pub fn crypto_kdf_derive_from_key(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

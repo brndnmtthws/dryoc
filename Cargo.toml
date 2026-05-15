@@ -36,17 +36,26 @@ winapi = { version = "0.3", features = [
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 [dev-dependencies]
 base64 = "0.22"
 hex = "0.4"
 libc = "0.2"
-libsodium-sys = "0.2"
-proptest = "1"
+num-bigint = { version = "0.4", features = ["rand"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
-sodiumoxide = "0.2"
-num-bigint = { version = "0.4", features = ["rand"] }
+static_assertions = "1.1"
 wincode = "0.5.3"
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+libsodium-sys = "0.2"
+proptest = "1"
+sodiumoxide = "0.2"
 
 [features]
 base64 = []
@@ -57,7 +66,10 @@ u64_backend = []
 wincode = ["dep:wincode"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+  "cfg(dryoc_native_tests)",
+  "cfg(tarpaulin)",
+] }
 
 [package.metadata.docs.rs]
 # docs.rs uses nightly, enable feature flag to get all the juicy docs

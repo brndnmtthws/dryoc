@@ -402,103 +402,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dryocbox() {
-        for i in 0..20 {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
-            use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
-
-            use crate::dryocsecretbox::*;
-
-            let secret_key = Key::generate();
-            let nonce = Nonce::generate();
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ").into_bytes();
-            let message_copy = message.clone();
-            let dryocsecretbox: VecBox = DryocSecretBox::encrypt(&message, &nonce, &secret_key);
-
-            let ciphertext = dryocsecretbox.clone().into_vec();
-            assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
-
-            let ciphertext_copy = ciphertext.clone();
-
-            let so_ciphertext = secretbox::seal(
-                &message_copy,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&secret_key).unwrap(),
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(&ciphertext),
-                general_purpose::STANDARD.encode(&so_ciphertext)
-            );
-
-            let so_decrypted = secretbox::open(
-                &ciphertext_copy,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&secret_key).unwrap(),
-            )
-            .expect("decrypt failed");
-
-            let m = DryocSecretBox::decrypt::<Vec<u8>, Nonce, Key>(
-                &dryocsecretbox,
-                &nonce,
-                &secret_key,
-            )
-            .expect("decrypt failed");
-            assert_eq!(m, message_copy);
-            assert_eq!(m, so_decrypted);
-        }
-    }
-
-    #[test]
-    fn test_dryocbox_vec() {
-        for i in 0..20 {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
-            use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
-
-            use crate::dryocsecretbox::*;
-
-            let secret_key = Key::generate();
-            let nonce = Nonce::generate();
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ").into_bytes();
-            let message_copy = message.clone();
-            let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &secret_key);
-
-            let ciphertext = dryocsecretbox.clone().into_vec();
-            assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
-
-            let ciphertext_copy = ciphertext.clone();
-
-            let so_ciphertext = secretbox::seal(
-                &message_copy,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&secret_key).unwrap(),
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(&ciphertext),
-                general_purpose::STANDARD.encode(&so_ciphertext)
-            );
-
-            let so_decrypted = secretbox::open(
-                &ciphertext_copy,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&secret_key).unwrap(),
-            )
-            .expect("decrypt failed");
-
-            let m = dryocsecretbox
-                .decrypt_to_vec(&nonce, &secret_key)
-                .expect("decrypt failed");
-            assert_eq!(m, message_copy);
-            assert_eq!(m, so_decrypted);
-        }
-    }
-
-    #[test]
     fn test_copy() {
         for _ in 0..20 {
             use std::convert::TryFrom;
@@ -538,54 +441,155 @@ mod tests {
         }
     }
 
-    #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-    #[cfg(feature = "nightly")]
-    #[test]
-    fn test_dryocbox_locked() {
-        for i in 0..20 {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
-            use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        #[test]
+        fn test_dryocbox() {
+            for i in 0..20 {
+                use base64::Engine as _;
+                use base64::engine::general_purpose;
+                use sodiumoxide::crypto::secretbox;
+                use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
-            use crate::dryocsecretbox::*;
-            use crate::protected::*;
+                use crate::dryocsecretbox::*;
 
-            let secret_key = protected::Key::gen_locked().expect("gen failed");
-            let nonce = protected::Nonce::gen_locked().expect("gen failed");
-            let words = vec!["hello1".to_string(); i];
-            let message = words.join(" :D ");
-            let message_copy = message.clone();
-            let dryocsecretbox: protected::LockedBox =
-                DryocSecretBox::encrypt(message.as_bytes(), &nonce, &secret_key);
+                let secret_key = Key::generate();
+                let nonce = Nonce::generate();
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ").into_bytes();
+                let message_copy = message.clone();
+                let dryocsecretbox: VecBox = DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
-            let ciphertext = dryocsecretbox.to_vec();
+                let ciphertext = dryocsecretbox.clone().into_vec();
+                assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
 
-            let ciphertext_copy = ciphertext.clone();
+                let ciphertext_copy = ciphertext.clone();
 
-            let so_ciphertext = secretbox::seal(
-                message_copy.as_bytes(),
-                &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &SOKey::from_slice(secret_key.as_slice()).unwrap(),
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(&ciphertext),
-                general_purpose::STANDARD.encode(&so_ciphertext)
-            );
+                let so_ciphertext = secretbox::seal(
+                    &message_copy,
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &SOKey::from_slice(&secret_key).unwrap(),
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&ciphertext),
+                    general_purpose::STANDARD.encode(&so_ciphertext)
+                );
 
-            let so_decrypted = secretbox::open(
-                &ciphertext_copy,
-                &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                &SOKey::from_slice(secret_key.as_slice()).unwrap(),
-            )
-            .expect("decrypt failed");
-
-            let m: LockedBytes = dryocsecretbox
-                .decrypt(&nonce, &secret_key)
+                let so_decrypted = secretbox::open(
+                    &ciphertext_copy,
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &SOKey::from_slice(&secret_key).unwrap(),
+                )
                 .expect("decrypt failed");
 
-            assert_eq!(m.as_slice(), message_copy.as_bytes());
-            assert_eq!(m.as_slice(), so_decrypted);
+                let m = DryocSecretBox::decrypt::<Vec<u8>, Nonce, Key>(
+                    &dryocsecretbox,
+                    &nonce,
+                    &secret_key,
+                )
+                .expect("decrypt failed");
+                assert_eq!(m, message_copy);
+                assert_eq!(m, so_decrypted);
+            }
+        }
+
+        #[test]
+        fn test_dryocbox_vec() {
+            for i in 0..20 {
+                use base64::Engine as _;
+                use base64::engine::general_purpose;
+                use sodiumoxide::crypto::secretbox;
+                use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+
+                use crate::dryocsecretbox::*;
+
+                let secret_key = Key::generate();
+                let nonce = Nonce::generate();
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ").into_bytes();
+                let message_copy = message.clone();
+                let dryocsecretbox =
+                    DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &secret_key);
+
+                let ciphertext = dryocsecretbox.clone().into_vec();
+                assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
+
+                let ciphertext_copy = ciphertext.clone();
+
+                let so_ciphertext = secretbox::seal(
+                    &message_copy,
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &SOKey::from_slice(&secret_key).unwrap(),
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&ciphertext),
+                    general_purpose::STANDARD.encode(&so_ciphertext)
+                );
+
+                let so_decrypted = secretbox::open(
+                    &ciphertext_copy,
+                    &SONonce::from_slice(&nonce).unwrap(),
+                    &SOKey::from_slice(&secret_key).unwrap(),
+                )
+                .expect("decrypt failed");
+
+                let m = dryocsecretbox
+                    .decrypt_to_vec(&nonce, &secret_key)
+                    .expect("decrypt failed");
+                assert_eq!(m, message_copy);
+                assert_eq!(m, so_decrypted);
+            }
+        }
+
+        #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
+        #[cfg(feature = "nightly")]
+        #[test]
+        fn test_dryocbox_locked() {
+            for i in 0..20 {
+                use base64::Engine as _;
+                use base64::engine::general_purpose;
+                use sodiumoxide::crypto::secretbox;
+                use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+
+                use crate::dryocsecretbox::*;
+                use crate::protected::*;
+
+                let secret_key = protected::Key::gen_locked().expect("gen failed");
+                let nonce = protected::Nonce::gen_locked().expect("gen failed");
+                let words = vec!["hello1".to_string(); i];
+                let message = words.join(" :D ");
+                let message_copy = message.clone();
+                let dryocsecretbox: protected::LockedBox =
+                    DryocSecretBox::encrypt(message.as_bytes(), &nonce, &secret_key);
+
+                let ciphertext = dryocsecretbox.to_vec();
+
+                let ciphertext_copy = ciphertext.clone();
+
+                let so_ciphertext = secretbox::seal(
+                    message_copy.as_bytes(),
+                    &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                    &SOKey::from_slice(secret_key.as_slice()).unwrap(),
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&ciphertext),
+                    general_purpose::STANDARD.encode(&so_ciphertext)
+                );
+
+                let so_decrypted = secretbox::open(
+                    &ciphertext_copy,
+                    &SONonce::from_slice(nonce.as_slice()).unwrap(),
+                    &SOKey::from_slice(secret_key.as_slice()).unwrap(),
+                )
+                .expect("decrypt failed");
+
+                let m: LockedBytes = dryocsecretbox
+                    .decrypt(&nonce, &secret_key)
+                    .expect("decrypt failed");
+
+                assert_eq!(m.as_slice(), message_copy.as_bytes());
+                assert_eq!(m.as_slice(), so_decrypted);
+            }
         }
     }
 }

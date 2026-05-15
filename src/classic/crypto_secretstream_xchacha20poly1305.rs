@@ -499,471 +499,6 @@ mod tests {
     }
 
     #[test]
-    fn test_secretstream_basic_push() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libsodium_sys::{
-            crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
-            crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
-            crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
-            crypto_secretstream_xchacha20poly1305_state,
-        };
-
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-        use crate::dryocstream::Tag;
-
-        let mut key = Key::default();
-        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
-
-        let mut push_state = State::new();
-        let mut push_header = Header::default();
-        crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut push_header, &key);
-        let push_state_init = push_state.clone();
-
-        let message = b"hello";
-        let mut output = vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-        let aad = b"";
-        let tag = Tag::MESSAGE.bits();
-        crypto_secretstream_xchacha20poly1305_push(
-            &mut push_state,
-            &mut output,
-            message,
-            Some(aad),
-            tag,
-        )
-        .expect("push failed");
-
-        let mut so_output = output.clone();
-        unsafe {
-            use libc::{c_uchar, c_ulonglong};
-            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-                _pad: [0u8; 8],
-            };
-            so_state.k.copy_from_slice(&push_state_init.k);
-            so_state.nonce.copy_from_slice(&push_state_init.nonce);
-            let mut clen_p: c_ulonglong = 0;
-            let ret = so_crypto_secretstream_xchacha20poly1305_push(
-                &mut so_state,
-                so_output.as_mut_ptr(),
-                &mut clen_p,
-                message.as_ptr(),
-                message.len() as u64,
-                aad.as_ptr(),
-                aad.len() as u64,
-                0,
-            );
-            assert_eq!(ret, 0);
-            so_output.resize(clen_p as usize, 0);
-            assert_eq!(
-                general_purpose::STANDARD.encode(&so_output),
-                general_purpose::STANDARD.encode(&output)
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(so_state.k),
-                general_purpose::STANDARD.encode(push_state.k)
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(so_state.nonce),
-                general_purpose::STANDARD.encode(push_state.nonce)
-            );
-
-            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-                _pad: [0u8; 8],
-            };
-            let mut mlen_p: c_ulonglong = 0;
-            let mut tag_p: c_uchar = 0;
-            let ret = so_crypto_secretstream_xchacha20poly1305_init_pull(
-                &mut so_state,
-                push_header.as_ptr(),
-                key.as_ptr(),
-            );
-            assert_eq!(ret, 0);
-            assert_eq!(
-                general_purpose::STANDARD.encode(so_state.k),
-                general_purpose::STANDARD.encode(push_state_init.k)
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(so_state.nonce),
-                general_purpose::STANDARD.encode(push_state_init.nonce)
-            );
-            assert!(so_output.len() >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES);
-            let ret = so_crypto_secretstream_xchacha20poly1305_pull(
-                &mut so_state,
-                so_output.as_mut_ptr(),
-                &mut mlen_p,
-                &mut tag_p,
-                output.as_ptr(),
-                output.len() as u64,
-                aad.as_ptr(),
-                aad.len() as u64,
-            );
-            assert_eq!(ret, 0);
-            so_output.resize(mlen_p as usize, 0);
-        }
-        assert_eq!(
-            general_purpose::STANDARD.encode(message),
-            general_purpose::STANDARD.encode(&so_output)
-        );
-
-        let mut pull_state = State::default();
-        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
-
-        assert_eq!(
-            general_purpose::STANDARD.encode(pull_state.k),
-            general_purpose::STANDARD.encode(push_state_init.k)
-        );
-        assert_eq!(
-            general_purpose::STANDARD.encode(pull_state.nonce),
-            general_purpose::STANDARD.encode(push_state_init.nonce)
-        );
-
-        let mut pull_result_message =
-            vec![0u8; output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-        let mut pull_result_tag = 0u8;
-        crypto_secretstream_xchacha20poly1305_pull(
-            &mut pull_state,
-            &mut pull_result_message,
-            &mut pull_result_tag,
-            &output,
-            Some(&[]),
-        )
-        .expect("pull failed");
-
-        assert_eq!(Tag::MESSAGE, Tag::from_bits(tag).expect("tag"));
-        assert_eq!(
-            general_purpose::STANDARD.encode(&pull_result_message),
-            general_purpose::STANDARD.encode(message)
-        );
-    }
-
-    #[test]
-    fn test_rekey() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libsodium_sys::{
-            crypto_secretstream_xchacha20poly1305_rekey as so_crypto_secretstream_xchacha20poly1305_rekey,
-            crypto_secretstream_xchacha20poly1305_state,
-        };
-
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-
-        let mut key = Key::default();
-        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
-
-        let mut push_state = State::default();
-        let mut push_header: Header = Header::default();
-        crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut push_header, &key);
-        let push_state_init = push_state.clone();
-
-        crypto_secretstream_xchacha20poly1305_rekey(&mut push_state);
-
-        let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-            k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-            nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-            _pad: [0u8; 8],
-        };
-        so_state.k.copy_from_slice(&push_state_init.k);
-        so_state.nonce.copy_from_slice(&push_state_init.nonce);
-        unsafe {
-            so_crypto_secretstream_xchacha20poly1305_rekey(&mut so_state);
-        }
-        assert_eq!(
-            general_purpose::STANDARD.encode(so_state.k),
-            general_purpose::STANDARD.encode(push_state.k)
-        );
-        assert_eq!(
-            general_purpose::STANDARD.encode(so_state.nonce),
-            general_purpose::STANDARD.encode(push_state.nonce)
-        );
-    }
-
-    #[test]
-    fn test_secretstream_lots_of_messages_push() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libc::{c_uchar, c_ulonglong};
-        use libsodium_sys::{
-            crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
-            crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
-            crypto_secretstream_xchacha20poly1305_state,
-        };
-
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-        use crate::dryocstream::Tag;
-
-        let mut key = Key::default();
-        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
-
-        let mut push_state = State::new();
-        let mut push_header = Header::default();
-        crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut push_header, &key);
-        let push_state_init = push_state.clone();
-
-        let mut pull_state = State::default();
-        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
-
-        assert_eq!(
-            general_purpose::STANDARD.encode(pull_state.k),
-            general_purpose::STANDARD.encode(push_state_init.k)
-        );
-        assert_eq!(
-            general_purpose::STANDARD.encode(pull_state.nonce),
-            general_purpose::STANDARD.encode(push_state_init.nonce)
-        );
-
-        let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-            k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-            nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-            _pad: [0u8; 8],
-        };
-        so_state.k.copy_from_slice(&push_state_init.k);
-        so_state.nonce.copy_from_slice(&push_state_init.nonce);
-
-        let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-            k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-            nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-            _pad: [0u8; 8],
-        };
-        let mut mlen_p: c_ulonglong = 0;
-        let mut tag_p: c_uchar = 0;
-        unsafe {
-            let ret = so_crypto_secretstream_xchacha20poly1305_init_pull(
-                &mut so_state,
-                push_header.as_ptr(),
-                key.as_ptr(),
-            );
-            assert_eq!(ret, 0);
-        }
-        assert_eq!(
-            general_purpose::STANDARD.encode(so_state.k),
-            general_purpose::STANDARD.encode(push_state_init.k)
-        );
-        assert_eq!(
-            general_purpose::STANDARD.encode(so_state.nonce),
-            general_purpose::STANDARD.encode(push_state_init.nonce)
-        );
-
-        for i in 0..100 {
-            let message = format!("hello {}", i);
-            let aad = format!("aad {}", i);
-            let tag = if i % 7 == 0 { Tag::REKEY } else { Tag::MESSAGE };
-
-            let mut output =
-                vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-            crypto_secretstream_xchacha20poly1305_push(
-                &mut push_state,
-                &mut output,
-                message.as_bytes(),
-                Some(aad.as_bytes()),
-                tag.bits(),
-            )
-            .expect("push failed");
-
-            let mut so_output = output.clone();
-            unsafe {
-                assert!(so_output.len() >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES);
-                let ret = so_crypto_secretstream_xchacha20poly1305_pull(
-                    &mut so_state,
-                    so_output.as_mut_ptr(),
-                    &mut mlen_p,
-                    &mut tag_p,
-                    output.as_ptr(),
-                    output.len() as u64,
-                    aad.as_ptr(),
-                    aad.len() as u64,
-                );
-                assert_eq!(ret, 0);
-                so_output.resize(mlen_p as usize, 0);
-            }
-            assert_eq!(
-                general_purpose::STANDARD.encode(&message),
-                general_purpose::STANDARD.encode(&so_output)
-            );
-
-            let mut pull_result_message =
-                vec![0u8; output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-            let mut pull_result_tag = 0u8;
-            crypto_secretstream_xchacha20poly1305_pull(
-                &mut pull_state,
-                &mut pull_result_message,
-                &mut pull_result_tag,
-                &output,
-                Some(aad.as_bytes()),
-            )
-            .expect("pull failed");
-
-            assert_eq!(tag, Tag::from_bits(pull_result_tag).expect("tag"));
-            assert_eq!(
-                general_purpose::STANDARD.encode(&pull_result_message),
-                general_purpose::STANDARD.encode(&message)
-            );
-        }
-    }
-
-    #[test]
-    fn test_secretstream_basic_pull() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libc::c_ulonglong;
-        use libsodium_sys::{
-            crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
-            crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
-            crypto_secretstream_xchacha20poly1305_state,
-        };
-
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-
-        let mut key = Key::default();
-        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
-
-        let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-            k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-            nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-            _pad: [0u8; 8],
-        };
-        let mut so_header = Header::default();
-        unsafe {
-            so_crypto_secretstream_xchacha20poly1305_init_push(
-                &mut so_state,
-                so_header.as_mut_ptr(),
-                key.as_ptr(),
-            );
-        }
-
-        let mut pull_state = State::new();
-        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &so_header, &key);
-
-        let message = b"hello";
-        let aad = b"aad";
-        let mut so_output = vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-        let mut clen_p: c_ulonglong = 0;
-
-        unsafe {
-            let ret = so_crypto_secretstream_xchacha20poly1305_push(
-                &mut so_state,
-                so_output.as_mut_ptr(),
-                &mut clen_p,
-                message.as_ptr(),
-                message.len() as u64,
-                aad.as_ptr(),
-                aad.len() as u64,
-                0,
-            );
-            assert_eq!(ret, 0);
-            so_output.resize(clen_p as usize, 0);
-        }
-
-        let mut output = vec![0u8; so_output.len()];
-        let mut tag = 0u8;
-        let mlen = crypto_secretstream_xchacha20poly1305_pull(
-            &mut pull_state,
-            &mut output,
-            &mut tag,
-            &so_output,
-            Some(aad),
-        )
-        .expect("decrypt failed");
-        output.resize(mlen, 0);
-
-        assert_eq!(
-            general_purpose::STANDARD.encode(&output),
-            general_purpose::STANDARD.encode(message)
-        );
-        assert_eq!(tag, 0);
-    }
-
-    #[test]
-    fn test_secretstream_lots_of_messages_pull() {
-        use base64::Engine as _;
-        use base64::engine::general_purpose;
-        use libc::c_ulonglong;
-        use libsodium_sys::{
-            crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
-            crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
-            crypto_secretstream_xchacha20poly1305_state,
-        };
-
-        use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
-        use crate::dryocstream::Tag;
-
-        let mut key = Key::default();
-        crypto_secretstream_xchacha20poly1305_keygen(&mut key);
-
-        let mut so_state = crypto_secretstream_xchacha20poly1305_state {
-            k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
-            nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
-            _pad: [0u8; 8],
-        };
-        let mut so_header = Header::default();
-        unsafe {
-            so_crypto_secretstream_xchacha20poly1305_init_push(
-                &mut so_state,
-                so_header.as_mut_ptr(),
-                key.as_ptr(),
-            );
-        }
-
-        let mut pull_state = State::new();
-        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &so_header, &key);
-
-        for i in 0..100 {
-            let message = format!("hello {}", i);
-            let aad = format!("aad {}", i);
-            let mut so_output =
-                vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-            let mut clen_p: c_ulonglong = 0;
-
-            let tag = if i % 7 == 0 { Tag::REKEY } else { Tag::MESSAGE };
-
-            unsafe {
-                let ret = so_crypto_secretstream_xchacha20poly1305_push(
-                    &mut so_state,
-                    so_output.as_mut_ptr(),
-                    &mut clen_p,
-                    message.as_ptr(),
-                    message.len() as u64,
-                    aad.as_ptr(),
-                    aad.len() as u64,
-                    tag.bits(),
-                );
-                assert_eq!(ret, 0);
-                so_output.resize(clen_p as usize, 0);
-            }
-
-            let mut output =
-                vec![0u8; so_output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
-            let mut outtag = 0u8;
-            crypto_secretstream_xchacha20poly1305_pull(
-                &mut pull_state,
-                &mut output,
-                &mut outtag,
-                &so_output,
-                Some(aad.as_bytes()),
-            )
-            .expect("decrypt failed");
-
-            assert_eq!(
-                general_purpose::STANDARD.encode(so_state.k),
-                general_purpose::STANDARD.encode(pull_state.k)
-            );
-            assert_eq!(
-                general_purpose::STANDARD.encode(so_state.nonce),
-                general_purpose::STANDARD.encode(pull_state.nonce)
-            );
-
-            assert_eq!(
-                general_purpose::STANDARD.encode(&output),
-                general_purpose::STANDARD.encode(&message)
-            );
-            assert_eq!(outtag, tag.bits());
-        }
-    }
-
-    #[test]
     fn test_secretstream_large_aad() {
         let mut key = Key::default();
         crypto_secretstream_xchacha20poly1305_keygen(&mut key);
@@ -1008,12 +543,19 @@ mod tests {
         let mut wrong_aad = large_aad.clone();
         wrong_aad[100] = 0x43; // Change one byte
 
+        let mut wrong_aad_pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(
+            &mut wrong_aad_pull_state,
+            &push_header,
+            &key,
+        );
+
         let mut decrypted = vec![0u8; message.len()];
         let mut tag = 0u8;
 
         assert!(
             crypto_secretstream_xchacha20poly1305_pull(
-                &mut pull_state,
+                &mut wrong_aad_pull_state,
                 &mut decrypted,
                 &mut tag,
                 &ciphertext,
@@ -1067,12 +609,19 @@ mod tests {
         // Test with wrong AAD should fail
         let wrong_aad = b"xyz"; // Different 3 byte AAD
 
+        let mut wrong_aad_pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(
+            &mut wrong_aad_pull_state,
+            &push_header,
+            &key,
+        );
+
         let mut decrypted = vec![0u8; message.len()];
         let mut tag = 0u8;
 
         assert!(
             crypto_secretstream_xchacha20poly1305_pull(
-                &mut pull_state,
+                &mut wrong_aad_pull_state,
                 &mut decrypted,
                 &mut tag,
                 &ciphertext,
@@ -1080,5 +629,489 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+
+        #[test]
+        fn test_secretstream_basic_push() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libsodium_sys::{
+                crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
+                crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
+                crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
+                crypto_secretstream_xchacha20poly1305_state,
+            };
+
+            use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+            use crate::dryocstream::Tag;
+
+            let mut key = Key::default();
+            crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+            let mut push_state = State::new();
+            let mut push_header = Header::default();
+            crypto_secretstream_xchacha20poly1305_init_push(
+                &mut push_state,
+                &mut push_header,
+                &key,
+            );
+            let push_state_init = push_state.clone();
+
+            let message = b"hello";
+            let mut output =
+                vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+            let aad = b"";
+            let tag = Tag::MESSAGE.bits();
+            crypto_secretstream_xchacha20poly1305_push(
+                &mut push_state,
+                &mut output,
+                message,
+                Some(aad),
+                tag,
+            )
+            .expect("push failed");
+
+            let mut so_output = output.clone();
+            unsafe {
+                use libc::{c_uchar, c_ulonglong};
+                let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                    k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                    nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                    _pad: [0u8; 8],
+                };
+                so_state.k.copy_from_slice(&push_state_init.k);
+                so_state.nonce.copy_from_slice(&push_state_init.nonce);
+                let mut clen_p: c_ulonglong = 0;
+                let ret = so_crypto_secretstream_xchacha20poly1305_push(
+                    &mut so_state,
+                    so_output.as_mut_ptr(),
+                    &mut clen_p,
+                    message.as_ptr(),
+                    message.len() as u64,
+                    aad.as_ptr(),
+                    aad.len() as u64,
+                    0,
+                );
+                assert_eq!(ret, 0);
+                so_output.resize(clen_p as usize, 0);
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&so_output),
+                    general_purpose::STANDARD.encode(&output)
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(so_state.k),
+                    general_purpose::STANDARD.encode(push_state.k)
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(so_state.nonce),
+                    general_purpose::STANDARD.encode(push_state.nonce)
+                );
+
+                let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                    k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                    nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                    _pad: [0u8; 8],
+                };
+                let mut mlen_p: c_ulonglong = 0;
+                let mut tag_p: c_uchar = 0;
+                let ret = so_crypto_secretstream_xchacha20poly1305_init_pull(
+                    &mut so_state,
+                    push_header.as_ptr(),
+                    key.as_ptr(),
+                );
+                assert_eq!(ret, 0);
+                assert_eq!(
+                    general_purpose::STANDARD.encode(so_state.k),
+                    general_purpose::STANDARD.encode(push_state_init.k)
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(so_state.nonce),
+                    general_purpose::STANDARD.encode(push_state_init.nonce)
+                );
+                assert!(so_output.len() >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES);
+                let ret = so_crypto_secretstream_xchacha20poly1305_pull(
+                    &mut so_state,
+                    so_output.as_mut_ptr(),
+                    &mut mlen_p,
+                    &mut tag_p,
+                    output.as_ptr(),
+                    output.len() as u64,
+                    aad.as_ptr(),
+                    aad.len() as u64,
+                );
+                assert_eq!(ret, 0);
+                so_output.resize(mlen_p as usize, 0);
+            }
+            assert_eq!(
+                general_purpose::STANDARD.encode(message),
+                general_purpose::STANDARD.encode(&so_output)
+            );
+
+            let mut pull_state = State::default();
+            crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
+
+            assert_eq!(
+                general_purpose::STANDARD.encode(pull_state.k),
+                general_purpose::STANDARD.encode(push_state_init.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(pull_state.nonce),
+                general_purpose::STANDARD.encode(push_state_init.nonce)
+            );
+
+            let mut pull_result_message =
+                vec![0u8; output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+            let mut pull_result_tag = 0u8;
+            crypto_secretstream_xchacha20poly1305_pull(
+                &mut pull_state,
+                &mut pull_result_message,
+                &mut pull_result_tag,
+                &output,
+                Some(&[]),
+            )
+            .expect("pull failed");
+
+            assert_eq!(Tag::MESSAGE, Tag::from_bits(tag).expect("tag"));
+            assert_eq!(
+                general_purpose::STANDARD.encode(&pull_result_message),
+                general_purpose::STANDARD.encode(message)
+            );
+        }
+
+        #[test]
+        fn test_rekey() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libsodium_sys::{
+                crypto_secretstream_xchacha20poly1305_rekey as so_crypto_secretstream_xchacha20poly1305_rekey,
+                crypto_secretstream_xchacha20poly1305_state,
+            };
+
+            use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+
+            let mut key = Key::default();
+            crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+            let mut push_state = State::default();
+            let mut push_header: Header = Header::default();
+            crypto_secretstream_xchacha20poly1305_init_push(
+                &mut push_state,
+                &mut push_header,
+                &key,
+            );
+            let push_state_init = push_state.clone();
+
+            crypto_secretstream_xchacha20poly1305_rekey(&mut push_state);
+
+            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                _pad: [0u8; 8],
+            };
+            so_state.k.copy_from_slice(&push_state_init.k);
+            so_state.nonce.copy_from_slice(&push_state_init.nonce);
+            unsafe {
+                so_crypto_secretstream_xchacha20poly1305_rekey(&mut so_state);
+            }
+            assert_eq!(
+                general_purpose::STANDARD.encode(so_state.k),
+                general_purpose::STANDARD.encode(push_state.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(so_state.nonce),
+                general_purpose::STANDARD.encode(push_state.nonce)
+            );
+        }
+
+        #[test]
+        fn test_secretstream_lots_of_messages_push() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libc::{c_uchar, c_ulonglong};
+            use libsodium_sys::{
+                crypto_secretstream_xchacha20poly1305_init_pull as so_crypto_secretstream_xchacha20poly1305_init_pull,
+                crypto_secretstream_xchacha20poly1305_pull as so_crypto_secretstream_xchacha20poly1305_pull,
+                crypto_secretstream_xchacha20poly1305_state,
+            };
+
+            use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+            use crate::dryocstream::Tag;
+
+            let mut key = Key::default();
+            crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+            let mut push_state = State::new();
+            let mut push_header = Header::default();
+            crypto_secretstream_xchacha20poly1305_init_push(
+                &mut push_state,
+                &mut push_header,
+                &key,
+            );
+            let push_state_init = push_state.clone();
+
+            let mut pull_state = State::default();
+            crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &push_header, &key);
+
+            assert_eq!(
+                general_purpose::STANDARD.encode(pull_state.k),
+                general_purpose::STANDARD.encode(push_state_init.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(pull_state.nonce),
+                general_purpose::STANDARD.encode(push_state_init.nonce)
+            );
+
+            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                _pad: [0u8; 8],
+            };
+            so_state.k.copy_from_slice(&push_state_init.k);
+            so_state.nonce.copy_from_slice(&push_state_init.nonce);
+
+            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                _pad: [0u8; 8],
+            };
+            let mut mlen_p: c_ulonglong = 0;
+            let mut tag_p: c_uchar = 0;
+            unsafe {
+                let ret = so_crypto_secretstream_xchacha20poly1305_init_pull(
+                    &mut so_state,
+                    push_header.as_ptr(),
+                    key.as_ptr(),
+                );
+                assert_eq!(ret, 0);
+            }
+            assert_eq!(
+                general_purpose::STANDARD.encode(so_state.k),
+                general_purpose::STANDARD.encode(push_state_init.k)
+            );
+            assert_eq!(
+                general_purpose::STANDARD.encode(so_state.nonce),
+                general_purpose::STANDARD.encode(push_state_init.nonce)
+            );
+
+            for i in 0..100 {
+                let message = format!("hello {}", i);
+                let aad = format!("aad {}", i);
+                let tag = if i % 7 == 0 { Tag::REKEY } else { Tag::MESSAGE };
+
+                let mut output =
+                    vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+                crypto_secretstream_xchacha20poly1305_push(
+                    &mut push_state,
+                    &mut output,
+                    message.as_bytes(),
+                    Some(aad.as_bytes()),
+                    tag.bits(),
+                )
+                .expect("push failed");
+
+                let mut so_output = output.clone();
+                unsafe {
+                    assert!(so_output.len() >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES);
+                    let ret = so_crypto_secretstream_xchacha20poly1305_pull(
+                        &mut so_state,
+                        so_output.as_mut_ptr(),
+                        &mut mlen_p,
+                        &mut tag_p,
+                        output.as_ptr(),
+                        output.len() as u64,
+                        aad.as_ptr(),
+                        aad.len() as u64,
+                    );
+                    assert_eq!(ret, 0);
+                    so_output.resize(mlen_p as usize, 0);
+                }
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&message),
+                    general_purpose::STANDARD.encode(&so_output)
+                );
+
+                let mut pull_result_message =
+                    vec![0u8; output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+                let mut pull_result_tag = 0u8;
+                crypto_secretstream_xchacha20poly1305_pull(
+                    &mut pull_state,
+                    &mut pull_result_message,
+                    &mut pull_result_tag,
+                    &output,
+                    Some(aad.as_bytes()),
+                )
+                .expect("pull failed");
+
+                assert_eq!(tag, Tag::from_bits(pull_result_tag).expect("tag"));
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&pull_result_message),
+                    general_purpose::STANDARD.encode(&message)
+                );
+            }
+        }
+
+        #[test]
+        fn test_secretstream_basic_pull() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libc::c_ulonglong;
+            use libsodium_sys::{
+                crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
+                crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
+                crypto_secretstream_xchacha20poly1305_state,
+            };
+
+            use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+
+            let mut key = Key::default();
+            crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                _pad: [0u8; 8],
+            };
+            let mut so_header = Header::default();
+            unsafe {
+                so_crypto_secretstream_xchacha20poly1305_init_push(
+                    &mut so_state,
+                    so_header.as_mut_ptr(),
+                    key.as_ptr(),
+                );
+            }
+
+            let mut pull_state = State::new();
+            crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &so_header, &key);
+
+            let message = b"hello";
+            let aad = b"aad";
+            let mut so_output =
+                vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+            let mut clen_p: c_ulonglong = 0;
+
+            unsafe {
+                let ret = so_crypto_secretstream_xchacha20poly1305_push(
+                    &mut so_state,
+                    so_output.as_mut_ptr(),
+                    &mut clen_p,
+                    message.as_ptr(),
+                    message.len() as u64,
+                    aad.as_ptr(),
+                    aad.len() as u64,
+                    0,
+                );
+                assert_eq!(ret, 0);
+                so_output.resize(clen_p as usize, 0);
+            }
+
+            let mut output = vec![0u8; so_output.len()];
+            let mut tag = 0u8;
+            let mlen = crypto_secretstream_xchacha20poly1305_pull(
+                &mut pull_state,
+                &mut output,
+                &mut tag,
+                &so_output,
+                Some(aad),
+            )
+            .expect("decrypt failed");
+            output.resize(mlen, 0);
+
+            assert_eq!(
+                general_purpose::STANDARD.encode(&output),
+                general_purpose::STANDARD.encode(message)
+            );
+            assert_eq!(tag, 0);
+        }
+
+        #[test]
+        fn test_secretstream_lots_of_messages_pull() {
+            use base64::Engine as _;
+            use base64::engine::general_purpose;
+            use libc::c_ulonglong;
+            use libsodium_sys::{
+                crypto_secretstream_xchacha20poly1305_init_push as so_crypto_secretstream_xchacha20poly1305_init_push,
+                crypto_secretstream_xchacha20poly1305_push as so_crypto_secretstream_xchacha20poly1305_push,
+                crypto_secretstream_xchacha20poly1305_state,
+            };
+
+            use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
+            use crate::dryocstream::Tag;
+
+            let mut key = Key::default();
+            crypto_secretstream_xchacha20poly1305_keygen(&mut key);
+
+            let mut so_state = crypto_secretstream_xchacha20poly1305_state {
+                k: [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES],
+                nonce: [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES],
+                _pad: [0u8; 8],
+            };
+            let mut so_header = Header::default();
+            unsafe {
+                so_crypto_secretstream_xchacha20poly1305_init_push(
+                    &mut so_state,
+                    so_header.as_mut_ptr(),
+                    key.as_ptr(),
+                );
+            }
+
+            let mut pull_state = State::new();
+            crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &so_header, &key);
+
+            for i in 0..100 {
+                let message = format!("hello {}", i);
+                let aad = format!("aad {}", i);
+                let mut so_output =
+                    vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+                let mut clen_p: c_ulonglong = 0;
+
+                let tag = if i % 7 == 0 { Tag::REKEY } else { Tag::MESSAGE };
+
+                unsafe {
+                    let ret = so_crypto_secretstream_xchacha20poly1305_push(
+                        &mut so_state,
+                        so_output.as_mut_ptr(),
+                        &mut clen_p,
+                        message.as_ptr(),
+                        message.len() as u64,
+                        aad.as_ptr(),
+                        aad.len() as u64,
+                        tag.bits(),
+                    );
+                    assert_eq!(ret, 0);
+                    so_output.resize(clen_p as usize, 0);
+                }
+
+                let mut output =
+                    vec![0u8; so_output.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+                let mut outtag = 0u8;
+                crypto_secretstream_xchacha20poly1305_pull(
+                    &mut pull_state,
+                    &mut output,
+                    &mut outtag,
+                    &so_output,
+                    Some(aad.as_bytes()),
+                )
+                .expect("decrypt failed");
+
+                assert_eq!(
+                    general_purpose::STANDARD.encode(so_state.k),
+                    general_purpose::STANDARD.encode(pull_state.k)
+                );
+                assert_eq!(
+                    general_purpose::STANDARD.encode(so_state.nonce),
+                    general_purpose::STANDARD.encode(pull_state.nonce)
+                );
+
+                assert_eq!(
+                    general_purpose::STANDARD.encode(&output),
+                    general_purpose::STANDARD.encode(&message)
+                );
+                assert_eq!(outtag, tag.bits());
+            }
+        }
     }
 }

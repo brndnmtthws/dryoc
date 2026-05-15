@@ -162,7 +162,7 @@ pub fn crypto_onetimeauth_final(
     crypto_onetimeauth_poly1305_final(state.state, output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

@@ -57,7 +57,7 @@ pub fn crypto_shorthash(output: &mut Hash, input: &[u8], key: &Key) {
     siphash24(output, input, key)
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use rand::TryRng;
 

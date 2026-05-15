@@ -33,7 +33,7 @@ pub fn crypto_hash_sha512_final(state: Sha512State, output: &mut Digest) {
     state.hasher.finalize_into_bytes(output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

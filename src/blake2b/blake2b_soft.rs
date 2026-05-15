@@ -400,29 +400,9 @@ mod tests {
     extern crate test;
     use std::sync::LazyLock;
 
-    use libc::*;
     use serde::{Deserialize, Serialize};
 
     use super::*;
-
-    #[repr(C)]
-    #[derive(Debug)]
-    struct B2state {
-        h: [u64; 8],
-        t: [u64; 2],
-        f: [u64; 2],
-        buf: [c_uchar; 256],
-        buflen: size_t,
-        last_node: u8,
-    }
-
-    unsafe extern "C" {
-        fn blake2b_init(S: *mut B2state, outlen: c_uchar);
-        fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
-        fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
-        fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
-        fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
-    }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct TestVector {
@@ -471,32 +451,98 @@ mod tests {
         });
     }
 
-    #[test]
-    fn test_b2() {
-        use crate::rng::copy_randombytes;
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use libc::*;
 
-        let mut s = B2state {
-            h: [0u64; 8],
-            t: [0u64; 2],
-            f: [0u64; 2],
-            buf: [0u8; 256],
-            buflen: 0,
-            last_node: 0,
-        };
+        use super::*;
 
-        for i in 0..512 {
-            unsafe { blake2b_init(&mut s, 64) };
+        #[repr(C)]
+        #[derive(Debug)]
+        struct B2state {
+            h: [u64; 8],
+            t: [u64; 2],
+            f: [u64; 2],
+            buf: [c_uchar; 256],
+            buflen: size_t,
+            last_node: u8,
+        }
 
-            let mut state = State::init(64, None, None, None).expect("init");
+        unsafe extern "C" {
+            fn blake2b_init(S: *mut B2state, outlen: c_uchar);
+            fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
+            fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
+            fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
+            fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
+        }
 
-            let mut block = vec![0u8; i];
+        #[test]
+        fn test_b2() {
+            use crate::rng::copy_randombytes;
+
+            let mut s = B2state {
+                h: [0u64; 8],
+                t: [0u64; 2],
+                f: [0u64; 2],
+                buf: [0u8; 256],
+                buflen: 0,
+                last_node: 0,
+            };
+
+            for i in 0..512 {
+                unsafe { blake2b_init(&mut s, 64) };
+
+                let mut state = State::init(64, None, None, None).expect("init");
+
+                let mut block = vec![0u8; i];
+                copy_randombytes(&mut block);
+
+                unsafe { blake2b_update(&mut s, block.as_ptr(), block.len() as u64) };
+
+                state.update(&block);
+
+                unsafe { blake2b_update(&mut s, block.as_ptr(), block.len() as u64) };
+
+                state.update(&block);
+
+                let mut output = [0u8; 64];
+                let mut so_output = [0u8; 64];
+
+                unsafe { blake2b_final(&mut s, so_output.as_mut_ptr(), so_output.len() as u64) };
+
+                state.finalize(&mut output).ok();
+
+                assert_eq!(output, so_output);
+            }
+        }
+
+        #[test]
+        fn test_b2_key() {
+            use crate::rng::copy_randombytes;
+
+            let mut s = B2state {
+                h: [0u64; 8],
+                t: [0u64; 2],
+                f: [0u64; 2],
+                buf: [0u8; 256],
+                buflen: 0,
+                last_node: 0,
+            };
+
+            let mut key = [0u8; 32];
+            copy_randombytes(&mut key);
+            let mut block = [0u8; 256];
             copy_randombytes(&mut block);
 
-            unsafe { blake2b_update(&mut s, block.as_ptr(), block.len() as u64) };
+            unsafe { blake2b_init_key(&mut s, 64, &key as *const u8, key.len() as u8) };
+
+            let mut state = State::init(64, Some(&key), None, None).expect("init");
+
+            unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
 
             state.update(&block);
 
-            unsafe { blake2b_update(&mut s, block.as_ptr(), block.len() as u64) };
+            unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
 
             state.update(&block);
 
@@ -509,98 +555,58 @@ mod tests {
 
             assert_eq!(output, so_output);
         }
-    }
 
-    #[test]
-    fn test_b2_key() {
-        use crate::rng::copy_randombytes;
+        #[test]
+        fn test_blake2b_long() {
+            use crate::rng::copy_randombytes;
 
-        let mut s = B2state {
-            h: [0u64; 8],
-            t: [0u64; 2],
-            f: [0u64; 2],
-            buf: [0u8; 256],
-            buflen: 0,
-            last_node: 0,
-        };
+            for i in 5..320 {
+                let mut input = vec![0u8; i - 5_usize];
+                let mut output = vec![0u8; i];
+                let mut so_output = output.clone();
+                copy_randombytes(&mut input);
 
-        let mut key = [0u8; 32];
-        copy_randombytes(&mut key);
-        let mut block = [0u8; 256];
-        copy_randombytes(&mut block);
+                longhash(&mut output, &input).expect("longhash failed");
 
-        unsafe { blake2b_init_key(&mut s, 64, &key as *const u8, key.len() as u8) };
+                unsafe {
+                    blake2b_long(
+                        so_output.as_mut_ptr(),
+                        so_output.len() as u64,
+                        input.as_ptr(),
+                        input.len() as u64,
+                    )
+                };
 
-        let mut state = State::init(64, Some(&key), None, None).expect("init");
-
-        unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
-
-        state.update(&block);
-
-        unsafe { blake2b_update(&mut s, &block as *const u8, block.len() as u64) };
-
-        state.update(&block);
-
-        let mut output = [0u8; 64];
-        let mut so_output = [0u8; 64];
-
-        unsafe { blake2b_final(&mut s, so_output.as_mut_ptr(), so_output.len() as u64) };
-
-        state.finalize(&mut output).ok();
-
-        assert_eq!(output, so_output);
-    }
-
-    #[test]
-    fn test_blake2b_long() {
-        use crate::rng::copy_randombytes;
-
-        for i in 5..320 {
-            let mut input = vec![0u8; i - 5_usize];
-            let mut output = vec![0u8; i];
-            let mut so_output = output.clone();
-            copy_randombytes(&mut input);
-
-            longhash(&mut output, &input).expect("longhash failed");
-
-            unsafe {
-                blake2b_long(
-                    so_output.as_mut_ptr(),
-                    so_output.len() as u64,
-                    input.as_ptr(),
-                    input.len() as u64,
-                )
-            };
-
-            assert_eq!(output, so_output);
+                assert_eq!(output, so_output);
+            }
         }
-    }
 
-    #[test]
-    fn test_blake2b_long_rand_length() {
-        use rand::TryRng;
-        use rand::rngs::SysRng;
+        #[test]
+        fn test_blake2b_long_rand_length() {
+            use rand::TryRng;
+            use rand::rngs::SysRng;
 
-        use crate::rng::copy_randombytes;
+            use crate::rng::copy_randombytes;
 
-        for _ in 0..25 {
-            let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 1000) as usize];
-            let mut output = vec![0u8; (SysRng.try_next_u32().unwrap() % 1000 + 64) as usize];
-            let mut so_output = output.clone();
-            copy_randombytes(&mut input);
+            for _ in 0..25 {
+                let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 1000) as usize];
+                let mut output = vec![0u8; (SysRng.try_next_u32().unwrap() % 1000 + 64) as usize];
+                let mut so_output = output.clone();
+                copy_randombytes(&mut input);
 
-            longhash(&mut output, &input).expect("longhash failed");
+                longhash(&mut output, &input).expect("longhash failed");
 
-            unsafe {
-                blake2b_long(
-                    so_output.as_mut_ptr(),
-                    so_output.len() as u64,
-                    input.as_ptr(),
-                    input.len() as u64,
-                )
-            };
+                unsafe {
+                    blake2b_long(
+                        so_output.as_mut_ptr(),
+                        so_output.len() as u64,
+                        input.as_ptr(),
+                        input.len() as u64,
+                    )
+                };
 
-            assert_eq!(output, so_output);
+                assert_eq!(output, so_output);
+            }
         }
     }
 }

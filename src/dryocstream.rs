@@ -326,7 +326,7 @@ impl DryocStream<Pull> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
 

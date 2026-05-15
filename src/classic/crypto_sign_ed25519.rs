@@ -322,7 +322,7 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
     res
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose;

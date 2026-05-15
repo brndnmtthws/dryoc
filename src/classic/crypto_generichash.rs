@@ -121,7 +121,7 @@ pub fn crypto_generichash_keygen() -> [u8; CRYPTO_GENERICHASH_KEYBYTES] {
     key
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use rand::TryRng;
 

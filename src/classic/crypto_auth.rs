@@ -171,7 +171,7 @@ pub fn crypto_auth_final(state: AuthState, output: &mut [u8; CRYPTO_AUTH_BYTES])
     crypto_auth_hmacsha512256_final(state.state, output)
 }
 
-#[cfg(test)]
+#[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use rand::TryRng;
 
