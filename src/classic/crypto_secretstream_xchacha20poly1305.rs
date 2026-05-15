@@ -469,33 +469,31 @@ mod tests {
 
     #[test]
     fn test_sizes() {
-        use static_assertions::*;
-
         use crate::constants::*;
 
-        const_assert!(
+        const _: () = assert!(
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES
                 == CRYPTO_CORE_HCHACHA20_INPUTBYTES
                     + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES
         );
 
-        const_assert!(
+        const _: () = assert!(
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES
                 == CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
         );
 
-        const_assert!(
+        const _: () = assert!(
             CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES
                 == CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES
                     + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES
         );
 
-        const_assert!(
+        const _: () = assert!(
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
                 <= CRYPTO_AEAD_CHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
         );
 
-        const_assert!(
+        const _: () = assert!(
             CRYPTO_ONETIMEAUTH_POLY1305_BYTES >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES
         );
     }

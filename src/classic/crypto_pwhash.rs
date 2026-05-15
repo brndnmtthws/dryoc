@@ -4,8 +4,8 @@
 //! currently only supports Argon2i and Argon2id algorithms, and does not
 //! support scrypt.
 //!
-//! To use the string-based functions, the `base64` crate feature must be
-//! enabled.
+//! String-based functions are enabled by default. They can be disabled by
+//! building without default features, and re-enabled with the `base64` feature.
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/password_hashing/default_phf).
 //!
@@ -151,17 +151,95 @@ pub fn crypto_pwhash(
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub(crate) fn pwhash_to_string(t_cost: u32, m_cost: u32, salt: &[u8], hash: &[u8]) -> String {
-    use base64::Engine as _;
-    use base64::engine::general_purpose;
-
     format!(
         "$argon2id$v={}$m={},t={},p=1${}${}",
         argon2::ARGON2_VERSION_NUMBER,
         m_cost,
         t_cost,
-        general_purpose::STANDARD_NO_PAD.encode(salt),
-        general_purpose::STANDARD_NO_PAD.encode(hash),
+        base64_no_pad_encode(salt),
+        base64_no_pad_encode(hash),
     )
+}
+
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+fn base64_no_pad_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
+
+    for chunk in input.chunks_exact(3) {
+        let n = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | chunk[2] as u32;
+        output.push(ALPHABET[((n >> 18) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((n >> 12) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((n >> 6) & 0x3f) as usize] as char);
+        output.push(ALPHABET[(n & 0x3f) as usize] as char);
+    }
+
+    let rem = input.chunks_exact(3).remainder();
+    if rem.len() == 1 {
+        let n = (rem[0] as u32) << 16;
+        output.push(ALPHABET[((n >> 18) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((n >> 12) & 0x3f) as usize] as char);
+    } else if rem.len() == 2 {
+        let n = ((rem[0] as u32) << 16) | ((rem[1] as u32) << 8);
+        output.push(ALPHABET[((n >> 18) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((n >> 12) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((n >> 6) & 0x3f) as usize] as char);
+    }
+
+    output
+}
+
+#[cfg(feature = "base64")]
+fn base64_no_pad_decode(input: &str) -> Option<Vec<u8>> {
+    fn decode_byte(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+
+    let input = input.as_bytes();
+    if input.len() % 4 == 1 || input.contains(&b'=') {
+        return None;
+    }
+
+    let mut output = Vec::with_capacity(input.len() / 4 * 3 + 2);
+    for chunk in input.chunks_exact(4) {
+        let n = ((decode_byte(chunk[0])? as u32) << 18)
+            | ((decode_byte(chunk[1])? as u32) << 12)
+            | ((decode_byte(chunk[2])? as u32) << 6)
+            | decode_byte(chunk[3])? as u32;
+        output.push((n >> 16) as u8);
+        output.push((n >> 8) as u8);
+        output.push(n as u8);
+    }
+
+    let rem = input.chunks_exact(4).remainder();
+    if rem.len() == 2 {
+        let second = decode_byte(rem[1])?;
+        if second & 0x0f != 0 {
+            return None;
+        }
+        let n = ((decode_byte(rem[0])? as u32) << 18) | ((second as u32) << 12);
+        output.push((n >> 16) as u8);
+    } else if rem.len() == 3 {
+        let third = decode_byte(rem[2])?;
+        if third & 0x03 != 0 {
+            return None;
+        }
+        let n = ((decode_byte(rem[0])? as u32) << 18)
+            | ((decode_byte(rem[1])? as u32) << 12)
+            | ((third as u32) << 6);
+        output.push((n >> 16) as u8);
+        output.push((n >> 8) as u8);
+    }
+
+    Some(output)
 }
 
 pub(crate) fn convert_costs(opslimit: u64, memlimit: usize) -> (u32, u32) {
@@ -230,12 +308,7 @@ pub(crate) struct Pwhash {
 #[cfg(feature = "base64")]
 impl Pwhash {
     pub(crate) fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
-        use base64::Engine;
         let mut pwhash = Pwhash::default();
-        let base64_engine = base64::engine::general_purpose::GeneralPurpose::new(
-            &base64::alphabet::STANDARD,
-            base64::engine::general_purpose::NO_PAD,
-        );
 
         for s in hashed_password.split('$') {
             if s.is_empty() {
@@ -269,9 +342,9 @@ impl Pwhash {
                     }
                 }
             } else if pwhash.salt.is_none() {
-                pwhash.salt = base64_engine.decode(s).ok();
+                pwhash.salt = base64_no_pad_decode(s);
             } else if pwhash.pwhash.is_none() {
-                pwhash.pwhash = base64_engine.decode(s).ok();
+                pwhash.pwhash = base64_no_pad_decode(s);
             }
         }
 
@@ -389,6 +462,28 @@ mod tests {
         .expect("so pwhash failed");
 
         assert_eq!(hash, so_hash);
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn test_base64_no_pad_matches_base64_crate() {
+        use base64::Engine as _;
+        use base64::engine::general_purpose;
+
+        for len in 0..128 {
+            let input: Vec<u8> = (0..len).map(|i| (i * 31 + len) as u8).collect();
+            let encoded = base64_no_pad_encode(&input);
+            assert_eq!(encoded, general_purpose::STANDARD_NO_PAD.encode(&input));
+            assert_eq!(
+                base64_no_pad_decode(&encoded).as_deref(),
+                Some(input.as_slice())
+            );
+        }
+
+        assert_eq!(base64_no_pad_decode("A"), None);
+        assert_eq!(base64_no_pad_decode("AA="), None);
+        assert_eq!(base64_no_pad_decode("A/"), None);
+        assert_eq!(base64_no_pad_decode("AA/"), None);
     }
 
     #[cfg(feature = "base64")]
