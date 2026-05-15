@@ -153,7 +153,10 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
             self.len(),
             LENGTH
         );
-        let arr = self.as_ptr() as *mut [u8; LENGTH];
+        let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
+        // SAFETY: The assertion above guarantees the vector has at least
+        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, and the
+        // exclusive `&mut self` borrow prevents aliasing the returned prefix.
         unsafe { &mut *arr }
     }
 }
@@ -168,6 +171,9 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for Vec<u8> {
             LENGTH
         );
         let arr = self.as_ptr() as *const [u8; LENGTH];
+        // SAFETY: The assertion above guarantees the vector has at least
+        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, so the
+        // first `LENGTH` bytes can be viewed as a fixed-size byte array.
         unsafe { &*arr }
     }
 }
@@ -354,6 +360,9 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
             LENGTH
         );
         let arr = self.as_ptr() as *const [u8; LENGTH];
+        // SAFETY: The assertion above guarantees the slice has at least
+        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, so the
+        // first `LENGTH` bytes can be viewed as a fixed-size byte array.
         unsafe { &*arr }
     }
 }
@@ -368,6 +377,9 @@ impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
             LENGTH
         );
         let arr = self.as_ptr() as *const [u8; LENGTH];
+        // SAFETY: The assertion above guarantees the slice has at least
+        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, so the
+        // first `LENGTH` bytes can be viewed as a fixed-size byte array.
         unsafe { &*arr }
     }
 }
@@ -381,6 +393,9 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
             LENGTH
         );
         let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
+        // SAFETY: The assertion above guarantees the slice has at least
+        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, and
+        // `&mut self` provides exclusive access to the returned prefix.
         unsafe { &mut *arr }
     }
 }
@@ -406,6 +421,8 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
 impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8; LENGTH] {
         let arr = self.0.as_ptr() as *const [u8; LENGTH];
+        // SAFETY: `StackByteArray<LENGTH>` stores exactly `[u8; LENGTH]` in
+        // `self.0`, so this cast preserves size, alignment, and initialization.
         unsafe { &*arr }
     }
 }
@@ -413,6 +430,8 @@ impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for StackByteArray<L
 impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         let arr = self.0.as_mut_ptr() as *mut [u8; LENGTH];
+        // SAFETY: `StackByteArray<LENGTH>` stores exactly `[u8; LENGTH]` in
+        // `self.0`, and `&mut self` provides exclusive access to it.
         unsafe { &mut *arr }
     }
 }

@@ -130,6 +130,22 @@
 //! supported Rustaceous box types, including [`DryocBox`](dryocbox::DryocBox)
 //! and [`DryocSecretBox`](dryocsecretbox::DryocSecretBox).
 //!
+//! ## Unsafe code
+//!
+//! Non-test `unsafe` code is limited to these areas:
+//!
+//! | Area | Feature gate | Why `unsafe` is required |
+//! |-|-|-|
+//! | `src/types.rs` fixed-size byte views | Always available | Converts validated byte slices and vectors into `[u8; N]` references without copying. Each cast is guarded by a length check or an exact-size wrapper invariant. |
+//! | `src/dryocbox.rs` and `src/dryocsecretbox.rs` wincode impls | `wincode` | Implements `unsafe` wincode schema traits for the Rustaceous box wire format. The implementations write and read initialized fields in the same order. |
+//! | `src/blake2b/blake2b_soft.rs` and `src/blake2b/blake2b_simd.rs` parameter blocks | Always available for the soft backend; `simd_backend,nightly` for SIMD | Views a `repr(C, packed)` BLAKE2b parameter block as bytes so the initialization vector is mixed exactly as specified. The parameter type contains only initialized byte fields. |
+//! | `src/protected.rs` protected memory | `nightly` | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements a page-aligned guard-page allocator, and exposes exact-size byte-array views over protected heap buffers. |
+//! | `src/classic/salsa20_simd.rs` Salsa20 SIMD backend | `simd_backend,nightly` | Performs little-endian unaligned word XOR in 256-byte chunks and volatile zeroization of cached SIMD lanes containing derived key material. |
+//!
+//! Test-only unsafe code is used for libsodium and Argon2 compatibility checks
+//! and protected-memory platform probes; it is not part of the runtime crate
+//! API.
+//!
 //! ## Security notes
 //!
 //! This crate has not been audited by any 3rd parties. It uses well-known
@@ -156,7 +172,8 @@
 //! implementations and small internal helpers, may contain unsafe code. In
 //! particular, many SIMD implementations are considered "unsafe" due to their
 //! use of assembly or intrinsics, however without SIMD-based cryptography you
-//! may be exposed to timing attacks.
+//! may be exposed to timing attacks. See the unsafe code section above for the
+//! non-test unsafe inventory in this crate.
 //!
 //! [^3]: The Rustaceous API is designed to protect users of this library from
 //! making mistakes, however the Classic API allows one to do as one pleases.

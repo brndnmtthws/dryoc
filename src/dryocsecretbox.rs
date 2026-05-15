@@ -147,6 +147,9 @@ pub struct DryocSecretBox<
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 
 #[cfg(feature = "wincode")]
+// SAFETY: The implementation writes exactly the fields used to reconstruct
+// `VecBox` below, using `wincode` schema implementations for each initialized
+// field and preserving their order.
 unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
     type Src = Self;
 
@@ -168,6 +171,8 @@ unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
 }
 
 #[cfg(feature = "wincode")]
+// SAFETY: The implementation fully initializes `dst` with a valid `VecBox`
+// after successfully reading each field in the same order as `SchemaWrite`.
 unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for VecBox {
     type Dst = Self;
 

@@ -267,12 +267,17 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         {
             // tell the kernel not to include this memory in a core dump
             use libc::{MADV_DONTDUMP, madvise};
+            // SAFETY: `data` is a valid, non-empty byte slice. `madvise` may
+            // accept any address range and reports errors through its return
+            // value; this advisory call does not change Rust aliasing rules.
             unsafe {
                 madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DONTDUMP);
             }
         }
 
         use libc::{c_void, mlock as c_mlock};
+        // SAFETY: `data` is a valid, non-empty byte slice. The OS only pins the
+        // mapped pages for this address range and reports failure via `ret`.
         let ret = unsafe { c_mlock(data.as_ptr() as *const c_void, data.len()) };
         match ret {
             0 => Ok(()),
@@ -284,6 +289,8 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         use winapi::shared::minwindef::LPVOID;
         use winapi::um::memoryapi::VirtualLock;
 
+        // SAFETY: `data` is a valid, non-empty byte slice. `VirtualLock` pins
+        // the corresponding pages and reports failure through its return value.
         let res = unsafe { VirtualLock(data.as_ptr() as LPVOID, data.len()) };
         match res {
             1 => Ok(()),
@@ -303,12 +310,16 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
         {
             // undo MADV_DONTDUMP
             use libc::{MADV_DODUMP, madvise};
+            // SAFETY: `data` is a valid, non-empty byte slice. This reverses
+            // the advisory dump flag for the same address range.
             unsafe {
                 madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DODUMP);
             }
         }
 
         use libc::{c_void, munlock as c_munlock};
+        // SAFETY: `data` is a valid, non-empty byte slice. The OS unpins the
+        // mapped pages for this address range and reports failure via `ret`.
         let ret = unsafe { c_munlock(data.as_ptr() as *const c_void, data.len()) };
         match ret {
             0 => Ok(()),
@@ -320,6 +331,8 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
         use winapi::shared::minwindef::LPVOID;
         use winapi::um::memoryapi::VirtualUnlock;
 
+        // SAFETY: `data` is a valid, non-empty byte slice. `VirtualUnlock`
+        // unpins the corresponding pages and reports failure via `res`.
         let res = unsafe { VirtualUnlock(data.as_ptr() as LPVOID, data.len()) };
         match res {
             1 => Ok(()),
@@ -336,6 +349,9 @@ fn dryoc_mprotect_readonly(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use libc::{PROT_READ, c_void, mprotect as c_mprotect};
+        // SAFETY: Protected allocations are page-aligned and page-rounded by
+        // `PageAlignedAllocator`; callers pass slices from those allocations.
+        // `mprotect` changes page permissions and reports errors via `ret`.
         let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len(), PROT_READ) };
         match ret {
             0 => Ok(()),
@@ -350,6 +366,9 @@ fn dryoc_mprotect_readonly(data: &[u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
+        // SAFETY: Protected allocations come from `VirtualAlloc` and the slice
+        // covers committed pages. `VirtualProtect` changes page permissions and
+        // reports errors via `res`.
         let res =
             unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READONLY, &mut old) };
         match res {
@@ -367,6 +386,9 @@ fn dryoc_mprotect_readwrite(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use libc::{PROT_READ, PROT_WRITE, c_void, mprotect as c_mprotect};
+        // SAFETY: Protected allocations are page-aligned and page-rounded by
+        // `PageAlignedAllocator`; callers pass slices from those allocations.
+        // `mprotect` changes page permissions and reports errors via `ret`.
         let ret = unsafe {
             c_mprotect(
                 data.as_ptr() as *mut c_void,
@@ -387,6 +409,9 @@ fn dryoc_mprotect_readwrite(data: &[u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
+        // SAFETY: Protected allocations come from `VirtualAlloc` and the slice
+        // covers committed pages. `VirtualProtect` changes page permissions and
+        // reports errors via `res`.
         let res = unsafe {
             VirtualProtect(
                 data.as_ptr() as LPVOID,
@@ -410,6 +435,9 @@ fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use libc::{PROT_NONE, c_void, mprotect as c_mprotect};
+        // SAFETY: Protected allocations are page-aligned and page-rounded by
+        // `PageAlignedAllocator`; callers pass slices from those allocations.
+        // `mprotect` changes page permissions and reports errors via `ret`.
         let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len(), PROT_NONE) };
         match ret {
             0 => Ok(()),
@@ -424,6 +452,9 @@ fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
+        // SAFETY: Protected allocations come from `VirtualAlloc` and the slice
+        // covers committed pages. `VirtualProtect` changes page permissions and
+        // reports errors via `res`.
         let res =
             unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_NOACCESS, &mut old) };
         match res {
@@ -669,12 +700,16 @@ lazy_static! {
         #[cfg(unix)]
         {
             use libc::{_SC_PAGE_SIZE, sysconf};
+            // SAFETY: `sysconf(_SC_PAGE_SIZE)` has no pointer arguments and
+            // returns the host page size or an error sentinel.
             unsafe { sysconf(_SC_PAGE_SIZE) as usize }
         }
         #[cfg(windows)]
         {
             use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
             let mut si = SYSTEM_INFO::default();
+            // SAFETY: `si` is a valid writable `SYSTEM_INFO` out-parameter for
+            // the duration of the call.
             unsafe { GetSystemInfo(&mut si) };
             si.dwPageSize as usize
         }
@@ -690,6 +725,10 @@ fn _page_round(size: usize, pagesize: usize) -> Option<usize> {
     }
 }
 
+// SAFETY: `allocate` returns the user slice inside an owned allocation preceded
+// by one guard page. `deallocate` subtracts that same guard-page offset,
+// restores guard-page permissions, and releases the original allocation with
+// the matching platform allocator.
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<ptr::NonNull<[u8]>, AllocError> {
@@ -704,6 +743,9 @@ unsafe impl Allocator for PageAlignedAllocator {
 
             // allocate full pages, in addition to an extra page at the start and
             // end which will remain locked with no access permitted.
+            // SAFETY: `out` is a valid out-parameter. `pagesize` is a power-of-
+            // two page alignment and `size` is a checked page-rounded allocation
+            // size that includes both guard pages.
             let ret = unsafe { posix_memalign(&mut out, pagesize, size) };
             if ret != 0 {
                 return Err(AllocError);
@@ -715,6 +757,9 @@ unsafe impl Allocator for PageAlignedAllocator {
         let out = {
             use winapi::um::memoryapi::VirtualAlloc;
             use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
+            // SAFETY: `size` is a checked page-rounded allocation size that
+            // includes both guard pages. Null address lets the OS choose the
+            // base, and failure is handled by checking for null.
             let out = unsafe {
                 VirtualAlloc(
                     ptr::null_mut(),
@@ -730,6 +775,8 @@ unsafe impl Allocator for PageAlignedAllocator {
         };
 
         // lock the pages at the fore of the region
+        // SAFETY: `out` points to `size` bytes returned by the platform
+        // allocator, and the first `pagesize` bytes are within that allocation.
         let fore_protected_region =
             unsafe { std::slice::from_raw_parts_mut(out as *mut u8, pagesize) };
         dryoc_mprotect_noaccess(fore_protected_region)
@@ -738,6 +785,8 @@ unsafe impl Allocator for PageAlignedAllocator {
 
         // lock the pages at the aft of the region
         let aft_protected_region_offset = pagesize.checked_add(rounded_size).ok_or(AllocError)?;
+        // SAFETY: `aft_protected_region_offset` was bounds-checked above and
+        // leaves one full guard page within the allocated `size` bytes.
         let aft_protected_region = unsafe {
             std::slice::from_raw_parts_mut(
                 out.add(aft_protected_region_offset) as *mut u8,
@@ -748,6 +797,9 @@ unsafe impl Allocator for PageAlignedAllocator {
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
             .ok();
 
+        // SAFETY: Skipping the first guard page leaves at least `layout.size()`
+        // initialized bytes within the allocation. The returned slice is the
+        // unique user-visible allocation region.
         let slice =
             unsafe { std::slice::from_raw_parts_mut(out.add(pagesize) as *mut u8, layout.size()) };
 
@@ -755,16 +807,28 @@ unsafe impl Allocator for PageAlignedAllocator {
             .map_err(|err| eprintln!("mprotect error = {:?}, in allocator", err))
             .ok();
 
+        // SAFETY: `slice` was just built from a non-null allocation pointer and
+        // is the unique user-visible region returned by this allocator.
         unsafe { Ok(ptr::NonNull::new_unchecked(slice)) }
     }
 
+    /// # Safety
+    ///
+    /// `ptr` must be a user-region pointer previously returned by this
+    /// allocator's `allocate` method with the same `layout`.
     #[inline]
+    // SAFETY: The caller contract above is the `Allocator::deallocate` safety
+    // contract for this implementation.
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         let pagesize = *PAGESIZE;
 
+        // SAFETY: `ptr` points to the user region returned by `allocate`, which
+        // starts exactly one guard page after the original allocation base.
         let ptr = unsafe { ptr.as_ptr().offset(-(pagesize as isize)) };
 
         // unlock the fore protected region
+        // SAFETY: The original allocation starts at `ptr`, and the first
+        // `pagesize` bytes are the fore guard page.
         let fore_protected_region = unsafe { std::slice::from_raw_parts_mut(ptr, pagesize) };
         dryoc_mprotect_readwrite(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
@@ -774,6 +838,8 @@ unsafe impl Allocator for PageAlignedAllocator {
         if let Some(aft_protected_region_offset) =
             _page_round(layout.size(), pagesize).and_then(|size| pagesize.checked_add(size))
         {
+            // SAFETY: The offset mirrors `allocate` and points to the aft guard
+            // page within the original allocation.
             let aft_protected_region = unsafe {
                 std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize)
             };
@@ -785,6 +851,8 @@ unsafe impl Allocator for PageAlignedAllocator {
 
         #[cfg(unix)]
         {
+            // SAFETY: `ptr` is the original allocation base returned by
+            // `posix_memalign`.
             unsafe { libc::free(ptr as *mut libc::c_void) };
         }
         #[cfg(windows)]
@@ -792,6 +860,9 @@ unsafe impl Allocator for PageAlignedAllocator {
             use winapi::shared::minwindef::LPVOID;
             use winapi::um::memoryapi::VirtualFree;
             use winapi::um::winnt::MEM_RELEASE;
+            // SAFETY: `ptr` is the original allocation base returned by
+            // `VirtualAlloc`; size 0 with `MEM_RELEASE` releases the whole
+            // region.
             unsafe { VirtualFree(ptr as LPVOID, 0, MEM_RELEASE) };
         }
     }
@@ -1010,6 +1081,8 @@ impl<A: Zeroize + MutBytes, LM: traits::LockMode> MutBytes for Protected<A, trai
 impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8; LENGTH] {
         let arr = self.0.as_ptr() as *const [u8; LENGTH];
+        // SAFETY: `HeapByteArray<LENGTH>` always allocates exactly `LENGTH`
+        // initialized bytes, and `[u8; LENGTH]` has alignment 1.
         unsafe { &*arr }
     }
 }
@@ -1017,6 +1090,8 @@ impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for HeapByteArray<LE
 impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         let arr = self.0.as_mut_ptr() as *mut [u8; LENGTH];
+        // SAFETY: `HeapByteArray<LENGTH>` always allocates exactly `LENGTH`
+        // initialized bytes. `&mut self` provides exclusive access to them.
         unsafe { &mut *arr }
     }
 }
@@ -1251,8 +1326,9 @@ impl From<&[u8]> for HeapBytes {
 impl<const LENGTH: usize> ByteArray<LENGTH> for HeapByteArray<LENGTH> {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
-        // this is safe for fixed-length arrays
         let ptr = self.0.as_ptr() as *const [u8; LENGTH];
+        // SAFETY: `HeapByteArray<LENGTH>` always allocates exactly `LENGTH`
+        // initialized bytes, and `[u8; LENGTH]` has alignment 1.
         unsafe { &*ptr }
     }
 }
@@ -1319,8 +1395,9 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
 
 impl<const LENGTH: usize> MutByteArray<LENGTH> for HeapByteArray<LENGTH> {
     fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        // this is safe for fixed-length arrays
-        let ptr = self.0.as_ptr() as *mut [u8; LENGTH];
+        let ptr = self.0.as_mut_ptr() as *mut [u8; LENGTH];
+        // SAFETY: `HeapByteArray<LENGTH>` always allocates exactly `LENGTH`
+        // initialized bytes. `&mut self` provides exclusive access to them.
         unsafe { &mut *ptr }
     }
 }
