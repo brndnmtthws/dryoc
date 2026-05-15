@@ -146,6 +146,9 @@ impl State {
         let mut state = Self::default();
         state.init0();
 
+        // SAFETY: `Params` is `repr(C, packed)` and consists only of `u8`
+        // fields and byte arrays, so every byte in its object representation is
+        // initialized parameter data with alignment 1.
         let pslice = unsafe {
             std::slice::from_raw_parts(
                 (params as *const Params) as *const u8,

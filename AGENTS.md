@@ -103,6 +103,13 @@ cargo fuzz run fuzz_target_1
   silently change them.
 - Any new `unsafe` must be small, documented by surrounding invariants, and
   covered by tests. Prefer existing unsafe wrappers and allocation helpers.
+- Put a `// SAFETY:` comment immediately before every non-test `unsafe` block,
+  `unsafe impl`, `unsafe extern`, or `unsafe fn`; explain the concrete pointer,
+  aliasing, initialization, layout, or OS-call invariant that makes it valid.
+- When adding, removing, or materially changing non-test `unsafe`, update the
+  unsafe code inventory in `src/lib.rs` and `README.md`.
+- Test-only `unsafe` should stay confined to compatibility checks or platform
+  probes, and it does not need to be listed in the unsafe inventory.
 
 ## Module Map
 
