@@ -21,7 +21,7 @@
 //! own crypto", as it often results in avoidable mistakes. In the context of
 //! cryptography, mistakes can be very costly.
 //!
-//! The minimum supported Rust version (MSRV) for this crate is **Rust 1.51** or
+//! The minimum supported Rust version (MSRV) for this crate is **Rust 1.89** or
 //! newer.
 //!
 //! ## Features
@@ -36,24 +36,34 @@
 //! * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html)
 //!   implementation for Blake2b (used by generic hashing, password hashing, and
 //!   key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
-//! * SIMD backend for Curve25519 (used by public/private key functions) on
-//!   nightly with `features = ["simd_backend", "nightly"]`
+//! * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html)
+//!   implementation for Salsa20 (used by XSalsa20-Poly1305 secretbox) on
+//!   nightly, with `features = ["simd_backend", "nightly"]`
+//! * [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
+//!   (used by public/private key functions) selects its own serial or x86_64
+//!   vector backend at build time
 //! * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by
 //!   sealed boxes) includes SIMD implementation for AVX2
 //! * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20)
 //!   (used by streaming interface) includes SIMD implementations for Neon,
 //!   AVX2, and SSE2
 //!
-//! To enable all the SIMD backends through 3rd party crates, you'll need to
-//! also set `RUSTFLAGS`:
+//! The `simd_backend` and `nightly` features enable dryoc's portable SIMD
+//! backends. CPU-specific dependency backends and local benchmarking may also
+//! benefit from target-specific `RUSTFLAGS`:
 //! * For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
 //! * For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
 //! * For Neon set `RUSTFLAGS=-Ctarget-feature=+neon`
+//! * For local Apple silicon benchmarks, use `RUSTFLAGS=-Ctarget-cpu=native
+//!   -Ctarget-feature=+neon`
+//!
+//! The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
+//! `simd_backend` feature.
 //!
 //! _Note that eventually this project will converge on portable SIMD
 //! implementations for all the core algos which will work across all platforms
 //! supported by LLVM, rather than relying on hand-coded assembly or intrinsics,
-//! but his is a work in progress_.
+//! but this is a work in progress_.
 //!
 //! ## APIs
 //!
@@ -120,11 +130,11 @@
 //!
 //! [^2]: The protected memory features described in the [protected] mod require
 //! custom memory allocation, system calls, and pointer arithmetic, which are
-//! unsafe in Rust. Some of the 3rd party libraries used by this crate, such as
-//! those with SIMD, may contain unsafe code. In particular, most SIMD
-//! implementations are considered "unsafe" due to their use of assembly or
-//! intrinsics, however without SIMD-based cryptography you may be exposed to
-//! timing attacks.
+//! unsafe in Rust. Some optional SIMD code, including dependency-provided SIMD
+//! implementations and small internal helpers, may contain unsafe code. In
+//! particular, many SIMD implementations are considered "unsafe" due to their
+//! use of assembly or intrinsics, however without SIMD-based cryptography you
+//! may be exposed to timing attacks.
 //!
 //! [^3]: The Rustaceous API is designed to protect users of this library from
 //! making mistakes, however the Classic API allows one to do as one pleases.
@@ -167,6 +177,8 @@ pub mod classic {
     mod crypto_box_impl;
     mod crypto_secretbox_impl;
     mod generichash_blake2b;
+    #[cfg(all(feature = "simd_backend", feature = "nightly"))]
+    mod salsa20_simd;
 
     pub mod crypto_auth;
     pub mod crypto_box;

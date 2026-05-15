@@ -174,6 +174,9 @@ pub fn crypto_secretbox_open_easy_inplace(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "nightly")]
+    extern crate test;
+
     use super::*;
 
     #[test]
@@ -260,5 +263,50 @@ mod tests {
             assert_eq!(&decrypted, &message_copy);
             assert_eq!(decrypted, so_decrypted);
         }
+    }
+
+    #[cfg(feature = "nightly")]
+    fn bench_crypto_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
+        let key: Key = crypto_secretbox_keygen();
+        let nonce = Nonce::gen();
+        let mut message = vec![0u8; message_len];
+        crate::rng::copy_randombytes(&mut message);
+        let mut ciphertext = vec![0u8; message_len];
+        let mut mac = Mac::default();
+
+        b.bytes = message_len as u64;
+        b.iter(|| {
+            crypto_secretbox_detached(
+                test::black_box(&mut ciphertext),
+                test::black_box(&mut mac),
+                test::black_box(&message),
+                test::black_box(&nonce),
+                test::black_box(&key),
+            );
+        });
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn crypto_secretbox_detached_64b_bench(b: &mut test::Bencher) {
+        bench_crypto_secretbox_detached(b, 64);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn crypto_secretbox_detached_1kib_bench(b: &mut test::Bencher) {
+        bench_crypto_secretbox_detached(b, 1024);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn crypto_secretbox_detached_16kib_bench(b: &mut test::Bencher) {
+        bench_crypto_secretbox_detached(b, 16 * 1024);
+    }
+
+    #[cfg(feature = "nightly")]
+    #[bench]
+    fn crypto_secretbox_detached_1mib_bench(b: &mut test::Bencher) {
+        bench_crypto_secretbox_detached(b, 1024 * 1024);
     }
 }

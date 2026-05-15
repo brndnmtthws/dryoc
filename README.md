@@ -45,20 +45,30 @@ For example usage, refer to the
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Blake2b (used by generic hashing, password hashing, and key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
-* SIMD backend for Curve25519 (used by public/private key functions) on nightly with `features = ["simd_backend", "nightly"]`
+* [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Salsa20 (used by XSalsa20-Poly1305 secretbox) on nightly, with `features = ["simd_backend", "nightly"]`
+* [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend at build time
 * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
 * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for Neon, AVX2, and SSE2
 
-To enable all the SIMD backends through 3rd party crates, you'll need to also
-set `RUSTFLAGS`:
+The `simd_backend` and `nightly` features enable dryoc's portable SIMD
+backends. CPU-specific dependency backends and local benchmarking may also
+benefit from target-specific `RUSTFLAGS`:
 * For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
 * For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
 * For Neon set `RUSTFLAGS=-Ctarget-feature=+neon`
+* For local Apple silicon benchmarks, use
+  `RUSTFLAGS=-Ctarget-cpu=native -Ctarget-feature=+neon`
+
+The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
+`simd_backend` feature.
 
 _Note that eventually this project will converge on portable SIMD implementations
 for all the core algos which will work across all platforms supported by LLVM,
 rather than relying on hand-coded assembly or intrinsics, but this is a work in
 progress_.
+
+See [BENCHMARKS.md](BENCHMARKS.md) for side-by-side software and SIMD benchmark
+results.
 
 ## Project status
 
@@ -88,7 +98,7 @@ The following libsodium features are either incomplete, not exposed as public
 APIs, or not implemented; you may find equivalent functionality in other
 crates:
 
-* [Stream ciphers](https://doc.libsodium.org/advanced/stream_ciphers) (use [salsa20](https://crates.io/crates/salsa20) crate directly instead)
+* Standalone [stream cipher](https://doc.libsodium.org/advanced/stream_ciphers) APIs (use the [salsa20](https://crates.io/crates/salsa20) crate directly instead)
 * [Helpers](https://doc.libsodium.org/helpers) and [padding](https://doc.libsodium.org/padding) utilities
 * [Advanced features](https://doc.libsodium.org/advanced):
   * [Scrypt](https://doc.libsodium.org/advanced/scrypt) (use [scrypt](https://crates.io/crates/scrypt) crate directly instead)
@@ -107,7 +117,8 @@ crates:
 
 [^2]: The protected memory features described in the [protected] mod require
 custom memory allocation, system calls, and pointer arithmetic, which are unsafe
-in Rust. Some of the 3rd party libraries used by this crate, such as those with
-SIMD, may contain unsafe code. In particular, most SIMD implementations are
-considered "unsafe" due to their use of assembly or intrinsics, however without
-SIMD-based cryptography you may be exposed to timing attacks.
+in Rust. Some optional SIMD code, including dependency-provided SIMD
+implementations and small internal helpers, may contain unsafe code. In
+particular, many SIMD implementations are considered "unsafe" due to their use
+of assembly or intrinsics, however without SIMD-based cryptography you may be
+exposed to timing attacks.
