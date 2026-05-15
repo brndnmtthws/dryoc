@@ -21,8 +21,11 @@
 //! own crypto", as it often results in avoidable mistakes. In the context of
 //! cryptography, mistakes can be very costly.
 //!
-//! The minimum supported Rust version (MSRV) for this crate is **Rust 1.89** or
-//! newer.
+//! This crate uses the Rust 2024 edition. The minimum supported Rust version
+//! (MSRV) is **Rust 1.89** or newer.
+//!
+//! Rust 2024 reserves `gen` as a keyword, so generation APIs are called with
+//! raw identifier syntax such as `Key::r#gen()`.
 //!
 //! ## Features
 //!
@@ -33,6 +36,8 @@
 //! * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
 //!   equivalents)
 //! * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
+//! * [wincode](https://crates.io/crates/wincode) support for direct binary
+//!   serialization of Rustaceous box types (with `features = ["wincode"]`)
 //! * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html)
 //!   implementation for Blake2b (used by generic hashing, password hashing, and
 //!   key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
@@ -107,6 +112,14 @@
 //! [`Serialize`](serde::ser::Serialize) and
 //! [`Deserialize`](serde::de::Deserialize) traits are provided for data
 //! structures.
+//!
+//! ## Using wincode
+//!
+//! This crate includes optional [wincode](https://crates.io/crates/wincode)
+//! support which can be enabled with the `wincode` feature flag. When enabled,
+//! `wincode::SchemaWrite` and `wincode::SchemaRead` are provided for
+//! supported Rustaceous box types, including [`DryocBox`](dryocbox::DryocBox)
+//! and [`DryocSecretBox`](dryocsecretbox::DryocSecretBox).
 //!
 //! ## Security notes
 //!

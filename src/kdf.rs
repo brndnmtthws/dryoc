@@ -85,7 +85,7 @@ pub mod protected {
     //! use dryoc::kdf::protected::*;
     //!
     //! // Randomly generate a main key and context, using locked memory
-    //! let key: LockedKdf = Kdf::gen();
+    //! let key: LockedKdf = Kdf::r#gen();
     //! let subkey_id = 0;
     //!
     //! let subkey: Locked<Key> = key.derive_subkey(subkey_id).expect("derive failed");
@@ -115,10 +115,10 @@ impl<
 > Kdf<Key, Context>
 {
     /// Randomly generates a new pair of main key and context.
-    pub fn gen() -> Self {
+    pub fn r#gen() -> Self {
         Self {
-            main_key: Key::gen(),
-            context: Context::gen(),
+            main_key: Key::r#gen(),
+            context: Context::r#gen(),
         }
     }
 }
@@ -165,8 +165,8 @@ impl Kdf<Key, Context> {
     /// Randomly generates a new pair of main key and context.
     pub fn gen_with_defaults() -> Self {
         Self {
-            main_key: Key::gen(),
-            context: Context::gen(),
+            main_key: Key::r#gen(),
+            context: Context::r#gen(),
         }
     }
 }
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_kdf() {
-        let key = StackKdf::gen();
+        let key = StackKdf::r#gen();
 
         let _subkey = key.derive_subkey_to_vec(0).expect("derive failed");
     }

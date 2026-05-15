@@ -18,7 +18,9 @@
 //! the sender's public key in the box.
 //!
 //! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`DryocBox`].
+//! [`serde::Serialize`] traits will be implemented for [`DryocBox`]. If the
+//! `wincode` feature is enabled, the `wincode::SchemaRead` and
+//! `wincode::SchemaWrite` traits will be implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -28,11 +30,11 @@
 //! // Randomly generate sender/recipient keypairs. Under normal circumstances, the
 //! // sender would only know the recipient's public key, and the recipient would
 //! // only know the sender's public key.
-//! let sender_keypair = KeyPair::gen();
-//! let recipient_keypair = KeyPair::gen();
+//! let sender_keypair = KeyPair::r#gen();
+//! let recipient_keypair = KeyPair::r#gen();
 //!
 //! // Randomly generate a nonce
-//! let nonce = Nonce::gen();
+//! let nonce = Nonce::r#gen();
 //!
 //! let message = b"All that glitters is not gold";
 //!
@@ -69,7 +71,7 @@
 //! ```
 //! use dryoc::dryocbox::*;
 //!
-//! let recipient_keypair = KeyPair::gen();
+//! let recipient_keypair = KeyPair::r#gen();
 //! let message = b"Now is the winter of our discontent.";
 //!
 //! let dryocbox = DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key.clone())
@@ -209,6 +211,57 @@ pub struct DryocBox<
 
 /// [Vec]-based authenticated public-key box.
 pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
+
+#[cfg(feature = "wincode")]
+unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
+    type Src = Self;
+
+    fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
+        Ok(
+            <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaWrite<C>>::size_of(
+                &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
+            )? + <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaWrite<C>>::size_of(
+                src.tag.as_array(),
+            )? + <Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?,
+        )
+    }
+
+    fn write(mut writer: impl wincode::io::Writer, src: &Self::Src) -> wincode::WriteResult<()> {
+        <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaWrite<C>>::write(
+            writer.by_ref(),
+            &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
+        )?;
+        <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaWrite<C>>::write(
+            writer.by_ref(),
+            src.tag.as_array(),
+        )?;
+        <Vec<u8> as wincode::SchemaWrite<C>>::write(writer, &src.data)
+    }
+}
+
+#[cfg(feature = "wincode")]
+unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for VecBox {
+    type Dst = Self;
+
+    fn read(
+        mut reader: impl wincode::io::Reader<'de>,
+        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+    ) -> wincode::ReadResult<()> {
+        let ephemeral_pk = <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaRead<
+            'de,
+            C,
+        >>::get(reader.by_ref())?
+        .map(Into::into);
+        let tag = <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
+        let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader)?;
+        dst.write(Self {
+            ephemeral_pk,
+            tag: tag.into(),
+            data,
+        });
+        Ok(())
+    }
+}
 
 impl<
     EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
@@ -688,11 +741,11 @@ mod tests {
             use sodiumoxide::crypto::box_;
             use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
-            let keypair_sender = KeyPair::gen();
-            let keypair_recipient = KeyPair::gen();
+            let keypair_sender = KeyPair::r#gen();
+            let keypair_recipient = KeyPair::r#gen();
             let keypair_sender_copy = keypair_sender.clone();
             let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = Nonce::gen();
+            let nonce = Nonce::r#gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
@@ -751,11 +804,11 @@ mod tests {
                 Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
             };
 
-            let keypair_sender = KeyPair::gen();
-            let keypair_recipient = KeyPair::gen();
+            let keypair_sender = KeyPair::r#gen();
+            let keypair_recipient = KeyPair::r#gen();
             let keypair_sender_copy = keypair_sender.clone();
             let keypair_recipient_copy = keypair_recipient.clone();
-            let nonce = Nonce::gen();
+            let nonce = Nonce::r#gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
@@ -781,7 +834,7 @@ mod tests {
                 general_purpose::STANDARD.encode(&so_ciphertext)
             );
 
-            let invalid_key = KeyPair::gen();
+            let invalid_key = KeyPair::r#gen();
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
 
@@ -807,10 +860,10 @@ mod tests {
         for _ in 0..20 {
             use crate::keypair::*;
 
-            let invalid_key = KeyPair::gen();
+            let invalid_key = KeyPair::r#gen();
             let invalid_key_copy_1 = invalid_key.clone();
             let invalid_key_copy_2 = invalid_key.clone();
-            let nonce = Nonce::gen();
+            let nonce = Nonce::r#gen();
 
             let dryocbox: VecBox =
                 DryocBox::from_bytes(b"trollolllololololollollolololololol").expect("ok");
@@ -859,7 +912,7 @@ mod tests {
             use sodiumoxide::crypto::box_::{PublicKey as SOPublicKey, SecretKey as SOSecretKey};
             use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
 
-            let keypair_recipient = KeyPair::gen();
+            let keypair_recipient = KeyPair::r#gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
             let message_copy = message.clone();
@@ -888,7 +941,7 @@ mod tests {
             use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
             use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
 
-            let keypair_recipient = KeyPair::gen();
+            let keypair_recipient = KeyPair::r#gen();
             let words = vec!["hello1".to_string(); i];
             let message = words.join(" :D ");
 
@@ -908,9 +961,9 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_decrypt() {
-        let keypair_sender = KeyPair::gen();
-        let keypair_recipient = KeyPair::gen();
-        let nonce = Nonce::gen();
+        let keypair_sender = KeyPair::r#gen();
+        let keypair_recipient = KeyPair::r#gen();
+        let nonce = Nonce::r#gen();
 
         let message = b"To be, or not to be, that is the question:";
         let precalc_secret_key = PrecalcSecretKey::precalculate(
@@ -930,9 +983,9 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox() {
-        let keypair_sender = KeyPair::gen();
-        let keypair_recipient = KeyPair::gen();
-        let nonce = Nonce::gen();
+        let keypair_sender = KeyPair::r#gen();
+        let keypair_recipient = KeyPair::r#gen();
+        let nonce = Nonce::r#gen();
 
         let message = b"All the world's a stage, and all the men and women merely players:";
         let precalc_secret_key = PrecalcSecretKey::precalculate(
@@ -952,9 +1005,9 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_decrypt_with_different_messages() {
-        let keypair_sender = KeyPair::gen();
-        let keypair_recipient = KeyPair::gen();
-        let nonce = Nonce::gen();
+        let keypair_sender = KeyPair::r#gen();
+        let keypair_recipient = KeyPair::r#gen();
+        let nonce = Nonce::r#gen();
 
         let messages: Vec<&[u8]> = vec![
             b"Now is the winter of our discontent, made glorious summer by this sun of York;",
@@ -982,9 +1035,9 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox_with_different_messages() {
-        let keypair_sender = KeyPair::gen();
-        let keypair_recipient = KeyPair::gen();
-        let nonce = Nonce::gen();
+        let keypair_sender = KeyPair::r#gen();
+        let keypair_recipient = KeyPair::r#gen();
+        let nonce = Nonce::r#gen();
 
         let messages: Vec<&[u8]> = vec![
             b"Out, out brief candle! Life's but a walking shadow, a poor player that struts and frets his hour upon the stage and then is heard no more.",

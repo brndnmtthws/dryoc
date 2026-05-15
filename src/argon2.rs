@@ -704,7 +704,7 @@ mod tests {
         );
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn argon2_hash(
             t_cost: u32,
             m_cost: u32,

@@ -336,7 +336,7 @@ fn dryoc_mprotect_readonly(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use libc::{PROT_READ, c_void, mprotect as c_mprotect};
-        let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len() - 1, PROT_READ) };
+        let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len(), PROT_READ) };
         match ret {
             0 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -350,14 +350,8 @@ fn dryoc_mprotect_readonly(data: &[u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
-        let res = unsafe {
-            VirtualProtect(
-                data.as_ptr() as LPVOID,
-                data.len() - 1,
-                PAGE_READONLY,
-                &mut old,
-            )
-        };
+        let res =
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_READONLY, &mut old) };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -376,7 +370,7 @@ fn dryoc_mprotect_readwrite(data: &[u8]) -> Result<(), std::io::Error> {
         let ret = unsafe {
             c_mprotect(
                 data.as_ptr() as *mut c_void,
-                data.len() - 1,
+                data.len(),
                 PROT_READ | PROT_WRITE,
             )
         };
@@ -396,7 +390,7 @@ fn dryoc_mprotect_readwrite(data: &[u8]) -> Result<(), std::io::Error> {
         let res = unsafe {
             VirtualProtect(
                 data.as_ptr() as LPVOID,
-                data.len() - 1,
+                data.len(),
                 PAGE_READWRITE,
                 &mut old,
             )
@@ -416,7 +410,7 @@ fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use libc::{PROT_NONE, c_void, mprotect as c_mprotect};
-        let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len() - 1, PROT_NONE) };
+        let ret = unsafe { c_mprotect(data.as_ptr() as *mut c_void, data.len(), PROT_NONE) };
         match ret {
             0 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -430,14 +424,8 @@ fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
 
         let mut old: DWORD = 0;
 
-        let res = unsafe {
-            VirtualProtect(
-                data.as_ptr() as LPVOID,
-                data.len() - 1,
-                PAGE_NOACCESS,
-                &mut old,
-            )
-        };
+        let res =
+            unsafe { VirtualProtect(data.as_ptr() as LPVOID, data.len(), PAGE_NOACCESS, &mut old) };
         match res {
             1 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -693,15 +681,22 @@ lazy_static! {
     };
 }
 
-fn _page_round(size: usize, pagesize: usize) -> usize {
-    size + (pagesize - size % pagesize)
+fn _page_round(size: usize, pagesize: usize) -> Option<usize> {
+    let rem = size % pagesize;
+    if rem == 0 {
+        Some(size)
+    } else {
+        size.checked_add(pagesize - rem)
+    }
 }
 
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: Layout) -> Result<ptr::NonNull<[u8]>, AllocError> {
         let pagesize = *PAGESIZE;
-        let size = _page_round(layout.size(), pagesize) + 2 * pagesize;
+        let rounded_size = _page_round(layout.size(), pagesize).ok_or(AllocError)?;
+        let guard_size = pagesize.checked_mul(2).ok_or(AllocError)?;
+        let size = rounded_size.checked_add(guard_size).ok_or(AllocError)?;
         #[cfg(unix)]
         let out = {
             use libc::posix_memalign;
@@ -720,14 +715,18 @@ unsafe impl Allocator for PageAlignedAllocator {
         let out = {
             use winapi::um::memoryapi::VirtualAlloc;
             use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
-            unsafe {
+            let out = unsafe {
                 VirtualAlloc(
                     ptr::null_mut(),
                     size,
                     MEM_COMMIT | MEM_RESERVE,
                     PAGE_READWRITE,
                 )
+            };
+            if out.is_null() {
+                return Err(AllocError);
             }
+            out
         };
 
         // lock the pages at the fore of the region
@@ -738,7 +737,7 @@ unsafe impl Allocator for PageAlignedAllocator {
             .ok();
 
         // lock the pages at the aft of the region
-        let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
+        let aft_protected_region_offset = pagesize.checked_add(rounded_size).ok_or(AllocError)?;
         let aft_protected_region = unsafe {
             std::slice::from_raw_parts_mut(
                 out.add(aft_protected_region_offset) as *mut u8,
@@ -763,33 +762,37 @@ unsafe impl Allocator for PageAlignedAllocator {
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         let pagesize = *PAGESIZE;
 
-        let ptr = ptr.as_ptr().offset(-(pagesize as isize));
+        let ptr = unsafe { ptr.as_ptr().offset(-(pagesize as isize)) };
 
         // unlock the fore protected region
-        let fore_protected_region = std::slice::from_raw_parts_mut(ptr, pagesize);
+        let fore_protected_region = unsafe { std::slice::from_raw_parts_mut(ptr, pagesize) };
         dryoc_mprotect_readwrite(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
             .ok();
 
         // unlock the aft protected region
-        let aft_protected_region_offset = pagesize + _page_round(layout.size(), pagesize);
-        let aft_protected_region =
-            std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize);
+        if let Some(aft_protected_region_offset) =
+            _page_round(layout.size(), pagesize).and_then(|size| pagesize.checked_add(size))
+        {
+            let aft_protected_region = unsafe {
+                std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize)
+            };
 
-        dryoc_mprotect_readwrite(aft_protected_region)
-            .map_err(|err| eprintln!("mprotect error = {:?}", err))
-            .ok();
+            dryoc_mprotect_readwrite(aft_protected_region)
+                .map_err(|err| eprintln!("mprotect error = {:?}", err))
+                .ok();
+        }
 
         #[cfg(unix)]
         {
-            libc::free(ptr as *mut libc::c_void);
+            unsafe { libc::free(ptr as *mut libc::c_void) };
         }
         #[cfg(windows)]
         {
             use winapi::shared::minwindef::LPVOID;
             use winapi::um::memoryapi::VirtualFree;
             use winapi::um::winnt::MEM_RELEASE;
-            VirtualFree(ptr as LPVOID, 0, MEM_RELEASE);
+            unsafe { VirtualFree(ptr as LPVOID, 0, MEM_RELEASE) };
         }
     }
 }
@@ -1290,7 +1293,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH>
         }
     }
 
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         match HeapByteArray::<LENGTH>::new_locked() {
             Ok(mut r) => {
                 copy_randombytes(r.as_mut_slice());
@@ -1307,7 +1310,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
         res
@@ -1428,19 +1431,19 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
     for Protected<A, PM, LM>
 {
     fn zeroize(&mut self) {
-        if let Some(d) = &mut self.i {
-            if !d.a.as_slice().is_empty() {
-                if d.pm != int::ProtectMode::ReadWrite {
-                    dryoc_mprotect_readwrite(d.a.as_slice())
-                        .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
-                        .ok();
-                }
-                d.a.zeroize();
-                if d.lm == int::LockMode::Locked {
-                    dryoc_munlock(d.a.as_slice())
-                        .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-                        .ok();
-                }
+        if let Some(d) = &mut self.i
+            && !d.a.as_slice().is_empty()
+        {
+            if d.pm != int::ProtectMode::ReadWrite {
+                dryoc_mprotect_readwrite(d.a.as_slice())
+                    .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
+                    .ok();
+            }
+            d.a.zeroize();
+            if d.lm == int::LockMode::Locked {
+                dryoc_munlock(d.a.as_slice())
+                    .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
+                    .ok();
             }
         }
     }
@@ -1454,7 +1457,7 @@ mod tests {
     fn test_lock_unlock() {
         use crate::dryocstream::Key;
 
-        let key = Key::gen();
+        let key = Key::r#gen();
         let key_clone = key.clone();
 
         let locked_key = key.mlock().expect("lock failed");
@@ -1468,7 +1471,7 @@ mod tests {
     fn test_protect_unprotect() {
         use crate::dryocstream::Key;
 
-        let key = Key::gen();
+        let key = Key::r#gen();
         let key_clone = key.clone();
 
         let readonly_key = key.mprotect_readonly().expect("mprotect failed");
@@ -1496,6 +1499,60 @@ mod tests {
         vec.resize(5, 0);
 
         assert_eq!([1, 2, 3, 0, 1], vec.as_slice());
+    }
+
+    #[test]
+    fn test_page_rounding() {
+        let pagesize = *PAGESIZE;
+
+        assert_eq!(_page_round(0, pagesize), Some(0));
+        assert_eq!(_page_round(1, pagesize), Some(pagesize));
+        assert_eq!(_page_round(pagesize, pagesize), Some(pagesize));
+        assert_eq!(_page_round(pagesize + 1, pagesize), Some(pagesize * 2));
+        assert_eq!(_page_round(usize::MAX, pagesize), None);
+    }
+
+    #[test]
+    fn test_mprotect_handles_single_byte_slice() {
+        let mut vec: Vec<u8, _> = Vec::new_in(PageAlignedAllocator);
+        vec.push(1);
+
+        dryoc_mprotect_readonly(vec.as_slice()).expect("readonly mprotect failed");
+        dryoc_mprotect_readwrite(vec.as_slice()).expect("readwrite mprotect failed");
+        vec[0] = 2;
+
+        assert_eq!(vec[0], 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mprotect_noaccess_covers_page_boundary_tail() {
+        let pagesize = *PAGESIZE;
+        let mut vec: Vec<u8, _> = Vec::new_in(PageAlignedAllocator);
+        vec.resize(pagesize + 1, 0);
+
+        dryoc_mprotect_noaccess(vec.as_slice()).expect("noaccess mprotect failed");
+
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+
+        if child == 0 {
+            let tail = unsafe { vec.as_ptr().add(pagesize) as *mut u8 };
+            unsafe {
+                std::ptr::write_volatile(tail, 1);
+                libc::_exit(0);
+            }
+        }
+
+        let mut status = 0;
+        let wait_ret = unsafe { libc::waitpid(child, &mut status, 0) };
+        dryoc_mprotect_readwrite(vec.as_slice()).expect("readwrite mprotect failed");
+
+        assert_eq!(wait_ret, child);
+        assert!(
+            libc::WIFSIGNALED(status),
+            "child unexpectedly wrote to protected tail page"
+        );
     }
 
     // #[test]

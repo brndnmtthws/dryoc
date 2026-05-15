@@ -44,11 +44,21 @@ For example usage, refer to the
 * Many libsodium features implemented with both Classic and Rustaceous API
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows equivalents)
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
+* [wincode](https://crates.io/crates/wincode) support for direct binary serialization of Rustaceous box types (with `features = ["wincode"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Blake2b (used by generic hashing, password hashing, and key derivation) on nightly, with `features = ["simd_backend", "nightly"]`
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementation for Salsa20 (used by XSalsa20-Poly1305 secretbox) on nightly, with `features = ["simd_backend", "nightly"]`
 * [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend at build time
 * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
 * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for Neon, AVX2, and SSE2
+
+## Rust version
+
+dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
+by `rust-version` in `Cargo.toml`.
+
+Rust 2024 reserves `gen` as a keyword. Existing generation APIs are still
+available, but Rust 2024 callers should use raw identifier syntax such as
+`Key::r#gen()`.
 
 The `simd_backend` and `nightly` features enable dryoc's portable SIMD
 backends. CPU-specific dependency backends and local benchmarking may also
@@ -69,6 +79,17 @@ progress_.
 
 See [BENCHMARKS.md](BENCHMARKS.md) for side-by-side software and SIMD benchmark
 results.
+
+## Optional serialization
+
+Enable `serde` to derive [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
+and [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
+for supported data structures.
+
+Enable `wincode` to derive [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
+and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
+for supported Rustaceous box types, including `DryocBox` and
+`DryocSecretBox`.
 
 ## Project status
 

@@ -27,7 +27,7 @@
 //! let message3 = b"three messages";
 //!
 //! // Generate a random secret key for this stream
-//! let key = Key::gen();
+//! let key = Key::r#gen();
 //!
 //! // Initialize the push side, type annotations required on return type
 //! let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
@@ -356,7 +356,7 @@ mod tests {
         let message3 = b"three messages";
 
         // Generate a random secret key for this stream
-        let key = Key::gen();
+        let key = Key::r#gen();
 
         // Initialize the push side, type annotations required on return type
         let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
@@ -402,7 +402,7 @@ mod tests {
         let message3 = b"three messages";
 
         // Generate a random secret key for this stream
-        let key = Key::gen();
+        let key = Key::r#gen();
 
         // Initialize the push side, type annotations required on return type
         let (mut so_push_stream, so_header) =

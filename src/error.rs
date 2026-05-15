@@ -61,11 +61,11 @@ impl std::error::Error for Error {
 }
 
 macro_rules! dryoc_error {
-    ($msg:expr) => {{ crate::error::Error::from(format!("{}, from {}:{}", $msg, file!(), line!())) }};
+    ($msg:expr_2021) => {{ crate::error::Error::from(format!("{}, from {}:{}", $msg, file!(), line!())) }};
 }
 
 macro_rules! validate {
-    ($min:expr, $max:expr, $value:expr, $name:literal) => {
+    ($min:expr_2021, $max:expr_2021, $value:expr_2021, $name:literal) => {
         if $value < $min {
             return Err(dryoc_error!(format!(
                 "{} value of {} less than minimum {}",

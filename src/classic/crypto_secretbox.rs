@@ -15,7 +15,7 @@
 //! use dryoc::types::*;
 //!
 //! let key: Key = crypto_secretbox_keygen();
-//! let nonce = Nonce::gen();
+//! let nonce = Nonce::r#gen();
 //!
 //! let message = "I Love Doge!";
 //!
@@ -54,7 +54,7 @@ pub fn crypto_secretbox_keygen_inplace(key: &mut Key) {
 /// Generates a random key using
 /// [`copy_randombytes`].
 pub fn crypto_secretbox_keygen() -> Key {
-    Key::gen()
+    Key::r#gen()
 }
 
 /// Detached version of [`crypto_secretbox_easy`].
@@ -188,7 +188,7 @@ mod tests {
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
             let key: Key = crypto_secretbox_keygen();
-            let nonce = Nonce::gen();
+            let nonce = Nonce::r#gen();
 
             let words = vec!["love Doge".to_string(); i];
             let message = words.join(" <3 ");
@@ -230,7 +230,7 @@ mod tests {
             use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
             let key = crypto_secretbox_keygen();
-            let nonce = Nonce::gen();
+            let nonce = Nonce::r#gen();
 
             let words = vec!["love Doge".to_string(); i];
             let message: Vec<u8> = words.join(" <3 ").into();
@@ -268,7 +268,7 @@ mod tests {
     #[cfg(feature = "nightly")]
     fn bench_crypto_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
         let key: Key = crypto_secretbox_keygen();
-        let nonce = Nonce::gen();
+        let nonce = Nonce::r#gen();
         let mut message = vec![0u8; message_len];
         crate::rng::copy_randombytes(&mut message);
         let mut ciphertext = vec![0u8; message_len];

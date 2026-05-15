@@ -75,7 +75,7 @@ pub fn crypto_kx_seed_keypair(
 ///
 /// Equivalent to libsodium's `crypto_kx_keypair`.
 pub fn crypto_kx_keypair() -> (PublicKey, SecretKey) {
-    let sk = SecretKey::gen();
+    let sk = SecretKey::r#gen();
     let mut pk = PublicKey::default();
 
     crypto_scalarmult_base(&mut pk, &sk);
