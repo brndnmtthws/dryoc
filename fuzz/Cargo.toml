@@ -15,6 +15,9 @@ libfuzzer-sys = "0.4"
 [dependencies.dryoc]
 path = ".."
 
+[features]
+base64 = ["dryoc/base64"]
+
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
@@ -22,5 +25,23 @@ members = ["."]
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_secretstream_pull"
+path = "fuzz_targets/fuzz_secretstream_pull.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_pwhash_str"
+path = "fuzz_targets/fuzz_pwhash_str.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_from_bytes"
+path = "fuzz_targets/fuzz_from_bytes.rs"
 test = false
 doc = false
