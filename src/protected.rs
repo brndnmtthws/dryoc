@@ -71,8 +71,8 @@
 use std::alloc::{AllocError, Allocator, Layout};
 use std::marker::PhantomData;
 use std::ptr;
+use std::sync::LazyLock;
 
-use lazy_static::lazy_static;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error;
@@ -695,26 +695,37 @@ impl Lockable<HeapBytes> for HeapBytes {
 /// allocated region of memory.
 pub struct PageAlignedAllocator;
 
-lazy_static! {
-    static ref PAGESIZE: usize = {
-        #[cfg(unix)]
-        {
-            use libc::{_SC_PAGE_SIZE, sysconf};
-            // SAFETY: `sysconf(_SC_PAGE_SIZE)` has no pointer arguments and
-            // returns the host page size or an error sentinel.
-            unsafe { sysconf(_SC_PAGE_SIZE) as usize }
-        }
-        #[cfg(windows)]
-        {
-            use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
-            let mut si = SYSTEM_INFO::default();
-            // SAFETY: `si` is a valid writable `SYSTEM_INFO` out-parameter for
-            // the duration of the call.
-            unsafe { GetSystemInfo(&mut si) };
-            si.dwPageSize as usize
-        }
-    };
+#[cfg(unix)]
+const DEFAULT_PAGESIZE: usize = 4096;
+
+#[cfg(unix)]
+fn page_size_from_sysconf(page_size: libc::c_long) -> usize {
+    if page_size > 0 {
+        page_size as usize
+    } else {
+        DEFAULT_PAGESIZE
+    }
 }
+
+static PAGESIZE: LazyLock<usize> = LazyLock::new(|| {
+    #[cfg(unix)]
+    {
+        use libc::{_SC_PAGE_SIZE, sysconf};
+        // SAFETY: `sysconf(_SC_PAGE_SIZE)` has no pointer arguments and returns
+        // the host page size or an error sentinel.
+        let page_size = unsafe { sysconf(_SC_PAGE_SIZE) };
+        page_size_from_sysconf(page_size)
+    }
+    #[cfg(windows)]
+    {
+        use winapi::um::sysinfoapi::{GetSystemInfo, SYSTEM_INFO};
+        let mut si = SYSTEM_INFO::default();
+        // SAFETY: `si` is a valid writable `SYSTEM_INFO` out-parameter for the
+        // duration of the call.
+        unsafe { GetSystemInfo(&mut si) };
+        si.dwPageSize as usize
+    }
+});
 
 fn _page_round(size: usize, pagesize: usize) -> Option<usize> {
     let rem = size % pagesize;
@@ -1595,6 +1606,14 @@ mod tests {
         assert_eq!(_page_round(pagesize, pagesize), Some(pagesize));
         assert_eq!(_page_round(pagesize + 1, pagesize), Some(pagesize * 2));
         assert_eq!(_page_round(usize::MAX, pagesize), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_page_size_from_sysconf_handles_error_sentinel() {
+        assert_eq!(page_size_from_sysconf(-1), DEFAULT_PAGESIZE);
+        assert_eq!(page_size_from_sysconf(0), DEFAULT_PAGESIZE);
+        assert_eq!(page_size_from_sysconf(8192), 8192);
     }
 
     #[cfg_attr(

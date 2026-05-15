@@ -70,7 +70,6 @@
 //! * See the [protected] mod for an example using the protected memory features
 //!   with [`DryocStream`]
 
-use bitflags::bitflags;
 use zeroize::Zeroize;
 
 use crate::classic::crypto_secretstream_xchacha20poly1305::{
@@ -80,13 +79,13 @@ use crate::classic::crypto_secretstream_xchacha20poly1305::{
 };
 use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_PUSH,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY, CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
+    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES, CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
 use crate::error::Error;
 pub use crate::types::*;
+
+mod tag;
+pub use tag::{Tag, TagIter, TagIterNames};
 
 /// Stream mode marker trait
 pub trait Mode {}
@@ -171,28 +170,6 @@ pub mod protected {
     /// Heap-allocated, page-aligned header for authenticated secret
     /// streams, for use with protected memory.
     pub type Header = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
-}
-
-bitflags! {
-    /// Message tag definitions
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub struct Tag: u8 {
-        /// Describes a normal message in a stream.
-        const MESSAGE = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE;
-        /// Indicates the message marks the end of a series of messages in a
-        /// stream, but not the end of the stream.
-        const PUSH = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_PUSH;
-        /// Derives a new key for the stream.
-        const REKEY = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY;
-        /// Indicates the end of the stream.
-        const FINAL = Self::PUSH.bits() | Self::REKEY.bits();
-    }
-}
-
-impl From<u8> for Tag {
-    fn from(other: u8) -> Self {
-        Self::from_bits(other).expect("Unable to parse tag")
-    }
 }
 
 /// Secret-key authenticated encrypted streams
