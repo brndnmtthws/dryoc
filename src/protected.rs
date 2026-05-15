@@ -762,10 +762,10 @@ unsafe impl Allocator for PageAlignedAllocator {
     unsafe fn deallocate(&self, ptr: ptr::NonNull<u8>, layout: Layout) {
         let pagesize = *PAGESIZE;
 
-        let ptr = ptr.as_ptr().offset(-(pagesize as isize));
+        let ptr = unsafe { ptr.as_ptr().offset(-(pagesize as isize)) };
 
         // unlock the fore protected region
-        let fore_protected_region = std::slice::from_raw_parts_mut(ptr, pagesize);
+        let fore_protected_region = unsafe { std::slice::from_raw_parts_mut(ptr, pagesize) };
         dryoc_mprotect_readwrite(fore_protected_region)
             .map_err(|err| eprintln!("mprotect error = {:?}", err))
             .ok();
@@ -774,8 +774,9 @@ unsafe impl Allocator for PageAlignedAllocator {
         if let Some(aft_protected_region_offset) =
             _page_round(layout.size(), pagesize).and_then(|size| pagesize.checked_add(size))
         {
-            let aft_protected_region =
-                std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize);
+            let aft_protected_region = unsafe {
+                std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize)
+            };
 
             dryoc_mprotect_readwrite(aft_protected_region)
                 .map_err(|err| eprintln!("mprotect error = {:?}", err))
@@ -784,14 +785,14 @@ unsafe impl Allocator for PageAlignedAllocator {
 
         #[cfg(unix)]
         {
-            libc::free(ptr as *mut libc::c_void);
+            unsafe { libc::free(ptr as *mut libc::c_void) };
         }
         #[cfg(windows)]
         {
             use winapi::shared::minwindef::LPVOID;
             use winapi::um::memoryapi::VirtualFree;
             use winapi::um::winnt::MEM_RELEASE;
-            VirtualFree(ptr as LPVOID, 0, MEM_RELEASE);
+            unsafe { VirtualFree(ptr as LPVOID, 0, MEM_RELEASE) };
         }
     }
 }
@@ -1292,7 +1293,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH>
         }
     }
 
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         match HeapByteArray::<LENGTH>::new_locked() {
             Ok(mut r) => {
                 copy_randombytes(r.as_mut_slice());
@@ -1309,7 +1310,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn gen() -> Self {
+    fn r#gen() -> Self {
         let mut res = Self::default();
         copy_randombytes(&mut res.0);
         res
@@ -1430,19 +1431,19 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
     for Protected<A, PM, LM>
 {
     fn zeroize(&mut self) {
-        if let Some(d) = &mut self.i {
-            if !d.a.as_slice().is_empty() {
-                if d.pm != int::ProtectMode::ReadWrite {
-                    dryoc_mprotect_readwrite(d.a.as_slice())
-                        .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
-                        .ok();
-                }
-                d.a.zeroize();
-                if d.lm == int::LockMode::Locked {
-                    dryoc_munlock(d.a.as_slice())
-                        .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-                        .ok();
-                }
+        if let Some(d) = &mut self.i
+            && !d.a.as_slice().is_empty()
+        {
+            if d.pm != int::ProtectMode::ReadWrite {
+                dryoc_mprotect_readwrite(d.a.as_slice())
+                    .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
+                    .ok();
+            }
+            d.a.zeroize();
+            if d.lm == int::LockMode::Locked {
+                dryoc_munlock(d.a.as_slice())
+                    .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
+                    .ok();
             }
         }
     }
@@ -1456,7 +1457,7 @@ mod tests {
     fn test_lock_unlock() {
         use crate::dryocstream::Key;
 
-        let key = Key::gen();
+        let key = Key::r#gen();
         let key_clone = key.clone();
 
         let locked_key = key.mlock().expect("lock failed");
@@ -1470,7 +1471,7 @@ mod tests {
     fn test_protect_unprotect() {
         use crate::dryocstream::Key;
 
-        let key = Key::gen();
+        let key = Key::r#gen();
         let key_clone = key.clone();
 
         let readonly_key = key.mprotect_readonly().expect("mprotect failed");

@@ -50,6 +50,15 @@ For example usage, refer to the
 * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
 * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for Neon, AVX2, and SSE2
 
+## Rust version
+
+dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
+by `rust-version` in `Cargo.toml`.
+
+Rust 2024 reserves `gen` as a keyword. Existing generation APIs are still
+available, but Rust 2024 callers should use raw identifier syntax such as
+`Key::r#gen()`.
+
 To enable all the SIMD backends through 3rd party crates, you'll need to also
 set `RUSTFLAGS`:
 * For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`

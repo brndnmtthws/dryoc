@@ -144,7 +144,7 @@ pub struct AuthState {
 ///
 /// Equivalent to libsodium's `crypto_auth_keygen`.
 pub fn crypto_auth_keygen() -> Key {
-    Key::gen()
+    Key::r#gen()
 }
 
 /// Initialize the incremental interface for HMAC-SHA512-256 secret-key.

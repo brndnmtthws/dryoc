@@ -6,9 +6,9 @@ use dryoc::precalc::PrecalcSecretKey;
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::gen();
-    let recipient_keypair = KeyPair::gen();
-    let nonce = Nonce::gen();
+    let sender_keypair = KeyPair::r#gen();
+    let recipient_keypair = KeyPair::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey";
 
     let dryocbox = DryocBox::encrypt_to_vecbox(
@@ -50,8 +50,8 @@ fn test_dryocbox() {
 fn test_dryocsecretbox() {
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = Key::gen();
-    let nonce = Nonce::gen();
+    let secret_key = Key::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey";
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
@@ -68,9 +68,9 @@ fn test_dryocsecretbox() {
 fn test_dryocbox_serde_json() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::gen();
-    let recipient_keypair = KeyPair::gen();
-    let nonce = Nonce::gen();
+    let sender_keypair = KeyPair::r#gen();
+    let recipient_keypair = KeyPair::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey friend";
 
     let dryocbox: VecBox = DryocBox::encrypt(
@@ -101,8 +101,8 @@ fn test_dryocbox_serde_json() {
 fn test_dryocsecretbox_serde_json() {
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = Key::gen();
-    let nonce = Nonce::gen();
+    let secret_key = Key::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey buddy bro";
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
@@ -122,9 +122,9 @@ fn test_dryocsecretbox_serde_json() {
 fn test_dryocbox_wincode_bytes() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::gen();
-    let recipient_keypair = KeyPair::gen();
-    let nonce = Nonce::gen();
+    let sender_keypair = KeyPair::r#gen();
+    let recipient_keypair = KeyPair::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey friend";
 
     let dryocbox: VecBox = DryocBox::encrypt(
@@ -156,9 +156,9 @@ fn test_dryocbox_wincode_bytes() {
 fn test_dryocbox_wincode() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::gen();
-    let recipient_keypair = KeyPair::gen();
-    let nonce = Nonce::gen();
+    let sender_keypair = KeyPair::r#gen();
+    let recipient_keypair = KeyPair::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey friend";
 
     let dryocbox: VecBox = DryocBox::encrypt(
@@ -188,7 +188,7 @@ fn test_dryocbox_wincode() {
 fn test_dryocbox_sealed_wincode() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::gen();
+    let recipient_keypair = KeyPair::r#gen();
     let message = b"hey sealed friend";
 
     let dryocbox: VecBox =
@@ -208,8 +208,8 @@ fn test_dryocbox_sealed_wincode() {
 fn test_dryocsecretbox_wincode_bytes() {
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = Key::gen();
-    let nonce = Nonce::gen();
+    let secret_key = Key::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey buddy bro";
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
@@ -231,8 +231,8 @@ fn test_dryocsecretbox_wincode_bytes() {
 fn test_dryocsecretbox_wincode() {
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = Key::gen();
-    let nonce = Nonce::gen();
+    let secret_key = Key::r#gen();
+    let nonce = Nonce::r#gen();
     let message = b"hey buddy bro";
 
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
@@ -369,7 +369,7 @@ fn test_streams_rustaceous() {
     let message2 = b"split into";
     let message3 = b"three messages";
 
-    let key = Key::gen();
+    let key = Key::r#gen();
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: Vec<u8> = push_stream
@@ -579,7 +579,7 @@ fn test_streams_protected() {
 fn test_dryocbox_seal() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::gen();
+    let recipient_keypair = KeyPair::r#gen();
     let message = b"juicybox";
 
     let dryocbox =
