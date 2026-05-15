@@ -116,18 +116,10 @@ impl Poly1305 {
             h1 = h1.wrapping_add(((t0 >> 44) | (t1 << 20)) & 0xfffffffffff);
             h2 = h2.wrapping_add(((t1 >> 24) & 0x3ffffffffff) | hibit);
 
-            self.h[0] = h0;
-            self.h[1] = h1;
-            self.h[2] = h2;
-
             // h *= r
             let d0 = mul(h0, r0) + mul(h1, s2) + mul(h2, s1);
             let mut d1 = mul(h0, r1) + mul(h1, r0) + mul(h2, s2);
             let mut d2 = mul(h0, r2) + mul(h1, r1) + mul(h2, r0);
-
-            self.h[0] = h0;
-            self.h[1] = h1;
-            self.h[2] = h2;
 
             // (partial) h %= p
             let mut c = shr(d0, 44);
