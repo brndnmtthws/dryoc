@@ -771,20 +771,16 @@ unsafe impl Allocator for PageAlignedAllocator {
             .ok();
 
         // unlock the aft protected region
-        let rounded_size = match _page_round(layout.size(), pagesize) {
-            Some(size) => size,
-            None => return,
-        };
-        let aft_protected_region_offset = match pagesize.checked_add(rounded_size) {
-            Some(offset) => offset,
-            None => return,
-        };
-        let aft_protected_region =
-            std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize);
+        if let Some(aft_protected_region_offset) =
+            _page_round(layout.size(), pagesize).and_then(|size| pagesize.checked_add(size))
+        {
+            let aft_protected_region =
+                std::slice::from_raw_parts_mut(ptr.add(aft_protected_region_offset), pagesize);
 
-        dryoc_mprotect_readwrite(aft_protected_region)
-            .map_err(|err| eprintln!("mprotect error = {:?}", err))
-            .ok();
+            dryoc_mprotect_readwrite(aft_protected_region)
+                .map_err(|err| eprintln!("mprotect error = {:?}", err))
+                .ok();
+        }
 
         #[cfg(unix)]
         {
