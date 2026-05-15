@@ -37,10 +37,10 @@ Benchmark: hash a 694,200-byte buffer and produce a 64-byte output.
 
 | Implementation | Feature set | Time | Relative |
 | --- | --- | ---: | ---: |
-| Software | `nightly` | `779,302.60 ns/iter` | `1.00x` |
-| Portable SIMD | `simd_backend,nightly` | `588,802.05 ns/iter` | `1.32x faster` |
+| Software | `nightly` | `781,221.36 ns/iter` | `1.00x` |
+| Portable SIMD | `simd_backend,nightly` | `592,678.12 ns/iter` | `1.32x faster` |
 
-The portable SIMD backend is about 32.4% faster than the software backend for
+The portable SIMD backend is about 31.8% faster than the software backend for
 this workload on this machine.
 
 ## Secretbox: XSalsa20-Poly1305
@@ -51,15 +51,15 @@ combined XSalsa20 stream and Poly1305 authentication path used by secretbox.
 
 | Message size | Software time | Software throughput | SIMD time | SIMD throughput | Relative |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 B | `294.64 ns/iter` | `217 MB/s` | `295.54 ns/iter` | `216 MB/s` | `1.00x` |
-| 1 KiB | `1,639.56 ns/iter` | `624 MB/s` | `1,499.19 ns/iter` | `683 MB/s` | `1.09x faster` |
-| 16 KiB | `23,103.33 ns/iter` | `709 MB/s` | `18,906.71 ns/iter` | `866 MB/s` | `1.22x faster` |
-| 1 MiB | `1,461,518.75 ns/iter` | `717 MB/s` | `1,206,953.14 ns/iter` | `868 MB/s` | `1.21x faster` |
+| 64 B | `287.06 ns/iter` | `222 MB/s` | `300.90 ns/iter` | `213 MB/s` | `0.95x` |
+| 1 KiB | `1,621.30 ns/iter` | `631 MB/s` | `1,491.99 ns/iter` | `686 MB/s` | `1.09x faster` |
+| 16 KiB | `22,893.99 ns/iter` | `715 MB/s` | `18,996.15 ns/iter` | `862 MB/s` | `1.21x faster` |
+| 1 MiB | `1,447,766.70 ns/iter` | `724 MB/s` | `1,200,971.88 ns/iter` | `873 MB/s` | `1.21x faster` |
 
 The portable SIMD Salsa20 path helps larger messages by processing four
-independent Salsa20 counter blocks in parallel. Small messages mostly measure
-fixed XSalsa20 setup plus Poly1305 overhead, so the SIMD advantage grows with
-payload size.
+independent Salsa20 counter blocks in parallel. Very small messages mostly
+measure fixed XSalsa20 setup plus Poly1305 overhead, so the 64-byte case can be
+slightly slower while the SIMD advantage grows with payload size.
 
 ## Benchmark Coverage
 
