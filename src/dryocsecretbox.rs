@@ -74,8 +74,8 @@ pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
 /// Stack-allocated secret box message authentication code.
 pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`DryocSecretBox`]
     //!
@@ -542,8 +542,8 @@ mod tests {
             }
         }
 
-        #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-        #[cfg(feature = "nightly")]
+        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+        #[cfg(all(feature = "protected", any(unix, windows)))]
         #[test]
         fn test_dryocbox_locked() {
             for i in 0..20 {

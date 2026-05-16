@@ -72,8 +72,8 @@ pub type Key = StackByteArray<CRYPTO_AUTH_KEYBYTES>;
 /// Stack-allocated message authentication code for secret-key authentication.
 pub type Mac = StackByteArray<CRYPTO_AUTH_BYTES>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`Auth`]
     //!

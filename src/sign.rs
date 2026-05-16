@@ -215,8 +215,8 @@ impl<
     }
 }
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory for [`SigningKeyPair`] and [`SignedMessage`].
     //!

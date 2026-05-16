@@ -218,8 +218,8 @@ pub struct PwHash<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> {
 /// `Vec<u8>`-based PwHash type alias, provided for convenience.
 pub type VecPwHash = PwHash<Hash, Salt>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`PwHash`]
     //!
@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "protected", any(unix, windows)))]
     fn test_protected() {
         use crate::pwhash::protected::*;
 

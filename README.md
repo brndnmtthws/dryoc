@@ -42,7 +42,9 @@ For example usage, refer to the
 * mostly free of unsafe code[^2]
 * Hard to misuse, helping you avoid common costly cryptography mistakes
 * Many libsodium features implemented with both Classic and Rustaceous API
-* Protected memory handling (`mprotect()` + `mlock()`, along with Windows equivalents)
+* Protected memory handling (`mprotect()` + `mlock()`, along with Windows
+  equivalents) on stable Rust for Unix and Windows targets, enabled by default
+  with the `protected` feature
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
 * [wincode](https://crates.io/crates/wincode) support for direct binary serialization of Rustaceous box types (with `features = ["wincode"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementations on nightly, with `features = ["simd_backend", "nightly"]`:
@@ -163,15 +165,18 @@ crates:
 
 [^1]: Not actually trademarked.
 
-[^2]: The protected memory features described in the [protected] mod require
-custom memory allocation, system calls, and pointer arithmetic, which are unsafe
-in Rust. Some optional SIMD code, including dependency-provided SIMD
+[^2]: The protected memory features described in the [protected] mod are
+available on Unix and Windows targets with the default `protected` feature.
+Unsupported targets do not expose the protected-memory API. These features
+require custom memory allocation, system calls, and pointer arithmetic, which
+are unsafe in Rust. Some optional SIMD code, including dependency-provided SIMD
 implementations and small internal helpers, may contain unsafe code. In
 particular, many SIMD implementations are considered "unsafe" due to their use
 of assembly or intrinsics, however without SIMD-based cryptography you may be
 exposed to timing attacks. The in-crate unsafe inventory includes fixed-size
-byte views, optional wincode schema impls for Rustaceous boxes and AEAD envelopes,
-BLAKE2b parameter byte views,
-protected memory, and Salsa20 SIMD unaligned in-place and buffer-to-buffer XOR.
+byte views, optional wincode schema impls for Rustaceous boxes and AEAD
+envelopes, BLAKE2b parameter byte views, protected memory guarded heap buffers
+and OS protection calls, and Salsa20 SIMD unaligned in-place and
+buffer-to-buffer XOR.
 See the [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 for the full non-test unsafe inventory in this crate.

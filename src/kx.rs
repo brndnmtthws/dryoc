@@ -80,8 +80,8 @@ pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> {
 /// Stack-allocated type alias for [`Session`]. Provided for convenience.
 pub type StackSession = Session<SessionKey>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`Session`]
     //!

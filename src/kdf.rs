@@ -67,8 +67,8 @@ pub struct Kdf<
 /// Stack-allocated type alias for [`Kdf`]. Provided for convenience.
 pub type StackKdf = Kdf<Key, Context>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`Kdf`]
     //!

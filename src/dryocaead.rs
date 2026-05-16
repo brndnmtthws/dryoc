@@ -107,7 +107,7 @@ pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
 
 /// Algorithm-specific aliases for XChaCha20-Poly1305-IETF.
 pub mod xchacha20poly1305_ietf {
-    #[cfg(any(feature = "nightly", all(doc, not(doctest))))]
+    #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
     pub use super::protected;
     pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, XChaCha20Poly1305Ietf};
 
@@ -127,8 +127,8 @@ pub mod xchacha20poly1305_ietf {
     pub type VecEnvelope = super::VecEnvelope;
 }
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`AeadBox`] and [`AeadEnvelope`]
     //!
