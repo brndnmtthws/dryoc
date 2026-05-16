@@ -10,6 +10,83 @@
 //! The protected memory features are available on Unix and Windows targets with
 //! the `protected` feature flag enabled. This feature is enabled by default.
 //!
+//! ## Bottom line
+//!
+//! - Use protected memory for long-lived secrets such as private keys,
+//!   key-encryption keys, password-hash inputs, and session keys.
+//! - Locked memory asks the OS to keep those pages resident in RAM, reducing
+//!   the chance that secret bytes are written to swap.
+//! - On Linux, locked memory is also marked with `MADV_DONTDUMP`, reducing the
+//!   chance that secret bytes appear in ordinary core dumps.
+//! - Protected allocations are surrounded by no-access guard pages, which can
+//!   turn some out-of-bounds reads or writes into immediate process faults.
+//! - Read-only and no-access modes change OS page permissions, so invalid reads
+//!   or writes can fault instead of silently exposing or corrupting data.
+//! - Protected values are zeroized before their allocation is released.
+//! - It does not make bytes invisible to the current process, privileged OS
+//!   tooling, debuggers, other processes with permission to inspect this
+//!   process's address space, or copies made before data enters protected
+//!   memory.
+//! - It is heavier than ordinary allocation: each protected allocation uses
+//!   page-aligned storage with guard pages, and protection changes require
+//!   fallible system calls.
+//! - Platform behavior differs: Linux gets best-effort dump exclusion with
+//!   `MADV_DONTDUMP`; macOS and other Unix-like targets use `mlock()` and
+//!   `mprotect()` without that dump flag; Windows uses `VirtualLock()` and
+//!   `VirtualProtect()`.
+//!
+//! ## When to use protected memory
+//!
+//! Protected memory is most useful for secrets that remain in memory after an
+//! operation returns. It gives the operating system more information about how
+//! those bytes should be handled and makes accidental misuse easier to catch.
+//!
+//! The tradeoff is cost and complexity: small values can consume multiple pages
+//! of virtual memory, protection changes require system calls, and those system
+//! calls can fail because of platform limits or permissions. For short-lived
+//! buffers that are created, used, and dropped immediately, zeroizing ordinary
+//! stack or heap storage may be simpler and faster.
+//!
+//! ## What protection means in practice
+//!
+//! These APIs reduce exposure, but they do not make secret bytes invisible to
+//! the process that owns them. Code with a valid reference can still read
+//! read-write memory, and copies made before a value enters protected memory
+//! are outside this module's control. For example,
+//! [`NewLockedFromSlice::from_slice_into_locked`] copies the source slice into
+//! a protected allocation; callers remain responsible for the lifetime and
+//! cleanup policy of the original slice.
+//!
+//! Protected memory also is not a cross-process isolation mechanism. Another
+//! process's ability to inspect these bytes is determined by the operating
+//! system's process-memory access controls, such as debugger permissions,
+//! sandbox policy, user identity, and privileges.
+//!
+//! In practice, a protected value is an owned heap allocation whose state is
+//! tracked in the type: locked or unlocked, and read-write, read-only, or
+//! no-access. Accessor methods are only available for states where that access
+//! is valid, and direct memory access that bypasses the type system can still
+//! fault if it violates the active OS page protections.
+//!
+//! ## Platform notes
+//!
+//! On Linux, locking a region also makes a best-effort `madvise()` call with
+//! `MADV_DONTDUMP`, and unlocking reverses that with `MADV_DODUMP`. This keeps
+//! the locked pages out of ordinary core dumps when the kernel accepts the
+//! advice, but it is not a general crash-reporting or privileged-debugger
+//! boundary.
+//!
+//! On macOS and other Unix-like targets, this module uses `mlock()`,
+//! `munlock()`, and `mprotect()`, but it does not set a dump-exclusion flag.
+//! Locking is still subject to the process memory-locking limit, which can be
+//! low by default. If that limit is exceeded, protected allocation or locking
+//! returns an error.
+//!
+//! On Windows, this module uses `VirtualLock()`, `VirtualUnlock()`, and
+//! `VirtualProtect()`. `VirtualLock()` pins pages in the process working set
+//! and can fail when the process exceeds the working-set limits enforced by the
+//! OS. There is no `MADV_DONTDUMP` equivalent in this module.
+//!
 //! If the `serde` feature is enabled, the [`serde::Deserialize`] and
 //! [`serde::Serialize`] traits will be implemented for [`HeapBytes`] and
 //! [`HeapByteArray`].
