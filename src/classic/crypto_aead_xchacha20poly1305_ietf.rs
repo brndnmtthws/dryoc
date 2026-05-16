@@ -4,6 +4,14 @@
 //! This construction authenticates optional additional data, appends the
 //! authentication tag in combined mode, and uses 192-bit public nonces.
 //!
+//! ## Compatibility note
+//!
+//! This module follows libsodium's XChaCha20-Poly1305-IETF API and message
+//! size limit. The `_ietf` suffix refers to the RFC 8439 AEAD layout and
+//! Poly1305 input format; libsodium's XChaCha implementation uses an
+//! extended-counter XChaCha20 stream so it can support larger individual
+//! messages than plain ChaCha20-Poly1305-IETF.
+//!
 //! ## Classic API example
 //!
 //! ```
@@ -33,7 +41,7 @@
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
 
-use chacha20::ChaCha20;
+use chacha20::ChaCha20Legacy;
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
@@ -43,7 +51,6 @@ use crate::constants::{
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES, CRYPTO_CORE_HCHACHA20_INPUTBYTES,
-    CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
 use crate::error::Error;
 use crate::poly1305::{Key as Poly1305Key, Poly1305};
@@ -105,7 +112,7 @@ fn message_len_from_combined_len(combined_len: usize, name: &str) -> Result<usiz
     }
 }
 
-fn chacha20_xietf(nonce: &Nonce, key: &Key) -> ChaCha20 {
+fn chacha20_xietf_ext(nonce: &Nonce, key: &Key) -> ChaCha20Legacy {
     let mut subkey = HChaCha20Key::default();
     crypto_core_hchacha20(
         &mut subkey,
@@ -114,12 +121,17 @@ fn chacha20_xietf(nonce: &Nonce, key: &Key) -> ChaCha20 {
         None,
     );
 
-    let mut ietf_nonce = [0u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES];
-    ietf_nonce[4..].copy_from_slice(&nonce[CRYPTO_CORE_HCHACHA20_INPUTBYTES..]);
+    // libsodium's `chacha20_ietf_ext` starts with IETF layout but allows the
+    // 32-bit block counter to overflow into the leading zero nonce word. With
+    // XChaCha's `0 || nonce_tail` derived nonce, that is equivalent to the
+    // original 64-bit-counter ChaCha20 layout with `nonce_tail`.
+    let mut legacy_nonce =
+        [0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES - CRYPTO_CORE_HCHACHA20_INPUTBYTES];
+    legacy_nonce.copy_from_slice(&nonce[CRYPTO_CORE_HCHACHA20_INPUTBYTES..]);
 
     let mut chacha_key = subkey.into();
-    let chacha_nonce = ietf_nonce.into();
-    let cipher = ChaCha20::new(&chacha_key, &chacha_nonce);
+    let chacha_nonce = legacy_nonce.into();
+    let cipher = ChaCha20Legacy::new(&chacha_key, &chacha_nonce);
 
     subkey.zeroize();
     chacha_key.zeroize();
@@ -127,7 +139,7 @@ fn chacha20_xietf(nonce: &Nonce, key: &Key) -> ChaCha20 {
     cipher
 }
 
-fn poly1305_key(cipher: &mut ChaCha20) -> Poly1305Key {
+fn poly1305_key(cipher: &mut ChaCha20Legacy) -> Poly1305Key {
     let mut mac_key = Poly1305Key::new();
     cipher.apply_keystream(&mut mac_key);
     mac_key
@@ -176,7 +188,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
     validate_output_len(ciphertext.len(), message.len(), "ciphertext")?;
 
     let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf(nonce, key);
+    let mut cipher = chacha20_xietf_ext(nonce, key);
     let mut mac_key = poly1305_key(&mut cipher);
 
     ciphertext.copy_from_slice(message);
@@ -199,7 +211,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
     validate_message_len(data.len())?;
 
     let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf(nonce, key);
+    let mut cipher = chacha20_xietf_ext(nonce, key);
     let mut mac_key = poly1305_key(&mut cipher);
 
     cipher.seek(64);
@@ -225,7 +237,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
     validate_output_len(message.len(), ciphertext.len(), "message")?;
 
     let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf(nonce, key);
+    let mut cipher = chacha20_xietf_ext(nonce, key);
     let mut mac_key = poly1305_key(&mut cipher);
     let computed_mac = compute_mac_to_array(&mut mac_key, ciphertext, associated_data);
 
@@ -248,7 +260,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(
     validate_message_len(data.len())?;
 
     let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf(nonce, key);
+    let mut cipher = chacha20_xietf_ext(nonce, key);
     let mut mac_key = poly1305_key(&mut cipher);
     let computed_mac = compute_mac_to_array(&mut mac_key, data, associated_data);
 
@@ -581,6 +593,19 @@ mod tests {
     }
 
     #[test]
+    fn test_xietf_ext_stream_crosses_ietf_counter_boundary() {
+        let mut cipher = chacha20_xietf_ext(&NONCE, &KEY);
+        cipher.seek(64u64 * u64::from(u32::MAX));
+
+        let mut stream = [0u8; 128];
+        cipher.apply_keystream(&mut stream);
+
+        assert_ne!(&stream[..64], &[0u8; 64]);
+        assert_ne!(&stream[64..], &[0u8; 64]);
+        assert_ne!(&stream[..64], &stream[64..]);
+    }
+
+    #[test]
     fn test_inplace_failures_do_not_mutate_data() {
         let mut data = MESSAGE.to_vec();
         data.resize(MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, 0);
@@ -655,6 +680,38 @@ mod tests {
             )
             .expect("decrypt");
             assert_eq!(plaintext, MESSAGE);
+        }
+
+        #[test]
+        fn test_counter_boundary_matches_libsodium_xchacha_stream() {
+            use libsodium_sys::crypto_stream_xchacha20_xor_ic;
+
+            let initial_counter = u64::from(u32::MAX);
+            let input = [0u8; 128];
+            let mut expected = [0u8; 128];
+            // SAFETY: All pointers are derived from initialized fixed-size
+            // buffers with lengths matching the arguments passed to
+            // libsodium. The key and nonce are exact-size test vectors.
+            unsafe {
+                assert_eq!(
+                    crypto_stream_xchacha20_xor_ic(
+                        expected.as_mut_ptr(),
+                        input.as_ptr(),
+                        input.len() as u64,
+                        NONCE.as_ptr(),
+                        initial_counter,
+                        KEY.as_ptr(),
+                    ),
+                    0
+                );
+            }
+
+            let mut actual = [0u8; 128];
+            let mut cipher = chacha20_xietf_ext(&NONCE, &KEY);
+            cipher.seek(64 * initial_counter);
+            cipher.apply_keystream(&mut actual);
+
+            assert_eq!(actual, expected);
         }
     }
 }
