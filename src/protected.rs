@@ -20,8 +20,8 @@
 //!   chance that secret bytes appear in ordinary core dumps.
 //! - Protected allocations are surrounded by no-access guard pages, which can
 //!   turn some out-of-bounds reads or writes into immediate process faults.
-//! - Read-only and no-access modes change OS page permissions, so invalid
-//!   reads or writes can fault instead of silently exposing or corrupting data.
+//! - Read-only and no-access modes change OS page permissions, so invalid reads
+//!   or writes can fault instead of silently exposing or corrupting data.
 //! - Protected values are zeroized before their allocation is released.
 //! - It does not make bytes invisible to the current process, privileged OS
 //!   tooling, debuggers, other processes with permission to inspect this
@@ -53,9 +53,9 @@
 //! the process that owns them. Code with a valid reference can still read
 //! read-write memory, and copies made before a value enters protected memory
 //! are outside this module's control. For example,
-//! [`NewLockedFromSlice::from_slice_into_locked`] copies the source slice into a
-//! protected allocation; callers remain responsible for the lifetime and cleanup
-//! policy of the original slice.
+//! [`NewLockedFromSlice::from_slice_into_locked`] copies the source slice into
+//! a protected allocation; callers remain responsible for the lifetime and
+//! cleanup policy of the original slice.
 //!
 //! Protected memory also is not a cross-process isolation mechanism. Another
 //! process's ability to inspect these bytes is determined by the operating
