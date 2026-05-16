@@ -16,8 +16,9 @@
 //!
 //! If the `serde` feature is enabled, the [`serde::Deserialize`] and
 //! [`serde::Serialize`] traits will be implemented for [`DryocSecretBox`]. If
-//! the `wincode` feature is enabled, the `wincode::SchemaRead` and
-//! `wincode::SchemaWrite` traits will be implemented.
+//! the `wincode` feature is enabled, the
+//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] traits will be
+//! implemented.
 //!
 //! ## Rustaceous API example
 //!

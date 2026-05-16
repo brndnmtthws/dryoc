@@ -100,7 +100,7 @@ for supported data structures.
 Enable `wincode` to derive [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
 and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
 for supported Rustaceous box types, including `DryocBox` and
-`DryocSecretBox`.
+`DryocSecretBox`, plus AEAD boxes and envelopes from `dryocaead`.
 
 ## Project status
 
@@ -114,6 +114,7 @@ implementation. This list has been reviewed against
 * [x] Zeroing memory (`sodium_memzero`) with [zeroize](https://crates.io/crates/zeroize) [libsodium link](https://doc.libsodium.org/memory_management)
 * [x] [Generating random data](https://docs.rs/dryoc/latest/dryoc/rng/index.html) (`randombytes_buf`) [libsodium link](https://doc.libsodium.org/generating_random_data)
 * [x] [Encrypted streams](https://docs.rs/dryoc/latest/dryoc/dryocstream/index.html) (`crypto_secretstream_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+* [x] [XChaCha20-Poly1305-IETF AEAD](https://docs.rs/dryoc/latest/dryoc/dryocaead/index.html) (`crypto_aead_xchacha20poly1305_ietf_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction)
 * [x] [Memory locking](https://docs.rs/dryoc/latest/dryoc/protected/index.html) (`sodium_mlock`, `sodium_munlock`, `sodium_mprotect_*`) [libsodium link](https://doc.libsodium.org/memory_management)
 * [x] [Encrypting related messages](https://docs.rs/dryoc/latest/dryoc/utils/fn.increment_bytes.html) (`sodium_increment`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
 * [x] [Generic hashing](https://docs.rs/dryoc/latest/dryoc/generichash/index.html) (`crypto_generichash_*`) [libsodium link](https://doc.libsodium.org/hashing/generic_hashing)
@@ -132,7 +133,7 @@ The following libsodium features are either incomplete, not exposed as public
 APIs, or not implemented; you may find equivalent functionality in other
 crates:
 
-* [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) (`crypto_aead_*`), including AEGIS-128L/256, AES256-GCM, ChaCha20-Poly1305, and XChaCha20-Poly1305
+* [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) beyond XChaCha20-Poly1305-IETF, including AEGIS-128L/256, AES256-GCM, and ChaCha20-Poly1305
 * [ ] XChaCha20-Poly1305 box and secretbox variants (`crypto_box_curve25519xchacha20poly1305_*`, `crypto_secretbox_xchacha20poly1305_*`)
 * [ ] HKDF key derivation variants (`crypto_kdf_hkdf_sha256_*`, `crypto_kdf_hkdf_sha512_*`)
 * [ ] SHA-2/SHA-3 hash variants beyond SHA-512 (`crypto_hash_sha256_*`, `crypto_hash_sha3256_*`, `crypto_hash_sha3512_*`)
@@ -169,7 +170,8 @@ implementations and small internal helpers, may contain unsafe code. In
 particular, many SIMD implementations are considered "unsafe" due to their use
 of assembly or intrinsics, however without SIMD-based cryptography you may be
 exposed to timing attacks. The in-crate unsafe inventory includes fixed-size
-byte views, optional wincode schema impls, BLAKE2b parameter byte views,
+byte views, optional wincode schema impls for Rustaceous boxes and AEAD envelopes,
+BLAKE2b parameter byte views,
 protected memory, and Salsa20 SIMD unaligned in-place and buffer-to-buffer XOR.
 See the [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 for the full non-test unsafe inventory in this crate.
