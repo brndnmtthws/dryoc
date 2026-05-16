@@ -13,7 +13,7 @@ rust-version = "1.89"
 version = "0.8.1"
 
 [dependencies]
-chacha20 = { version = "0.10", features = ["zeroize"] }
+chacha20 = { version = "0.10", features = ["legacy", "zeroize"] }
 curve25519-dalek = "4.1.3"
 rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
 salsa20 = { version = "0.11", features = ["zeroize"] }

@@ -63,6 +63,32 @@ fn test_dryocsecretbox() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[test]
+fn test_dryocaead() {
+    use dryoc::dryocaead::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::generate();
+    let message = b"hey with metadata";
+    let aad = b"metadata";
+
+    let dryocaead =
+        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("unable to encrypt");
+
+    let decrypted = dryocaead
+        .decrypt_to_vec(Some(aad), &nonce, &key)
+        .expect("unable to decrypt");
+
+    assert_eq!(message, decrypted.as_slice());
+
+    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let decrypted = envelope
+        .open_to_vec(Some(aad), &key)
+        .expect("unable to open");
+
+    assert_eq!(message, decrypted.as_slice());
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocbox_serde_json() {
@@ -118,6 +144,32 @@ fn test_dryocsecretbox_serde_json() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "serde")]
+#[test]
+fn test_dryocaead_serde_json() {
+    use dryoc::dryocaead::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::generate();
+    let message = b"hey authenticated friend";
+    let aad = b"metadata";
+
+    let dryocaead =
+        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("unable to encrypt");
+    let json = serde_json::to_string(&dryocaead).expect("doesn't serialize");
+    let dryocaead: VecBox = serde_json::from_str(&json).unwrap();
+    let decrypted = dryocaead
+        .decrypt_to_vec(Some(aad), &nonce, &key)
+        .expect("decrypt failed");
+    assert_eq!(message, decrypted.as_slice());
+
+    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let json = serde_json::to_string(&envelope).expect("doesn't serialize");
+    let envelope: VecEnvelope = serde_json::from_str(&json).unwrap();
+    let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
+    assert_eq!(message, decrypted.as_slice());
+}
+
 #[test]
 fn test_dryocbox_wincode_bytes() {
     use dryoc::dryocbox::*;
@@ -151,6 +203,33 @@ fn test_dryocbox_wincode_bytes() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[test]
+fn test_dryocaead_wincode_bytes() {
+    use dryoc::dryocaead::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::generate();
+    let message = b"hey authenticated friend";
+    let aad = b"metadata";
+
+    let dryocaead =
+        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("unable to encrypt");
+    let encoded = wincode::serialize(&dryocaead.to_vec()).expect("doesn't serialize");
+    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
+    let dryocaead = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
+    let decrypted = dryocaead
+        .decrypt_to_vec(Some(aad), &nonce, &key)
+        .expect("decrypt failed");
+    assert_eq!(message, decrypted.as_slice());
+
+    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let encoded = wincode::serialize(&envelope.to_vec()).expect("doesn't serialize");
+    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
+    let envelope = VecEnvelope::from_bytes(&bytes).expect("doesn't deserialize");
+    let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
+    assert_eq!(message, decrypted.as_slice());
+}
+
 #[cfg(feature = "wincode")]
 #[test]
 fn test_dryocbox_wincode() {
@@ -180,6 +259,32 @@ fn test_dryocbox_wincode() {
         )
         .expect("decrypt failed");
 
+    assert_eq!(message, decrypted.as_slice());
+}
+
+#[cfg(feature = "wincode")]
+#[test]
+fn test_dryocaead_wincode() {
+    use dryoc::dryocaead::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::generate();
+    let message = b"hey authenticated friend";
+    let aad = b"metadata";
+
+    let dryocaead =
+        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("unable to encrypt");
+    let encoded = wincode::serialize(&dryocaead).expect("doesn't serialize");
+    let dryocaead: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
+    let decrypted = dryocaead
+        .decrypt_to_vec(Some(aad), &nonce, &key)
+        .expect("decrypt failed");
+    assert_eq!(message, decrypted.as_slice());
+
+    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let encoded = wincode::serialize(&envelope).expect("doesn't serialize");
+    let envelope: VecEnvelope = wincode::deserialize(&encoded).expect("doesn't deserialize");
+    let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
     assert_eq!(message, decrypted.as_slice());
 }
 
@@ -280,6 +385,32 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
         .decrypt(&nonce, &secret_key)
         .expect("decrypt failed");
 
+    assert_eq!(message.as_slice(), decrypted.as_slice());
+}
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn test_dryocaead_protected() {
+    use dryoc::dryocaead::protected::*;
+
+    let key = Key::gen_readonly_locked().expect("key failed");
+    let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    let message =
+        HeapBytes::from_slice_into_readonly_locked(b"protected aead message").expect("message");
+    let aad = HeapBytes::from_slice_into_readonly_locked(b"metadata").expect("aad");
+
+    let dryocaead: LockedBox =
+        LockedBox::encrypt(&message, Some(aad.as_slice()), &nonce, &key).expect("encrypt failed");
+    let decrypted: LockedBytes = dryocaead
+        .decrypt(Some(aad.as_slice()), &nonce, &key)
+        .expect("decrypt failed");
+    assert_eq!(message.as_slice(), decrypted.as_slice());
+
+    let envelope: LockedEnvelope =
+        LockedEnvelope::seal(&message, Some(aad.as_slice()), &key).expect("seal failed");
+    let decrypted: LockedBytes = envelope
+        .open(Some(aad.as_slice()), &key)
+        .expect("open failed");
     assert_eq!(message.as_slice(), decrypted.as_slice());
 }
 
