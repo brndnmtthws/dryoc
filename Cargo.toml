@@ -59,8 +59,9 @@ sodiumoxide = "0.2"
 
 [features]
 base64 = []
-default = ["base64", "u64_backend"]
-nightly = []
+default = ["base64", "u64_backend", "protected"]
+nightly = ["protected"]
+protected = []
 simd_backend = []
 u64_backend = []
 wincode = ["dep:wincode"]

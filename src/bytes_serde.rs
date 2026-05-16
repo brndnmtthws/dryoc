@@ -62,7 +62,7 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
     }
 }
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 mod protected {
     use super::*;
     use crate::protected::*;

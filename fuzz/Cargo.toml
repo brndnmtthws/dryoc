@@ -45,3 +45,9 @@ name = "fuzz_from_bytes"
 path = "fuzz_targets/fuzz_from_bytes.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_protected"
+path = "fuzz_targets/fuzz_protected.rs"
+test = false
+doc = false

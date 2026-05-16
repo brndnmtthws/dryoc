@@ -142,7 +142,7 @@
 //! | `src/types.rs` fixed-size byte views | Always available | Converts validated byte slices and vectors into `[u8; N]` references without copying. Each cast is guarded by a length check or an exact-size wrapper invariant. |
 //! | `src/dryocbox.rs` and `src/dryocsecretbox.rs` wincode impls | `wincode` | Implements `unsafe` wincode schema traits for the Rustaceous box wire format. The implementations write and read initialized fields in the same order. |
 //! | `src/blake2b/blake2b_soft.rs` and `src/blake2b/blake2b_simd.rs` parameter blocks | Always available for the soft backend; `simd_backend,nightly` for SIMD | Views a `repr(C, packed)` BLAKE2b parameter block as bytes so the initialization vector is mixed exactly as specified. The parameter type contains only initialized byte fields. |
-//! | `src/protected.rs` protected memory | `nightly` | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements a page-aligned guard-page allocator, and exposes exact-size byte-array views over protected heap buffers. |
+//! | `src/protected.rs` protected memory | `protected` on Unix/Windows | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements page-aligned guarded heap buffers, and exposes exact-size byte-array views over protected heap buffers. |
 //! | `src/classic/salsa20_simd.rs` Salsa20 SIMD backend | `simd_backend,nightly` | Performs little-endian unaligned in-place and buffer-to-buffer word XOR in 256-byte chunks, plus volatile zeroization of cached SIMD lanes containing derived key material. |
 //!
 //! Test-only unsafe code is used for libsodium and Argon2 compatibility checks
@@ -169,25 +169,24 @@
 //!
 //! [^1]: Not actually trademarked.
 //!
-//! [^2]: The protected memory features described in the [protected] mod require
-//! custom memory allocation, system calls, and pointer arithmetic, which are
-//! unsafe in Rust. Some optional SIMD code, including dependency-provided SIMD
-//! implementations and small internal helpers, may contain unsafe code. In
-//! particular, many SIMD implementations are considered "unsafe" due to their
-//! use of assembly or intrinsics, however without SIMD-based cryptography you
-//! may be exposed to timing attacks. See the unsafe code section above for the
-//! non-test unsafe inventory in this crate.
+//! [^2]: The protected memory features described in the [protected] mod are
+//! available on Unix and Windows targets with the default `protected` feature.
+//! Unsupported targets do not expose the protected-memory API. These features
+//! require custom memory allocation, system calls, and pointer arithmetic,
+//! which are unsafe in Rust. Some optional SIMD code, including
+//! dependency-provided SIMD implementations and small internal helpers, may
+//! contain unsafe code. In particular, many SIMD implementations are considered
+//! "unsafe" due to their use of assembly or intrinsics, however without
+//! SIMD-based cryptography you may be exposed to timing attacks. See the unsafe
+//! code section above for the non-test unsafe inventory in this crate.
 //!
 //! [^3]: The Rustaceous API is designed to protect users of this library from
 //! making mistakes, however the Classic API allows one to do as one pleases.
 //!
-//! [^4]: Currently only available on nightly Rust, with the `nightly` feature
-//! flag enabled.
+//! [^4]: Available on Unix and Windows targets with the `protected` feature
+//! flag enabled. The `protected` feature is enabled by default.
 
-#![cfg_attr(
-    any(feature = "nightly", all(feature = "nightly", doc)),
-    feature(allocator_api, doc_cfg)
-)]
+#![cfg_attr(feature = "nightly", feature(allocator_api, doc_cfg))]
 #![cfg_attr(
     all(feature = "simd_backend", feature = "nightly"),
     feature(portable_simd)
@@ -195,8 +194,8 @@
 #![cfg_attr(all(test, feature = "nightly"), feature(test))]
 #[macro_use]
 mod error;
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 #[macro_use]
 pub mod protected;
 

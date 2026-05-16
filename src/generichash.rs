@@ -52,8 +52,8 @@ pub type Hash = StackByteArray<CRYPTO_GENERICHASH_BYTES>;
 /// Stack-allocated secret key for use with the generic hash algorithm.
 pub type Key = StackByteArray<CRYPTO_GENERICHASH_KEYBYTES>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`GenericHash`]
     //!

@@ -247,7 +247,7 @@ fn test_dryocsecretbox_wincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
 fn test_dryocsecretbox_protected_wincode_bytes() {
     use dryoc::constants::CRYPTO_SECRETBOX_MACBYTES;
@@ -459,7 +459,7 @@ fn test_dryocbox_serde_known_good() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
 fn test_dryocsecretbox_protected() {
     use dryoc::dryocsecretbox::protected::*;
@@ -485,7 +485,7 @@ fn test_dryocsecretbox_protected() {
     assert_eq!(message.as_slice(), decrypted.as_slice());
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
 fn test_dryocbox_protected() {
     use dryoc::dryocbox::DryocBox;
@@ -534,7 +534,7 @@ fn test_dryocbox_protected() {
     assert_eq!(message.as_slice(), decrypted.as_slice());
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
 fn test_streams_protected() {
     use dryoc::dryocstream::protected::*;

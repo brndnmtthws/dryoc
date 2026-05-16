@@ -104,8 +104,8 @@ pub type Nonce = StackByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
 /// Stack-allocated header data for authenticated secret streams.
 pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory type aliases for [`DryocStream`]
     //!
@@ -422,7 +422,7 @@ mod tests {
         assert_eq!(tag3, Tag::FINAL);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn test_protected_memory() {
         use crate::protected::*;

@@ -95,8 +95,8 @@ impl PrecalcSecretKey<InnerKey> {
     }
 }
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory for [`PrecalcSecretKey`]
     use super::*;
@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn test_precalculate_locked() {
         let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
@@ -203,7 +203,7 @@ mod tests {
         precalc_key.copy_from_slice(&precalc_key.as_slice().to_owned());
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn test_precalculate_readonly_locked() {
         let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();

@@ -175,8 +175,8 @@ impl<
     /// validation functions operate on references.
     ///
     /// ```
-    /// # #![cfg_attr(not(feature = "nightly"), ignore)]
-    /// # #[cfg(feature = "nightly")]
+    /// # #![cfg_attr(not(all(feature = "protected", any(unix, windows))), ignore)]
+    /// # #[cfg(all(feature = "protected", any(unix, windows)))]
     /// # {
     /// use dryoc::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
     /// use dryoc::keypair::protected::{HeapByteArray, LockedRO};
@@ -288,8 +288,8 @@ impl<
     }
 }
 
-#[cfg(any(feature = "nightly", all(doc, not(doctest))))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "nightly")))]
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! #  Protected memory for [`KeyPair`]
     use super::*;
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn test_keypair_precalculate_locked() {
         use crate::keypair::protected::*;
