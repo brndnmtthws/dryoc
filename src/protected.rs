@@ -750,6 +750,7 @@ fn platform_alloc(total_size: usize, pagesize: usize) -> Result<NonNull<u8>, std
     }
     #[cfg(windows)]
     {
+        let _ = pagesize;
         use winapi::um::memoryapi::VirtualAlloc;
         use winapi::um::winnt::{MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE};
 
