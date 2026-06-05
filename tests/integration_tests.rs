@@ -162,6 +162,107 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
     assert_eq!(output.len(), 32);
 }
 
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn test_protected_generation_compatibility_api() {
+    use dryoc::dryocbox::protected::{
+        LockedKeyPair, LockedROKeyPair, Nonce as BoxNonce, PublicKey as BoxPublicKey,
+        SecretKey as BoxSecretKey,
+    };
+    use dryoc::dryocstream::protected::Key as StreamKey;
+    use dryoc::keypair::KeyPair;
+    use dryoc::protected::{LockedRO, NewLocked};
+    use dryoc::sign::SigningKeyPair;
+    use dryoc::sign::protected::{
+        LockedSigningKeyPair, PublicKey as SignPublicKey, SecretKey as SignSecretKey,
+    };
+    use dryoc::types::Bytes;
+
+    let key = StreamKey::generate_locked().expect("key failed");
+    assert_eq!(
+        key.len(),
+        dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES
+    );
+    let nonce = BoxNonce::generate_readonly_locked().expect("nonce failed");
+    assert_eq!(nonce.len(), dryoc::constants::CRYPTO_BOX_NONCEBYTES);
+
+    let locked_box_keypair = LockedKeyPair::generate_locked_keypair().expect("box keypair");
+    assert_eq!(
+        locked_box_keypair.public_key.len(),
+        dryoc::constants::CRYPTO_BOX_PUBLICKEYBYTES
+    );
+    let readonly_box_keypair =
+        LockedROKeyPair::generate_readonly_locked_keypair().expect("readonly box keypair");
+    assert_eq!(
+        readonly_box_keypair.secret_key.len(),
+        dryoc::constants::CRYPTO_BOX_SECRETKEYBYTES
+    );
+
+    let locked_signing_keypair =
+        LockedSigningKeyPair::generate_locked_keypair().expect("signing keypair");
+    assert_eq!(
+        locked_signing_keypair.public_key.len(),
+        dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
+    );
+    let readonly_signing_keypair: SigningKeyPair<LockedRO<SignPublicKey>, LockedRO<SignSecretKey>> =
+        SigningKeyPair::generate_readonly_locked_keypair().expect("readonly signing keypair");
+    assert_eq!(
+        readonly_signing_keypair.secret_key.len(),
+        dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
+    );
+
+    #[allow(deprecated)]
+    {
+        let legacy_key = StreamKey::gen_locked().expect("legacy key failed");
+        assert_eq!(
+            legacy_key.len(),
+            dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES
+        );
+        let legacy_nonce = BoxNonce::gen_readonly_locked().expect("legacy nonce failed");
+        assert_eq!(legacy_nonce.len(), dryoc::constants::CRYPTO_BOX_NONCEBYTES);
+
+        let legacy_box_keypair = LockedKeyPair::gen_locked_keypair().expect("legacy box keypair");
+        assert_eq!(
+            legacy_box_keypair.secret_key.len(),
+            dryoc::constants::CRYPTO_BOX_SECRETKEYBYTES
+        );
+        let legacy_readonly_box_keypair: KeyPair<LockedRO<BoxPublicKey>, LockedRO<BoxSecretKey>> =
+            KeyPair::gen_readonly_locked_keypair().expect("legacy readonly box keypair");
+        assert_eq!(
+            legacy_readonly_box_keypair.public_key.len(),
+            dryoc::constants::CRYPTO_BOX_PUBLICKEYBYTES
+        );
+
+        let legacy_signing_keypair =
+            LockedSigningKeyPair::gen_locked_keypair().expect("legacy signing keypair");
+        assert_eq!(
+            legacy_signing_keypair.secret_key.len(),
+            dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
+        );
+        let legacy_readonly_signing_keypair: SigningKeyPair<
+            LockedRO<SignPublicKey>,
+            LockedRO<SignSecretKey>,
+        > = SigningKeyPair::gen_readonly_locked_keypair().expect("legacy readonly signing keypair");
+        assert_eq!(
+            legacy_readonly_signing_keypair.public_key.len(),
+            dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
+        );
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "protected", any(unix, windows)))]
+#[test]
+fn test_protected_serde_sequence_deserialization() {
+    use dryoc::protected::{HeapByteArray, Locked, LockedBytes};
+    use dryoc::types::Bytes;
+
+    let bytes: LockedBytes = serde_json::from_str("[1,2,3]").expect("bytes failed");
+    assert_eq!(bytes.as_slice(), &[1, 2, 3]);
+
+    let array: Locked<HeapByteArray<3>> = serde_json::from_str("[4,5,6]").expect("array failed");
+    assert_eq!(array.as_slice(), &[4, 5, 6]);
+}
+
 #[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;

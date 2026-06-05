@@ -136,8 +136,8 @@ mod protected {
                     arr.resize(size_hint, 0);
 
                     while let Some(elem) = seq.next_element()? {
-                        if idx > arr.len() {
-                            arr.resize(idx, 0);
+                        if idx >= arr.len() {
+                            arr.resize(idx + 1, 0);
                         }
                         arr[idx] = elem;
                         idx += 1;
@@ -183,8 +183,8 @@ mod protected {
                     arr.resize(size_hint, 0);
 
                     while let Some(elem) = seq.next_element()? {
-                        if idx > arr.len() {
-                            arr.resize(idx, 0);
+                        if idx >= arr.len() {
+                            arr.resize(idx + 1, 0);
                         }
                         arr[idx] = elem;
                         idx += 1;
@@ -227,17 +227,19 @@ mod protected {
                     let mut arr = HeapByteArray::<LENGTH>::generate_locked()
                         .expect("couldn't create locked bytes");
                     let mut idx: usize = 0;
-                    let size_hint = seq.size_hint().unwrap_or(0);
-                    if size_hint != LENGTH {
-                        Err(Error::invalid_length(size_hint, &stringify!(LENGTH)))
-                    } else {
-                        while let Some(elem) = seq.next_element()? {
-                            arr[idx] = elem;
-                            idx += 1;
+                    while let Some(elem) = seq.next_element()? {
+                        if idx >= LENGTH {
+                            return Err(Error::invalid_length(idx + 1, &stringify!(LENGTH)));
                         }
-
-                        Ok(arr)
+                        arr[idx] = elem;
+                        idx += 1;
                     }
+
+                    if idx != LENGTH {
+                        return Err(Error::invalid_length(idx, &stringify!(LENGTH)));
+                    }
+
+                    Ok(arr)
                 }
 
                 fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
