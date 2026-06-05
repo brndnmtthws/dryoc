@@ -9,8 +9,8 @@
 //!
 //! Use `crypto_kdf_derive_from_key` when you have one random main key and need
 //! numbered subkeys. Use the HKDF functions when you already have keying
-//! material, such as a key-exchange result, and need to turn it into one or more
-//! purpose-specific keys.
+//! material, such as a key-exchange result, and need to turn it into one or
+//! more purpose-specific keys.
 //!
 //! For details, refer to [libsodium docs](https://doc.libsodium.org/key_derivation).
 //!
@@ -43,8 +43,7 @@
 //! crypto_kdf_hkdf_sha256_extract(&mut prk, Some(b"salt"), b"Some rise by sin");
 //!
 //! let mut output = [0u8; 42];
-//! crypto_kdf_hkdf_sha256_expand(&mut output, b"encryption key", &prk)
-//!     .expect("expand failed");
+//! crypto_kdf_hkdf_sha256_expand(&mut output, b"encryption key", &prk).expect("expand failed");
 //! ```
 //!
 //! The HKDF extract step can also be fed incrementally. This is useful when the
@@ -70,8 +69,7 @@
 //! crypto_kdf_hkdf_sha512_extract(&mut prk, None, b"and some by virtue fall");
 //!
 //! let mut output = [0u8; 64];
-//! crypto_kdf_hkdf_sha512_expand(&mut output, b"authentication key", &prk)
-//!     .expect("expand failed");
+//! crypto_kdf_hkdf_sha512_expand(&mut output, b"authentication key", &prk).expect("expand failed");
 //! ```
 
 use zeroize::Zeroize;

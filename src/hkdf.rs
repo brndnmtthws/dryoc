@@ -21,7 +21,9 @@
 //!
 //! let hkdf: HkdfSha256 =
 //!     HkdfSha256::extract(Some(b"Act IV salt"), b"Now is the winter of our discontent");
-//! let output: Vec<u8> = hkdf.expand_to_vec(42, b"session key").expect("expand failed");
+//! let output: Vec<u8> = hkdf
+//!     .expand_to_vec(42, b"session key")
+//!     .expect("expand failed");
 //! assert_eq!(output.len(), 42);
 //! ```
 //!
@@ -125,9 +127,7 @@ pub mod protected {
     //! let ikm = HeapBytes::from_slice_into_readonly_locked(b"Truth will come to light.")
     //!     .expect("ikm failed");
     //! let hkdf: LockedHkdfSha512 = HkdfSha512Expander::extract(None::<&[u8]>, &ikm);
-    //! let output: Locked<HeapBytes> = hkdf
-    //!     .expand_to_bytes(64, b"context")
-    //!     .expect("expand failed");
+    //! let output: Locked<HeapBytes> = hkdf.expand_to_bytes(64, b"context").expect("expand failed");
     //! assert_eq!(output.len(), 64);
     //! ```
     use super::*;

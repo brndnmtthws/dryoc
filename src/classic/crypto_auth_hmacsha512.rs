@@ -25,7 +25,11 @@
 //!
 //! let key = crypto_auth_hmacsha512_keygen();
 //! let mut one_shot: Mac = [0u8; 64];
-//! crypto_auth_hmacsha512(&mut one_shot, b"How far that little candle throws his beams!", &key);
+//! crypto_auth_hmacsha512(
+//!     &mut one_shot,
+//!     b"How far that little candle throws his beams!",
+//!     &key,
+//! );
 //!
 //! let mut state = crypto_auth_hmacsha512_init(&key);
 //! crypto_auth_hmacsha512_update(&mut state, b"How far that little candle ");
