@@ -105,8 +105,8 @@ pub mod protected {
     pub type Mac = HeapByteArray<CRYPTO_AUTH_BYTES>;
 }
 
-/// secret-key authentication implementation based on Poly1305, compatible with
-/// libsodium's `crypto_Auth_*` functions.
+/// Secret-key authentication implementation based on libsodium's
+/// HMAC-SHA512-256 `crypto_auth_*` functions.
 pub struct Auth {
     state: AuthState,
 }

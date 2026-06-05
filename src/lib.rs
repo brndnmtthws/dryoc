@@ -110,8 +110,10 @@
 //! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
 //! | Generic hashing, HMAC | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //! | Secret-key authentication | [`Auth`](auth) | [`crypto_auth`](classic::crypto_auth) | [Link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication) |
+//! | Direct HMAC authentication | [`HmacSha256`](hmac::HmacSha256), [`HmacSha512`](hmac::HmacSha512), [`HmacSha512256`](hmac::HmacSha512256) | [`crypto_auth_hmacsha256`](classic::crypto_auth_hmacsha256), [`crypto_auth_hmacsha512`](classic::crypto_auth_hmacsha512), [`crypto_auth_hmacsha512256`](classic::crypto_auth_hmacsha512256) | [Link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication) |
 //! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
 //! | Key derivation | [`Kdf`](kdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation) |
+//! | HKDF key derivation | [`HkdfSha256`](hkdf::HkdfSha256), [`HkdfSha512`](hkdf::HkdfSha512) | [`crypto_kdf_hkdf_sha256_extract`](classic::crypto_kdf::crypto_kdf_hkdf_sha256_extract), [`crypto_kdf_hkdf_sha256_expand`](classic::crypto_kdf::crypto_kdf_hkdf_sha256_expand), [`crypto_kdf_hkdf_sha512_extract`](classic::crypto_kdf::crypto_kdf_hkdf_sha512_extract), [`crypto_kdf_hkdf_sha512_expand`](classic::crypto_kdf::crypto_kdf_hkdf_sha512_expand) | [Link](https://doc.libsodium.org/key_derivation/hkdf) |
 //! | Key exchange | [`Session`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
 //! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/public-key_signatures) |
 //! | Password hashing | [`PwHash`](pwhash) | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://libsodium.gitbook.io/doc/password_hashing/default_phf) |
@@ -218,6 +220,7 @@ pub mod classic {
     //! switch code from using libsodium directly over to dryoc, and also to
     //! provide a familiar interface for anyone already comfortable with
     //! libsodium.
+    mod crypto_auth_hmac_impl;
     mod crypto_box_impl;
     mod crypto_secretbox_impl;
     mod generichash_blake2b;
@@ -226,6 +229,9 @@ pub mod classic {
 
     pub mod crypto_aead_xchacha20poly1305_ietf;
     pub mod crypto_auth;
+    pub mod crypto_auth_hmacsha256;
+    pub mod crypto_auth_hmacsha512;
+    pub mod crypto_auth_hmacsha512256;
     pub mod crypto_box;
     /// # Core cryptography functions
     pub mod crypto_core;
@@ -251,6 +257,8 @@ pub mod dryocbox;
 pub mod dryocsecretbox;
 pub mod dryocstream;
 pub mod generichash;
+pub mod hkdf;
+pub mod hmac;
 pub mod kdf;
 pub mod keypair;
 pub mod kx;
@@ -259,6 +267,7 @@ pub mod precalc;
 pub mod pwhash;
 /// # Random number generation utilities
 pub mod rng;
+pub mod sha256;
 pub mod sha512;
 pub mod sign;
 /// # Base type definitions
