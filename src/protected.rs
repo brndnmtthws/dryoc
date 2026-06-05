@@ -253,8 +253,8 @@ pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     fn new_readonly_locked()
     -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
     /// Returns a new locked byte array, filled with random data.
-    fn generate_locked()
-    -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error> {
+    fn generate_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>
+    {
         #[allow(deprecated)]
         Self::gen_locked()
     }

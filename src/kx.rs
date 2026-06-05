@@ -96,10 +96,10 @@ pub mod protected {
     //! use dryoc::kx::protected::*;
     //!
     //! // Generate random client/server keypairs
-    //! let client_keypair =
-    //!     LockedROKeyPair::generate_readonly_locked_keypair().expect("couldn't generate client keypair");
-    //! let server_keypair =
-    //!     LockedROKeyPair::generate_readonly_locked_keypair().expect("couldn't generate server keypair");
+    //! let client_keypair = LockedROKeyPair::generate_readonly_locked_keypair()
+    //!     .expect("couldn't generate client keypair");
+    //! let server_keypair = LockedROKeyPair::generate_readonly_locked_keypair()
+    //!     .expect("couldn't generate server keypair");
     //!
     //! // Compute client session keys, into default stack-allocated byte array
     //! let client_session_keys: LockedSession =
