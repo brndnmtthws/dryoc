@@ -176,7 +176,7 @@ mod protected {
                 where
                     A: SeqAccess<'de>,
                 {
-                    let mut arr = HeapBytes::gen_locked().expect("couldn't create locked bytes");
+                    let mut arr = HeapBytes::generate_locked().expect("couldn't create locked bytes");
                     let mut idx: usize = 0;
                     let size_hint = seq.size_hint().unwrap_or(1);
                     arr.resize(size_hint, 0);
@@ -223,7 +223,7 @@ mod protected {
                 where
                     A: SeqAccess<'de>,
                 {
-                    let mut arr = HeapByteArray::<LENGTH>::gen_locked()
+                    let mut arr = HeapByteArray::<LENGTH>::generate_locked()
                         .expect("couldn't create locked bytes");
                     let mut idx: usize = 0;
                     let size_hint = seq.size_hint().unwrap_or(0);

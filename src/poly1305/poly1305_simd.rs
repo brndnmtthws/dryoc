@@ -447,7 +447,7 @@ mod tests {
 
         use crate::rng::copy_randombytes;
 
-        let key = Key::r#gen();
+        let key = Key::generate();
         let so_key = SOKey::from_slice(&key).unwrap();
 
         for len in 0..260 {
@@ -524,7 +524,7 @@ mod tests {
     fn bench_poly1305(b: &mut test::Bencher, len: usize) {
         use crate::rng::copy_randombytes;
 
-        let key = Key::r#gen();
+        let key = Key::generate();
         let mut input = vec![0u8; len];
         copy_randombytes(&mut input);
         b.bytes = len as u64;

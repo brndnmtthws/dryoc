@@ -92,7 +92,7 @@ pub mod protected {
     //! use dryoc::onetimeauth::protected::*;
     //!
     //! // Create a randomly generated key, lock it, protect it as read-only
-    //! let key = Key::gen_readonly_locked().expect("gen failed");
+    //! let key = Key::generate_readonly_locked().expect("generate failed");
     //! let input =
     //!     HeapBytes::from_slice_into_readonly_locked(b"super secret input").expect("input failed");
     //! // Compute the message authentication code, consuming the key.

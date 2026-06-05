@@ -142,7 +142,8 @@ impl<
     /// Generates a random signing keypair.
     ///
     /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// and will be deprecated in a future release.
+    /// with older Rust editions.
+    #[deprecated(note = "use generate() instead")]
     pub fn r#gen() -> Self {
         Self::generate()
     }
@@ -192,6 +193,7 @@ impl
     ///
     /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
     /// method is retained for compatibility.
+    #[deprecated(note = "use generate_with_defaults() instead")]
     pub fn gen_with_defaults() -> Self {
         Self::generate_with_defaults()
     }
@@ -226,7 +228,7 @@ pub mod protected {
     //! use dryoc::sign::protected::*;
     //!
     //! // Generate a random keypair, using default types
-    //! let keypair = SigningKeyPair::gen_locked_keypair().expect("keypair gen failed");
+    //! let keypair = SigningKeyPair::generate_locked_keypair().expect("keypair generate failed");
     //! let message = Message::from_slice_into_locked(
     //!     b"Fair is foul, and foul is fair: Hover through the fog and filthy air.",
     //! )
@@ -278,7 +280,7 @@ pub mod protected {
         }
 
         /// Returns a new randomly generated locked signing keypair.
-        pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_locked_keypair() -> Result<Self, std::io::Error> {
             let mut res = Self::new_locked_keypair()?;
 
             crypto_sign_keypair_inplace(
@@ -287,6 +289,15 @@ pub mod protected {
             );
 
             Ok(res)
+        }
+
+        /// Returns a new randomly generated locked signing keypair.
+        ///
+        /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
+        /// This method is retained for compatibility.
+        #[deprecated(note = "use generate_locked_keypair() instead")]
+        pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
+            Self::generate_locked_keypair()
         }
     }
 
@@ -297,7 +308,7 @@ pub mod protected {
         >
     {
         /// Returns a new randomly generated locked, read-only signing keypair.
-        pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_readonly_locked_keypair() -> Result<Self, std::io::Error> {
             let mut public_key = HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?;
 
@@ -310,6 +321,16 @@ pub mod protected {
                 public_key,
                 secret_key,
             })
+        }
+
+        /// Returns a new randomly generated locked, read-only signing keypair.
+        ///
+        /// Prefer
+        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
+        /// This method is retained for compatibility.
+        #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
+        pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+            Self::generate_readonly_locked_keypair()
         }
     }
 }

@@ -126,7 +126,7 @@ pub mod protected {
     //!     HeapBytes::from_slice_into_readonly_locked(b"three messages").expect("from slice failed");
     //!
     //! // Generate a random key into locked readonly memory.
-    //! let key = Key::gen_readonly_locked().expect("key failed");
+    //! let key = Key::generate_readonly_locked().expect("key failed");
     //!
     //! // Initialize the push stream, place the header into locked memory
     //! let (mut push_stream, header): (_, Locked<Header>) = DryocStream::init_push(&key);
@@ -432,7 +432,7 @@ mod tests {
         let message3 = b"three messages";
 
         // Generate a random secret key for this stream
-        let key = protected::Key::gen_locked().expect("gen locked");
+        let key = protected::Key::generate_locked().expect("generate locked");
 
         // Initialize the push side, type annotations required on return type
         let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);

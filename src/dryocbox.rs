@@ -136,11 +136,11 @@ pub mod protected {
     //!
     //! // Generate a random sender and recipient keypair, into locked, readonly
     //! // memory.
-    //! let sender_keypair = LockedROKeyPair::gen_readonly_locked_keypair().expect("keypair");
-    //! let recipient_keypair = LockedROKeyPair::gen_readonly_locked_keypair().expect("keypair");
+    //! let sender_keypair = LockedROKeyPair::generate_readonly_locked_keypair().expect("keypair");
+    //! let recipient_keypair = LockedROKeyPair::generate_readonly_locked_keypair().expect("keypair");
     //!
     //! // Generate a random nonce, into locked, readonly memory.
-    //! let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    //! let nonce = Nonce::generate_readonly_locked().expect("nonce failed");
     //!
     //! // Read message into locked, readonly memory.
     //! let message = HeapBytes::from_slice_into_readonly_locked(b"Secret message from Santa Claus")

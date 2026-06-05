@@ -253,8 +253,28 @@ pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     fn new_readonly_locked()
     -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
     /// Returns a new locked byte array, filled with random data.
+    fn generate_locked()
+    -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error> {
+        #[allow(deprecated)]
+        Self::gen_locked()
+    }
+    /// Returns a new read-only, locked byte array, filled with random data.
+    fn generate_readonly_locked()
+    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error> {
+        #[allow(deprecated)]
+        Self::gen_readonly_locked()
+    }
+    /// Returns a new locked byte array, filled with random data.
+    ///
+    /// Prefer [`generate_locked`](Self::generate_locked). This method is
+    /// retained for compatibility.
+    #[deprecated(note = "use generate_locked() instead")]
     fn gen_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
     /// Returns a new read-only, locked byte array, filled with random data.
+    ///
+    /// Prefer [`generate_readonly_locked`](Self::generate_readonly_locked).
+    /// This method is retained for compatibility.
+    #[deprecated(note = "use generate_readonly_locked() instead")]
     fn gen_readonly_locked()
     -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
 }
@@ -1204,15 +1224,25 @@ impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
             .and_then(|p| p.mprotect_readonly())
     }
 
-    fn gen_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
+    fn generate_locked()
+    -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
         let mut res = Self::new_bytes().mlock()?;
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
 
+    fn generate_readonly_locked()
+    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, std::io::Error> {
+        Self::generate_locked().and_then(|s| s.mprotect_readonly())
+    }
+
+    fn gen_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
+        Self::generate_locked()
+    }
+
     fn gen_readonly_locked()
     -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, std::io::Error> {
-        Self::gen_locked().and_then(|s| s.mprotect_readonly())
+        Self::generate_readonly_locked()
     }
 }
 

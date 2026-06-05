@@ -155,7 +155,7 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
         hkdf.expand_to_bytes(64, b"context").expect("expand failed");
     assert_eq!(output.len(), 64);
 
-    let prk = HkdfSha512Prk::gen_readonly_locked().expect("prk failed");
+    let prk = HkdfSha512Prk::generate_readonly_locked().expect("prk failed");
     let hkdf = HkdfSha512Expander::from_prk(prk);
     let output: HkdfLocked<HkdfHeapBytes> =
         hkdf.expand_to_bytes(32, b"context").expect("expand failed");
@@ -519,11 +519,11 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
     use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = protected::Key::gen_locked()
+    let secret_key = protected::Key::generate_locked()
         .and_then(|s| s.mprotect_readonly())
         .expect("key failed");
 
-    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = protected::Nonce::generate_readonly_locked().expect("nonce failed");
 
     let message =
         HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
@@ -553,8 +553,8 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
 fn test_dryocaead_protected() {
     use dryoc::dryocaead::protected::*;
 
-    let key = Key::gen_readonly_locked().expect("key failed");
-    let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    let key = Key::generate_readonly_locked().expect("key failed");
+    let nonce = Nonce::generate_readonly_locked().expect("nonce failed");
     let message =
         HeapBytes::from_slice_into_readonly_locked(b"protected aead message").expect("message");
     let aad = HeapBytes::from_slice_into_readonly_locked(b"metadata").expect("aad");
@@ -756,11 +756,11 @@ fn test_dryocsecretbox_protected() {
     use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = protected::Key::gen_locked()
+    let secret_key = protected::Key::generate_locked()
         .and_then(|s| s.mprotect_readonly())
         .expect("key failed");
 
-    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = protected::Nonce::generate_readonly_locked().expect("nonce failed");
 
     let message =
         HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
@@ -783,10 +783,10 @@ fn test_dryocbox_protected() {
     use dryoc::dryocbox::protected::*;
     use dryoc::precalc::PrecalcSecretKey;
 
-    let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
-    let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
+    let sender_keypair = LockedKeyPair::generate_locked_keypair().expect("keypair");
+    let recipient_keypair = LockedKeyPair::generate_locked_keypair().expect("keypair");
 
-    let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = Nonce::generate_readonly_locked().expect("nonce failed");
 
     let message = HeapBytes::from_slice_into_locked(b"Secret message from Santa Claus")
         .expect("unable to lock");
@@ -838,7 +838,7 @@ fn test_streams_protected() {
     let message3 =
         HeapBytes::from_slice_into_readonly_locked(b"three messages").expect("from slice failed");
 
-    let key = Key::gen_readonly_locked().expect("key failed");
+    let key = Key::generate_readonly_locked().expect("key failed");
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: LockedBytes = push_stream

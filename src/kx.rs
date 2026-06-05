@@ -97,9 +97,9 @@ pub mod protected {
     //!
     //! // Generate random client/server keypairs
     //! let client_keypair =
-    //!     LockedROKeyPair::gen_readonly_locked_keypair().expect("couldn't generate client keypair");
+    //!     LockedROKeyPair::generate_readonly_locked_keypair().expect("couldn't generate client keypair");
     //! let server_keypair =
-    //!     LockedROKeyPair::gen_readonly_locked_keypair().expect("couldn't generate server keypair");
+    //!     LockedROKeyPair::generate_readonly_locked_keypair().expect("couldn't generate server keypair");
     //!
     //! // Compute client session keys, into default stack-allocated byte array
     //! let client_session_keys: LockedSession =

@@ -316,7 +316,7 @@ mod tests {
     #[cfg(feature = "nightly")]
     fn bench_crypto_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
         let key: Key = crypto_secretbox_keygen();
-        let nonce = Nonce::r#gen();
+        let nonce = Nonce::generate();
         let mut message = vec![0u8; message_len];
         crate::rng::copy_randombytes(&mut message);
         let mut ciphertext = vec![0u8; message_len];

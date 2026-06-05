@@ -90,10 +90,10 @@ pub mod protected {
     //! use dryoc::dryocsecretbox::protected::*;
     //!
     //! // Generate a random secret key, lock it, protect memory as read-only
-    //! let secret_key = Key::gen_readonly_locked().expect("key failed");
+    //! let secret_key = Key::generate_readonly_locked().expect("key failed");
     //!
     //! // Generate a random secret key, lock it, protect memory as read-only
-    //! let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    //! let nonce = Nonce::generate_readonly_locked().expect("nonce failed");
     //!
     //! // Load a message, lock it, protect memory as read-only
     //! let message =
@@ -555,8 +555,8 @@ mod tests {
                 use crate::dryocsecretbox::*;
                 use crate::protected::*;
 
-                let secret_key = protected::Key::gen_locked().expect("gen failed");
-                let nonce = protected::Nonce::gen_locked().expect("gen failed");
+                let secret_key = protected::Key::generate_locked().expect("generate failed");
+                let nonce = protected::Nonce::generate_locked().expect("generate failed");
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ");
                 let message_copy = message.clone();
