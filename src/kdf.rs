@@ -125,7 +125,8 @@ impl<
     /// Randomly generates a new pair of main key and context.
     ///
     /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// and will be deprecated in a future release.
+    /// with older Rust editions.
+    #[deprecated(note = "use generate() instead")]
     pub fn r#gen() -> Self {
         Self::generate()
     }
@@ -182,6 +183,7 @@ impl Kdf<Key, Context> {
     ///
     /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
     /// method is retained for compatibility.
+    #[deprecated(note = "use generate_with_defaults() instead")]
     pub fn gen_with_defaults() -> Self {
         Self::generate_with_defaults()
     }

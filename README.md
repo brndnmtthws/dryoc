@@ -65,8 +65,7 @@ by `rust-version` in `Cargo.toml`.
 
 Rust 2024 reserves `gen` as a keyword. Prefer generation APIs such as
 `Key::generate()`. Existing `gen` APIs remain available through raw identifier
-syntax, such as `Key::r#gen()`, for compatibility and will be deprecated in a
-future release.
+syntax, such as `Key::r#gen()`, for compatibility and are deprecated.
 
 The `simd_backend` and `nightly` features enable dryoc's portable SIMD
 backends. CPU-specific dependency backends and local benchmarking may also

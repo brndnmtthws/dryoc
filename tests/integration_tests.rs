@@ -155,11 +155,112 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
         hkdf.expand_to_bytes(64, b"context").expect("expand failed");
     assert_eq!(output.len(), 64);
 
-    let prk = HkdfSha512Prk::gen_readonly_locked().expect("prk failed");
+    let prk = HkdfSha512Prk::generate_readonly_locked().expect("prk failed");
     let hkdf = HkdfSha512Expander::from_prk(prk);
     let output: HkdfLocked<HkdfHeapBytes> =
         hkdf.expand_to_bytes(32, b"context").expect("expand failed");
     assert_eq!(output.len(), 32);
+}
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn test_protected_generation_compatibility_api() {
+    use dryoc::dryocbox::protected::{
+        LockedKeyPair, LockedROKeyPair, Nonce as BoxNonce, PublicKey as BoxPublicKey,
+        SecretKey as BoxSecretKey,
+    };
+    use dryoc::dryocstream::protected::Key as StreamKey;
+    use dryoc::keypair::KeyPair;
+    use dryoc::protected::{LockedRO, NewLocked};
+    use dryoc::sign::SigningKeyPair;
+    use dryoc::sign::protected::{
+        LockedSigningKeyPair, PublicKey as SignPublicKey, SecretKey as SignSecretKey,
+    };
+    use dryoc::types::Bytes;
+
+    let key = StreamKey::generate_locked().expect("key failed");
+    assert_eq!(
+        key.len(),
+        dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES
+    );
+    let nonce = BoxNonce::generate_readonly_locked().expect("nonce failed");
+    assert_eq!(nonce.len(), dryoc::constants::CRYPTO_BOX_NONCEBYTES);
+
+    let locked_box_keypair = LockedKeyPair::generate_locked_keypair().expect("box keypair");
+    assert_eq!(
+        locked_box_keypair.public_key.len(),
+        dryoc::constants::CRYPTO_BOX_PUBLICKEYBYTES
+    );
+    let readonly_box_keypair =
+        LockedROKeyPair::generate_readonly_locked_keypair().expect("readonly box keypair");
+    assert_eq!(
+        readonly_box_keypair.secret_key.len(),
+        dryoc::constants::CRYPTO_BOX_SECRETKEYBYTES
+    );
+
+    let locked_signing_keypair =
+        LockedSigningKeyPair::generate_locked_keypair().expect("signing keypair");
+    assert_eq!(
+        locked_signing_keypair.public_key.len(),
+        dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
+    );
+    let readonly_signing_keypair: SigningKeyPair<LockedRO<SignPublicKey>, LockedRO<SignSecretKey>> =
+        SigningKeyPair::generate_readonly_locked_keypair().expect("readonly signing keypair");
+    assert_eq!(
+        readonly_signing_keypair.secret_key.len(),
+        dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
+    );
+
+    #[allow(deprecated)]
+    {
+        let legacy_key = StreamKey::gen_locked().expect("legacy key failed");
+        assert_eq!(
+            legacy_key.len(),
+            dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES
+        );
+        let legacy_nonce = BoxNonce::gen_readonly_locked().expect("legacy nonce failed");
+        assert_eq!(legacy_nonce.len(), dryoc::constants::CRYPTO_BOX_NONCEBYTES);
+
+        let legacy_box_keypair = LockedKeyPair::gen_locked_keypair().expect("legacy box keypair");
+        assert_eq!(
+            legacy_box_keypair.secret_key.len(),
+            dryoc::constants::CRYPTO_BOX_SECRETKEYBYTES
+        );
+        let legacy_readonly_box_keypair: KeyPair<LockedRO<BoxPublicKey>, LockedRO<BoxSecretKey>> =
+            KeyPair::gen_readonly_locked_keypair().expect("legacy readonly box keypair");
+        assert_eq!(
+            legacy_readonly_box_keypair.public_key.len(),
+            dryoc::constants::CRYPTO_BOX_PUBLICKEYBYTES
+        );
+
+        let legacy_signing_keypair =
+            LockedSigningKeyPair::gen_locked_keypair().expect("legacy signing keypair");
+        assert_eq!(
+            legacy_signing_keypair.secret_key.len(),
+            dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
+        );
+        let legacy_readonly_signing_keypair: SigningKeyPair<
+            LockedRO<SignPublicKey>,
+            LockedRO<SignSecretKey>,
+        > = SigningKeyPair::gen_readonly_locked_keypair().expect("legacy readonly signing keypair");
+        assert_eq!(
+            legacy_readonly_signing_keypair.public_key.len(),
+            dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
+        );
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "protected", any(unix, windows)))]
+#[test]
+fn test_protected_serde_sequence_deserialization() {
+    use dryoc::protected::{HeapByteArray, Locked, LockedBytes};
+    use dryoc::types::Bytes;
+
+    let bytes: LockedBytes = serde_json::from_str("[1,2,3]").expect("bytes failed");
+    assert_eq!(bytes.as_slice(), &[1, 2, 3]);
+
+    let array: Locked<HeapByteArray<3>> = serde_json::from_str("[4,5,6]").expect("array failed");
+    assert_eq!(array.as_slice(), &[4, 5, 6]);
 }
 
 #[test]
@@ -519,11 +620,11 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
     use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = protected::Key::gen_locked()
+    let secret_key = protected::Key::generate_locked()
         .and_then(|s| s.mprotect_readonly())
         .expect("key failed");
 
-    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = protected::Nonce::generate_readonly_locked().expect("nonce failed");
 
     let message =
         HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
@@ -553,8 +654,8 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
 fn test_dryocaead_protected() {
     use dryoc::dryocaead::protected::*;
 
-    let key = Key::gen_readonly_locked().expect("key failed");
-    let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    let key = Key::generate_readonly_locked().expect("key failed");
+    let nonce = Nonce::generate_readonly_locked().expect("nonce failed");
     let message =
         HeapBytes::from_slice_into_readonly_locked(b"protected aead message").expect("message");
     let aad = HeapBytes::from_slice_into_readonly_locked(b"metadata").expect("aad");
@@ -756,11 +857,11 @@ fn test_dryocsecretbox_protected() {
     use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = protected::Key::gen_locked()
+    let secret_key = protected::Key::generate_locked()
         .and_then(|s| s.mprotect_readonly())
         .expect("key failed");
 
-    let nonce = protected::Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = protected::Nonce::generate_readonly_locked().expect("nonce failed");
 
     let message =
         HeapBytes::from_slice_into_readonly_locked(b"Secret message from the tooth fairy")
@@ -783,10 +884,10 @@ fn test_dryocbox_protected() {
     use dryoc::dryocbox::protected::*;
     use dryoc::precalc::PrecalcSecretKey;
 
-    let sender_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
-    let recipient_keypair = LockedKeyPair::gen_locked_keypair().expect("keypair");
+    let sender_keypair = LockedKeyPair::generate_locked_keypair().expect("keypair");
+    let recipient_keypair = LockedKeyPair::generate_locked_keypair().expect("keypair");
 
-    let nonce = Nonce::gen_readonly_locked().expect("nonce failed");
+    let nonce = Nonce::generate_readonly_locked().expect("nonce failed");
 
     let message = HeapBytes::from_slice_into_locked(b"Secret message from Santa Claus")
         .expect("unable to lock");
@@ -838,7 +939,7 @@ fn test_streams_protected() {
     let message3 =
         HeapBytes::from_slice_into_readonly_locked(b"three messages").expect("from slice failed");
 
-    let key = Key::gen_readonly_locked().expect("key failed");
+    let key = Key::generate_readonly_locked().expect("key failed");
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: LockedBytes = push_stream

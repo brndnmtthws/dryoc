@@ -356,7 +356,7 @@ mod tests {
     fn bench_poly1305(b: &mut test::Bencher, len: usize) {
         use crate::rng::copy_randombytes;
 
-        let key = Key::r#gen();
+        let key = Key::generate();
         let mut input = vec![0u8; len];
         copy_randombytes(&mut input);
         b.bytes = len as u64;
@@ -431,7 +431,7 @@ mod tests {
 
             sodiumoxide::init().expect("sodiumoxide init");
 
-            let key = Key::r#gen();
+            let key = Key::generate();
             let so_key = SOKey::from_slice(&key).expect("key");
             let mut input = vec![0u8; len];
             copy_randombytes(&mut input);

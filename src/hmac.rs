@@ -132,7 +132,7 @@ pub mod protected {
     //! use dryoc::hmac::HmacSha256;
     //! use dryoc::hmac::protected::*;
     //!
-    //! let key = HmacSha256Key::gen_readonly_locked().expect("key failed");
+    //! let key = HmacSha256Key::generate_readonly_locked().expect("key failed");
     //! let input = HeapBytes::from_slice_into_readonly_locked(b"More matter, with less art.")
     //!     .expect("input failed");
     //! let mac: Locked<HmacSha256Mac> = HmacSha256::compute(key, &input);
