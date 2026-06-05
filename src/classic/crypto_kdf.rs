@@ -2,6 +2,16 @@
 //!
 //! Implements libsodium's key derivation functions (`crypto_kdf_*`).
 //!
+//! The Blake2b `crypto_kdf_*` functions derive bounded subkeys from a random
+//! main key and an 8-byte application context. The HKDF functions derive output
+//! keying material from existing input keying material, using an optional salt
+//! and a public context string.
+//!
+//! Use `crypto_kdf_derive_from_key` when you have one random main key and need
+//! numbered subkeys. Use the HKDF functions when you already have keying
+//! material, such as a key-exchange result, and need to turn it into one or more
+//! purpose-specific keys.
+//!
 //! For details, refer to [libsodium docs](https://doc.libsodium.org/key_derivation).
 //!
 //! # Classic API example
@@ -13,8 +23,8 @@
 //!
 //! // Generate a random main key
 //! let main_key = crypto_kdf_keygen();
-//! // Provide 8 bytes of context data, can be any data
-//! let context = b"hello123";
+//! // Provide exactly 8 bytes of public context data
+//! let context = b"WTCHKEYS";
 //!
 //! // Derive 20 subkeys
 //! for i in 0..20 {
@@ -30,21 +40,22 @@
 //! use dryoc::classic::crypto_kdf::*;
 //!
 //! let mut prk = HkdfSha256Key::default();
-//! crypto_kdf_hkdf_sha256_extract(&mut prk, Some(b"salt"), b"input keying material");
+//! crypto_kdf_hkdf_sha256_extract(&mut prk, Some(b"salt"), b"Some rise by sin");
 //!
 //! let mut output = [0u8; 42];
-//! crypto_kdf_hkdf_sha256_expand(&mut output, b"application context", &prk)
+//! crypto_kdf_hkdf_sha256_expand(&mut output, b"encryption key", &prk)
 //!     .expect("expand failed");
 //! ```
 //!
-//! The HKDF extract step can also be fed incrementally:
+//! The HKDF extract step can also be fed incrementally. This is useful when the
+//! input keying material arrives in pieces:
 //!
 //! ```
 //! use dryoc::classic::crypto_kdf::*;
 //!
 //! let mut state = crypto_kdf_hkdf_sha256_extract_init(Some(b"salt"));
-//! crypto_kdf_hkdf_sha256_extract_update(&mut state, b"input keying ");
-//! crypto_kdf_hkdf_sha256_extract_update(&mut state, b"material");
+//! crypto_kdf_hkdf_sha256_extract_update(&mut state, b"Some rise ");
+//! crypto_kdf_hkdf_sha256_extract_update(&mut state, b"by sin");
 //!
 //! let mut prk = HkdfSha256Key::default();
 //! crypto_kdf_hkdf_sha256_extract_final(state, &mut prk);
@@ -56,10 +67,10 @@
 //! use dryoc::classic::crypto_kdf::*;
 //!
 //! let mut prk: HkdfSha512Key = [0u8; 64];
-//! crypto_kdf_hkdf_sha512_extract(&mut prk, None, b"input keying material");
+//! crypto_kdf_hkdf_sha512_extract(&mut prk, None, b"and some by virtue fall");
 //!
 //! let mut output = [0u8; 64];
-//! crypto_kdf_hkdf_sha512_expand(&mut output, b"application context", &prk)
+//! crypto_kdf_hkdf_sha512_expand(&mut output, b"authentication key", &prk)
 //!     .expect("expand failed");
 //! ```
 

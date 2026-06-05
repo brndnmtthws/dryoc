@@ -3,6 +3,21 @@
 //! [`HmacSha256`], [`HmacSha512`], and [`HmacSha512256`] provide Rustaceous
 //! wrappers for libsodium's direct HMAC authentication variants.
 //!
+//! HMAC computes a fixed-size authentication tag for a message using a shared
+//! secret key. Anyone with the same key can recompute the tag and verify that
+//! the message was produced by someone who knew the key and that the message
+//! was not changed. HMAC does not encrypt the message.
+//!
+//! Use these types when:
+//!
+//! * you need one of libsodium's direct `crypto_auth_hmacsha*` variants
+//! * two parties already share the same secret key
+//! * the message can be public, but tampering must be detected
+//!
+//! [`HmacSha512256`] matches libsodium's default [`crypto_auth`](crate::auth)
+//! construction. [`HmacSha256`] and [`HmacSha512`] are available for protocol
+//! compatibility when those exact algorithms are required.
+//!
 //! # Rustaceous API example
 //!
 //! ```
@@ -10,8 +25,10 @@
 //! use dryoc::types::*;
 //!
 //! let key = HmacSha256Key::generate();
-//! let mac = HmacSha256::compute_to_vec(key.clone(), b"Data to authenticate");
-//! HmacSha256::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+//! let message = b"Uneasy lies the head that wears a crown.";
+//!
+//! let mac = HmacSha256::compute_to_vec(key.clone(), message);
+//! HmacSha256::compute_and_verify(&mac, key, message).expect("verify failed");
 //! ```
 //!
 //! The concrete authenticators are type aliases over [`Hmac`] and can also be
@@ -25,13 +42,13 @@
 //!
 //! let key = HmacSha512256Key::generate();
 //! let mut auth = HmacSha512256::new(key.clone());
-//! auth.update(b"Multi-part");
-//! auth.update(b"data");
+//! auth.update(b"Though she be but little, ");
+//! auth.update(b"she is fierce.");
 //! let mac = auth.finalize_to_vec();
 //!
 //! let mut verifier = HmacSha512256::new(key);
-//! verifier.update(b"Multi-part");
-//! verifier.update(b"data");
+//! verifier.update(b"Though she be but little, ");
+//! verifier.update(b"she is fierce.");
 //! verifier.verify(&mac).expect("verify failed");
 //! ```
 //!
@@ -53,12 +70,13 @@
 //! }
 //!
 //! let key = HmacSha256Key::generate();
+//! let message = b"The quality of mercy is not strained.";
 //! let generic_mac = authenticate::<
 //!     HmacSha256Variant,
 //!     CRYPTO_AUTH_HMACSHA256_KEYBYTES,
 //!     CRYPTO_AUTH_HMACSHA256_BYTES,
-//! >(key.clone(), b"Data to authenticate");
-//! let concrete_mac = HmacSha256::compute_to_vec(key, b"Data to authenticate");
+//! >(key.clone(), message);
+//! let concrete_mac = HmacSha256::compute_to_vec(key, message);
 //! assert_eq!(generic_mac, concrete_mac);
 //! ```
 
@@ -106,7 +124,9 @@ pub type HmacSha512256Mac = StackByteArray<CRYPTO_AUTH_HMACSHA512256_BYTES>;
 pub mod protected {
     //! # Protected memory type aliases for HMAC
     //!
-    //! This mod provides protected-memory aliases for HMAC keys and MACs.
+    //! This mod provides protected-memory aliases for HMAC keys and MACs. Use
+    //! these aliases when key material or authentication tags should live in
+    //! locked memory.
     //!
     //! ```
     //! use dryoc::hmac::HmacSha256;
@@ -114,7 +134,8 @@ pub mod protected {
     //!
     //! let key = HmacSha256Key::gen_readonly_locked().expect("key failed");
     //! let input =
-    //!     HeapBytes::from_slice_into_readonly_locked(b"super secret input").expect("input failed");
+    //!     HeapBytes::from_slice_into_readonly_locked(b"More matter, with less art.")
+    //!         .expect("input failed");
     //! let mac: Locked<HmacSha256Mac> = HmacSha256::compute(key, &input);
     //! ```
     use super::*;

@@ -2,11 +2,15 @@
 //!
 //! Implements libsodium's `crypto_auth_hmacsha512_*` functions.
 //!
+//! HMAC-SHA-512 authenticates a message with a shared secret key and writes a
+//! 64-byte tag. Use it when a protocol specifically requires HMAC-SHA-512.
+//! Verification fails if either the message or the tag has been changed.
+//!
 //! ```
 //! use dryoc::classic::crypto_auth_hmacsha512::*;
 //!
 //! let key = crypto_auth_hmacsha512_keygen();
-//! let message = b"message to authenticate";
+//! let message = b"One touch of nature makes the whole world kin.";
 //!
 //! let mut mac: Mac = [0u8; 64];
 //! crypto_auth_hmacsha512(&mut mac, message, &key);
@@ -21,11 +25,11 @@
 //!
 //! let key = crypto_auth_hmacsha512_keygen();
 //! let mut one_shot: Mac = [0u8; 64];
-//! crypto_auth_hmacsha512(&mut one_shot, b"multi-part message", &key);
+//! crypto_auth_hmacsha512(&mut one_shot, b"How far that little candle throws his beams!", &key);
 //!
 //! let mut state = crypto_auth_hmacsha512_init(&key);
-//! crypto_auth_hmacsha512_update(&mut state, b"multi-part ");
-//! crypto_auth_hmacsha512_update(&mut state, b"message");
+//! crypto_auth_hmacsha512_update(&mut state, b"How far that little candle ");
+//! crypto_auth_hmacsha512_update(&mut state, b"throws his beams!");
 //! let mut streaming: Mac = [0u8; 64];
 //! crypto_auth_hmacsha512_final(state, &mut streaming);
 //!

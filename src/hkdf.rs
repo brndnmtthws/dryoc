@@ -3,13 +3,25 @@
 //! [`HkdfSha256`] and [`HkdfSha512`] provide Rustaceous wrappers around
 //! libsodium's HKDF-SHA-256 and HKDF-SHA-512 functions.
 //!
+//! HKDF turns input keying material into one or more independent keys. It has
+//! two steps:
+//!
+//! * extract: mix the input keying material with an optional salt to produce a
+//!   pseudorandom key (PRK)
+//! * expand: derive output bytes from that PRK and a context string
+//!
+//! Use HKDF when you already have keying material, such as a shared secret from
+//! key exchange, and need separate keys for different purposes. The context is
+//! public domain-separation data; changing it changes the derived output.
+//!
 //! # Rustaceous API example
 //!
 //! ```
 //! use dryoc::hkdf::{HkdfSha256, HkdfSha256Prk};
 //!
-//! let hkdf: HkdfSha256 = HkdfSha256::extract(Some(b"salt"), b"input keying material");
-//! let output: Vec<u8> = hkdf.expand_to_vec(42, b"context").expect("expand failed");
+//! let hkdf: HkdfSha256 =
+//!     HkdfSha256::extract(Some(b"Act IV salt"), b"Now is the winter of our discontent");
+//! let output: Vec<u8> = hkdf.expand_to_vec(42, b"session key").expect("expand failed");
 //! assert_eq!(output.len(), 42);
 //! ```
 //!
@@ -20,9 +32,9 @@
 //!
 //! let output = HkdfSha512::extract_and_expand_to_vec(
 //!     64,
-//!     Some(b"optional salt"),
-//!     b"input keying material",
-//!     b"application context",
+//!     Some(b"optional deployment salt"),
+//!     b"Our remedies oft in ourselves do lie",
+//!     b"application secret",
 //! )
 //! .expect("expand failed");
 //! assert_eq!(output.len(), 64);
@@ -33,7 +45,7 @@
 //! ```
 //! use dryoc::hkdf::{HkdfSha256, HkdfSha256Prk};
 //!
-//! let hkdf = HkdfSha256::extract(Some(b"deployment salt"), b"input keying material");
+//! let hkdf = HkdfSha256::extract(Some(b"deployment salt"), b"We know what we are");
 //! let encryption_key: HkdfSha256Prk = hkdf.expand(b"encryption key").expect("expand failed");
 //! let authentication_key: HkdfSha256Prk =
 //!     hkdf.expand(b"authentication key").expect("expand failed");
@@ -103,15 +115,19 @@ pub mod protected {
     //! # Protected memory type aliases for HKDF
     //!
     //! This mod provides protected-memory PRK aliases and locked HKDF aliases.
+    //! Use these aliases when the extracted PRK or expanded output should stay
+    //! in locked memory.
     //!
     //! ```
     //! use dryoc::hkdf::HkdfSha512Expander;
     //! use dryoc::hkdf::protected::*;
     //!
-    //! let ikm =
-    //!     HeapBytes::from_slice_into_readonly_locked(b"input keying material").expect("ikm failed");
+    //! let ikm = HeapBytes::from_slice_into_readonly_locked(b"Truth will come to light.")
+    //!     .expect("ikm failed");
     //! let hkdf: LockedHkdfSha512 = HkdfSha512Expander::extract(None::<&[u8]>, &ikm);
-    //! let output: Locked<HeapBytes> = hkdf.expand_to_bytes(64, b"context").expect("expand failed");
+    //! let output: Locked<HeapBytes> = hkdf
+    //!     .expand_to_bytes(64, b"context")
+    //!     .expect("expand failed");
     //! assert_eq!(output.len(), 64);
     //! ```
     use super::*;

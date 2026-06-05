@@ -1,3 +1,27 @@
+//! # SHA-2 hashing
+//!
+//! Implements libsodium's `crypto_hash_sha256_*` and `crypto_hash_sha512_*`
+//! functions.
+//!
+//! SHA-256 and SHA-512 are unkeyed hash functions. They produce fixed-size
+//! digests that identify input bytes, but they do not prove who created the
+//! input. Use [`crate::classic::crypto_auth`] or the direct HMAC modules when a
+//! shared secret key is required.
+//!
+//! ```
+//! use dryoc::classic::crypto_hash::*;
+//!
+//! let message = b"The empty vessel makes the loudest sound.";
+//!
+//! let mut sha256 = Sha256Digest::default();
+//! crypto_hash_sha256(&mut sha256, message);
+//! assert_eq!(sha256.len(), 32);
+//!
+//! let mut sha512: Sha512Digest = [0u8; 64];
+//! crypto_hash_sha512(&mut sha512, message);
+//! assert_eq!(sha512.len(), 64);
+//! ```
+
 use crate::constants::{CRYPTO_HASH_SHA256_BYTES, CRYPTO_HASH_SHA512_BYTES};
 use crate::sha256::Sha256;
 use crate::sha512::*;

@@ -2,11 +2,15 @@
 //!
 //! Implements libsodium's `crypto_auth_hmacsha512256_*` functions.
 //!
+//! HMAC-SHA-512-256 is HMAC-SHA-512 with a 32-byte truncated output. This is
+//! libsodium's default `crypto_auth` construction. It authenticates a public
+//! message with a shared secret key; it does not hide the message contents.
+//!
 //! ```
 //! use dryoc::classic::crypto_auth_hmacsha512256::*;
 //!
 //! let key = crypto_auth_hmacsha512256_keygen();
-//! let message = b"message to authenticate";
+//! let message = b"No legacy is so rich as honesty.";
 //!
 //! let mut mac = Mac::default();
 //! crypto_auth_hmacsha512256(&mut mac, message, &key);
@@ -22,11 +26,15 @@
 //!
 //! let key = crypto_auth_hmacsha512256_keygen();
 //! let mut one_shot = Mac::default();
-//! crypto_auth_hmacsha512256(&mut one_shot, b"multi-part message", &key);
+//! crypto_auth_hmacsha512256(
+//!     &mut one_shot,
+//!     b"Small cheer and great welcome makes a merry feast.",
+//!     &key,
+//! );
 //!
 //! let mut state = crypto_auth_hmacsha512256_init(&key);
-//! crypto_auth_hmacsha512256_update(&mut state, b"multi-part ");
-//! crypto_auth_hmacsha512256_update(&mut state, b"message");
+//! crypto_auth_hmacsha512256_update(&mut state, b"Small cheer and great welcome ");
+//! crypto_auth_hmacsha512256_update(&mut state, b"makes a merry feast.");
 //! let mut streaming = Mac::default();
 //! crypto_auth_hmacsha512256_final(state, &mut streaming);
 //!

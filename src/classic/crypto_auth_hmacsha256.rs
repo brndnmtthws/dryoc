@@ -2,11 +2,16 @@
 //!
 //! Implements libsodium's `crypto_auth_hmacsha256_*` functions.
 //!
+//! HMAC-SHA-256 authenticates a message with a shared secret key and writes a
+//! 32-byte tag. Verification recomputes the tag and compares it in constant
+//! time. The message is not encrypted, and the same key must be available to
+//! both the sender and verifier.
+//!
 //! ```
 //! use dryoc::classic::crypto_auth_hmacsha256::*;
 //!
 //! let key = crypto_auth_hmacsha256_keygen();
-//! let message = b"message to authenticate";
+//! let message = b"What's past is prologue.";
 //!
 //! let mut mac = Mac::default();
 //! crypto_auth_hmacsha256(&mut mac, message, &key);
@@ -21,11 +26,11 @@
 //!
 //! let key = crypto_auth_hmacsha256_keygen();
 //! let mut one_shot = Mac::default();
-//! crypto_auth_hmacsha256(&mut one_shot, b"multi-part message", &key);
+//! crypto_auth_hmacsha256(&mut one_shot, b"Parting is such sweet sorrow.", &key);
 //!
 //! let mut state = crypto_auth_hmacsha256_init(&key);
-//! crypto_auth_hmacsha256_update(&mut state, b"multi-part ");
-//! crypto_auth_hmacsha256_update(&mut state, b"message");
+//! crypto_auth_hmacsha256_update(&mut state, b"Parting is such ");
+//! crypto_auth_hmacsha256_update(&mut state, b"sweet sorrow.");
 //! let mut streaming = Mac::default();
 //! crypto_auth_hmacsha256_final(state, &mut streaming);
 //!

@@ -2,14 +2,22 @@
 //!
 //! Provides an implementation of the SHA-256 hash algorithm.
 //!
+//! SHA-256 is an unkeyed cryptographic hash function. It turns arbitrary input
+//! bytes into a 32-byte digest. Hashes are useful for fingerprints and
+//! compatibility with protocols that require SHA-256, but they do not
+//! authenticate messages by themselves. Use [`crate::auth`] or [`crate::hmac`]
+//! when a secret key must be involved.
+//!
 //! ## Example
 //!
 //! ```
 //! use dryoc::sha256::Sha256;
 //!
 //! let mut state = Sha256::new();
-//! state.update(b"bytes");
+//! state.update(b"All the world's a stage, ");
+//! state.update(b"and all the men and women merely players.");
 //! let hash = state.finalize_to_vec();
+//! assert_eq!(hash.len(), 32);
 //! ```
 use sha2::{Digest as DigestImpl, Sha256 as Sha256Impl};
 
