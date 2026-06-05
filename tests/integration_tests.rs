@@ -3,6 +3,166 @@ use std::vec;
 use dryoc::precalc::PrecalcSecretKey;
 
 #[test]
+fn test_classic_hmac_and_hkdf_public_api() {
+    use dryoc::classic::crypto_auth_hmacsha256::{
+        Mac as HmacSha256Mac, crypto_auth_hmacsha256, crypto_auth_hmacsha256_final,
+        crypto_auth_hmacsha256_init, crypto_auth_hmacsha256_keygen, crypto_auth_hmacsha256_update,
+        crypto_auth_hmacsha256_verify,
+    };
+    use dryoc::classic::crypto_auth_hmacsha512::{
+        crypto_auth_hmacsha512, crypto_auth_hmacsha512_final, crypto_auth_hmacsha512_init,
+        crypto_auth_hmacsha512_keygen, crypto_auth_hmacsha512_update,
+        crypto_auth_hmacsha512_verify,
+    };
+    use dryoc::classic::crypto_auth_hmacsha512256::{
+        Mac as HmacSha512256Mac, crypto_auth_hmacsha512256, crypto_auth_hmacsha512256_final,
+        crypto_auth_hmacsha512256_init, crypto_auth_hmacsha512256_keygen,
+        crypto_auth_hmacsha512256_update, crypto_auth_hmacsha512256_verify,
+    };
+    use dryoc::classic::crypto_kdf::{
+        HkdfSha256Key, crypto_kdf_hkdf_sha256_expand, crypto_kdf_hkdf_sha256_extract,
+        crypto_kdf_hkdf_sha512_expand, crypto_kdf_hkdf_sha512_extract,
+    };
+    use dryoc::constants::{CRYPTO_AUTH_HMACSHA512_BYTES, CRYPTO_KDF_HKDF_SHA512_KEYBYTES};
+
+    let message = b"public API message";
+
+    let key256 = crypto_auth_hmacsha256_keygen();
+    let mut one_shot256 = HmacSha256Mac::default();
+    crypto_auth_hmacsha256(&mut one_shot256, message, &key256);
+    let mut state256 = crypto_auth_hmacsha256_init(&key256);
+    crypto_auth_hmacsha256_update(&mut state256, b"public API ");
+    crypto_auth_hmacsha256_update(&mut state256, b"message");
+    let mut streaming256 = HmacSha256Mac::default();
+    crypto_auth_hmacsha256_final(state256, &mut streaming256);
+    assert_eq!(one_shot256, streaming256);
+    crypto_auth_hmacsha256_verify(&one_shot256, message, &key256).expect("verify failed");
+    crypto_auth_hmacsha256_verify(&one_shot256, b"invalid", &key256)
+        .expect_err("verify should fail");
+
+    let key512 = crypto_auth_hmacsha512_keygen();
+    let mut one_shot512 = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
+    crypto_auth_hmacsha512(&mut one_shot512, message, &key512);
+    let mut state512 = crypto_auth_hmacsha512_init(&key512);
+    crypto_auth_hmacsha512_update(&mut state512, b"public API ");
+    crypto_auth_hmacsha512_update(&mut state512, b"message");
+    let mut streaming512 = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
+    crypto_auth_hmacsha512_final(state512, &mut streaming512);
+    assert_eq!(one_shot512, streaming512);
+    crypto_auth_hmacsha512_verify(&one_shot512, message, &key512).expect("verify failed");
+    crypto_auth_hmacsha512_verify(&one_shot512, b"invalid", &key512)
+        .expect_err("verify should fail");
+
+    let key512256 = crypto_auth_hmacsha512256_keygen();
+    let mut one_shot512256 = HmacSha512256Mac::default();
+    crypto_auth_hmacsha512256(&mut one_shot512256, message, &key512256);
+    let mut state512256 = crypto_auth_hmacsha512256_init(&key512256);
+    crypto_auth_hmacsha512256_update(&mut state512256, b"public API ");
+    crypto_auth_hmacsha512256_update(&mut state512256, b"message");
+    let mut streaming512256 = HmacSha512256Mac::default();
+    crypto_auth_hmacsha512256_final(state512256, &mut streaming512256);
+    assert_eq!(one_shot512256, streaming512256);
+    crypto_auth_hmacsha512256_verify(&one_shot512256, message, &key512256).expect("verify failed");
+    crypto_auth_hmacsha512256_verify(&one_shot512256, b"invalid", &key512256)
+        .expect_err("verify should fail");
+
+    let mut prk256 = HkdfSha256Key::default();
+    crypto_kdf_hkdf_sha256_extract(&mut prk256, Some(b"salt"), b"input keying material");
+    let mut okm256 = [0u8; 48];
+    crypto_kdf_hkdf_sha256_expand(&mut okm256, b"context", &prk256).expect("expand failed");
+
+    let mut prk512 = [0u8; CRYPTO_KDF_HKDF_SHA512_KEYBYTES];
+    crypto_kdf_hkdf_sha512_extract(&mut prk512, Some(b"salt"), b"input keying material");
+    let mut okm512 = [0u8; 96];
+    crypto_kdf_hkdf_sha512_expand(&mut okm512, b"context", &prk512).expect("expand failed");
+}
+
+#[test]
+fn test_rustaceous_hmac_and_hkdf_public_api() {
+    use dryoc::hkdf::{HkdfSha256, HkdfSha256Prk, HkdfSha512};
+    use dryoc::hmac::{
+        HmacSha256, HmacSha256Key, HmacSha256Mac, HmacSha512, HmacSha512Key, HmacSha512256,
+        HmacSha512256Key,
+    };
+    use dryoc::types::*;
+
+    let message = b"public API message";
+
+    let key256 = HmacSha256Key::generate();
+    let mac256: HmacSha256Mac = HmacSha256::compute(key256.clone(), message);
+    HmacSha256::compute_and_verify(&mac256, key256, message).expect("verify failed");
+
+    let key512 = HmacSha512Key::generate();
+    let mut auth512 = HmacSha512::new(key512.clone());
+    auth512.update(b"public API ");
+    auth512.update(b"message");
+    let mac512 = auth512.finalize_to_vec();
+    let mut verify512 = HmacSha512::new(key512);
+    verify512.update(b"public API ");
+    verify512.update(b"message");
+    verify512.verify(&mac512).expect("verify failed");
+
+    let key512256 = HmacSha512256Key::generate();
+    let mac512256 = HmacSha512256::compute_to_vec(key512256.clone(), message);
+    HmacSha512256::compute_and_verify(&mac512256, key512256, b"invalid")
+        .expect_err("verify should fail");
+
+    let hkdf256 = HkdfSha256::extract(Some(b"salt"), b"input keying material");
+    let okm256: HkdfSha256Prk = hkdf256.expand(b"context").expect("expand failed");
+    assert_eq!(okm256.len(), 32);
+    let okm256 = hkdf256
+        .expand_to_vec(42, b"context")
+        .expect("expand failed");
+    assert_eq!(okm256.len(), 42);
+
+    let okm512 = HkdfSha512::extract_and_expand_to_vec(
+        96,
+        Some(b"salt"),
+        b"input keying material",
+        b"context",
+    )
+    .expect("expand failed");
+    assert_eq!(okm512.len(), 96);
+}
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn test_rustaceous_hmac_and_hkdf_protected() {
+    use dryoc::hkdf::HkdfSha512Expander;
+    use dryoc::hkdf::protected::{
+        HeapBytes as HkdfHeapBytes, HkdfSha512Prk, Locked as HkdfLocked, LockedHkdfSha512,
+    };
+    use dryoc::hmac::HmacSha256;
+    use dryoc::hmac::protected::{
+        HeapBytes as HmacHeapBytes, HmacSha256Key, HmacSha256Mac, Locked as HmacLocked,
+    };
+    use dryoc::protected::{NewLocked, NewLockedFromSlice};
+
+    let key_bytes = [7u8; 32];
+    let key = HmacSha256Key::from_slice_into_readonly_locked(&key_bytes).expect("key failed");
+    let verify_key =
+        HmacSha256Key::from_slice_into_readonly_locked(&key_bytes).expect("key failed");
+    let input =
+        HmacHeapBytes::from_slice_into_readonly_locked(b"protected message").expect("input failed");
+    let mac: HmacLocked<HmacSha256Mac> = HmacSha256::compute(key, &input);
+    HmacSha256::compute_and_verify(&mac, verify_key, &input).expect("verify failed");
+
+    let ikm = HkdfHeapBytes::from_slice_into_readonly_locked(b"input keying material")
+        .expect("ikm failed");
+    let hkdf: LockedHkdfSha512 =
+        HkdfSha512Expander::<HkdfLocked<HkdfSha512Prk>>::extract(None::<&[u8]>, &ikm);
+    let output: HkdfLocked<HkdfHeapBytes> =
+        hkdf.expand_to_bytes(64, b"context").expect("expand failed");
+    assert_eq!(output.len(), 64);
+
+    let prk = HkdfSha512Prk::gen_readonly_locked().expect("prk failed");
+    let hkdf = HkdfSha512Expander::from_prk(prk);
+    let output: HkdfLocked<HkdfHeapBytes> =
+        hkdf.expand_to_bytes(32, b"context").expect("expand failed");
+    assert_eq!(output.len(), 32);
+}
+
+#[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
 

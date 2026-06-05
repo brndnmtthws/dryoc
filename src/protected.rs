@@ -1800,6 +1800,11 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
     }
 }
 
+impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ZeroizeOnDrop
+    for Protected<A, PM, LM>
+{
+}
+
 impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
     for Protected<A, PM, LM>
 {

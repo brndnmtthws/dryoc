@@ -127,9 +127,11 @@ implementation. This list has been reviewed against
 * [x] [Key exchange](https://docs.rs/dryoc/latest/dryoc/kx/index.html) (`crypto_kx_*`) [libsodium link](https://doc.libsodium.org/key_exchange)
 * [x] [Public-key signatures](https://docs.rs/dryoc/latest/dryoc/sign/index.html) (`crypto_sign_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [x] [Ed25519 to Curve25519](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_*`) [libsodium link](https://doc.libsodium.org/advanced/ed25519-curve25519)
-* [x] [SHA-512 hashing](https://docs.rs/dryoc/latest/dryoc/sha512/index.html) (`crypto_hash_sha512_*`) [libsodium link](https://doc.libsodium.org/hashing/sha-2)
+* [x] [SHA-2 hashing](https://docs.rs/dryoc/latest/dryoc/classic/crypto_hash/index.html) (`crypto_hash_sha256_*`, `crypto_hash_sha512_*`) [libsodium link](https://doc.libsodium.org/hashing/sha-2)
 * [x] [Short-input hashing](https://docs.rs/dryoc/latest/dryoc/classic/crypto_shorthash/index.html) (`crypto_shorthash`) [libsodium link](https://doc.libsodium.org/hashing/short-input_hashing)
 * [x] [Password hashing](https://docs.rs/dryoc/latest/dryoc/pwhash/index.html) (`crypto_pwhash_*`) [libsodium link](https://doc.libsodium.org/password_hashing/default_phf)
+* [x] [HKDF key derivation variants](https://docs.rs/dryoc/latest/dryoc/hkdf/index.html) (`crypto_kdf_hkdf_sha256_*`, `crypto_kdf_hkdf_sha512_*`) [libsodium link](https://doc.libsodium.org/key_derivation/hkdf)
+* [x] [Direct HMAC authentication variants](https://docs.rs/dryoc/latest/dryoc/hmac/index.html) (`crypto_auth_hmacsha256_*`, `crypto_auth_hmacsha512_*`, `crypto_auth_hmacsha512256_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication)
 
 The following libsodium features are either incomplete, not exposed as public
 APIs, or not implemented; you may find equivalent functionality in other
@@ -137,11 +139,9 @@ crates:
 
 * [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) beyond XChaCha20-Poly1305-IETF, including AEGIS-128L/256, AES256-GCM, and ChaCha20-Poly1305
 * [ ] XChaCha20-Poly1305 box and secretbox variants (`crypto_box_curve25519xchacha20poly1305_*`, `crypto_secretbox_xchacha20poly1305_*`)
-* [ ] HKDF key derivation variants (`crypto_kdf_hkdf_sha256_*`, `crypto_kdf_hkdf_sha512_*`)
-* [ ] SHA-2/SHA-3 hash variants beyond SHA-512 (`crypto_hash_sha256_*`, `crypto_hash_sha3256_*`, `crypto_hash_sha3512_*`)
+* [ ] SHA-3 hash variants (`crypto_hash_sha3256_*`, `crypto_hash_sha3512_*`)
 * [ ] Extendable-output functions (`crypto_xof_shake*`, `crypto_xof_turboshake*`), added in libsodium 1.0.21
 * [ ] [Key encapsulation](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE) (`crypto_kem_*`, `crypto_kem_mlkem768_*`, `crypto_kem_xwing_*`), added in libsodium 1.0.22
-* [ ] Direct HMAC authentication variants (`crypto_auth_hmacsha256_*`, `crypto_auth_hmacsha512_*`, `crypto_auth_hmacsha512256_*`)
 * [ ] Signature secret-key extraction helpers (`crypto_sign_ed25519_sk_to_seed`, `crypto_sign_ed25519_sk_to_pk`)
 * [ ] Deterministic random data for reproducible tests (`randombytes_buf_deterministic`)
 * [ ] Short-input hash variants beyond SipHash-2-4 with 64-bit output (`crypto_shorthash_siphashx24_*`)
