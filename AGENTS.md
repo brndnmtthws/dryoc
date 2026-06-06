@@ -21,12 +21,17 @@ than convenience refactors.
 - Rust 2024 reserves `gen` as a keyword. Existing generation APIs retain their
   public name through raw identifier syntax; define and call them as `r#gen`
   (for example, `Key::r#gen()`).
-- Default features are `u64_backend`.
+- Default features are `base64`, `u64_backend`, and `protected`.
 - Optional features:
   - `serde`: serialization support for supported types.
-  - `base64`: password-hash string helpers.
+  - `base64`: password-hash string helpers; enabled by default and does not add
+    a dependency.
   - `wincode`: direct binary serialization support for Rustaceous box types.
-  - `nightly`: protected memory APIs and extra doc cfg support.
+  - `protected`: protected memory APIs on Unix/Windows; enabled by default and
+    does not add a dependency beyond target OS bindings already used by the
+    crate.
+  - `nightly`: extra doc cfg support and nightly-only allocator APIs for
+    protected memory.
   - `simd_backend`: SIMD-backed internals; in CI this is used with `nightly`.
 - Do not commit a `Cargo.lock` for routine library changes unless the project
   policy changes.
@@ -86,8 +91,9 @@ cargo fuzz run fuzz_target_1
   compatibility checks over tests that only round-trip random data.
 - When changing a feature-gated area, test both the enabled and relevant disabled
   configurations.
-- For protected memory changes, test with `+nightly --features nightly` and be
-  mindful of platform-specific Unix/Windows behavior.
+- For protected memory changes, test the default `protected` feature on
+  Unix/Windows; also test with `+nightly --features nightly` when touching
+  nightly-only allocator APIs.
 
 ## Crypto-Specific Rules
 
@@ -116,7 +122,8 @@ cargo fuzz run fuzz_target_1
 - `src/lib.rs`: crate-level docs, feature gates, and public module exports.
 - `src/types.rs`: fixed-size byte-array traits and helper types.
 - `src/rng.rs`: random byte generation.
-- `src/protected.rs`: nightly-only protected memory allocator and locked bytes.
+- `src/protected.rs`: protected memory allocation, locking, guard pages, and
+  locked bytes; nightly-only allocator APIs are additionally gated by `nightly`.
 - `src/classic/`: libsodium-compatible API modules.
 - `src/blake2b/`, `src/poly1305/`, `src/argon2.rs`,
   `src/scalarmult_curve25519.rs`: primitive implementations and backend
