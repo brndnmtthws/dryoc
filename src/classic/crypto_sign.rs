@@ -54,7 +54,9 @@
 //! ```
 
 use super::crypto_sign_ed25519::*;
-pub use super::crypto_sign_ed25519::{PublicKey, SecretKey};
+pub use super::crypto_sign_ed25519::{
+    PublicKey, SecretKey, crypto_sign_ed25519_sk_to_pk, crypto_sign_ed25519_sk_to_seed,
+};
 use crate::constants::CRYPTO_SIGN_BYTES;
 use crate::error::Error;
 
