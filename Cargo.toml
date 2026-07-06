@@ -19,6 +19,7 @@ rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
 salsa20 = { version = "0.11", features = ["zeroize"] }
 serde = { version = "1.0", optional = true, features = ["derive"] }
 sha2 = { version = "0.11", features = ["zeroize"] }
+sha3_impl = { package = "sha3", version = "0.12", features = ["zeroize"] }
 subtle = "2.6"
 wincode = { version = "0.5.3", optional = true, features = ["derive"] }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }

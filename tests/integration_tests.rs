@@ -3,6 +3,55 @@ use std::vec;
 use dryoc::precalc::PrecalcSecretKey;
 
 #[test]
+fn test_sha3_public_api() {
+    use dryoc::classic::crypto_hash::{
+        Sha3256Digest, Sha3512Digest, crypto_hash_sha3256, crypto_hash_sha3256_final,
+        crypto_hash_sha3256_init, crypto_hash_sha3256_update, crypto_hash_sha3512,
+        crypto_hash_sha3512_final, crypto_hash_sha3512_init, crypto_hash_sha3512_update,
+    };
+    use dryoc::sha3::{
+        Sha3256, Sha3256Digest as RustSha3256Digest, Sha3512, Sha3512Digest as RustSha3512Digest,
+    };
+    use dryoc::types::Bytes;
+
+    let message = b"public API message";
+
+    let mut classic_one_shot256 = Sha3256Digest::default();
+    crypto_hash_sha3256(&mut classic_one_shot256, message);
+    let mut classic_state256 = crypto_hash_sha3256_init();
+    crypto_hash_sha3256_update(&mut classic_state256, b"public API ");
+    crypto_hash_sha3256_update(&mut classic_state256, b"message");
+    let mut classic_streaming256 = Sha3256Digest::default();
+    crypto_hash_sha3256_final(classic_state256, &mut classic_streaming256);
+    assert_eq!(classic_one_shot256, classic_streaming256);
+
+    let rust_one_shot256: RustSha3256Digest = Sha3256::compute(message);
+    let mut rust_state256 = Sha3256::new();
+    rust_state256.update(b"public API ");
+    rust_state256.update(b"message");
+    let rust_streaming256: RustSha3256Digest = rust_state256.finalize();
+    assert_eq!(rust_one_shot256, rust_streaming256);
+    assert_eq!(classic_one_shot256.as_slice(), rust_one_shot256.as_slice());
+
+    let mut classic_one_shot512: Sha3512Digest = [0u8; 64];
+    crypto_hash_sha3512(&mut classic_one_shot512, message);
+    let mut classic_state512 = crypto_hash_sha3512_init();
+    crypto_hash_sha3512_update(&mut classic_state512, b"public API ");
+    crypto_hash_sha3512_update(&mut classic_state512, b"message");
+    let mut classic_streaming512: Sha3512Digest = [0u8; 64];
+    crypto_hash_sha3512_final(classic_state512, &mut classic_streaming512);
+    assert_eq!(classic_one_shot512, classic_streaming512);
+
+    let rust_one_shot512: RustSha3512Digest = Sha3512::compute(message);
+    let mut rust_state512 = Sha3512::new();
+    rust_state512.update(b"public API ");
+    rust_state512.update(b"message");
+    let rust_streaming512: RustSha3512Digest = rust_state512.finalize();
+    assert_eq!(rust_one_shot512, rust_streaming512);
+    assert_eq!(classic_one_shot512.as_slice(), rust_one_shot512.as_slice());
+}
+
+#[test]
 fn test_classic_hmac_and_hkdf_public_api() {
     use dryoc::classic::crypto_auth_hmacsha256::{
         Mac as HmacSha256Mac, crypto_auth_hmacsha256, crypto_auth_hmacsha256_final,
