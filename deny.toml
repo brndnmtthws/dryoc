@@ -1,0 +1,4 @@
+[advisories]
+ignore = [
+  { id = "RUSTSEC-2021-0137", reason = "sodiumoxide is used only as a dev-dependency for libsodium compatibility tests and is not part of dryoc's published dependency graph." },
+]
