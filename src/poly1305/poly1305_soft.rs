@@ -107,7 +107,7 @@ impl Poly1305 {
 
         debug_assert_eq!(input.len() % BLOCK_SIZE, 0);
 
-        for m in input.chunks_exact(BLOCK_SIZE) {
+        for m in input.as_chunks::<BLOCK_SIZE>().0 {
             // h += m[i]
             let t0 = load_u64_le(&m[0..8]);
             let t1 = load_u64_le(&m[8..]);

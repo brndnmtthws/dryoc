@@ -248,11 +248,11 @@ impl State {
             let t = &mut self.t;
             let f = &mut self.f;
 
-            for chunk in self.buf.chunks_exact(BLOCKBYTES) {
+            for chunk in self.buf.as_chunks::<BLOCKBYTES>().0 {
                 increment_counter(t, BLOCKBYTES);
                 compress(h, t, f, chunk);
             }
-            for chunk in input[start..end].chunks_exact(BLOCKBYTES) {
+            for chunk in input[start..end].as_chunks::<BLOCKBYTES>().0 {
                 increment_counter(t, BLOCKBYTES);
                 compress(h, t, f, chunk);
             }
@@ -382,7 +382,7 @@ pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
         let end = chunk_count * HALFOUTBYTES;
         let (start, end) = output[HALFOUTBYTES..].split_at_mut(end);
 
-        for chunk in start.chunks_exact_mut(HALFOUTBYTES) {
+        for chunk in start.as_chunks_mut::<HALFOUTBYTES>().0 {
             let mut out_buffer = [0u8; OUTBYTES];
 
             hash(&mut out_buffer, &in_buffer, None)?;

@@ -45,6 +45,7 @@ For example usage, refer to the
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
   equivalents) on stable Rust for Unix and Windows targets, enabled by default
   with the `protected` feature
+* Password-hash string helpers enabled by default with the `base64` feature
 * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
 * [wincode](https://crates.io/crates/wincode) support for direct binary serialization of Rustaceous box types (with `features = ["wincode"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementations on nightly, with `features = ["simd_backend", "nightly"]`:

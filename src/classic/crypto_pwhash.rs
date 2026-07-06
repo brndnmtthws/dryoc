@@ -167,7 +167,9 @@ fn base64_no_pad_encode(input: &[u8]) -> String {
 
     let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
 
-    for chunk in input.chunks_exact(3) {
+    let (chunks, rem) = input.as_chunks::<3>();
+
+    for chunk in chunks {
         let n = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | chunk[2] as u32;
         output.push(ALPHABET[((n >> 18) & 0x3f) as usize] as char);
         output.push(ALPHABET[((n >> 12) & 0x3f) as usize] as char);
@@ -175,7 +177,6 @@ fn base64_no_pad_encode(input: &[u8]) -> String {
         output.push(ALPHABET[(n & 0x3f) as usize] as char);
     }
 
-    let rem = input.chunks_exact(3).remainder();
     if rem.len() == 1 {
         let n = (rem[0] as u32) << 16;
         output.push(ALPHABET[((n >> 18) & 0x3f) as usize] as char);
@@ -209,7 +210,9 @@ fn base64_no_pad_decode(input: &str) -> Option<Vec<u8>> {
     }
 
     let mut output = Vec::with_capacity(input.len() / 4 * 3 + 2);
-    for chunk in input.chunks_exact(4) {
+    let (chunks, rem) = input.as_chunks::<4>();
+
+    for chunk in chunks {
         let n = ((decode_byte(chunk[0])? as u32) << 18)
             | ((decode_byte(chunk[1])? as u32) << 12)
             | ((decode_byte(chunk[2])? as u32) << 6)
@@ -219,7 +222,6 @@ fn base64_no_pad_decode(input: &str) -> Option<Vec<u8>> {
         output.push(n as u8);
     }
 
-    let rem = input.chunks_exact(4).remainder();
     if rem.len() == 2 {
         let second = decode_byte(rem[1])?;
         if second & 0x0f != 0 {
