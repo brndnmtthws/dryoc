@@ -125,6 +125,43 @@ fn test_rustaceous_hmac_and_hkdf_public_api() {
     assert_eq!(okm512.len(), 96);
 }
 
+#[test]
+fn test_signing_key_extraction_public_api() {
+    use dryoc::classic::crypto_sign::{
+        crypto_sign_ed25519_sk_to_pk, crypto_sign_ed25519_sk_to_seed, crypto_sign_seed_keypair,
+    };
+    use dryoc::sign::{
+        PublicKey, SecretKey, Seed, SigningKeyPair, secret_key_to_public_key, secret_key_to_seed,
+    };
+    use dryoc::types::*;
+
+    let seed = [7u8; dryoc::constants::CRYPTO_SIGN_SEEDBYTES];
+    let (classic_public_key, classic_secret_key) = crypto_sign_seed_keypair(&seed);
+    let mut classic_extracted_seed = [0u8; dryoc::constants::CRYPTO_SIGN_SEEDBYTES];
+    let mut classic_extracted_public_key = [0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES];
+    crypto_sign_ed25519_sk_to_seed(&mut classic_extracted_seed, &classic_secret_key);
+    crypto_sign_ed25519_sk_to_pk(&mut classic_extracted_public_key, &classic_secret_key);
+    assert_eq!(classic_extracted_seed, seed);
+    assert_eq!(classic_extracted_public_key, classic_public_key);
+
+    let signing_keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+    let rustaceous_seed: Seed = signing_keypair.to_seed();
+    let rustaceous_public_key: PublicKey = signing_keypair.to_public_key();
+    assert_eq!(rustaceous_seed.as_slice(), seed);
+    assert_eq!(
+        rustaceous_public_key.as_slice(),
+        signing_keypair.public_key.as_slice()
+    );
+
+    let rustaceous_seed_vec: Vec<u8> = secret_key_to_seed(&signing_keypair.secret_key);
+    let rustaceous_public_key_vec: Vec<u8> = secret_key_to_public_key(&signing_keypair.secret_key);
+    assert_eq!(rustaceous_seed_vec.as_slice(), seed.as_slice());
+    assert_eq!(
+        rustaceous_public_key_vec.as_slice(),
+        signing_keypair.public_key.as_slice()
+    );
+}
+
 #[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
 fn test_rustaceous_hmac_and_hkdf_protected() {

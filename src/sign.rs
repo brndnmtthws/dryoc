@@ -27,6 +27,11 @@
 //! separate. While it's possible to convert Ed25519 keys to X25519 keys (or
 //! derive them from the same seed), one is cautioned against doing so.
 //!
+//! Signing secret keys include both the seed and public key. Use
+//! [`secret_key_to_seed`], [`secret_key_to_public_key`],
+//! [`SigningKeyPair::to_seed`], or [`SigningKeyPair::to_public_key`] to extract
+//! those parts when interoperating with libsodium-style key storage.
+//!
 //! ## Rustaceous API example, single-part
 //!
 //! ```
@@ -43,6 +48,21 @@
 //! signed_message
 //!     .verify(&keypair.public_key)
 //!     .expect("verification failed");
+//! ```
+//!
+//! ## Extracting key material
+//!
+//! ```
+//! use dryoc::sign::*;
+//!
+//! let seed = Seed::from([7u8; dryoc::constants::CRYPTO_SIGN_SEEDBYTES]);
+//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+//!
+//! let extracted_seed: Seed = keypair.to_seed();
+//! let extracted_public_key: PublicKey = keypair.to_public_key();
+//!
+//! assert_eq!(extracted_seed, seed);
+//! assert_eq!(extracted_public_key, keypair.public_key);
 //! ```
 //!
 //! ## Incremental (multi-part) interface
@@ -79,7 +99,8 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_sign::{
-    SignerState, crypto_sign_detached, crypto_sign_final_create, crypto_sign_final_verify,
+    SignerState, crypto_sign_detached, crypto_sign_ed25519_sk_to_pk,
+    crypto_sign_ed25519_sk_to_seed, crypto_sign_final_create, crypto_sign_final_verify,
     crypto_sign_init, crypto_sign_keypair_inplace, crypto_sign_seed_keypair_inplace,
     crypto_sign_update, crypto_sign_verify_detached,
 };
@@ -94,10 +115,36 @@ use crate::types::*;
 pub type PublicKey = StackByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>;
 /// Stack-allocated secret key for message signing.
 pub type SecretKey = StackByteArray<CRYPTO_SIGN_SECRETKEYBYTES>;
+/// Stack-allocated seed for message signing.
+pub type Seed = StackByteArray<CRYPTO_SIGN_SEEDBYTES>;
 /// Stack-allocated signature for message signing.
 pub type Signature = StackByteArray<CRYPTO_SIGN_BYTES>;
 /// Heap-allocated message for message signing.
 pub type Message = Vec<u8>;
+
+/// Extracts the Ed25519 seed from a signing secret key.
+pub fn secret_key_to_seed<
+    SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>,
+    SigningSecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
+>(
+    secret_key: &SigningSecretKey,
+) -> SeedOut {
+    let mut seed = SeedOut::new_byte_array();
+    crypto_sign_ed25519_sk_to_seed(seed.as_mut_array(), secret_key.as_array());
+    seed
+}
+
+/// Extracts the Ed25519 public key from a signing secret key.
+pub fn secret_key_to_public_key<
+    PublicKeyOut: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
+    SigningSecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
+>(
+    secret_key: &SigningSecretKey,
+) -> PublicKeyOut {
+    let mut public_key = PublicKeyOut::new_byte_array();
+    crypto_sign_ed25519_sk_to_pk(public_key.as_mut_array(), secret_key.as_array());
+    public_key
+}
 
 #[cfg_attr(
     feature = "serde",
@@ -176,6 +223,24 @@ impl<
     }
 }
 
+impl<
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
+> SigningKeyPair<PublicKey, SecretKey>
+{
+    /// Extracts the Ed25519 seed from this keypair's secret key.
+    pub fn to_seed<SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>>(&self) -> SeedOut {
+        secret_key_to_seed(&self.secret_key)
+    }
+
+    /// Extracts the Ed25519 public key embedded in this keypair's secret key.
+    pub fn to_public_key<PublicKeyOut: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(
+        &self,
+    ) -> PublicKeyOut {
+        secret_key_to_public_key(&self.secret_key)
+    }
+}
+
 impl
     SigningKeyPair<
         StackByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
@@ -251,6 +316,9 @@ pub mod protected {
     /// Heap-allocated, page-aligned secret-key for signed messages,
     /// for use with protected memory.
     pub type SecretKey = HeapByteArray<CRYPTO_SIGN_SECRETKEYBYTES>;
+    /// Heap-allocated, page-aligned seed for signed messages,
+    /// for use with protected memory.
+    pub type Seed = HeapByteArray<CRYPTO_SIGN_SEEDBYTES>;
     /// Heap-allocated, page-aligned signature for signed messages,
     /// for use with protected memory.
     pub type Signature = HeapByteArray<CRYPTO_SIGN_BYTES>;
@@ -573,5 +641,24 @@ mod tests {
         signed_message
             .verify(&keypair.public_key)
             .expect("verification failed");
+    }
+
+    #[test]
+    fn test_secret_key_extraction() {
+        let seed = Seed::generate();
+        let keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+
+        let extracted_seed: Seed = keypair.to_seed();
+        let extracted_public_key: PublicKey = keypair.to_public_key();
+        assert_eq!(extracted_seed, seed);
+        assert_eq!(extracted_public_key, keypair.public_key);
+
+        let extracted_seed_vec: Vec<u8> = secret_key_to_seed(&keypair.secret_key);
+        let extracted_public_key_vec: Vec<u8> = secret_key_to_public_key(&keypair.secret_key);
+        assert_eq!(extracted_seed_vec.as_slice(), seed.as_slice());
+        assert_eq!(
+            extracted_public_key_vec.as_slice(),
+            keypair.public_key.as_slice()
+        );
     }
 }

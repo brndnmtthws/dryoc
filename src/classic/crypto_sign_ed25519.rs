@@ -1,12 +1,33 @@
-//! # Ed25519 to Curve25519 conversion
+//! # Ed25519 signing helpers
 //!
-//! This module implements libsodium's Ed25519 to Curve25519 conversion
-//! functions. You can use these functions when you want to sign messages with
-//! the same keys used to encrypt messages (i.e., using a public-key box).
+//! This module implements libsodium's Ed25519 helper functions, including
+//! Ed25519 to Curve25519 conversion and secret-key extraction. You can use the
+//! conversion functions when you want to sign messages with the same keys used
+//! to encrypt messages (i.e., using a public-key box).
 //!
 //! Generally speaking, you should avoid signing and encrypting with the same
 //! keypair. Additionally, an encrypted box doesn't need to be separately signed
 //! as it already includes a message authentication code.
+//!
+//! ## Classic API example
+//!
+//! ```
+//! use dryoc::classic::crypto_sign::{
+//!     crypto_sign_ed25519_sk_to_pk, crypto_sign_ed25519_sk_to_seed, crypto_sign_seed_keypair,
+//! };
+//! use dryoc::constants::{CRYPTO_SIGN_PUBLICKEYBYTES, CRYPTO_SIGN_SEEDBYTES};
+//!
+//! let seed = [7u8; CRYPTO_SIGN_SEEDBYTES];
+//! let (public_key, secret_key) = crypto_sign_seed_keypair(&seed);
+//!
+//! let mut extracted_seed = [0u8; CRYPTO_SIGN_SEEDBYTES];
+//! let mut extracted_public_key = [0u8; CRYPTO_SIGN_PUBLICKEYBYTES];
+//! crypto_sign_ed25519_sk_to_seed(&mut extracted_seed, &secret_key);
+//! crypto_sign_ed25519_sk_to_pk(&mut extracted_public_key, &secret_key);
+//!
+//! assert_eq!(extracted_seed, seed);
+//! assert_eq!(extracted_public_key, public_key);
+//! ```
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
@@ -126,6 +147,26 @@ pub fn crypto_sign_ed25519_sk_to_curve25519(
     let mut scalar = clamp_hash(hash);
     x25519_secret_key.copy_from_slice(&scalar);
     scalar.zeroize()
+}
+
+/// Extracts the Ed25519 seed from `secret_key`, placing the result into `seed`.
+///
+/// Compatible with libsodium's `crypto_sign_ed25519_sk_to_seed`.
+pub fn crypto_sign_ed25519_sk_to_seed(
+    seed: &mut [u8; CRYPTO_SIGN_ED25519_SEEDBYTES],
+    secret_key: &SecretKey,
+) {
+    seed.copy_from_slice(&secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES]);
+}
+
+/// Extracts the Ed25519 public key from `secret_key`, placing the result into
+/// `public_key`.
+///
+/// Compatible with libsodium's `crypto_sign_ed25519_sk_to_pk`.
+pub fn crypto_sign_ed25519_sk_to_pk(public_key: &mut PublicKey, secret_key: &SecretKey) {
+    public_key.copy_from_slice(
+        &secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..CRYPTO_SIGN_ED25519_SECRETKEYBYTES],
+    );
 }
 
 pub(crate) fn crypto_sign_ed25519(
@@ -384,6 +425,34 @@ mod tests {
                 general_purpose::STANDARD.encode(xsk),
                 general_purpose::STANDARD.encode(so_xsk)
             );
+        }
+    }
+
+    #[test]
+    fn test_secret_key_extraction() {
+        use libsodium_sys::{
+            crypto_sign_ed25519_sk_to_pk as so_crypto_sign_ed25519_sk_to_pk,
+            crypto_sign_ed25519_sk_to_seed as so_crypto_sign_ed25519_sk_to_seed,
+        };
+
+        for _ in 0..10 {
+            let (pk, sk) = crypto_sign_ed25519_keypair();
+            let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
+            let mut extracted_pk = [0u8; CRYPTO_SIGN_ED25519_PUBLICKEYBYTES];
+            crypto_sign_ed25519_sk_to_seed(&mut seed, &sk);
+            crypto_sign_ed25519_sk_to_pk(&mut extracted_pk, &sk);
+
+            let mut so_seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
+            let mut so_pk = [0u8; CRYPTO_SIGN_ED25519_PUBLICKEYBYTES];
+
+            unsafe {
+                so_crypto_sign_ed25519_sk_to_seed(so_seed.as_mut_ptr(), sk.as_ptr());
+                so_crypto_sign_ed25519_sk_to_pk(so_pk.as_mut_ptr(), sk.as_ptr());
+            }
+
+            assert_eq!(seed, so_seed);
+            assert_eq!(extracted_pk, pk);
+            assert_eq!(extracted_pk, so_pk);
         }
     }
 }
