@@ -36,7 +36,9 @@
 //! * Hard to misuse, helping you avoid common costly cryptography mistakes
 //! * Many libsodium features implemented with both Classic and Rustaceous API
 //! * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
-//!   equivalents)
+//!   equivalents) on stable Rust for Unix and Windows targets, enabled by
+//!   default with the `protected` feature
+//! * Password-hash string helpers enabled by default with the `base64` feature
 //! * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
 //! * [wincode](https://crates.io/crates/wincode) support for direct binary
 //!   serialization of Rustaceous box types (with `features = ["wincode"]`)
