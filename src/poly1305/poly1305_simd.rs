@@ -181,10 +181,10 @@ fn fe4_mul(lhs: Fe4, rhs: Fe4) -> Fe4 {
 fn blocks_to_fe4(input: &[u8], group: usize, h: Fe) -> Fe4 {
     let mut limbs = [[0u64; LANES]; 5];
 
-    for (lane, block) in input[group * LANES * BLOCK_SIZE..][..LANES * BLOCK_SIZE]
-        .chunks_exact(BLOCK_SIZE)
-        .enumerate()
-    {
+    let blocks = input[group * LANES * BLOCK_SIZE..][..LANES * BLOCK_SIZE]
+        .as_chunks::<BLOCK_SIZE>()
+        .0;
+    for (lane, block) in blocks.iter().enumerate() {
         let mut fe = block_to_fe(block, HIBIT);
         if group == 0 && lane == 0 {
             fe = fe_add(fe, h);
@@ -257,7 +257,7 @@ impl Poly1305 {
     fn blocks_scalar(&mut self, input: &[u8], hibit: u64) {
         debug_assert_eq!(input.len() % BLOCK_SIZE, 0);
 
-        for m in input.chunks_exact(BLOCK_SIZE) {
+        for m in input.as_chunks::<BLOCK_SIZE>().0 {
             self.h = fe_mul(fe_add(self.h, block_to_fe(m, hibit)), self.r);
         }
     }

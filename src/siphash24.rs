@@ -40,7 +40,9 @@ pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
         *v2 = rotl64(*v2, 32);
     };
 
-    for chunk in input.chunks_exact(8) {
+    let (chunks, remainder) = input.as_chunks::<8>();
+
+    for chunk in chunks {
         let m = load_u64_le(chunk);
         v3 ^= m;
         round(&mut v0, &mut v1, &mut v2, &mut v3);
@@ -49,8 +51,6 @@ pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
     }
 
     let mut b = (input.len() as u64) << 56;
-
-    let remainder = input.chunks_exact(8).remainder();
 
     for i in (0..remainder.len()).rev() {
         b |= (remainder[i] as u64) << (i * 8);
