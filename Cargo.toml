@@ -10,7 +10,7 @@ name = "dryoc"
 readme = "README.md"
 repository = "https://github.com/brndnmtthws/dryoc"
 rust-version = "1.89"
-version = "0.9.0"
+version = "0.9.1"
 
 [dependencies]
 chacha20 = { version = "0.10", features = ["legacy", "zeroize"] }
