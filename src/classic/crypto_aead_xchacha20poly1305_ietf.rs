@@ -176,6 +176,11 @@ fn verify_mac(mac: &Mac, computed_mac: &Mac) -> Result<(), Error> {
 ///
 /// Compatible with libsodium's
 /// `crypto_aead_xchacha20poly1305_ietf_encrypt_detached`.
+///
+/// # Errors
+///
+/// Returns an error if `message` exceeds the maximum supported length or
+/// `ciphertext.len()` does not equal `message.len()`.
 pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -201,6 +206,10 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
 
 /// In-place detached variant of
 /// [`crypto_aead_xchacha20poly1305_ietf_encrypt_detached`].
+///
+/// # Errors
+///
+/// Returns an error if `data` exceeds the maximum supported message length.
 pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
     data: &mut [u8],
     mac: &mut Mac,
@@ -225,6 +234,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
 ///
 /// Compatible with libsodium's
 /// `crypto_aead_xchacha20poly1305_ietf_decrypt_detached`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is too long, `message.len()` does not equal
+/// `ciphertext.len()`, or authentication fails.
 pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
     message: &mut [u8],
     ciphertext: &[u8],
@@ -250,6 +264,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
 
 /// In-place detached variant of
 /// [`crypto_aead_xchacha20poly1305_ietf_decrypt_detached`].
+///
+/// # Errors
+///
+/// Returns an error if `data` exceeds the maximum supported message length or
+/// authentication fails.
 pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(
     data: &mut [u8],
     mac: &Mac,
@@ -273,6 +292,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(
 /// Encrypts `message` with `nonce`, `key`, and optional associated data.
 ///
 /// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_encrypt`.
+///
+/// # Errors
+///
+/// Returns an error if `message` exceeds the maximum supported length or
+/// `ciphertext` is not exactly one authentication tag longer than `message`.
 pub fn crypto_aead_xchacha20poly1305_ietf_encrypt(
     ciphertext: &mut [u8],
     message: &[u8],
@@ -302,6 +326,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt(
 /// Decrypts `ciphertext` with `nonce`, `key`, and optional associated data.
 ///
 /// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_decrypt`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is shorter than an authentication tag,
+/// `message` has the wrong length, or authentication fails.
 pub fn crypto_aead_xchacha20poly1305_ietf_decrypt(
     message: &mut [u8],
     ciphertext: &[u8],
@@ -328,6 +357,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt(
 ///
 /// The last [`CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES`] bytes are reserved
 /// for the tag and are ignored as plaintext input.
+///
+/// # Errors
+///
+/// Returns an error if `data` is shorter than an authentication tag or its
+/// plaintext portion exceeds the maximum supported message length.
 pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_inplace(
     data: &mut [u8],
     associated_data: Option<&[u8]>,
@@ -350,6 +384,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_inplace(
 ///
 /// After success, the first `data.len() -
 /// CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES` bytes contain the plaintext.
+///
+/// # Errors
+///
+/// Returns an error if `data` is shorter than an authentication tag or
+/// authentication fails.
 pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_inplace(
     data: &mut [u8],
     associated_data: Option<&[u8]>,

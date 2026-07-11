@@ -14,11 +14,17 @@
 //!   * a passphrase with a strong password hashing function, such as
 //!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`DryocSecretBox`]. If
-//! the `wincode` feature is enabled, the
-//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] traits will be
-//! implemented.
+//! Every holder of the shared key can create valid messages. In a group,
+//! secretbox authenticates membership in the group, not which member sent a
+//! message.
+//!
+//! Secretbox nonces are public, but a nonce must never repeat with the same
+//! key. Store each nonce with its ciphertext or use a counter that cannot
+//! repeat for that key.
+//!
+//! With the `serde` feature, [`serde::Deserialize`] and [`serde::Serialize`]
+//! are implemented for [`DryocSecretBox`]. With `wincode`,
+//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] are implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -28,7 +34,7 @@
 //! // Generate a random secret key and nonce
 //! let secret_key = Key::generate();
 //! let nonce = Nonce::generate();
-//! let message = b"Why hello there, fren";
+//! let message = b"A message to encrypt";
 //!
 //! // Encrypt `message`, into a Vec-based box
 //! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
@@ -77,11 +83,9 @@ pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`DryocSecretBox`]
+    //! # Protected memory type aliases for [`DryocSecretBox`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`DryocSecretBox`]. These type aliases are provided for
-    //! convenience.
+    //! Type aliases for using [`DryocSecretBox`] with protected memory.
     //!
     //! ## Example
     //!
@@ -197,8 +201,13 @@ impl<
     Data: NewBytes + ResizableBytes + Zeroize,
 > DryocSecretBox<Mac, Data>
 {
-    /// Encrypts a message using `secret_key`, and returns a new
-    /// [DryocSecretBox] with ciphertext and tag
+    /// Encrypts a message using `secret_key` and returns a new
+    /// [`DryocSecretBox`] with ciphertext and tag.
+    ///
+    /// # Panics
+    ///
+    /// Panics if allocation or resizing panics, or if a custom `Data`
+    /// implementation leaves its buffer shorter than the message.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -239,6 +248,11 @@ impl<
     /// [`CRYPTO_SECRETBOX_MACBYTES`] bytes to contain the message
     /// authentication tag, with the remaining bytes containing the
     /// encrypted message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one authentication tag or
+    /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
             Err(dryoc_error!(format!(
@@ -259,12 +273,12 @@ impl<
 impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     DryocSecretBox<Mac, Data>
 {
-    /// Returns a new box with `tag` and `data`, consuming both
+    /// Returns a new box with `tag` and `data`, consuming both.
     pub fn from_parts(tag: Mac, data: Data) -> Self {
         Self { tag, data }
     }
 
-    /// Copies `self` into a new [`Vec`]
+    /// Copies `self` into a new [`Vec`].
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -278,8 +292,13 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     DryocSecretBox<Mac, Data>
 {
-    /// Decrypts `ciphertext` using `secret_key`, returning a new
-    /// [DryocSecretBox] with decrypted message
+    /// Decrypts this box using `secret_key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the output storage is shorter than the ciphertext
+    /// or authentication fails. Authentication fails when the key, nonce, tag,
+    /// or ciphertext does not match the value used during encryption.
     pub fn decrypt<
         Output: ResizableBytes + NewBytes,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -317,8 +336,8 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 }
 
 impl DryocSecretBox<Mac, Vec<u8>> {
-    /// Encrypts a message using `secret_key`, and returns a new
-    /// [DryocSecretBox] with ciphertext and tag
+    /// Encrypts a message using `secret_key` and returns a new
+    /// [`DryocSecretBox`] with ciphertext and tag.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -331,8 +350,12 @@ impl DryocSecretBox<Mac, Vec<u8>> {
         Self::encrypt(message, nonce, secret_key)
     }
 
-    /// Decrypts `ciphertext` using `secret_key`, returning a new
-    /// [DryocSecretBox] with decrypted message
+    /// Decrypts this box using `secret_key` and returns the plaintext.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails because the key, nonce, tag,
+    /// or ciphertext does not match.
     pub fn decrypt_to_vec<
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
         SecretKey: ByteArray<CRYPTO_SECRETBOX_KEYBYTES>,
@@ -344,7 +367,7 @@ impl DryocSecretBox<Mac, Vec<u8>> {
         self.decrypt(nonce, secret_key)
     }
 
-    /// Consumes this box and returns it as a Vec
+    /// Consumes this box and returns `tag || ciphertext` as a [`Vec`].
     pub fn into_vec(mut self) -> Vec<u8> {
         self.data
             .resize(self.data.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
@@ -375,8 +398,8 @@ impl<
     Data: Bytes + ResizableBytes + From<&'a [u8]> + Zeroize,
 > DryocSecretBox<Mac, Data>
 {
-    /// Returns a new box with `data` and `tag`, with data copied from `input`
-    /// and `tag` consumed.
+    /// Returns a new box with ciphertext copied from `input` and the supplied
+    /// `tag`.
     pub fn with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
         Self {
             tag,

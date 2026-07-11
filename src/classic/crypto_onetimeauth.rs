@@ -111,6 +111,10 @@ pub fn crypto_onetimeauth(mac: &mut Mac, message: &[u8], key: &Key) {
 /// Returns `Ok(())` if the message authentication code is valid.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_verify`.
+///
+/// # Errors
+///
+/// Returns an error if `mac` is not valid for `input` under `key`.
 pub fn crypto_onetimeauth_verify(mac: &Mac, input: &[u8], key: &Key) -> Result<(), Error> {
     crypto_onetimeauth_poly1305_verify(mac, input, key)
 }

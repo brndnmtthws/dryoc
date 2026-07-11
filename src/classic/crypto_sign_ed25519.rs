@@ -125,7 +125,12 @@ fn clamp_hash(
 /// Converts an Ed25519 public key `ed25519_public_key` into an X25519 public
 /// key, placing the result into `x25519_public_key` upon success.
 ///
-/// Compatible with libsodium's `crypto_sign_ed25519_pk_to_curve25519`
+/// Compatible with libsodium's `crypto_sign_ed25519_pk_to_curve25519`.
+///
+/// # Errors
+///
+/// Returns an error if `ed25519_public_key` does not encode a valid
+/// Edwards25519 point.
 pub fn crypto_sign_ed25519_pk_to_curve25519(
     x25519_public_key: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     ed25519_public_key: &PublicKey,

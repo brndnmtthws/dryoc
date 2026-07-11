@@ -67,6 +67,10 @@ pub fn crypto_auth(mac: &mut Mac, message: &[u8], key: &Key) {
 /// Returns `Ok(())` if the message authentication code is valid.
 ///
 /// Equivalent to libsodium's `crypto_auth_verify`.
+///
+/// # Errors
+///
+/// Returns an error if `mac` is not valid for `input` under `key`.
 pub fn crypto_auth_verify(mac: &Mac, input: &[u8], key: &Key) -> Result<(), Error> {
     crypto_auth_hmacsha512256_verify(mac, input, key)
 }

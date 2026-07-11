@@ -58,6 +58,11 @@ pub type SessionKey = [u8; CRYPTO_KX_SESSIONKEYBYTES];
 /// upon success. Uses the Blake2b function to derive a secret from `seed`.
 ///
 /// Compatible with libsodium's `crypto_kx_seed_keypair`.
+///
+/// # Errors
+///
+/// Returns an error if the underlying generic hash rejects the output. The
+/// fixed output length used here is valid.
 pub fn crypto_kx_seed_keypair(
     seed: &[u8; CRYPTO_KX_SEEDBYTES],
 ) -> Result<(PublicKey, SecretKey), Error> {
@@ -108,6 +113,11 @@ fn crypto_kx(
 /// `client_sk`, and `server_pk`. Returns unit `()` upon success.
 ///
 /// Compatible with libsodium's `crypto_kx_client_session_keys`.
+///
+/// # Errors
+///
+/// Returns an error if `server_pk` is an unacceptable low-order public key or
+/// session-key derivation fails.
 pub fn crypto_kx_client_session_keys(
     rx: &mut SessionKey,
     tx: &mut SessionKey,
@@ -122,10 +132,15 @@ pub fn crypto_kx_client_session_keys(
     crypto_kx(rx, tx, client_pk, server_pk, shared_secret)
 }
 
-/// Computes server session keys for `rx` and `tx`, using `client_pk`,
-/// `client_sk`, and `server_pk`. Returns unit `()` upon success.
+/// Computes server session keys for `rx` and `tx`, using `server_pk`,
+/// `server_sk`, and `client_pk`. Returns unit `()` upon success.
 ///
 /// Compatible with libsodium's `crypto_kx_server_session_keys`.
+///
+/// # Errors
+///
+/// Returns an error if `client_pk` is an unacceptable low-order public key or
+/// session-key derivation fails.
 pub fn crypto_kx_server_session_keys(
     rx: &mut SessionKey,
     tx: &mut SessionKey,

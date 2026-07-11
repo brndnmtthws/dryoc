@@ -11,17 +11,22 @@
 //!   secret
 //! * avoid secret sharing between parties
 //!
-//! The public keys of the sender and recipient must be known ahead of time, but
-//! the sender's secret key can be used once and discarded, if desired. The
-//! [`DryocBox::seal`] and corresponding [`DryocBox::unseal`] functions do just
-//! this, by generating an ephemeral secret key, deriving a nonce, and including
-//! the sender's public key in the box.
+//! [`DryocBox::encrypt`] authenticates the sender, so the sender and recipient
+//! public keys must be known ahead of time. [`DryocBox::seal`] instead sends an
+//! anonymous sealed box: it generates a one-time ephemeral keypair and stores
+//! the ephemeral public key with the ciphertext. Sealed boxes authenticate the
+//! ciphertext for the recipient, but not the sender's identity.
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`DryocBox`]. If the
-//! `wincode` feature is enabled, the
-//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] traits will be
-//! implemented.
+//! Box nonces are public, but a nonce must never repeat for the same pair of
+//! keypairs. The two parties share one nonce space across both communication
+//! directions unless they use direction-specific keys. Callers of
+//! [`DryocBox::encrypt`] must coordinate this uniqueness. [`DryocBox::seal`]
+//! derives its nonce from a newly generated ephemeral public key and the
+//! recipient public key.
+//!
+//! With the `serde` feature, [`serde::Deserialize`] and [`serde::Serialize`]
+//! are implemented for [`DryocBox`]. With `wincode`, [`wincode::SchemaRead`]
+//! and [`wincode::SchemaWrite`] are implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -123,10 +128,9 @@ pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`DryocBox`]
+    //! # Protected memory type aliases for [`DryocBox`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`DryocBox`]. These type aliases are provided for convenience.
+    //! Type aliases for using [`DryocBox`] with protected memory.
     //!
     //! ## Example
     //!
@@ -276,7 +280,12 @@ impl<
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new [DryocBox] with ciphertext and tag.
+    /// and returns a new [`DryocBox`] with ciphertext and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `recipient_public_key` is an unacceptable low-order
+    /// key or the output storage does not resize to the message length.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
@@ -310,8 +319,13 @@ impl<
         Ok(dryocbox)
     }
 
-    /// Encrypts a message using `precalc_secret_key`,
-    /// and returns a new [DryocBox] with ciphertext and tag.
+    /// Encrypts a message using `precalc_secret_key`, and returns a new
+    /// [`DryocBox`] with ciphertext and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the output storage does not resize to the message
+    /// length.
     pub fn precalc_encrypt<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Message: Bytes + ?Sized,
@@ -350,8 +364,18 @@ impl<
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
-    /// key and nonce. Returns a new [DryocBox] with ciphertext, tag, and
+    /// key and nonce. Returns a new [`DryocBox`] with ciphertext, tag, and
     /// ephemeral public key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `recipient_public_key` is an unacceptable low-order
+    /// key or the output storage does not resize to the message length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the operating system's random number generator fails while
+    /// creating the ephemeral keypair.
     pub fn seal<
         Message: Bytes + ?Sized,
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
@@ -402,6 +426,11 @@ impl<
     /// Initializes a [`DryocBox`] from a slice. Expects the first
     /// [`CRYPTO_BOX_MACBYTES`] bytes to contain the message authentication tag,
     /// with the remaining bytes containing the encrypted message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one authentication tag or
+    /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_MACBYTES {
             Err(dryoc_error!(format!(
@@ -423,6 +452,12 @@ impl<
     /// [`CRYPTO_BOX_PUBLICKEYBYTES`] bytes to contain the ephemeral public key,
     /// the next [`CRYPTO_BOX_MACBYTES`] bytes to be the message authentication
     /// tag, with the remaining bytes containing the encrypted message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one ephemeral public key
+    /// plus one authentication tag, or if either field cannot be converted to
+    /// its target type.
     pub fn from_sealed_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_SEALBYTES {
             Err(dryoc_error!(format!(
@@ -474,6 +509,12 @@ impl<
 
     /// Decrypts this box using `nonce`, `recipient_secret_key`, and
     /// `sender_public_key`, returning the decrypted message upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `sender_public_key` is an unacceptable low-order
+    /// key, the output storage has the wrong length, or authentication fails.
+    /// Authentication fails for a wrong key, nonce, tag, or ciphertext.
     pub fn decrypt<
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         SenderPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
@@ -502,8 +543,14 @@ impl<
         Ok(message)
     }
 
-    /// Decrypts this box using `nonce`, `precalc_secret_key`, and
-    /// `sender_public_key`, returning the decrypted message upon success.
+    /// Decrypts this box using `nonce` and `precalc_secret_key`, returning the
+    /// decrypted message upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the output storage has the wrong length or
+    /// authentication fails because the precomputed key, nonce, tag, or
+    /// ciphertext does not match.
     pub fn precalc_decrypt<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
@@ -529,8 +576,14 @@ impl<
         Ok(message)
     }
 
-    /// Decrypts this sealed box using `recipient_secret_key`, and
-    /// returning the decrypted message upon success.
+    /// Decrypts this sealed box using `recipient_keypair`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the box has no ephemeral public key, that key is an
+    /// unacceptable low-order key, the output storage has the wrong length, or
+    /// authentication fails. Authentication fails for the wrong recipient key
+    /// pair or modified box data.
     pub fn unseal<
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
@@ -595,7 +648,12 @@ impl<
 
 impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
-    /// and returns a new [DryocBox] with ciphertext and tag.
+    /// and returns a new [`DryocBox`] with ciphertext and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `recipient_public_key` is an unacceptable low-order
+    /// key.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
@@ -608,8 +666,12 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         Self::encrypt(message, nonce, recipient_public_key, sender_secret_key)
     }
 
-    /// Encrypts a message using `precalc_secret_key`,
-    /// and returns a new [DryocBox] with ciphertext and tag.
+    /// Encrypts a message using `precalc_secret_key`, and returns a new
+    /// [`DryocBox`] with ciphertext and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the output storage cannot hold the ciphertext.
     pub fn precalc_encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
@@ -622,8 +684,18 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     }
 
     /// Encrypts a message for `recipient_public_key`, using an ephemeral secret
-    /// key and nonce, and returns a new [DryocBox] with the ciphertext,
+    /// key and nonce, and returns a new [`DryocBox`] with the ciphertext,
     /// ephemeral public key, and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `recipient_public_key` is an unacceptable low-order
+    /// key.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the operating system's random number generator fails while
+    /// creating the ephemeral keypair.
     pub fn seal_to_vecbox<Message: Bytes + ?Sized>(
         message: &Message,
         recipient_public_key: &PublicKey,
@@ -633,6 +705,12 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
 
     /// Decrypts this box using `nonce`, `recipient_secret_key` and
     /// `sender_public_key`, returning the decrypted message upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `sender_public_key` is an unacceptable low-order
+    /// key or authentication fails because a key, nonce, tag, or ciphertext is
+    /// wrong.
     pub fn decrypt_to_vec<SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>>(
         &self,
         nonce: &Nonce,
@@ -645,6 +723,11 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Decrypts this box using `nonce` and
     /// `precalc_secret_key`, returning the decrypted message upon
     /// success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if authentication fails because the precomputed key,
+    /// nonce, tag, or ciphertext does not match.
     pub fn precalc_decrypt_to_vec<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
@@ -655,8 +738,13 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
         self.precalc_decrypt(nonce, precalc_secret_key)
     }
 
-    /// Decrypts this sealed box using `recipient_secret_key`, returning the
-    /// decrypted message upon success.
+    /// Decrypts this sealed box using `recipient_keypair`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the box has no ephemeral public key, that key is an
+    /// unacceptable low-order key, or authentication fails because the
+    /// recipient key pair or box data is wrong.
     pub fn unseal_to_vec<
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
@@ -675,9 +763,8 @@ impl<
     Data: Bytes + ResizableBytes + From<&'a [u8]> + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
-    /// Returns a new box with `data` and `tag`, with data copied from `input`
-    /// and `tag` consumed. The ephemeral public key is assumed not to be
-    /// present.
+    /// Returns a new box with ciphertext copied from `input` and the supplied
+    /// `tag`. The box has no ephemeral public key.
     pub fn new_with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
         Self {
             ephemeral_pk: None,
@@ -686,8 +773,8 @@ impl<
         }
     }
 
-    /// Returns a new sealed box with `ephemeral_pk`, `data` and `tag`, where
-    /// data copied from `input` and `ephemeral_pk` & `tag` are consumed.
+    /// Returns a new sealed box with ciphertext copied from `input` and the
+    /// supplied `ephemeral_pk` and `tag`.
     pub fn new_with_epk_data_and_mac(
         ephemeral_pk: EphemeralPublicKey,
         tag: Mac,

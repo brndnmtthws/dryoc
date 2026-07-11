@@ -1,17 +1,18 @@
 //! # Generic hashing
 //!
-//! [`GenericHash`] implements libsodium's generic hashing, based on the Blake2b
-//! algorithm. Can also be used as an HMAC function, if a key is provided.
+//! [`GenericHash`] implements libsodium's generic hashing with BLAKE2b. Without
+//! a key, it produces a general-purpose cryptographic hash. With a secret key,
+//! it acts as a message authentication code (MAC) or pseudorandom function
+//! (PRF). Keyed BLAKE2b is not HMAC.
 //!
-//! # Rustaceous API example, one-time interface
+//! # Rustaceous API example, single-part interface
 //!
 //! ```
 //! use base64::Engine as _;
 //! use base64::engine::general_purpose;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
-//! // NOTE: The type for `key` param must be specified, the compiler cannot infer it when
-//! // we pass `None`.
+//! // The key type must be specified because `None` does not identify it.
 //! let hash =
 //!     GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 //!
@@ -28,7 +29,7 @@
 //! use base64::engine::general_purpose;
 //! use dryoc::generichash::{GenericHash, Key};
 //!
-//! // The compiler cannot infer the `Key` type, so we pass it below.
+//! // The key type must be specified because `None` does not identify it.
 //! let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new failed");
 //! hasher.update(b"hello");
 //! let hash = hasher.finalize_to_vec().expect("finalize failed");
@@ -55,11 +56,9 @@ pub type Key = StackByteArray<CRYPTO_GENERICHASH_KEYBYTES>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`GenericHash`]
+    //! # Protected memory type aliases for [`GenericHash`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`GenericHash`]. These type aliases are provided for
-    //! convenience.
+    //! Protected-memory aliases for generic-hash keys and outputs.
     //!
     //! ## Example
     //!
@@ -91,7 +90,12 @@ pub struct GenericHash<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> {
 }
 
 impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH, OUTPUT_LENGTH> {
-    /// Returns a new hasher instance, with `key`.
+    /// Returns a new incremental hasher with an optional secret `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `OUTPUT_LENGTH` or the length of `key` is outside
+    /// the range supported by libsodium's generic hash function.
     pub fn new<Key: ByteArray<KEY_LENGTH>>(key: Option<&Key>) -> Result<Self, Error> {
         Ok(Self {
             state: crypto_generichash_init(key.map(|k| k.as_slice()), OUTPUT_LENGTH)?,
@@ -104,6 +108,11 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     }
 
     /// Computes and returns the final hash value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying BLAKE2b finalization rejects the
+    /// output. Initialization normally guarantees a valid output length.
     pub fn finalize<Output: NewByteArray<OUTPUT_LENGTH>>(self) -> Result<Output, Error> {
         let mut output = Output::new_byte_array();
 
@@ -114,13 +123,24 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
 
     /// Computes and returns the final hash value as a [`Vec`]. Provided for
     /// convenience.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying BLAKE2b finalization rejects the
+    /// output. Initialization normally guarantees a valid output length.
     pub fn finalize_to_vec(self) -> Result<Vec<u8>, Error> {
         self.finalize()
     }
 
-    /// Onet-time interface for the generic hash function. Computes the hash for
-    /// `input` with optional `key`. The output length is determined by the type
-    /// signature of `Output`.
+    /// Computes the hash of `input` with an optional secret `key`.
+    ///
+    /// The output length is determined by `Output`. Providing a key selects
+    /// keyed BLAKE2b, which can be used as a MAC or PRF.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `OUTPUT_LENGTH` or the length of `key` is outside
+    /// the range supported by libsodium's generic hash function.
     ///
     /// # Example
     ///
@@ -155,6 +175,10 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     }
 
     /// Convenience wrapper for [`GenericHash::hash`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error under the same conditions as [`GenericHash::hash`].
     pub fn hash_to_vec<Input: Bytes, Key: ByteArray<KEY_LENGTH>>(
         input: &Input,
         key: Option<&Key>,
@@ -166,6 +190,12 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
 impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
     /// Returns an instance of [`GenericHash`] with the default output and key
     /// length parameters.
+    ///
+    /// # Errors
+    ///
+    /// The default lengths are valid, so this method does not return an error
+    /// for valid [`ByteArray`] implementations. Its return type matches the
+    /// generic initialization interface.
     pub fn new_with_defaults<Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>>(
         key: Option<&Key>,
     ) -> Result<Self, Error> {
@@ -176,6 +206,12 @@ impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
 
     /// Hashes `input` using `key`, with the default length parameters. Provided
     /// for convenience.
+    ///
+    /// # Errors
+    ///
+    /// The default lengths are valid, so this method does not return an error
+    /// for valid [`ByteArray`] implementations. Its return type matches the
+    /// generic hashing interface.
     pub fn hash_with_defaults<
         Input: Bytes + ?Sized,
         Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>,
@@ -189,6 +225,12 @@ impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
 
     /// Hashes `input` using `key`, with the default length parameters,
     /// returning a [`Vec`]. Provided for convenience.
+    ///
+    /// # Errors
+    ///
+    /// The default lengths are valid, so this method does not return an error
+    /// for valid [`ByteArray`] implementations. Its return type matches the
+    /// generic hashing interface.
     pub fn hash_with_defaults_to_vec<
         Input: Bytes + ?Sized,
         Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>,

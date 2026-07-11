@@ -1,4 +1,8 @@
 /// Provides random data up to `len` from the OS's random number generator.
+///
+/// # Panics
+///
+/// Panics if the operating system's random number generator fails.
 pub fn randombytes_buf(len: usize) -> Vec<u8> {
     use rand::TryRng;
     use rand::rngs::SysRng;
@@ -13,6 +17,10 @@ pub fn randombytes_buf(len: usize) -> Vec<u8> {
 
 /// Provides random data up to length of `data` from the OS's random number
 /// generator.
+///
+/// # Panics
+///
+/// Panics if the operating system's random number generator fails.
 pub fn copy_randombytes(dest: &mut [u8]) {
     use rand::TryRng;
     use rand::rngs::SysRng;

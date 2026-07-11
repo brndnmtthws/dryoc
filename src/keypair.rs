@@ -34,8 +34,8 @@ pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
     derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Clone)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
-/// Public/private keypair for use with [`crate::dryocbox::DryocBox`], aka
-/// libsodium box
+/// Public/secret keypair for use with [`crate::dryocbox::DryocBox`] and
+/// libsodium-compatible public-key encryption.
 pub struct KeyPair<
     PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
@@ -95,8 +95,8 @@ impl<
         Self::generate()
     }
 
-    /// Derives a keypair from `secret_key`, and consumes it, and returns a new
-    /// keypair.
+    /// Derives the public key for `secret_key` and returns the complete
+    /// keypair, consuming the secret key.
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
         use crate::classic::crypto_core::crypto_scalarmult_base;
 
@@ -109,8 +109,7 @@ impl<
         }
     }
 
-    /// Derives a keypair from `seed`, returning
-    /// a new keypair.
+    /// Deterministically derives a keypair from `seed`.
     pub fn from_seed<Seed: Bytes>(seed: &Seed) -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
@@ -154,6 +153,10 @@ impl<
 {
     /// Constructs a new keypair from key slices, consuming them. Does not check
     /// validity or authenticity of keypair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either slice does not have the required key length.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
         Ok(Self {
             public_key: PublicKey::try_from(public_key)
@@ -245,6 +248,11 @@ impl<
 
     /// Creates new client session keys using this keypair and
     /// `server_public_key`, assuming this keypair is for the client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `server_public_key` is unacceptable, including a
+    /// low-order point that would produce an all-zero shared secret.
     pub fn kx_new_client_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize>(
         &self,
         server_public_key: &PublicKey,
@@ -254,6 +262,11 @@ impl<
 
     /// Creates new server session keys using this keypair and
     /// `client_public_key`, assuming this keypair is for the server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `client_public_key` is unacceptable, including a
+    /// low-order point that would produce an all-zero shared secret.
     pub fn kx_new_server_session<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize>(
         &self,
         client_public_key: &PublicKey,
@@ -265,6 +278,11 @@ impl<
     /// this keypair and `third_party_public_key`.
     ///
     /// Compatible with libsodium's `crypto_box_beforenm`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `third_party_public_key` is an unacceptable
+    /// low-order point.
     #[inline]
     pub fn precalculate(
         &self,
@@ -287,7 +305,7 @@ impl<
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory for [`KeyPair`]
+    //! # Protected memory for [`KeyPair`]
     use super::*;
     use crate::classic::crypto_box::crypto_box_keypair_inplace;
     pub use crate::protected::*;
@@ -298,7 +316,17 @@ pub mod protected {
             Locked<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
         >
     {
-        /// Returns a new locked keypair.
+        /// Returns a new zero-filled locked keypair.
+        ///
+        /// # Errors
+        ///
+        /// Returns an OS error if either allocation cannot be locked, commonly
+        /// because the process has reached its locked-memory limit.
+        ///
+        /// # Panics
+        ///
+        /// Panics if either page-aligned allocation cannot be created or its
+        /// size cannot be represented with guard pages.
         pub fn new_locked_keypair() -> Result<Self, std::io::Error> {
             Ok(Self {
                 public_key: HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?,
@@ -307,6 +335,16 @@ pub mod protected {
         }
 
         /// Returns a new randomly generated locked keypair.
+        ///
+        /// # Errors
+        ///
+        /// Returns an OS error if either allocation cannot be locked.
+        ///
+        /// # Panics
+        ///
+        /// Panics if either page-aligned allocation cannot be created, its
+        /// size cannot be represented with guard pages, or the operating
+        /// system's random number generator fails.
         pub fn generate_locked_keypair() -> Result<Self, std::io::Error> {
             let mut res = Self::new_locked_keypair()?;
 
@@ -322,6 +360,16 @@ pub mod protected {
         ///
         /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
         /// This method is retained for compatibility.
+        ///
+        /// # Errors
+        ///
+        /// Returns the same errors as
+        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
+        ///
+        /// # Panics
+        ///
+        /// Panics under the same conditions as
+        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
         #[deprecated(note = "use generate_locked_keypair() instead")]
         pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
             Self::generate_locked_keypair()
@@ -332,6 +380,16 @@ pub mod protected {
         /// `third_party_public_key`.
         ///
         /// Compatible with libsodium's `crypto_box_beforenm`.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `third_party_public_key` is an unacceptable
+        /// low-order point or the shared-key allocation cannot be locked.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the page-aligned shared-key allocation cannot be created
+        /// or its size cannot be represented with guard pages.
         #[inline]
         pub fn precalculate_locked<OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(
             &self,
@@ -349,6 +407,17 @@ pub mod protected {
         >
     {
         /// Returns a new randomly generated locked, read-only keypair.
+        ///
+        /// # Errors
+        ///
+        /// Returns an OS error if either allocation cannot be locked or its
+        /// page permissions cannot be changed to read-only.
+        ///
+        /// # Panics
+        ///
+        /// Panics if either page-aligned allocation cannot be created, its
+        /// size cannot be represented with guard pages, or the operating
+        /// system's random number generator fails.
         pub fn generate_readonly_locked_keypair() -> Result<Self, std::io::Error> {
             let mut public_key = HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?;
@@ -369,6 +438,16 @@ pub mod protected {
         /// Prefer
         /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         /// This method is retained for compatibility.
+        ///
+        /// # Errors
+        ///
+        /// Returns the same errors as
+        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
+        ///
+        /// # Panics
+        ///
+        /// Panics under the same conditions as
+        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
         pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
             Self::generate_readonly_locked_keypair()
@@ -379,6 +458,17 @@ pub mod protected {
         /// `third_party_public_key`.
         ///
         /// Compatible with libsodium's `crypto_box_beforenm`.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `third_party_public_key` is an unacceptable
+        /// low-order point, the shared-key allocation cannot be locked, or its
+        /// page permissions cannot be changed to read-only.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the page-aligned shared-key allocation cannot be created
+        /// or its size cannot be represented with guard pages.
         #[inline]
         pub fn precalculate_readonly_locked<
             OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,

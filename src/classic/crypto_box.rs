@@ -94,7 +94,10 @@ pub fn crypto_box_seed_keypair(seed: &[u8]) -> (PublicKey, SecretKey) {
 /// Resulting shared secret can be used with the precalculation interface.
 ///
 /// Compatible with libsodium's `crypto_box_beforenm`.
-/// Returns an error when `public_key` is an unacceptable low-order key.
+///
+/// # Errors
+///
+/// Returns an error if `public_key` is an unacceptable low-order key.
 pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Result<Key, Error> {
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
@@ -103,6 +106,10 @@ pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Re
 /// [`crypto_box_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_detached_afternm`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is shorter than `message`.
 pub fn crypto_box_detached_afternm(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -126,6 +133,11 @@ pub fn crypto_box_detached_afternm_inplace(
 /// Detached variant of [`crypto_box_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_detached`.
+///
+/// # Errors
+///
+/// Returns an error if `recipient_public_key` is unacceptable or `ciphertext`
+/// is shorter than `message`.
 pub fn crypto_box_detached(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -143,6 +155,10 @@ pub fn crypto_box_detached(
 }
 
 /// In-place variant of [`crypto_box_detached`].
+///
+/// # Errors
+///
+/// Returns an error if `recipient_public_key` is unacceptable.
 pub fn crypto_box_detached_inplace(
     message: &mut [u8],
     mac: &mut Mac,
@@ -167,6 +183,11 @@ pub fn crypto_box_detached_inplace(
 /// [`CRYPTO_BOX_MACBYTES`] bytes, for the message tag.
 ///
 /// Compatible with libsodium's `crypto_box_easy`.
+///
+/// # Errors
+///
+/// Returns an error if `message` is too long, `ciphertext` has the wrong
+/// length, or `recipient_public_key` is unacceptable.
 pub fn crypto_box_easy(
     ciphertext: &mut [u8],
     message: &[u8],
@@ -217,6 +238,16 @@ pub(crate) fn crypto_box_seal_nonce(nonce: &mut Nonce, epk: &PublicKey, rpk: &Se
 /// tag and ephemeral public key.
 ///
 /// Compatible with libsodium's `crypto_box_seal`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` has the wrong length, `message` is too
+/// long, or `recipient_public_key` is unacceptable.
+///
+/// # Panics
+///
+/// Panics if the operating system's random number generator fails while
+/// creating the ephemeral keypair.
 pub fn crypto_box_seal(
     ciphertext: &mut [u8],
     message: &[u8],
@@ -255,7 +286,7 @@ pub fn crypto_box_seal(
 ///
 /// Encrypts `message` with recipient's public key `recipient_public_key` and
 /// sender's secret key `sender_secret_key` using `nonce` in-place in `data`,
-/// without allocated additional memory for the message.
+/// without allocating additional memory for the message.
 ///
 /// The caller of this function is responsible for allocating `data` such that
 /// there's enough capacity for the message plus the additional
@@ -264,6 +295,11 @@ pub fn crypto_box_seal(
 /// For this reason, the last [`CRYPTO_BOX_MACBYTES`] bytes from the input
 /// is ignored. The length of `data` should be the length of your message plus
 /// [`CRYPTO_BOX_MACBYTES`] bytes.
+///
+/// # Errors
+///
+/// Returns an error if `data` is too short or too long, or
+/// `recipient_public_key` is unacceptable.
 pub fn crypto_box_easy_inplace(
     data: &mut [u8],
     nonce: &Nonce,
@@ -297,6 +333,11 @@ pub fn crypto_box_easy_inplace(
 /// Precalculation variant of [`crypto_box_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_open_detached_afternm`.
+///
+/// # Errors
+///
+/// Returns an error if `message` is shorter than `ciphertext` or authentication
+/// fails.
 pub fn crypto_box_open_detached_afternm(
     message: &mut [u8],
     mac: &Mac,
@@ -308,6 +349,10 @@ pub fn crypto_box_open_detached_afternm(
 }
 
 /// In-place variant of [`crypto_box_open_detached_afternm`].
+///
+/// # Errors
+///
+/// Returns an error if authentication fails.
 pub fn crypto_box_open_detached_afternm_inplace(
     data: &mut [u8],
     mac: &Mac,
@@ -320,6 +365,11 @@ pub fn crypto_box_open_detached_afternm_inplace(
 /// Detached variant of [`crypto_box_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_open_detached`.
+///
+/// # Errors
+///
+/// Returns an error if `recipient_public_key` is unacceptable, `message` is
+/// shorter than `ciphertext`, or authentication fails.
 pub fn crypto_box_open_detached(
     message: &mut [u8],
     mac: &Mac,
@@ -339,6 +389,11 @@ pub fn crypto_box_open_detached(
 }
 
 /// In-place variant of [`crypto_box_open_detached`].
+///
+/// # Errors
+///
+/// Returns an error if `recipient_public_key` is unacceptable or
+/// authentication fails.
 pub fn crypto_box_open_detached_inplace(
     data: &mut [u8],
     mac: &Mac,
@@ -360,6 +415,12 @@ pub fn crypto_box_open_detached_inplace(
 /// sender's public key `sender_public_key` using `nonce`.
 ///
 /// Compatible with libsodium's `crypto_box_open_easy`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is shorter than an authentication tag,
+/// `message` has the wrong length, `sender_public_key` is unacceptable, or
+/// authentication fails.
 pub fn crypto_box_open_easy(
     message: &mut [u8],
     ciphertext: &[u8],
@@ -398,11 +459,16 @@ pub fn crypto_box_open_easy(
 ///
 /// Decrypts a sealed box from `ciphertext` with recipient's secret key
 /// `recipient_secret_key`, placing the result into `message`. The nonce and
-/// public are derived from `ciphertext`. `message` length should be equal to
+/// public key are derived from `ciphertext`. `message` length should equal
 /// the length of `ciphertext` minus [`CRYPTO_BOX_SEALBYTES`] bytes for the
 /// message tag and ephemeral public key.
 ///
 /// Compatible with libsodium's `crypto_box_seal_open`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is too short, `message` has the wrong
+/// length, the ephemeral public key is unacceptable, or authentication fails.
 pub fn crypto_box_seal_open(
     message: &mut [u8],
     ciphertext: &[u8],
@@ -442,7 +508,7 @@ pub fn crypto_box_seal_open(
 ///
 /// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
 /// sender's public key `sender_public_key` with `nonce` in-place in `data`,
-/// without allocated additional memory for the message.
+/// without allocating additional memory for the message.
 ///
 /// The caller of this function is responsible for allocating `data` such that
 /// there's enough capacity for the message plus the additional
@@ -450,6 +516,11 @@ pub fn crypto_box_seal_open(
 ///
 /// After opening the box, the last [`CRYPTO_BOX_MACBYTES`] bytes can be
 /// discarded or ignored at the caller's preference.
+///
+/// # Errors
+///
+/// Returns an error if `data` is shorter than an authentication tag,
+/// `sender_public_key` is unacceptable, or authentication fails.
 pub fn crypto_box_open_easy_inplace(
     data: &mut [u8],
     nonce: &Nonce,

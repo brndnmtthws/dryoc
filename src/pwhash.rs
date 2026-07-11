@@ -3,16 +3,20 @@
 //! [`PwHash`] implements libsodium's password hashing functions, based on
 //! Argon2.
 //!
-//! Argon2 provides a configurable memory-hard arbitrary-length hashing function
-//! that is well suited for password hashing. You may tune the function
-//! according to your preferences to either provide stronger collision
-//! resistance, or shorter computation times.
+//! Argon2 is a memory-hard password hashing function. Its work and memory
+//! settings make each password guess more expensive, which slows offline
+//! guessing if a password database is stolen. These settings do not compensate
+//! for weak passwords, so applications should still encourage long, unique
+//! passwords.
 //!
 //! You should use [`PwHash`] when you want to:
 //!
 //! * authenticate with passwords, and store their salted hashes in a database
 //! * derive secret keys based on passphrases
-//! * hash arbitrary data in a manner that's strongly resistant to collisions
+//!
+//! Use a general-purpose hash such as [`crate::generichash`] or
+//! [`crate::sha256`] for arbitrary data. Password hashing is deliberately much
+//! more expensive.
 //!
 //! If the `serde` feature is enabled, the [`serde::Deserialize`] and
 //! [`serde::Serialize`] traits will be implemented for [`PwHash`].
@@ -48,13 +52,18 @@
 //! let password = b"What's in a name? That which we call a rose\n
 //!                  By any other word would smell as sweet...";
 //!
-//! // With customized configuration parameters, return type must be explicit
-//! let pwhash: VecPwHash = PwHash::hash_with_salt(
-//!     password,
-//!     salt,
-//!     Config::interactive().with_opslimit(1).with_memlimit(8192),
-//! )
-//! .expect("unable to hash password with salt and custom config");
+//! // Start with a preset, then increase its work factor if your deployment can
+//! // tolerate the extra time. Benchmark the result on the slowest target.
+//! let mut config = Config::interactive()
+//!     .with_opslimit(dryoc::constants::CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE + 1);
+//! # // Keep this doctest fast; these minimums are not a production recommendation.
+//! # config = config
+//! #     .with_opslimit(dryoc::constants::CRYPTO_PWHASH_OPSLIMIT_MIN)
+//! #     .with_memlimit(dryoc::constants::CRYPTO_PWHASH_MEMLIMIT_MIN);
+//!
+//! // With customized configuration parameters, the return type must be explicit.
+//! let pwhash: VecPwHash = PwHash::hash_with_salt(password, salt, config)
+//!     .expect("unable to hash password with salt and custom config");
 //!
 //! pwhash.verify(password).expect("verification failed");
 //! pwhash
@@ -106,13 +115,16 @@ use crate::keypair;
 use crate::rng::copy_randombytes;
 use crate::types::*;
 
-/// Heap-allocated salt type alias for password hashing with [`PwHash`]. Salts
-/// can be of arbitrary length, but they should be at least
-/// [`CRYPTO_PWHASH_SALTBYTES_MIN`] bytes.
+/// Heap-allocated salt type alias for password hashing with [`PwHash`].
+///
+/// Salts must contain at least [`CRYPTO_PWHASH_SALTBYTES_MIN`] bytes. Prefer
+/// [`CRYPTO_PWHASH_SALTBYTES`] bytes unless interoperability requires another
+/// length. Each stored password hash needs a unique, unpredictable salt;
+/// [`PwHash::hash`] generates one automatically.
 pub type Salt = Vec<u8>;
-/// Heap-allocated hash type alias for password hashing with [`PwHash`]. Hashes
-/// can be of arbitrary length, but they should be at least
-/// [`CRYPTO_PWHASH_BYTES_MIN`] bytes.
+/// Heap-allocated hash type alias for password hashing with [`PwHash`].
+///
+/// Hashes must contain at least [`CRYPTO_PWHASH_BYTES_MIN`] bytes.
 pub type Hash = Vec<u8>;
 
 #[cfg_attr(
@@ -120,9 +132,13 @@ pub type Hash = Vec<u8>;
     derive(Zeroize, Clone, Debug, Serialize, Deserialize)
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
-/// Password hash configuration parameters. Provides reasonable default
-/// values with [`Config::default()`], [`Config::interactive()`],
-/// [`Config::moderate()`], and [`Config::sensitive()`].
+/// Password hash configuration parameters.
+///
+/// [`Config::interactive`] is the default and is suitable for online
+/// authentication. [`Config::moderate`] and [`Config::sensitive`] spend more
+/// time and memory per password guess. Benchmark the chosen preset on the
+/// slowest supported system, and account for the number of concurrent hashes
+/// when setting memory limits.
 pub struct Config {
     algorithm: crypto_pwhash::PasswordHashAlgorithm,
     hash_length: usize,
@@ -132,7 +148,11 @@ pub struct Config {
 }
 
 impl Config {
-    /// Returns this config with `salt_length`.
+    /// Sets the generated salt length in bytes.
+    ///
+    /// The length must be between [`CRYPTO_PWHASH_SALTBYTES_MIN`] and
+    /// [`CRYPTO_PWHASH_SALTBYTES_MAX`], inclusive. Invalid values are reported
+    /// when the config is used to hash a password.
     #[must_use]
     pub fn with_salt_length(self, salt_length: usize) -> Self {
         Self {
@@ -141,7 +161,11 @@ impl Config {
         }
     }
 
-    /// Returns this config with `hash_length`.
+    /// Sets the hash output length in bytes.
+    ///
+    /// The length must be between [`CRYPTO_PWHASH_BYTES_MIN`] and
+    /// [`CRYPTO_PWHASH_BYTES_MAX`], inclusive. Invalid values are reported when
+    /// the config is used to hash a password.
     #[must_use]
     pub fn with_hash_length(self, hash_length: usize) -> Self {
         Self {
@@ -150,19 +174,31 @@ impl Config {
         }
     }
 
-    /// Returns this config with `memlimit`.
+    /// Sets the approximate memory cost in bytes.
+    ///
+    /// More memory makes parallel guessing more expensive, but every
+    /// concurrent hash also consumes that memory. The value must be between
+    /// [`CRYPTO_PWHASH_MEMLIMIT_MIN`] and [`CRYPTO_PWHASH_MEMLIMIT_MAX`],
+    /// inclusive.
     #[must_use]
     pub fn with_memlimit(self, memlimit: usize) -> Self {
         Self { memlimit, ..self }
     }
 
-    /// Returns this config with `opslimit`.
+    /// Sets the computation cost.
+    ///
+    /// Larger values take longer and make each password guess more expensive.
+    /// The value must be between [`CRYPTO_PWHASH_OPSLIMIT_MIN`] and
+    /// [`CRYPTO_PWHASH_OPSLIMIT_MAX`], inclusive.
     #[must_use]
     pub fn with_opslimit(self, opslimit: u64) -> Self {
         Self { opslimit, ..self }
     }
 
-    /// Provides a password hash configuration for interactive hashing.
+    /// Returns libsodium's interactive password hashing configuration.
+    ///
+    /// This is the default preset for online operations where users wait for
+    /// the result.
     pub fn interactive() -> Self {
         Self {
             algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
@@ -173,7 +209,9 @@ impl Config {
         }
     }
 
-    /// Provides a password hash configuration for moderate hashing.
+    /// Returns libsodium's moderate password hashing configuration.
+    ///
+    /// This preset uses more time and memory than [`Config::interactive`].
     pub fn moderate() -> Self {
         Self {
             algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
@@ -184,7 +222,10 @@ impl Config {
         }
     }
 
-    /// Provides a password hash configuration for sensitive hashing.
+    /// Returns libsodium's sensitive password hashing configuration.
+    ///
+    /// This preset has the highest resource requirements. Use it only when the
+    /// deployment can tolerate its latency and memory use.
     pub fn sensitive() -> Self {
         Self {
             algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
@@ -221,11 +262,9 @@ pub type VecPwHash = PwHash<Hash, Salt>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`PwHash`]
+    //! # Protected memory type aliases for [`PwHash`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`PwHash`]. These type aliases are provided for
-    //! convenience.
+    //! Protected-memory aliases for password hashes and salts.
     //!
     //! ## Example
     //!
@@ -265,6 +304,12 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
 {
     /// Hashes `password` with a random salt and `config`, returning
     /// the hash, salt, and config upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a work limit, memory limit, hash length, salt
+    /// length, or password length is outside the supported range, or if the
+    /// underlying Argon2 operation fails.
     pub fn hash<Password: Bytes>(password: &Password, config: Config) -> Result<Self, Error> {
         let mut hash = Hash::new_bytes();
         let mut salt = Salt::new_bytes();
@@ -289,6 +334,10 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// Hashes `password` with a random salt and a default configuration
     /// suitable for interactive hashing, returning the hash, salt, and config
     /// upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`PwHash::hash`].
     pub fn hash_interactive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::interactive())
     }
@@ -296,6 +345,10 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// Hashes `password` with a random salt and a default configuration
     /// suitable for moderate hashing, returning the hash, salt, and config upon
     /// success.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`PwHash::hash`].
     pub fn hash_moderate<Password: Bytes>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::moderate())
     }
@@ -303,15 +356,16 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// Hashes `password` with a random salt and a default configuration
     /// suitable for sensitive hashing, returning the hash, salt, and config
     /// upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`PwHash::hash`].
     pub fn hash_sensitive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::sensitive())
     }
 
     /// Returns a string-encoded representation of this hash, salt, and config,
     /// suitable for storage in a database.
-    ///
-    /// It's recommended that you use the Serde support instead of this
-    /// function, however this function is provided for compatiblity reasons.
     ///
     /// The string returned is compatible with libsodium's `crypto_pwhash_str`,
     /// `crypto_pwhash_str_verify`, and `crypto_pwhash_str_needs_rehash`
@@ -349,7 +403,12 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
 }
 
 impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> PwHash<Hash, Salt> {
-    /// Verifies that this hash, salt, and config is valid for `password`.
+    /// Verifies `password` against this hash using its salt and configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the password does not match, if the stored salt or
+    /// configuration is invalid, or if the underlying Argon2 operation fails.
     pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
         let computed = Self::hash_with_salt(password, self.salt.clone(), self.config.clone())?;
 
@@ -368,6 +427,15 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> P
 
     /// Hashes `password` with `salt` and `config`, returning
     /// the hash, salt, and config upon success.
+    ///
+    /// The caller must provide a unique, unpredictable salt for each password.
+    /// Prefer [`PwHash::hash`] unless an existing salt must be reused.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a work limit, memory limit, hash length, salt
+    /// length, or password length is outside the supported range, or if the
+    /// underlying Argon2 operation fails.
     pub fn hash_with_salt<Password: Bytes>(
         password: &Password,
         salt: Salt,
@@ -399,20 +467,39 @@ impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroiz
     /// Compatible with libsodium's `crypto_pwhash_str*` functions, and supports
     /// variable-length encoding for the hash and salt.
     ///
-    /// It's recommended that you use the Serde support instead of this
-    /// function, however this function is provided for compatiblity reasons.
+    /// # Errors
+    ///
+    /// Returns an error if the string is malformed, uses an unsupported
+    /// algorithm or version, omits a required field, or contains an invalid
+    /// encoded value.
     pub fn from_string(hashed_password: &str) -> Result<Self, Error> {
         let parsed_pwhash = crypto_pwhash::Pwhash::parse_encoded_pwhash(hashed_password)?;
 
-        let opslimit = parsed_pwhash.t_cost.unwrap() as u64;
-        let memlimit = 1024 * (parsed_pwhash.m_cost.unwrap() as usize);
-        let hash_length = parsed_pwhash.pwhash.as_ref().unwrap().len();
-        let salt_length = parsed_pwhash.salt.as_ref().unwrap().len();
-        let algorithm = parsed_pwhash.type_.unwrap();
+        let opslimit = parsed_pwhash
+            .t_cost
+            .ok_or_else(|| dryoc_error!("encoded password hash has no computation cost"))?
+            as u64;
+        let encoded_memlimit = parsed_pwhash
+            .m_cost
+            .ok_or_else(|| dryoc_error!("encoded password hash has no memory cost"))?;
+        let memlimit = 1024usize
+            .checked_mul(encoded_memlimit as usize)
+            .ok_or_else(|| dryoc_error!("encoded memory cost is too large"))?;
+        let hash = parsed_pwhash
+            .pwhash
+            .ok_or_else(|| dryoc_error!("encoded password hash has no hash value"))?;
+        let salt = parsed_pwhash
+            .salt
+            .ok_or_else(|| dryoc_error!("encoded password hash has no salt"))?;
+        let algorithm = parsed_pwhash
+            .type_
+            .ok_or_else(|| dryoc_error!("encoded password hash has no algorithm"))?;
+        let hash_length = hash.len();
+        let salt_length = salt.len();
 
         Ok(Self {
-            hash: parsed_pwhash.pwhash.unwrap().into(),
-            salt: parsed_pwhash.salt.unwrap().into(),
+            hash: hash.into(),
+            salt: salt.into(),
             config: Config {
                 algorithm,
                 hash_length,
@@ -427,6 +514,9 @@ impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroiz
 impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Constructs a new instance from `hash`, `salt`, and `config`, consuming
     /// them.
+    ///
+    /// This function does not validate the parts. Invalid values are reported
+    /// when [`PwHash::verify`] uses them.
     pub fn from_parts(hash: Hash, salt: Salt, config: Config) -> Self {
         Self { hash, salt, config }
     }
@@ -440,6 +530,15 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
 
 impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Derives a keypair from `password` and `salt`, using `config`.
+    ///
+    /// The same password and salt derive the same keypair. Store the salt, keep
+    /// it unique per derived key, and do not treat it as secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a work limit, memory limit, salt length, or password
+    /// length is outside the supported range, or if the underlying Argon2
+    /// operation fails.
     pub fn derive_keypair<
         Password: Bytes + Zeroize,
         PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
@@ -472,6 +571,11 @@ impl PwHash<Hash, Salt> {
     ///
     /// This function provides reasonable defaults, and is provided for
     /// convenience.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the password length is unsupported or the
+    /// underlying Argon2 operation fails.
     pub fn hash_with_defaults<Password: Bytes>(password: &Password) -> Result<Self, Error> {
         Self::hash_interactive(password)
     }
@@ -480,6 +584,12 @@ impl PwHash<Hash, Salt> {
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
     /// Parses the `hashed_password` string, returning a new hash instance upon
     /// success. Wraps [`PwHash::from_string`], provided for convenience.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the string is malformed, uses an unsupported
+    /// algorithm or version, omits a required field, or contains an invalid
+    /// encoded value.
     pub fn from_string_with_defaults(hashed_password: &str) -> Result<Self, Error> {
         Self::from_string(hashed_password)
     }
