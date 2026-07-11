@@ -156,15 +156,25 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if either slice does not have the required key length.
+    /// Returns an error if either slice does not have the required key length,
+    /// or if the target key type rejects the key bytes.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
+        validate_length!(
+            exact CRYPTO_BOX_PUBLICKEYBYTES,
+            public_key.len(),
+            crate::ErrorContext::PublicKey
+        );
+        validate_length!(
+            exact CRYPTO_BOX_SECRETKEYBYTES,
+            secret_key.len(),
+            crate::ErrorContext::SecretKey
+        );
+
         Ok(Self {
-            public_key: PublicKey::try_from(public_key).map_err(
-                |_| length_error!(crate::ErrorContext::PublicKey, public_key.len(), exact CRYPTO_BOX_PUBLICKEYBYTES),
-            )?,
-            secret_key: SecretKey::try_from(secret_key).map_err(
-                |_| length_error!(crate::ErrorContext::SecretKey, secret_key.len(), exact CRYPTO_BOX_SECRETKEYBYTES),
-            )?,
+            public_key: PublicKey::try_from(public_key)
+                .map_err(|_| Error::invalid_key(crate::ErrorContext::PublicKey))?,
+            secret_key: SecretKey::try_from(secret_key)
+                .map_err(|_| Error::invalid_key(crate::ErrorContext::SecretKey))?,
         })
     }
 }

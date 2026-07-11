@@ -478,6 +478,62 @@ mod tests {
     use crate::dryocstream::Tag;
 
     #[test]
+    fn push_and_pull_reject_invalid_buffer_lengths() {
+        let mut state = State::new();
+        let mut tag = 0;
+
+        let error = crypto_secretstream_xchacha20poly1305_push(
+            &mut state,
+            &mut [],
+            b"message",
+            None,
+            Tag::MESSAGE.bits(),
+        )
+        .expect_err("ciphertext must include secretstream overhead");
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                ..
+            }
+        ));
+
+        let short_ciphertext = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES - 1];
+        let error = crypto_secretstream_xchacha20poly1305_pull(
+            &mut state,
+            &mut [],
+            &mut tag,
+            &short_ciphertext,
+            None,
+        )
+        .expect_err("ciphertext must include secretstream overhead");
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                ..
+            }
+        ));
+
+        let ciphertext = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES + 1];
+        let error = crypto_secretstream_xchacha20poly1305_pull(
+            &mut state,
+            &mut [],
+            &mut tag,
+            &ciphertext,
+            None,
+        )
+        .expect_err("the message buffer must hold the plaintext");
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn test_sizes() {
         use crate::constants::*;
 

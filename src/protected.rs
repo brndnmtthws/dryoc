@@ -87,8 +87,8 @@
 //! and can fail when the process exceeds the working-set limits enforced by the
 //! OS. There is no `MADV_DONTDUMP` equivalent in this module.
 //!
-//! If the `serde` feature is enabled, the `serde::Deserialize` and
-//! `serde::Serialize` traits will be implemented for [`HeapBytes`] and
+//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
+//! [`serde::Serialize`] traits will be implemented for [`HeapBytes`] and
 //! [`HeapByteArray`].
 //!
 //! ## Example
@@ -631,9 +631,9 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
                 std::mem::swap(&mut new.i, &mut self.i);
                 Ok(new)
             }
-            _ => Err(error::Error::InvalidState {
-                context: crate::ErrorContext::ProtectedMemory,
-            }),
+            _ => Err(error::Error::invalid_state(
+                crate::ErrorContext::ProtectedMemory,
+            )),
         }
     }
 }

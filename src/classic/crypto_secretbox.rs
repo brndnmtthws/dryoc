@@ -118,13 +118,10 @@ pub fn crypto_secretbox_easy(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let expected_len =
-        message
-            .len()
-            .checked_add(CRYPTO_SECRETBOX_MACBYTES)
-            .ok_or(Error::ArithmeticOverflow {
-                context: crate::ErrorContext::Ciphertext,
-            })?;
+    let expected_len = message
+        .len()
+        .checked_add(CRYPTO_SECRETBOX_MACBYTES)
+        .ok_or(Error::arithmetic_overflow(crate::ErrorContext::Ciphertext))?;
     if ciphertext.len() != expected_len {
         return Err(
             length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), exact expected_len),

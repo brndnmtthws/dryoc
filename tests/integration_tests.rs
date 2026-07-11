@@ -2,12 +2,51 @@ use std::vec;
 
 use dryoc::precalc::PrecalcSecretKey;
 
+struct RejectingByteArray<const LENGTH: usize>([u8; LENGTH]);
+
+impl<const LENGTH: usize> dryoc::types::Bytes for RejectingByteArray<LENGTH> {
+    fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    fn len(&self) -> usize {
+        LENGTH
+    }
+
+    fn is_empty(&self) -> bool {
+        LENGTH == 0
+    }
+}
+
+impl<const LENGTH: usize> dryoc::types::ByteArray<LENGTH> for RejectingByteArray<LENGTH> {
+    fn as_array(&self) -> &[u8; LENGTH] {
+        &self.0
+    }
+}
+
+impl<const LENGTH: usize> zeroize::Zeroize for RejectingByteArray<LENGTH> {
+    fn zeroize(&mut self) {
+        self.0.fill(0);
+    }
+}
+
+impl<'a, const LENGTH: usize> TryFrom<&'a [u8]> for RejectingByteArray<LENGTH> {
+    type Error = ();
+
+    fn try_from(_: &'a [u8]) -> Result<Self, Self::Error> {
+        Err(())
+    }
+}
+
 #[test]
 fn test_structured_public_errors() {
     use dryoc::classic::crypto_auth_hmacsha256::{
         crypto_auth_hmacsha256, crypto_auth_hmacsha256_keygen, crypto_auth_hmacsha256_verify,
     };
-    use dryoc::constants::CRYPTO_AUTH_HMACSHA256_BYTES;
+    use dryoc::constants::{
+        CRYPTO_AUTH_HMACSHA256_BYTES, CRYPTO_BOX_MACBYTES, CRYPTO_BOX_PUBLICKEYBYTES,
+        CRYPTO_BOX_SEALBYTES, CRYPTO_BOX_SECRETKEYBYTES, CRYPTO_SECRETBOX_MACBYTES,
+    };
     use dryoc::types::StackByteArray;
     use dryoc::{Error, LengthConstraint};
 
@@ -47,6 +86,128 @@ fn test_structured_public_errors() {
             actual: 0x80,
             constraint: dryoc::ValueConstraint::AllowedBits { .. },
         }
+    ));
+
+    type RejectingAeadBox = dryoc::dryocaead::AeadBox<
+        dryoc::dryocaead::XChaCha20Poly1305Ietf,
+        RejectingByteArray<16>,
+        Vec<u8>,
+    >;
+    let conversion_error = match RejectingAeadBox::from_bytes(&[0u8; 16]) {
+        Ok(_) => panic!("a target type may reject a correctly sized tag"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        conversion_error.to_string(),
+        "invalid authentication tag encoding"
+    );
+    assert!(matches!(
+        conversion_error,
+        Error::InvalidEncoding {
+            context: dryoc::ErrorContext::AuthenticationTag,
+        }
+    ));
+
+    type RejectingKeyPair = dryoc::keypair::KeyPair<
+        RejectingByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        RejectingByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    >;
+    let conversion_error = match RejectingKeyPair::from_slices(
+        &[0u8; CRYPTO_BOX_PUBLICKEYBYTES],
+        &[0u8; CRYPTO_BOX_SECRETKEYBYTES],
+    ) {
+        Ok(_) => panic!("a target type may reject a correctly sized key"),
+        Err(error) => error,
+    };
+    assert_eq!(conversion_error.to_string(), "invalid public key");
+    assert!(matches!(
+        conversion_error,
+        Error::InvalidKey {
+            context: dryoc::ErrorContext::PublicKey,
+        }
+    ));
+
+    let box_public_key_error = dryoc::keypair::StackKeyPair::from_slices(
+        &[0u8; CRYPTO_BOX_PUBLICKEYBYTES - 1],
+        &[0u8; CRYPTO_BOX_SECRETKEYBYTES],
+    )
+    .expect_err("a short box public key should fail");
+    assert!(matches!(
+        box_public_key_error,
+        Error::InvalidLength {
+            context: dryoc::ErrorContext::PublicKey,
+            actual,
+            constraint: LengthConstraint::Exact(CRYPTO_BOX_PUBLICKEYBYTES),
+        } if actual == CRYPTO_BOX_PUBLICKEYBYTES - 1
+    ));
+
+    let box_secret_key_error = dryoc::keypair::StackKeyPair::from_slices(
+        &[0u8; CRYPTO_BOX_PUBLICKEYBYTES],
+        &[0u8; CRYPTO_BOX_SECRETKEYBYTES - 1],
+    )
+    .expect_err("a short box secret key should fail");
+    assert!(matches!(
+        box_secret_key_error,
+        Error::InvalidLength {
+            context: dryoc::ErrorContext::SecretKey,
+            actual,
+            constraint: LengthConstraint::Exact(CRYPTO_BOX_SECRETKEYBYTES),
+        } if actual == CRYPTO_BOX_SECRETKEYBYTES - 1
+    ));
+
+    type StackSigningKeyPair =
+        dryoc::sign::SigningKeyPair<dryoc::sign::PublicKey, dryoc::sign::SecretKey>;
+    let signing_public_key_error = StackSigningKeyPair::from_slices(
+        &[0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES - 1],
+        &[0u8; dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES],
+    )
+    .expect_err("a short signing public key should fail");
+    assert!(matches!(
+        signing_public_key_error,
+        Error::InvalidLength {
+            context: dryoc::ErrorContext::PublicKey,
+            actual,
+            constraint: LengthConstraint::Exact(dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES),
+        } if actual == dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES - 1
+    ));
+
+    let signing_secret_key_error = StackSigningKeyPair::from_slices(
+        &[0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES],
+        &[0u8; dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES - 1],
+    )
+    .expect_err("a short signing secret key should fail");
+    assert!(matches!(
+        signing_secret_key_error,
+        Error::InvalidLength {
+            context: dryoc::ErrorContext::SecretKey,
+            actual,
+            constraint: LengthConstraint::Exact(dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES),
+        } if actual == dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES - 1
+    ));
+
+    assert!(matches!(
+        dryoc::dryocbox::VecBox::from_bytes(&[]),
+        Err(Error::InvalidLength {
+            context: dryoc::ErrorContext::Box,
+            actual: 0,
+            constraint: LengthConstraint::AtLeast(CRYPTO_BOX_MACBYTES),
+        })
+    ));
+    assert!(matches!(
+        dryoc::dryocbox::VecBox::from_sealed_bytes(&[]),
+        Err(Error::InvalidLength {
+            context: dryoc::ErrorContext::SealedBox,
+            actual: 0,
+            constraint: LengthConstraint::AtLeast(CRYPTO_BOX_SEALBYTES),
+        })
+    ));
+    assert!(matches!(
+        dryoc::dryocsecretbox::VecBox::from_bytes(&[]),
+        Err(Error::InvalidLength {
+            context: dryoc::ErrorContext::SecretBox,
+            actual: 0,
+            constraint: LengthConstraint::AtLeast(CRYPTO_SECRETBOX_MACBYTES),
+        })
     ));
 }
 

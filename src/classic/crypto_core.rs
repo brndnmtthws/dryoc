@@ -56,9 +56,7 @@ pub fn crypto_scalarmult(
     crypto_scalarmult_curve25519(q, n, p);
 
     if q.ct_eq(&[0u8; CRYPTO_SCALARMULT_BYTES]).into() {
-        Err(Error::InvalidKey {
-            context: crate::ErrorContext::Curve25519PublicKey,
-        })
+        Err(Error::invalid_key(crate::ErrorContext::Curve25519PublicKey))
     } else {
         Ok(())
     }

@@ -95,11 +95,7 @@ fn validate_output_len(
     context: crate::ErrorContext,
 ) -> Result<(), Error> {
     if output_len != expected_len {
-        Err(Error::InvalidLength {
-            context,
-            actual: output_len,
-            constraint: crate::error::LengthConstraint::Exact(expected_len),
-        })
+        Err(length_error!(context, output_len, exact expected_len))
     } else {
         Ok(())
     }
@@ -110,13 +106,7 @@ fn message_len_from_combined_len(
     context: crate::ErrorContext,
 ) -> Result<usize, Error> {
     if combined_len < CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES {
-        Err(Error::InvalidLength {
-            context,
-            actual: combined_len,
-            constraint: crate::error::LengthConstraint::AtLeast(
-                CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
-            ),
-        })
+        Err(length_error!(context, combined_len, min CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES))
     } else {
         let message_len = combined_len - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
         validate_message_len(message_len)?;

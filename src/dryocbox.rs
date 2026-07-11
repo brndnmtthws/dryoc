@@ -24,9 +24,9 @@
 //! derives its nonce from a newly generated ephemeral public key and the
 //! recipient public key.
 //!
-//! With the `serde` feature, `serde::Deserialize` and `serde::Serialize` are
-//! implemented for [`DryocBox`]. With `wincode`, `wincode::SchemaRead` and
-//! `wincode::SchemaWrite` are implemented.
+//! With the `serde` feature, [`serde::Deserialize`] and [`serde::Serialize`]
+//! are implemented for [`DryocBox`]. With `wincode`, [`wincode::SchemaRead`]
+//! and [`wincode::SchemaWrite`] are implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -438,9 +438,8 @@ impl<
             let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
             Ok(Self {
                 ephemeral_pk: None,
-                tag: Mac::try_from(tag).map_err(
-                    |_| length_error!(crate::ErrorContext::AuthenticationTag, tag.len(), exact CRYPTO_BOX_MACBYTES),
-                )?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }
@@ -466,13 +465,11 @@ impl<
             let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
             Ok(Self {
                 ephemeral_pk: Some(
-                    EphemeralPublicKey::try_from(epk).map_err(|_| {
-                        length_error!(crate::ErrorContext::EphemeralPublicKey, epk.len(), exact CRYPTO_BOX_PUBLICKEYBYTES)
-                    })?,
+                    EphemeralPublicKey::try_from(epk)
+                        .map_err(|_| Error::invalid_key(crate::ErrorContext::EphemeralPublicKey))?,
                 ),
-                tag: Mac::try_from(tag).map_err(|_| {
-                    length_error!(crate::ErrorContext::AuthenticationTag, tag.len(), exact CRYPTO_BOX_MACBYTES)
-                })?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }
@@ -616,9 +613,7 @@ impl<
 
                 Ok(message)
             }
-            None => Err(Error::MissingData {
-                context: crate::ErrorContext::EphemeralPublicKey,
-            }),
+            None => Err(Error::missing_data(crate::ErrorContext::EphemeralPublicKey)),
         }
     }
 
@@ -825,6 +820,23 @@ impl<
 mod tests {
     use super::*;
     use crate::precalc::PrecalcSecretKey;
+
+    #[test]
+    fn unseal_requires_an_ephemeral_public_key() {
+        let box_without_ephemeral_key =
+            VecBox::from_bytes(&[0u8; CRYPTO_BOX_MACBYTES]).expect("a regular box should parse");
+        let recipient_keypair = KeyPair::generate();
+
+        let error = box_without_ephemeral_key
+            .unseal::<_, _, Vec<u8>>(&recipient_keypair)
+            .expect_err("a regular box cannot be unsealed");
+        assert!(matches!(
+            error,
+            Error::MissingData {
+                context: crate::ErrorContext::EphemeralPublicKey,
+            }
+        ));
+    }
 
     #[test]
     fn test_decrypt_failure_empty() {

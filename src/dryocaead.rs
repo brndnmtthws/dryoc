@@ -13,10 +13,10 @@
 //! key. [`DryocAeadEnvelope`] generates and stores a nonce for each message;
 //! callers using [`DryocAead`] must manage this uniqueness themselves.
 //!
-//! If the `serde` feature is enabled, `serde::Deserialize` and
-//! `serde::Serialize` are implemented for [`AeadBox`] and [`AeadEnvelope`].
+//! If the `serde` feature is enabled, [`serde::Deserialize`] and
+//! [`serde::Serialize`] are implemented for [`AeadBox`] and [`AeadEnvelope`].
 //! If the `wincode` feature is enabled,
-//! `wincode::SchemaRead` and `wincode::SchemaWrite`
+//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`]
 //! are implemented for [`VecBox`] and [`VecEnvelope`].
 //!
 //! ## Rustaceous API example
@@ -423,13 +423,8 @@ impl<
                 bytes.split_at(bytes.len() - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES);
             Ok(Self {
                 algorithm: PhantomData,
-                tag: Mac::try_from(tag).map_err(|_| {
-                    length_error!(
-                        crate::ErrorContext::AuthenticationTag,
-                        tag.len(),
-                        exact CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
-                    )
-                })?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }
@@ -464,20 +459,10 @@ impl<
             let (data, tag) = rest.split_at(rest.len() - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES);
             Ok(Self {
                 algorithm: PhantomData,
-                nonce: Nonce::try_from(nonce).map_err(|_| {
-                    length_error!(
-                        crate::ErrorContext::Nonce,
-                        nonce.len(),
-                        exact CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
-                    )
-                })?,
-                tag: Mac::try_from(tag).map_err(|_| {
-                    length_error!(
-                        crate::ErrorContext::AuthenticationTag,
-                        tag.len(),
-                        exact CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
-                    )
-                })?,
+                nonce: Nonce::try_from(nonce)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Nonce))?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }

@@ -582,6 +582,53 @@ mod tests {
     }
 
     #[test]
+    fn test_crypto_box_seal_rejects_mismatched_buffers() {
+        let (recipient_public_key, recipient_secret_key) = crypto_box_keypair();
+        let message = b"sealed box buffer validation";
+
+        let mut short_ciphertext = vec![0u8; message.len() + CRYPTO_BOX_SEALBYTES - 1];
+        assert!(matches!(
+            crypto_box_seal(&mut short_ciphertext, message, &recipient_public_key),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                actual,
+                constraint: crate::LengthConstraint::Exact(expected),
+            }) if actual == short_ciphertext.len()
+                && expected == message.len() + CRYPTO_BOX_SEALBYTES
+        ));
+
+        let short_sealed_box = vec![0u8; CRYPTO_BOX_SEALBYTES - 1];
+        assert!(matches!(
+            crypto_box_seal_open(
+                &mut [],
+                &short_sealed_box,
+                &recipient_public_key,
+                &recipient_secret_key,
+            ),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                actual,
+                constraint: crate::LengthConstraint::AtLeast(CRYPTO_BOX_SEALBYTES),
+            }) if actual == short_sealed_box.len()
+        ));
+
+        let sealed_box = vec![0u8; CRYPTO_BOX_SEALBYTES + 1];
+        assert!(matches!(
+            crypto_box_seal_open(
+                &mut [],
+                &sealed_box,
+                &recipient_public_key,
+                &recipient_secret_key,
+            ),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                actual: 0,
+                constraint: crate::LengthConstraint::Exact(1),
+            })
+        ));
+    }
+
+    #[test]
     fn test_crypto_box_rejects_low_order_public_keys() {
         let (_, secret_key) = crypto_box_keypair();
         let nonce = Nonce::default();

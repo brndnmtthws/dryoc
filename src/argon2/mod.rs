@@ -259,19 +259,19 @@ impl<'a> Argon2Context<'a> {
             );
         }
 
-        validate!(
+        validate_value!(
             ARGON2_MIN_LANES,
             ARGON2_MAX_LANES,
             parallelism,
             crate::ErrorContext::Parallelism
         );
-        validate!(
+        validate_value!(
             ARGON2_MIN_MEMORY,
             ARGON2_MAX_MEMORY,
             m_cost,
             crate::ErrorContext::MemoryCost
         );
-        validate!(
+        validate_value!(
             ARGON2_MIN_TIME,
             ARGON2_MAX_TIME,
             t_cost,
@@ -685,6 +685,72 @@ mod tests {
     fn secret_working_types_zeroize_on_drop() {
         assert!(std::mem::needs_drop::<Block>());
         assert!(std::mem::needs_drop::<Argon2Instance>());
+    }
+
+    #[test]
+    fn context_rejects_invalid_parameters_with_specific_errors() {
+        fn context_error(
+            output_len: usize,
+            salt_len: usize,
+            t_cost: u32,
+            m_cost: u32,
+            parallelism: u32,
+        ) -> Error {
+            let mut output = vec![0u8; output_len];
+            let salt = vec![0u8; salt_len];
+            match Argon2Context::new(
+                &mut output,
+                b"password",
+                &salt,
+                None,
+                None,
+                t_cost,
+                m_cost,
+                parallelism,
+            ) {
+                Ok(_) => panic!("invalid Argon2 parameters should fail"),
+                Err(error) => error,
+            }
+        }
+
+        let cases = [
+            (
+                context_error(ARGON2_MIN_OUTLEN - 1, ARGON2_MIN_SALT_LENGTH, 1, 8, 1),
+                crate::ErrorContext::Output,
+            ),
+            (
+                context_error(ARGON2_MIN_OUTLEN, ARGON2_MIN_SALT_LENGTH - 1, 1, 8, 1),
+                crate::ErrorContext::PasswordHashSalt,
+            ),
+            (
+                context_error(ARGON2_MIN_OUTLEN, ARGON2_MIN_SALT_LENGTH, 1, 8, 0),
+                crate::ErrorContext::Parallelism,
+            ),
+            (
+                context_error(
+                    ARGON2_MIN_OUTLEN,
+                    ARGON2_MIN_SALT_LENGTH,
+                    1,
+                    ARGON2_MIN_MEMORY - 1,
+                    1,
+                ),
+                crate::ErrorContext::MemoryCost,
+            ),
+            (
+                context_error(ARGON2_MIN_OUTLEN, ARGON2_MIN_SALT_LENGTH, 0, 8, 1),
+                crate::ErrorContext::TimeCost,
+            ),
+        ];
+
+        for (error, expected_context) in cases {
+            let context = match error {
+                Error::InvalidLength { context, .. } | Error::InvalidValue { context, .. } => {
+                    context
+                }
+                other => panic!("unexpected Argon2 error: {other:?}"),
+            };
+            assert_eq!(context, expected_context);
+        }
     }
 
     #[cfg(feature = "nightly")]

@@ -290,15 +290,25 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if either slice has the wrong length for its key type.
+    /// Returns an error if either slice has the wrong length for its key type,
+    /// or if the target key type rejects the key bytes.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
+        validate_length!(
+            exact CRYPTO_SIGN_PUBLICKEYBYTES,
+            public_key.len(),
+            crate::ErrorContext::PublicKey
+        );
+        validate_length!(
+            exact CRYPTO_SIGN_SECRETKEYBYTES,
+            secret_key.len(),
+            crate::ErrorContext::SecretKey
+        );
+
         Ok(Self {
-            public_key: PublicKey::try_from(public_key).map_err(
-                |_| length_error!(crate::ErrorContext::PublicKey, public_key.len(), exact CRYPTO_SIGN_PUBLICKEYBYTES),
-            )?,
-            secret_key: SecretKey::try_from(secret_key).map_err(
-                |_| length_error!(crate::ErrorContext::SecretKey, secret_key.len(), exact CRYPTO_SIGN_SECRETKEYBYTES),
-            )?,
+            public_key: PublicKey::try_from(public_key)
+                .map_err(|_| Error::invalid_key(crate::ErrorContext::PublicKey))?,
+            secret_key: SecretKey::try_from(secret_key)
+                .map_err(|_| Error::invalid_key(crate::ErrorContext::SecretKey))?,
         })
     }
 }
@@ -652,9 +662,8 @@ impl<
         } else {
             let (signature, message) = bytes.split_at(CRYPTO_SIGN_BYTES);
             Ok(Self {
-                signature: Signature::try_from(signature).map_err(
-                    |_| length_error!(crate::ErrorContext::Signature, signature.len(), exact CRYPTO_SIGN_BYTES),
-                )?,
+                signature: Signature::try_from(signature)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Signature))?,
                 message: Message::from(message),
             })
         }

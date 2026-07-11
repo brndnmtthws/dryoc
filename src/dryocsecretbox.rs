@@ -22,9 +22,9 @@
 //! key. Store each nonce with its ciphertext or use a counter that cannot
 //! repeat for that key.
 //!
-//! With the `serde` feature, `serde::Deserialize` and `serde::Serialize` are
-//! implemented for [`DryocSecretBox`]. With `wincode`, `wincode::SchemaRead`
-//! and `wincode::SchemaWrite` are implemented.
+//! With the `serde` feature, [`serde::Deserialize`] and [`serde::Serialize`]
+//! are implemented for [`DryocSecretBox`]. With `wincode`,
+//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] are implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -261,9 +261,8 @@ impl<
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
             Ok(Self {
-                tag: Mac::try_from(tag).map_err(|_| {
-                    length_error!(crate::ErrorContext::AuthenticationTag, tag.len(), exact CRYPTO_SECRETBOX_MACBYTES)
-                })?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }

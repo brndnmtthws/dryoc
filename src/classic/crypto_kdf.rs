@@ -301,6 +301,30 @@ where
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_crypto_kdf_rejects_invalid_subkey_lengths() {
+        let context = Context::default();
+        let key = Key::default();
+
+        for length in [
+            CRYPTO_KDF_BLAKE2B_BYTES_MIN - 1,
+            CRYPTO_KDF_BLAKE2B_BYTES_MAX + 1,
+        ] {
+            let mut subkey = vec![0u8; length];
+            assert!(matches!(
+                crypto_kdf_derive_from_key(&mut subkey, 0, &context, &key),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Subkey,
+                    actual,
+                    constraint: crate::LengthConstraint::Between {
+                        min: CRYPTO_KDF_BLAKE2B_BYTES_MIN,
+                        max: CRYPTO_KDF_BLAKE2B_BYTES_MAX,
+                    },
+                }) if actual == length
+            ));
+        }
+    }
+
     fn bytes_in_range(start: u8, end_inclusive: u8) -> Vec<u8> {
         (start..=end_inclusive).collect()
     }

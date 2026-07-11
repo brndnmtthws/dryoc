@@ -137,9 +137,7 @@ pub fn crypto_sign_ed25519_pk_to_curve25519(
 ) -> Result<(), Error> {
     let ep = CompressedEdwardsY(*ed25519_public_key)
         .decompress()
-        .ok_or(Error::InvalidKey {
-            context: crate::ErrorContext::Ed25519PublicKey,
-        })?;
+        .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
     x25519_public_key.copy_from_slice(ep.to_montgomery().as_bytes());
 
     Ok(())
@@ -292,17 +290,11 @@ fn crypto_sign_ed25519_verify_detached_impl(
         return Err(Error::AuthenticationFailed);
     }
     let pk = CompressedEdwardsY::from_slice(public_key)
-        .map_err(|_| Error::InvalidKey {
-            context: crate::ErrorContext::Ed25519PublicKey,
-        })?
+        .map_err(|_| Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?
         .decompress()
-        .ok_or(Error::InvalidKey {
-            context: crate::ErrorContext::Ed25519PublicKey,
-        })?;
+        .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
     if pk.is_small_order() {
-        return Err(Error::InvalidKey {
-            context: crate::ErrorContext::Ed25519PublicKey,
-        });
+        return Err(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey));
     }
 
     let mut hasher = Sha512::new();

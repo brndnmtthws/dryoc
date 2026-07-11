@@ -243,6 +243,28 @@ pub enum Error {
     Io(std::io::Error),
 }
 
+impl Error {
+    pub(crate) const fn invalid_encoding(context: ErrorContext) -> Self {
+        Self::InvalidEncoding { context }
+    }
+
+    pub(crate) const fn invalid_key(context: ErrorContext) -> Self {
+        Self::InvalidKey { context }
+    }
+
+    pub(crate) const fn missing_data(context: ErrorContext) -> Self {
+        Self::MissingData { context }
+    }
+
+    pub(crate) const fn invalid_state(context: ErrorContext) -> Self {
+        Self::InvalidState { context }
+    }
+
+    pub(crate) const fn arithmetic_overflow(context: ErrorContext) -> Self {
+        Self::ArithmeticOverflow { context }
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
@@ -324,7 +346,7 @@ macro_rules! length_error {
     };
 }
 
-macro_rules! validate {
+macro_rules! validate_value {
     ($min:expr_2021, $max:expr_2021, $value:expr_2021, $context:expr_2021) => {
         if !($min..=$max).contains(&$value) {
             return Err(crate::error::Error::InvalidValue {
@@ -340,6 +362,11 @@ macro_rules! validate {
 }
 
 macro_rules! validate_length {
+    (exact $expected:expr_2021, $value:expr_2021, $context:expr_2021) => {
+        if $value != $expected {
+            return Err(length_error!($context, $value, exact $expected));
+        }
+    };
     ($min:expr_2021, $max:expr_2021, $value:expr_2021, $context:expr_2021) => {
         if !($min..=$max).contains(&$value) {
             return Err(length_error!($context, $value, range $min, $max));
@@ -350,6 +377,98 @@ macro_rules! validate_length {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contexts_have_clear_human_readable_names() {
+        let cases = [
+            (ErrorContext::AssociatedData, "associated data"),
+            (ErrorContext::AeadCiphertext, "AEAD ciphertext"),
+            (ErrorContext::AeadEnvelope, "AEAD envelope"),
+            (ErrorContext::AuthenticationTag, "authentication tag"),
+            (ErrorContext::Blake2bKey, "BLAKE2b key"),
+            (ErrorContext::Blake2bOutput, "BLAKE2b output"),
+            (ErrorContext::Blake2b, "BLAKE2b"),
+            (ErrorContext::Box, "box"),
+            (ErrorContext::Ciphertext, "ciphertext"),
+            (ErrorContext::Curve25519PublicKey, "Curve25519 public key"),
+            (ErrorContext::Data, "data"),
+            (ErrorContext::Ed25519PublicKey, "Ed25519 public key"),
+            (ErrorContext::EphemeralPublicKey, "ephemeral public key"),
+            (ErrorContext::MemoryCost, "memory cost"),
+            (ErrorContext::MemoryLimit, "memory limit"),
+            (ErrorContext::Message, "message"),
+            (ErrorContext::Nonce, "nonce"),
+            (ErrorContext::OperationsLimit, "operations limit"),
+            (ErrorContext::Output, "output"),
+            (ErrorContext::Parallelism, "parallelism"),
+            (ErrorContext::Password, "password"),
+            (ErrorContext::PasswordHash, "password hash"),
+            (
+                ErrorContext::PasswordHashAlgorithm,
+                "password hash algorithm",
+            ),
+            (
+                ErrorContext::PasswordHashMemoryCost,
+                "password hash memory cost",
+            ),
+            (
+                ErrorContext::PasswordHashParallelism,
+                "password hash parallelism",
+            ),
+            (ErrorContext::PasswordHashSalt, "password hash salt"),
+            (
+                ErrorContext::PasswordHashTimeCost,
+                "password hash time cost",
+            ),
+            (ErrorContext::PasswordHashVersion, "password hash version"),
+            (ErrorContext::ProtectedMemory, "protected memory"),
+            (ErrorContext::PublicKey, "public key"),
+            (ErrorContext::SealedBox, "sealed box"),
+            (ErrorContext::Secret, "secret"),
+            (ErrorContext::SecretBox, "secretbox"),
+            (ErrorContext::SecretKey, "secret key"),
+            (ErrorContext::Signature, "signature"),
+            (ErrorContext::SignedMessage, "signed message"),
+            (ErrorContext::Slice, "slice"),
+            (ErrorContext::Subkey, "subkey"),
+            (ErrorContext::Tag, "tag"),
+            (ErrorContext::TimeCost, "time cost"),
+        ];
+
+        for (context, expected) in cases {
+            assert_eq!(context.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn constraints_describe_their_requirements() {
+        let length_cases = [
+            (LengthConstraint::Exact(4), "exactly 4"),
+            (LengthConstraint::AtLeast(4), "at least 4"),
+            (LengthConstraint::AtMost(4), "at most 4"),
+            (
+                LengthConstraint::Between { min: 2, max: 4 },
+                "between 2 and 4 (inclusive)",
+            ),
+        ];
+        for (constraint, expected) in length_cases {
+            assert_eq!(constraint.to_string(), expected);
+        }
+
+        let value_cases = [
+            (
+                ValueConstraint::Between { min: 2, max: 4 },
+                "between 2 and 4 (inclusive)",
+            ),
+            (
+                ValueConstraint::AllowedBits { mask: 0x3 },
+                "a value containing only bits from mask 0x3",
+            ),
+        ];
+        for (constraint, expected) in value_cases {
+            assert_eq!(constraint.to_string(), expected);
+        }
+    }
 
     #[test]
     fn display_is_human_readable_without_source_locations() {
@@ -452,5 +571,6 @@ mod tests {
         assert!(debug.contains("PermissionDenied"));
         assert!(debug.contains("access denied"));
         assert!(error.source().is_some());
+        assert!(Error::AuthenticationFailed.source().is_none());
     }
 }

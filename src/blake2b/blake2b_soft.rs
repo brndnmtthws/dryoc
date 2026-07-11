@@ -268,9 +268,7 @@ impl State {
         }
 
         if self.is_lastblock() {
-            return Err(Error::InvalidState {
-                context: crate::ErrorContext::Blake2b,
-            });
+            return Err(Error::invalid_state(crate::ErrorContext::Blake2b));
         }
 
         if self.buf.len() > BLOCKBYTES {
