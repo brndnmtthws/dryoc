@@ -69,7 +69,7 @@ pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
 #[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
-/// Key derivation implemantation based on Curve25519, Diffie-Hellman, and
+/// Key derivation implementation based on Curve25519, Diffie-Hellman, and
 /// Blake2b. Compatible with libsodium's `crypto_kx_*` functions.
 pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> {
     rx_key: SessionKey,
@@ -93,11 +93,9 @@ pub type StackSession = Session<SessionKey>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`Session`]
+    //! # Protected memory type aliases for [`Session`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`Session`]. These type aliases are provided for
-    //! convenience.
+    //! Protected-memory aliases for key exchange.
     //!
     //! ## Example
     //!
@@ -132,20 +130,20 @@ pub mod protected {
     use super::*;
     pub use crate::keypair::protected::*;
 
-    /// Heap-allocated, paged-aligned session key type alias for use with
+    /// Heap-allocated, page-aligned session key type alias for use with
     /// protected memory
     pub type SessionKey = HeapByteArray<CRYPTO_KX_SESSIONKEYBYTES>;
-    /// Heap-allocated, paged-aligned public key type alias for use with
+    /// Heap-allocated, page-aligned public key type alias for use with
     /// protected memory
     pub type PublicKey = HeapByteArray<CRYPTO_KX_PUBLICKEYBYTES>;
-    /// Heap-allocated, paged-aligned secret key type alias for use with
+    /// Heap-allocated, page-aligned secret key type alias for use with
     /// protected memory
     pub type SecretKey = HeapByteArray<CRYPTO_KX_SECRETKEYBYTES>;
 
-    /// Heap-allocated, paged-aligned keypair type alias for use with
+    /// Heap-allocated, page-aligned keypair type alias for use with
     /// protected memory
     pub type LockedKeyPair = crate::keypair::KeyPair<Locked<PublicKey>, Locked<SecretKey>>;
-    /// Heap-allocated, paged-aligned keypair type alias for use with
+    /// Heap-allocated, page-aligned keypair type alias for use with
     /// protected memory
     pub type LockedROKeyPair = crate::keypair::KeyPair<LockedRO<PublicKey>, LockedRO<SecretKey>>;
     /// Locked session keys type alias, for use with protected memory
@@ -155,6 +153,11 @@ pub mod protected {
 impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> Session<SessionKey> {
     /// Computes client session keys, given `client_keypair` and
     /// `server_public_key`, returning a new session upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `server_public_key` is unacceptable, including a
+    /// low-order point that would produce an all-zero shared secret.
     pub fn new_client<
         PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
@@ -178,6 +181,11 @@ impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> Session<Sess
 
     /// Computes server session keys, given `server_keypair` and
     /// `client_public_key`, returning a new session upon success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `client_public_key` is unacceptable, including a
+    /// low-order point that would produce an all-zero shared secret.
     pub fn new_server<
         PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
@@ -204,6 +212,11 @@ impl Session<SessionKey> {
     /// Returns a new client session upon success using the default types for
     /// the given `client_keypair` and `server_public_key`. Wraps
     /// [`Session::new_client`], provided for convenience.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `server_public_key` is unacceptable. See
+    /// [`Session::new_client`].
     pub fn new_client_with_defaults<
         PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
@@ -217,6 +230,11 @@ impl Session<SessionKey> {
     /// Returns a new server session upon success using the default types for
     /// the given `server_keypair` and `client_public_key`. Wraps
     /// [`Session::new_server`], provided for convenience.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `client_public_key` is unacceptable. See
+    /// [`Session::new_server`].
     pub fn new_server_with_defaults<
         PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,

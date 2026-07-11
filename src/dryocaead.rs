@@ -9,6 +9,10 @@
 //! dryoc to generate a random XChaCha nonce and store it with the ciphertext as
 //! `nonce || ciphertext || tag`.
 //!
+//! XChaCha20 nonces are public, but a nonce must never repeat with the same
+//! key. [`DryocAeadEnvelope`] generates and stores a nonce for each message;
+//! callers using [`DryocAead`] must manage this uniqueness themselves.
+//!
 //! If the `serde` feature is enabled, [`serde::Deserialize`] and
 //! [`serde::Serialize`] are implemented for [`AeadBox`] and [`AeadEnvelope`].
 //! If the `wincode` feature is enabled,
@@ -313,6 +317,11 @@ impl<
 > AeadBox<XChaCha20Poly1305Ietf, Mac, Data>
 {
     /// Encrypts a message using `key`, `nonce`, and optional associated data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the construction's maximum
+    /// length or the output storage does not resize to the message length.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>,
@@ -353,6 +362,15 @@ impl<
 {
     /// Encrypts a message with a generated nonce and stores that nonce with the
     /// ciphertext and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the construction's maximum
+    /// length or the output storage does not resize to the message length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the operating system's random number generator fails.
     pub fn seal<
         Message: Bytes + ?Sized,
         SecretKey: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>,
@@ -388,6 +406,11 @@ impl<
 > AeadBox<XChaCha20Poly1305Ietf, Mac, Data>
 {
     /// Initializes an [`AeadBox`] from `ciphertext || tag`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one authentication tag or
+    /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES {
             Err(dryoc_error!(format!(
@@ -419,6 +442,12 @@ impl<
 > AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>
 {
     /// Initializes an [`AeadEnvelope`] from `nonce || ciphertext || tag`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one nonce plus one
+    /// authentication tag, or if either field cannot be converted to its
+    /// target type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         let minimum_len = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
             + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
@@ -488,6 +517,13 @@ impl<Mac: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>, Data: Bytes>
     AeadBox<XChaCha20Poly1305Ietf, Mac, Data>
 {
     /// Decrypts this box using `key`, `nonce`, and optional associated data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length, the output storage has the wrong length, or authentication
+    /// fails. Authentication fails when the key, nonce, associated data,
+    /// ciphertext, or tag does not match the value used during encryption.
     pub fn decrypt<
         Output: ResizableBytes + NewBytes,
         Nonce: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>,
@@ -576,6 +612,14 @@ impl<
 > AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>
 {
     /// Decrypts this envelope using `key` and optional associated data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length, the output storage has the wrong length, or authentication
+    /// fails. Authentication fails when the key, associated data, stored
+    /// nonce, ciphertext, or tag does not match the value used during
+    /// encryption.
     pub fn open<
         Output: ResizableBytes + NewBytes,
         SecretKey: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>,
@@ -604,6 +648,11 @@ impl<
 
 impl DryocAead<Mac, Vec<u8>> {
     /// Encrypts a message and returns a [`VecBox`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the construction's maximum
+    /// length.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         SecretKey: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>,
@@ -617,6 +666,12 @@ impl DryocAead<Mac, Vec<u8>> {
     }
 
     /// Decrypts this box and returns the plaintext as a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length or authentication fails because the key, nonce, associated data,
+    /// ciphertext, or tag does not match.
     pub fn decrypt_to_vec<SecretKey: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>>(
         &self,
         associated_data: Option<&[u8]>,
@@ -640,6 +695,15 @@ impl DryocAead<Mac, Vec<u8>> {
 
 impl DryocAeadEnvelope<Nonce, Mac, Vec<u8>> {
     /// Encrypts a message with a generated nonce and returns a [`VecEnvelope`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the construction's maximum
+    /// length.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the operating system's random number generator fails.
     pub fn seal_to_vec<
         Message: Bytes + ?Sized,
         SecretKey: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>,
@@ -652,6 +716,12 @@ impl DryocAeadEnvelope<Nonce, Mac, Vec<u8>> {
     }
 
     /// Decrypts this envelope and returns the plaintext as a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length or authentication fails because the key, associated data, stored
+    /// nonce, ciphertext, or tag does not match.
     pub fn open_to_vec<SecretKey: ByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>>(
         &self,
         associated_data: Option<&[u8]>,

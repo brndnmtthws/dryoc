@@ -70,11 +70,9 @@ pub type StackKdf = Kdf<Key, Context>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`Kdf`]
+    //! # Protected memory type aliases for [`Kdf`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`Kdf`]. These type aliases are provided for
-    //! convenience.
+    //! Protected-memory aliases for key derivation.
     //!
     //! ## Example
     //!
@@ -138,6 +136,11 @@ impl<
 > Kdf<Key, Context>
 {
     /// Derives a subkey for `subkey_id`, returning it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the requested subkey length is rejected. The
+    /// fixed-size Rustaceous subkey type uses a supported length.
     pub fn derive_subkey<Subkey: NewByteArray<CRYPTO_KDF_KEYBYTES>>(
         &self,
         subkey_id: u64,
@@ -154,6 +157,11 @@ impl<
 
     /// Derives a subkey for `subkey_id`, returning it as a [`Vec`]. Provided
     /// for convenience.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if subkey derivation fails. See
+    /// [`Kdf::derive_subkey`].
     pub fn derive_subkey_to_vec(&self, subkey_id: u64) -> Result<Vec<u8>, Error> {
         self.derive_subkey(subkey_id)
     }

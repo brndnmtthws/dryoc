@@ -90,8 +90,13 @@ pub fn crypto_sign_seed_keypair(seed: &[u8; 32]) -> (PublicKey, SecretKey) {
 /// `signed_message` should be the length of the message plus
 /// [`CRYPTO_SIGN_BYTES`].
 ///
-/// This function is compatible with libsodium`s `crypto_sign`, however the
+/// This function is compatible with libsodium's `crypto_sign`; the
 /// `ED25519_NONDETERMINISTIC` feature is not supported.
+///
+/// # Errors
+///
+/// Returns an error if `signed_message` is not exactly one signature longer
+/// than `message`, or signing fails.
 pub fn crypto_sign(
     signed_message: &mut [u8],
     message: &[u8],
@@ -112,8 +117,13 @@ pub fn crypto_sign(
 /// `message`. The length of `message` should be the length of the signed
 /// message minus [`CRYPTO_SIGN_BYTES`].
 ///
-/// This function is compatible with libsodium`s `crypto_sign_open`, however the
+/// This function is compatible with libsodium's `crypto_sign_open`; the
 /// `ED25519_NONDETERMINISTIC` feature is not supported.
+///
+/// # Errors
+///
+/// Returns an error if `signed_message` is too short, `message` has the wrong
+/// length, or the signature or public key is invalid.
 pub fn crypto_sign_open(
     message: &mut [u8],
     signed_message: &[u8],
@@ -139,8 +149,14 @@ pub fn crypto_sign_open(
 /// Signs `message`, placing the signature into `signature` upon success.
 /// Detached variant of [`crypto_sign_open`].
 ///
-/// This function is compatible with libsodium`s `crypto_sign_detached`, however
-/// the `ED25519_NONDETERMINISTIC` feature is not supported.
+/// This function is compatible with libsodium's `crypto_sign_detached`; the
+/// `ED25519_NONDETERMINISTIC` feature is not supported.
+///
+/// # Errors
+///
+/// The fixed-size signature and secret-key types satisfy the current
+/// implementation's requirements, so this function does not return an error
+/// in normal use. The [`Result`] is retained for API compatibility.
 pub fn crypto_sign_detached(
     signature: &mut Signature,
     message: &[u8],
@@ -152,8 +168,13 @@ pub fn crypto_sign_detached(
 /// Verifies that `signature` is a valid signature for `message` using the given
 /// `public_key`.
 ///
-/// This function is compatible with libsodium`s `crypto_sign_verify_detached`,
-/// however the `ED25519_NONDETERMINISTIC` feature is not supported.
+/// This function is compatible with libsodium's `crypto_sign_verify_detached`;
+/// the `ED25519_NONDETERMINISTIC` feature is not supported.
+///
+/// # Errors
+///
+/// Returns an error if `signature` or `public_key` is malformed, or if the
+/// signature does not authenticate `message`.
 pub fn crypto_sign_verify_detached(
     signature: &Signature,
     message: &[u8],
@@ -181,6 +202,12 @@ pub fn crypto_sign_update(state: &mut SignerState, message: &[u8]) {
 
 /// Finalizes the incremental signature for `state`, using `secret_key`, copying
 /// the result into `signature` upon success, and consuming the state.
+///
+/// # Errors
+///
+/// The fixed-size signature and secret-key types satisfy the current
+/// implementation's requirements, so this function does not return an error
+/// in normal use. The [`Result`] is retained for API compatibility.
 pub fn crypto_sign_final_create(
     state: SignerState,
     signature: &mut Signature,
@@ -191,6 +218,11 @@ pub fn crypto_sign_final_create(
 
 /// Verifies the computed signature for `state` and `public_key` matches
 /// `signature`, consuming the state.
+///
+/// # Errors
+///
+/// Returns an error if `signature` or `public_key` is malformed, or if the
+/// signature does not match the accumulated message.
 pub fn crypto_sign_final_verify(
     state: SignerState,
     signature: &Signature,

@@ -164,6 +164,10 @@ pub trait HmacVariant<const KEY_LENGTH: usize, const MAC_LENGTH: usize> {
     /// Computes a MAC in one shot.
     fn compute(mac: &mut [u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]);
     /// Verifies a MAC in one shot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `mac` does not authenticate `input` under `key`.
     fn verify(mac: &[u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]) -> Result<(), Error>;
     /// Initializes incremental authentication.
     fn init(key: &[u8; KEY_LENGTH]) -> Self::State;
@@ -291,7 +295,10 @@ where
     Variant: HmacVariant<KEY_LENGTH, MAC_LENGTH>,
 {
     /// Computes and returns the message authentication code for `input` using
-    /// `key`. The `key` is consumed to discourage accidental re-use.
+    /// `key`.
+    ///
+    /// This function takes ownership of `key`, but HMAC keys may authenticate
+    /// multiple messages. Clone the key first when it is needed again.
     pub fn compute<
         Key: ByteArray<KEY_LENGTH>,
         Input: Bytes + ?Sized,
@@ -314,6 +321,11 @@ where
     }
 
     /// Verifies `other_mac` against `input` using `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `other_mac` does not authenticate `input` under
+    /// `key`.
     pub fn compute_and_verify<
         OtherMac: ByteArray<MAC_LENGTH>,
         Key: ByteArray<KEY_LENGTH>,
@@ -326,8 +338,10 @@ where
         Variant::verify(other_mac.as_array(), input.as_slice(), key.as_array())
     }
 
-    /// Returns a new incremental authenticator for `key`. The `key` is consumed
-    /// to discourage accidental re-use.
+    /// Returns a new incremental authenticator for `key`.
+    ///
+    /// This function takes ownership of `key`, but HMAC keys may authenticate
+    /// multiple messages. Clone the key first when it is needed again.
     pub fn new<Key: ByteArray<KEY_LENGTH>>(key: Key) -> Self {
         Self {
             state: Variant::init(key.as_array()),
@@ -355,6 +369,11 @@ where
 
     /// Finalizes this authenticator and verifies that the computed code matches
     /// `other_mac` using a constant-time comparison.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `other_mac` does not match the authentication code
+    /// computed from the data passed to [`Hmac::update`].
     pub fn verify<OtherMac: ByteArray<MAC_LENGTH>>(
         self,
         other_mac: &OtherMac,
