@@ -87,7 +87,7 @@
 //! ```
 
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::classic::crypto_core::{HChaCha20Key, crypto_core_hchacha20};
 use crate::constants::{
@@ -141,6 +141,13 @@ fn state_inonce(nonce: &mut Nonce) -> &mut [u8] {
             + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES]
 }
 
+fn secretstream_length_block(associated_data_len: usize, message_len: usize) -> [u8; 16] {
+    let mut lengths = [0u8; 16];
+    lengths[..8].copy_from_slice(&(associated_data_len as u64).to_le_bytes());
+    lengths[8..].copy_from_slice(&(64u64 + message_len as u64).to_le_bytes());
+    lengths
+}
+
 fn _crypto_secretstream_xchacha20poly1305_counter_reset(state: &mut State) {
     let counter = state_counter(&mut state.nonce);
     counter.fill(0);
@@ -162,7 +169,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
 ) {
     copy_randombytes(header);
 
-    let mut k = HChaCha20Key::default();
+    let mut k = Zeroizing::new(HChaCha20Key::default());
     crypto_core_hchacha20(
         k.as_mut_array(),
         ByteArray::as_array(&header[..16]),
@@ -170,7 +177,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
         None,
     );
     // Copy key into state
-    state.k.copy_from_slice(&k);
+    state.k.copy_from_slice(&*k);
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
 
     let inonce = state_inonce(&mut state.nonce);
@@ -183,9 +190,8 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
 
 /// Initializes a pull stream for streaming decryption.
 ///
-/// Initializes a pull stream from `header` into `state` using `key` and returns
-/// a stream header. The stream header can be generated using
-/// [crypto_secretstream_xchacha20poly1305_init_push].
+/// Initializes `state` using `key` and a `header` returned by
+/// [`crypto_secretstream_xchacha20poly1305_init_push`].
 ///
 /// Compatible with libsodium's
 /// `crypto_secretstream_xchacha20poly1305_init_pull`.
@@ -194,14 +200,14 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
     header: &Header,
     key: &Key,
 ) {
-    let mut k = HChaCha20Key::default();
+    let mut k = Zeroizing::new(HChaCha20Key::default());
     crypto_core_hchacha20(
         k.as_mut_array(),
         ByteArray::as_array(&header[0..16]),
         key,
         None,
     );
-    state.k.copy_from_slice(&k);
+    state.k.copy_from_slice(&*k);
 
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
 
@@ -216,22 +222,22 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
 /// Manually rekeys a stream.
 ///
 /// Compatible with libsodium's
-/// `crypto_secretstream_xchacha20poly1305_init_push`.
+/// `crypto_secretstream_xchacha20poly1305_rekey`.
 pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
     use chacha20::ChaCha20;
     use chacha20::cipher::{KeyIvInit, StreamCipher};
 
-    let mut new_state = [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES
-        + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES];
+    let mut new_state = Zeroizing::new(
+        [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES
+            + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES],
+    );
 
     new_state[..CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES].copy_from_slice(&state.k);
     new_state[CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES..]
         .copy_from_slice(state_inonce(&mut state.nonce));
 
-    let key = state.k.into();
-    let nonce = state.nonce.into();
-    let mut cipher = ChaCha20::new(&key, &nonce);
-    cipher.apply_keystream(&mut new_state);
+    let mut cipher = ChaCha20::new((&state.k).into(), (&state.nonce).into());
+    cipher.apply_keystream(&mut *new_state);
 
     state
         .k
@@ -268,16 +274,6 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
 
     use crate::poly1305::Poly1305;
 
-    let _pad0 = [0u8; 16];
-
-    if ciphertext.len() != message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            exact message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        ));
-    }
-
     if message.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
         return Err(length_error!(
             crate::ErrorContext::Message,
@@ -286,27 +282,34 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
         ));
     }
 
+    let expected_ciphertext_len = message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+    if ciphertext.len() != expected_ciphertext_len {
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
+            ciphertext.len(),
+            exact expected_ciphertext_len
+        ));
+    }
+
     let associated_data = associated_data.unwrap_or(&[]);
 
     let mut mac_key = crate::poly1305::Key::new();
     let _pad0 = [0u8; 16];
 
-    let key = state.k.into();
-    let nonce = state.nonce.into();
-    let mut cipher = ChaCha20::new(&key, &nonce);
+    let mut cipher = ChaCha20::new((&state.k).into(), (&state.nonce).into());
 
     cipher.apply_keystream(&mut mac_key);
-    let mut mac = Poly1305::new(&mac_key);
+    let mut mac = Zeroizing::new(Poly1305::new(&mac_key));
     mac_key.zeroize();
 
     mac.update(associated_data);
     mac.update(&_pad0[..pad16(associated_data.len())]);
 
-    let mut block = [0u8; 64];
+    let mut block = Zeroizing::new([0u8; 64]);
     block[0] = tag;
     cipher.seek(64);
-    cipher.apply_keystream(&mut block);
-    mac.update(&block);
+    cipher.apply_keystream(&mut *block);
+    mac.update(&*block);
 
     let mlen = message.len();
     ciphertext[0] = block[0];
@@ -315,9 +318,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     cipher.seek(128);
     cipher.apply_keystream(&mut ciphertext[1..(1 + mlen)]);
 
-    let mut size_data = [0u8; 16];
-    size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
-    size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
+    let size_data = secretstream_length_block(associated_data.len(), mlen);
 
     mac.update(&ciphertext[1..(1 + mlen)]);
     // this is to workaround an unfortunate padding bug in libsodium, there's a
@@ -388,19 +389,22 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
         ));
     }
 
-    if message.len() < ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            min ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        ));
-    }
+    let mlen = ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
 
-    if ciphertext.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
+    if mlen > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
         return Err(length_error!(
             crate::ErrorContext::Ciphertext,
             ciphertext.len(),
             max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+                + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
+    }
+
+    if message.len() < mlen {
+        return Err(length_error!(
+            crate::ErrorContext::Message,
+            message.len(),
+            min mlen
         ));
     }
 
@@ -408,58 +412,53 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     let mut mac_key = crate::poly1305::Key::new();
 
-    let key = state.k.into();
-    let nonce = state.nonce.into();
-    let mut cipher = ChaCha20::new(&key, &nonce);
+    let mut cipher = ChaCha20::new((&state.k).into(), (&state.nonce).into());
 
     cipher.apply_keystream(&mut mac_key);
-    let mut mac = Poly1305::new(&mac_key);
+    let mut mac = Zeroizing::new(Poly1305::new(&mac_key));
     mac_key.zeroize();
 
     mac.update(associated_data);
     mac.update(&_pad0[..pad16(associated_data.len())]);
 
-    let mut block = [0u8; 64];
+    let mut block = Zeroizing::new([0u8; 64]);
     block[0] = ciphertext[0];
 
     cipher.seek(64);
-    cipher.apply_keystream(&mut block);
+    cipher.apply_keystream(&mut *block);
 
-    *tag = block[0];
+    let decrypted_tag = block[0];
     block[0] = ciphertext[0];
 
-    mac.update(&block);
-
-    let mlen = ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-    message[..mlen].copy_from_slice(&ciphertext[1..1 + mlen]);
+    mac.update(&*block);
 
     // this is to workaround an unfortunate padding bug in libsodium, there's a
     // note in commit 290197ba3ee72245fdab5e971c8de43a82b19874. There's no
     // safety issue, so we can just pretend it's not a bug.
     let buffer_mac_pad = ((0x10 - block.len() as i64 + mlen as i64) & 0xf) as usize;
-    mac.update(&message[..mlen]);
+    mac.update(&ciphertext[1..1 + mlen]);
     mac.update(&_pad0[..buffer_mac_pad]);
 
-    let mut size_data = [0u8; 16];
-    size_data[..8].copy_from_slice(&associated_data.len().to_le_bytes());
-    size_data[8..16].copy_from_slice(&(block.len() + mlen).to_le_bytes());
+    let size_data = secretstream_length_block(associated_data.len(), mlen);
     mac.update(&size_data);
-    let mac = mac.finalize_to_array();
+    let mac = Zeroizing::new(mac.finalize_to_array());
 
-    cipher.seek(128);
-    cipher.apply_keystream(&mut message[..mlen]);
-
-    if ciphertext[1 + mlen..].ct_eq(&mac).unwrap_u8() == 0 {
+    if ciphertext[1 + mlen..].ct_eq(mac.as_slice()).unwrap_u8() == 0 {
         return Err(Error::AuthenticationFailed);
     }
 
+    message[..mlen].copy_from_slice(&ciphertext[1..1 + mlen]);
+    cipher.seek(128);
+    cipher.apply_keystream(&mut message[..mlen]);
+    *tag = decrypted_tag;
+
     let inonce = state_inonce(&mut state.nonce);
-    xor_buf(inonce, &mac);
+    xor_buf(inonce, &*mac);
 
     let counter = state_counter(&mut state.nonce);
     increment_bytes(counter);
 
-    if *tag & CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
+    if decrypted_tag & CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
         == CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
         || state_counter(&mut state.nonce)
             .ct_eq(&[0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES])
@@ -534,6 +533,68 @@ mod tests {
     }
 
     #[test]
+    fn pull_authenticates_before_mutating_outputs_or_state() {
+        let key = Key::default();
+        let mut push_state = State::new();
+        let mut header = Header::default();
+        crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut header, &key);
+
+        let plaintext = b"do not publish unauthenticated plaintext";
+        let mut ciphertext =
+            vec![0u8; plaintext.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+        crypto_secretstream_xchacha20poly1305_push(
+            &mut push_state,
+            &mut ciphertext,
+            plaintext,
+            Some(b"associated data"),
+            Tag::FINAL.bits(),
+        )
+        .expect("push failed");
+
+        let mut pull_state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &header, &key);
+        let original_state = pull_state.clone();
+        let mut tampered = ciphertext.clone();
+        *tampered.last_mut().expect("authentication tag") ^= 1;
+        let mut output = vec![0xa5; plaintext.len()];
+        let original_output = output.clone();
+        let mut tag = 0x5a;
+
+        assert!(matches!(
+            crypto_secretstream_xchacha20poly1305_pull(
+                &mut pull_state,
+                &mut output,
+                &mut tag,
+                &tampered,
+                Some(b"associated data"),
+            ),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert_eq!(output, original_output);
+        assert_eq!(tag, 0x5a);
+        assert!(pull_state == original_state);
+
+        crypto_secretstream_xchacha20poly1305_pull(
+            &mut pull_state,
+            &mut output,
+            &mut tag,
+            &ciphertext,
+            Some(b"associated data"),
+        )
+        .expect("state must remain usable after authentication failure");
+        assert_eq!(output, plaintext);
+        assert_eq!(tag, Tag::FINAL.bits());
+    }
+
+    #[test]
+    fn length_block_uses_fixed_width_little_endian_values() {
+        let lengths = secretstream_length_block(0x0102_0304, 0x0506_0708);
+
+        assert_eq!(&lengths[..8], &0x0102_0304u64.to_le_bytes());
+        assert_eq!(&lengths[8..], &(64u64 + 0x0506_0708).to_le_bytes());
+    }
+
+    #[test]
     fn test_sizes() {
         use crate::constants::*;
 
@@ -562,6 +623,22 @@ mod tests {
         const _: () = assert!(
             CRYPTO_ONETIMEAUTH_POLY1305_BYTES >= CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES
         );
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            assert_eq!(
+                CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
+                usize::MAX - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+            );
+            assert_eq!(
+                CRYPTO_AEAD_CHACHA20POLY1305_IETF_MESSAGEBYTES_MAX,
+                usize::MAX - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
+            );
+            assert_eq!(
+                CRYPTO_SECRETBOX_MESSAGEBYTES_MAX,
+                usize::MAX - CRYPTO_SECRETBOX_MACBYTES
+            );
+        }
     }
 
     #[test]

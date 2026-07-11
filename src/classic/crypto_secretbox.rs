@@ -33,7 +33,8 @@
 
 use crate::classic::crypto_secretbox_impl::*;
 use crate::constants::{
-    CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
+    CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_MESSAGEBYTES_MAX,
+    CRYPTO_SECRETBOX_NONCEBYTES,
 };
 use crate::error::Error;
 use crate::rng::copy_randombytes;
@@ -45,6 +46,18 @@ pub type Mac = [u8; CRYPTO_SECRETBOX_MACBYTES];
 pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
 /// Key (or secret) for secret key authenticated boxes.
 pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
+
+fn validate_message_len(message_len: usize, context: crate::ErrorContext) -> Result<(), Error> {
+    if message_len > CRYPTO_SECRETBOX_MESSAGEBYTES_MAX {
+        Err(length_error!(
+            context,
+            message_len,
+            max CRYPTO_SECRETBOX_MESSAGEBYTES_MAX
+        ))
+    } else {
+        Ok(())
+    }
+}
 
 /// In-place variant of [`crypto_secretbox_keygen`]
 pub fn crypto_secretbox_keygen_inplace(key: &mut Key) {
@@ -63,7 +76,8 @@ pub fn crypto_secretbox_keygen() -> Key {
 ///
 /// # Errors
 ///
-/// Returns an error if `ciphertext` is shorter than `message`.
+/// Returns an error if `message` is too long or `ciphertext` is shorter than
+/// `message`.
 pub fn crypto_secretbox_detached(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -71,6 +85,8 @@ pub fn crypto_secretbox_detached(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
+    validate_message_len(message.len(), crate::ErrorContext::Message)?;
+
     if ciphertext.len() < message.len() {
         return Err(
             length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min message.len()),
@@ -87,8 +103,8 @@ pub fn crypto_secretbox_detached(
 ///
 /// # Errors
 ///
-/// Returns an error if `message` is shorter than `ciphertext` or
-/// authentication fails.
+/// Returns an error if `ciphertext` is too long, `message` is shorter than
+/// `ciphertext`, or authentication fails.
 pub fn crypto_secretbox_open_detached(
     message: &mut [u8],
     mac: &Mac,
@@ -97,6 +113,8 @@ pub fn crypto_secretbox_open_detached(
     key: &Key,
 ) -> Result<(), Error> {
     let c_len = ciphertext.len();
+    validate_message_len(c_len, crate::ErrorContext::Ciphertext)?;
+
     if message.len() < c_len {
         return Err(length_error!(crate::ErrorContext::Message, message.len(), min c_len));
     }
@@ -110,18 +128,17 @@ pub fn crypto_secretbox_open_detached(
 ///
 /// # Errors
 ///
-/// Returns an error if the required ciphertext length overflows `usize` or
-/// `ciphertext` is not exactly one authentication tag longer than `message`.
+/// Returns an error if `message` is too long or `ciphertext` is not exactly one
+/// authentication tag longer than `message`.
 pub fn crypto_secretbox_easy(
     ciphertext: &mut [u8],
     message: &[u8],
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let expected_len = message
-        .len()
-        .checked_add(CRYPTO_SECRETBOX_MACBYTES)
-        .ok_or(Error::arithmetic_overflow(crate::ErrorContext::Ciphertext))?;
+    validate_message_len(message.len(), crate::ErrorContext::Message)?;
+
+    let expected_len = message.len() + CRYPTO_SECRETBOX_MACBYTES;
     if ciphertext.len() != expected_len {
         return Err(
             length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), exact expected_len),
@@ -226,12 +243,26 @@ pub fn crypto_secretbox_open_easy_inplace(
     }
 }
 
-#[cfg(all(test, dryoc_native_tests))]
+#[cfg(test)]
 mod tests {
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     extern crate test;
 
     use super::*;
+
+    #[test]
+    fn rejects_lengths_above_the_libsodium_limit() {
+        let too_long = CRYPTO_SECRETBOX_MESSAGEBYTES_MAX + 1;
+
+        assert!(matches!(
+            validate_message_len(too_long, crate::ErrorContext::Message),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                actual,
+                constraint: crate::LengthConstraint::AtMost(CRYPTO_SECRETBOX_MESSAGEBYTES_MAX),
+            }) if actual == too_long
+        ));
+    }
 
     #[test]
     fn test_crypto_secretbox_rejects_invalid_buffer_lengths_without_mutation() {
@@ -290,6 +321,7 @@ mod tests {
         assert_eq!(too_short_inplace, original_too_short_inplace);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_secretbox_easy() {
         for i in 0..20 {
@@ -332,6 +364,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_secretbox_easy_inplace() {
         for i in 0..20 {
@@ -428,7 +461,7 @@ mod tests {
         assert_eq!(inplace, ciphertext);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     fn bench_crypto_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
         let key: Key = crypto_secretbox_keygen();
         let nonce = Nonce::generate();
@@ -450,25 +483,25 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_64b_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 64);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_1kib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 1024);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_16kib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 16 * 1024);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_1mib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 1024 * 1024);

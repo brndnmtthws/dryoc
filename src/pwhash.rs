@@ -18,8 +18,10 @@
 //! [`crate::sha256`] for arbitrary data. Password hashing is deliberately much
 //! more expensive.
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`PwHash`].
+//! If the `serde` feature is enabled, the
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) traits will be
+//! implemented for [`PwHash`].
 //!
 //! ## Rustaceous API example
 //!
@@ -93,7 +95,7 @@
 //!
 //! ## String-based encoding
 //!
-//! See [`PwHash::to_string()`] for an example of using the string-based
+//! See [`PwHash::to_encoded_string()`] for an example of using the string-based
 //! encoding API, compatible with `crypto_pwhash_str*` functions.
 //!
 //! ## Additional resources
@@ -105,10 +107,10 @@
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::classic::crypto_pwhash;
+pub use crate::classic::crypto_pwhash::PasswordHashAlgorithm;
 use crate::constants::*;
 use crate::error::Error;
 use crate::keypair;
@@ -117,9 +119,9 @@ use crate::types::*;
 
 /// Heap-allocated salt type alias for password hashing with [`PwHash`].
 ///
-/// Salts must contain at least [`CRYPTO_PWHASH_SALTBYTES_MIN`] bytes. Prefer
-/// [`CRYPTO_PWHASH_SALTBYTES`] bytes unless interoperability requires another
-/// length. Each stored password hash needs a unique, unpredictable salt;
+/// Newly generated salts contain exactly [`CRYPTO_PWHASH_SALTBYTES`] bytes.
+/// Parsed Argon2 strings may contain other valid Argon2 salt lengths. Each
+/// stored password hash needs a unique, unpredictable salt;
 /// [`PwHash::hash`] generates one automatically.
 pub type Salt = Vec<u8>;
 /// Heap-allocated hash type alias for password hashing with [`PwHash`].
@@ -140,25 +142,22 @@ pub type Hash = Vec<u8>;
 /// slowest supported system, and account for the number of concurrent hashes
 /// when setting memory limits.
 pub struct Config {
-    algorithm: crypto_pwhash::PasswordHashAlgorithm,
+    algorithm: PasswordHashAlgorithm,
     hash_length: usize,
     memlimit: usize,
     opslimit: u64,
-    salt_length: usize,
+    parallelism: u32,
 }
 
 impl Config {
-    /// Sets the generated salt length in bytes.
+    /// Selects the password-hashing algorithm.
     ///
-    /// The length must be between [`CRYPTO_PWHASH_SALTBYTES_MIN`] and
-    /// [`CRYPTO_PWHASH_SALTBYTES_MAX`], inclusive. Invalid values are reported
-    /// when the config is used to hash a password.
+    /// The preset resource limits target Argon2id. When selecting Argon2i,
+    /// choose limits that satisfy the corresponding `CRYPTO_PWHASH_ARGON2I_*`
+    /// constants.
     #[must_use]
-    pub fn with_salt_length(self, salt_length: usize) -> Self {
-        Self {
-            salt_length,
-            ..self
-        }
+    pub fn with_algorithm(self, algorithm: PasswordHashAlgorithm) -> Self {
+        Self { algorithm, ..self }
     }
 
     /// Sets the hash output length in bytes.
@@ -188,8 +187,9 @@ impl Config {
     /// Sets the computation cost.
     ///
     /// Larger values take longer and make each password guess more expensive.
-    /// The value must be between [`CRYPTO_PWHASH_OPSLIMIT_MIN`] and
-    /// [`CRYPTO_PWHASH_OPSLIMIT_MAX`], inclusive.
+    /// The supported range depends on the selected algorithm. See the
+    /// `CRYPTO_PWHASH_ARGON2I_OPSLIMIT_*` and
+    /// `CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_*` constants.
     #[must_use]
     pub fn with_opslimit(self, opslimit: u64) -> Self {
         Self { opslimit, ..self }
@@ -201,10 +201,10 @@ impl Config {
     /// the result.
     pub fn interactive() -> Self {
         Self {
-            algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
+            algorithm: PasswordHashAlgorithm::Argon2id13,
             opslimit: CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
             memlimit: CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
-            salt_length: CRYPTO_PWHASH_SALTBYTES,
+            parallelism: 1,
             hash_length: crypto_pwhash::STR_HASHBYTES,
         }
     }
@@ -214,10 +214,10 @@ impl Config {
     /// This preset uses more time and memory than [`Config::interactive`].
     pub fn moderate() -> Self {
         Self {
-            algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
+            algorithm: PasswordHashAlgorithm::Argon2id13,
             opslimit: CRYPTO_PWHASH_OPSLIMIT_MODERATE,
             memlimit: CRYPTO_PWHASH_MEMLIMIT_MODERATE,
-            salt_length: CRYPTO_PWHASH_SALTBYTES,
+            parallelism: 1,
             hash_length: crypto_pwhash::STR_HASHBYTES,
         }
     }
@@ -228,10 +228,10 @@ impl Config {
     /// deployment can tolerate its latency and memory use.
     pub fn sensitive() -> Self {
         Self {
-            algorithm: crypto_pwhash::PasswordHashAlgorithm::Argon2id13,
+            algorithm: PasswordHashAlgorithm::Argon2id13,
             opslimit: CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
             memlimit: CRYPTO_PWHASH_MEMLIMIT_SENSITIVE,
-            salt_length: CRYPTO_PWHASH_SALTBYTES,
+            parallelism: 1,
             hash_length: crypto_pwhash::STR_HASHBYTES,
         }
     }
@@ -241,6 +241,29 @@ impl Default for Config {
     fn default() -> Self {
         Self::interactive()
     }
+}
+
+fn validate_direct_config(
+    config: &Config,
+    output_len: usize,
+    password_len: usize,
+    salt_len: usize,
+) -> Result<(), Error> {
+    if config.parallelism != 1 {
+        return Err(Error::InvalidValue {
+            context: crate::ErrorContext::PasswordHashParallelism,
+            actual: config.parallelism as u64,
+            constraint: crate::ValueConstraint::Between { min: 1, max: 1 },
+        });
+    }
+    crypto_pwhash::validate_pwhash_parameters(
+        output_len,
+        password_len,
+        salt_len,
+        config.opslimit,
+        config.memlimit,
+        config.algorithm,
+    )
 }
 
 #[cfg_attr(
@@ -307,16 +330,23 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     ///
     /// # Errors
     ///
-    /// Returns an error if a work limit, memory limit, hash length, salt
-    /// length, or password length is outside the supported range, or if the
+    /// Returns an error if a work limit, memory limit, hash length, or password
+    /// length is outside the supported range, or if the
     /// underlying Argon2 operation fails.
     pub fn hash<Password: Bytes>(password: &Password, config: Config) -> Result<Self, Error> {
+        validate_direct_config(
+            &config,
+            config.hash_length,
+            password.len(),
+            CRYPTO_PWHASH_SALTBYTES,
+        )?;
+
         let mut hash = Hash::new_bytes();
         let mut salt = Salt::new_bytes();
 
         hash.resize(config.hash_length, 0);
 
-        salt.resize(config.salt_length, 0);
+        salt.resize(CRYPTO_PWHASH_SALTBYTES, 0);
         copy_randombytes(salt.as_mut_slice());
 
         crypto_pwhash::crypto_pwhash(
@@ -325,7 +355,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
             salt.as_slice(),
             config.opslimit,
             config.memlimit,
-            config.algorithm.clone(),
+            config.algorithm,
         )?;
 
         Ok(Self { hash, salt, config })
@@ -363,68 +393,9 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     pub fn hash_sensitive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::sensitive())
     }
-
-    /// Returns a string-encoded representation of this hash, salt, and config,
-    /// suitable for storage in a database.
-    ///
-    /// The string returned is compatible with libsodium's `crypto_pwhash_str`,
-    /// `crypto_pwhash_str_verify`, and `crypto_pwhash_str_needs_rehash`
-    /// functions, but _only_ when the hash and salt length values match those
-    /// supported by libsodium. This implementation supports variable-length
-    /// salts and hashes, but libsodium's does not.
-    ///
-    /// ## Example
-    ///
-    /// ```
-    /// use dryoc::pwhash::*;
-    ///
-    /// let password = b"Come what come may, time and the hour runs through the roughest day.";
-    ///
-    /// let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
-    /// let pw_string = pwhash.to_string();
-    ///
-    /// let parsed_pwhash =
-    ///     PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
-    ///
-    /// parsed_pwhash.verify(password).expect("verification failed");
-    /// parsed_pwhash
-    ///     .verify(b"invalid password")
-    ///     .expect_err("verification should have failed");
-    /// ```
-    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
-    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
-    #[allow(clippy::inherent_to_string)]
-    pub fn to_string(&self) -> String {
-        let (t_cost, m_cost) =
-            crypto_pwhash::convert_costs(self.config.opslimit, self.config.memlimit);
-
-        crypto_pwhash::pwhash_to_string(t_cost, m_cost, self.salt.as_slice(), self.hash.as_slice())
-    }
 }
 
-impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> PwHash<Hash, Salt> {
-    /// Verifies `password` against this hash using its salt and configuration.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the password does not match, if the stored salt or
-    /// configuration is invalid, or if the underlying Argon2 operation fails.
-    pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
-        let computed = Self::hash_with_salt(password, self.salt.clone(), self.config.clone())?;
-
-        if self
-            .hash
-            .as_slice()
-            .ct_eq(computed.hash.as_slice())
-            .unwrap_u8()
-            == 1
-        {
-            Ok(())
-        } else {
-            Err(Error::AuthenticationFailed)
-        }
-    }
-
+impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Hashes `password` with `salt` and `config`, returning
     /// the hash, salt, and config upon success.
     ///
@@ -441,6 +412,8 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> P
         salt: Salt,
         config: Config,
     ) -> Result<Self, Error> {
+        validate_direct_config(&config, config.hash_length, password.len(), salt.len())?;
+
         let mut hash = Hash::new_bytes();
 
         hash.resize(config.hash_length, 0);
@@ -451,7 +424,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> P
             salt.as_slice(),
             config.opslimit,
             config.memlimit,
-            config.algorithm.clone(),
+            config.algorithm,
         )?;
 
         Ok(Self { hash, salt, config })
@@ -464,8 +437,8 @@ impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroiz
     PwHash<Hash, Salt>
 {
     /// Creates a new password hash instance by parsing `hashed_password`.
-    /// Compatible with libsodium's `crypto_pwhash_str*` functions, and supports
-    /// variable-length encoding for the hash and salt.
+    /// Compatible with libsodium's `crypto_pwhash_str*` functions, including
+    /// valid Argon2 strings with non-default salt lengths or parallelism.
     ///
     /// # Errors
     ///
@@ -501,8 +474,10 @@ impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroiz
         let algorithm = parsed_pwhash.type_.ok_or(Error::missing_data(
             crate::ErrorContext::PasswordHashAlgorithm,
         ))?;
+        let parallelism = parsed_pwhash.parallelism.ok_or(Error::missing_data(
+            crate::ErrorContext::PasswordHashParallelism,
+        ))?;
         let hash_length = hash.len();
-        let salt_length = salt.len();
 
         Ok(Self {
             hash: hash.into(),
@@ -512,18 +487,113 @@ impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroiz
                 hash_length,
                 memlimit,
                 opslimit,
-                salt_length,
+                parallelism,
             },
         })
     }
 }
 
 impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
+    /// Returns a string-encoded representation of this hash, salt, and config,
+    /// suitable for storage in a database.
+    ///
+    /// The string returned is compatible with libsodium's `crypto_pwhash_str`,
+    /// `crypto_pwhash_str_verify`, and `crypto_pwhash_str_needs_rehash`
+    /// functions when the hash length matches libsodium's string format. The
+    /// lower-level hashing API also supports variable-length hash output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stored parameters are invalid or the resulting
+    /// string would not fit libsodium's password-hash string format.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use dryoc::pwhash::*;
+    ///
+    /// let password = b"Come what come may, time and the hour runs through the roughest day.";
+    ///
+    /// let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+    /// let pw_string = pwhash.to_encoded_string().expect("unable to encode hash");
+    ///
+    /// let parsed_pwhash =
+    ///     PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+    ///
+    /// parsed_pwhash.verify(password).expect("verification failed");
+    /// parsed_pwhash
+    ///     .verify(b"invalid password")
+    ///     .expect_err("verification should have failed");
+    /// ```
+    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
+    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
+    pub fn to_encoded_string(&self) -> Result<String, Error> {
+        let (t_cost, m_cost) =
+            crypto_pwhash::convert_costs_checked(self.config.opslimit, self.config.memlimit)?;
+        crate::argon2::validate_argon2_pwhash_parameters(
+            self.hash.len(),
+            self.salt.len(),
+            t_cost,
+            m_cost,
+            self.config.parallelism,
+        )?;
+
+        let encoded_len = crypto_pwhash::pwhash_string_len(
+            self.config.algorithm,
+            t_cost,
+            m_cost,
+            self.config.parallelism,
+            self.salt.len(),
+            self.hash.len(),
+        )
+        .ok_or(Error::arithmetic_overflow(
+            crate::ErrorContext::PasswordHash,
+        ))?;
+        if encoded_len >= CRYPTO_PWHASH_STRBYTES {
+            return Err(length_error!(
+                crate::ErrorContext::PasswordHash,
+                encoded_len,
+                max CRYPTO_PWHASH_STRBYTES - 1
+            ));
+        }
+        let encoded = crypto_pwhash::pwhash_to_string(
+            self.config.algorithm,
+            t_cost,
+            m_cost,
+            self.config.parallelism,
+            self.salt.as_slice(),
+            self.hash.as_slice(),
+        );
+        debug_assert_eq!(encoded.len(), encoded_len);
+        Ok(encoded)
+    }
+
+    /// Verifies `password` against this hash using its salt and configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the password does not match, if the stored salt or
+    /// configuration is invalid, or if the underlying Argon2 operation fails.
+    pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
+        let (t_cost, m_cost) =
+            crypto_pwhash::convert_costs_checked(self.config.opslimit, self.config.memlimit)?;
+        crypto_pwhash::verify_pwhash_parts(
+            self.hash.as_slice(),
+            password.as_slice(),
+            self.salt.as_slice(),
+            t_cost,
+            m_cost,
+            self.config.parallelism,
+            self.config.algorithm,
+        )
+    }
+
     /// Constructs a new instance from `hash`, `salt`, and `config`, consuming
     /// them.
     ///
     /// This function does not validate the parts. Invalid values are reported
-    /// when [`PwHash::verify`] uses them.
+    /// when an operation such as [`PwHash::verify`] or
+    /// [`PwHash::to_encoded_string`] uses them.
     pub fn from_parts(hash: Hash, salt: Salt, config: Config) -> Self {
         Self { hash, salt, config }
     }
@@ -555,6 +625,12 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
         salt: Salt,
         config: Config,
     ) -> Result<keypair::KeyPair<PublicKey, SecretKey>, Error> {
+        validate_direct_config(
+            &config,
+            CRYPTO_BOX_SECRETKEYBYTES,
+            password.len(),
+            salt.len(),
+        )?;
         let mut secret_key = SecretKey::new_byte_array();
 
         crypto_pwhash::crypto_pwhash(
@@ -631,13 +707,52 @@ mod tests {
         pwhash2.verify(password).expect("verification failed");
     }
 
+    #[test]
+    fn test_pwhash_validates_output_length_before_allocation() {
+        let config = Config::interactive().with_hash_length(usize::MAX);
+        assert!(matches!(
+            VecPwHash::hash(b"password", config),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Output,
+                actual: usize::MAX,
+                ..
+            })
+        ));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_pwhash_serde_roundtrip_preserves_verification() {
+        let password = b"serde password";
+        let config = Config::interactive()
+            .with_opslimit(CRYPTO_PWHASH_OPSLIMIT_MIN)
+            .with_memlimit(CRYPTO_PWHASH_MEMLIMIT_MIN);
+        let pwhash = VecPwHash::hash(password, config).expect("unable to hash");
+
+        let json = serde_json::to_string(&pwhash).expect("unable to serialize password hash");
+        let decoded: VecPwHash =
+            serde_json::from_str(&json).expect("unable to deserialize password hash");
+
+        decoded.verify(password).expect("verification failed");
+        decoded
+            .verify(b"wrong password")
+            .expect_err("wrong password should not verify");
+
+        #[cfg(feature = "base64")]
+        decoded
+            .to_encoded_string()
+            .expect("unable to encode deserialized password hash");
+    }
+
     #[cfg(feature = "base64")]
     #[test]
     fn test_pwhash_str() {
         let password = b"super secrit password";
 
         let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
-        let pw_string = pwhash.to_string();
+        let pw_string = pwhash
+            .to_encoded_string()
+            .expect("couldn't encode password hash");
 
         let parsed_pwhash =
             PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
@@ -646,6 +761,34 @@ mod tests {
         parsed_pwhash
             .verify(b"invalid password")
             .expect_err("verification should have failed");
+
+        let argon2i = concat!(
+            "$argon2i$v=19$m=4096,t=3,p=2$b2RpZHVlamRpc29kaXNrdw$",
+            "TNnWIwlu1061JHrnCqIAmjs3huSxYIU+0jWipu7Kc9M",
+        );
+        let parsed_argon2i =
+            VecPwHash::from_string(argon2i).expect("valid Argon2i string should parse");
+        parsed_argon2i
+            .verify(b"password")
+            .expect("valid Argon2i string should verify");
+        assert_eq!(
+            parsed_argon2i
+                .to_encoded_string()
+                .expect("couldn't re-encode hash"),
+            argon2i
+        );
+
+        let oversized_encoding = VecPwHash::from_parts(
+            vec![0u8; 64],
+            vec![0u8; CRYPTO_PWHASH_SALTBYTES],
+            Config::interactive().with_hash_length(64),
+        );
+        assert!(oversized_encoding.to_encoded_string().is_err());
+
+        let _argon2i_config = Config::interactive()
+            .with_algorithm(PasswordHashAlgorithm::Argon2i13)
+            .with_opslimit(CRYPTO_PWHASH_ARGON2I_OPSLIMIT_INTERACTIVE)
+            .with_memlimit(CRYPTO_PWHASH_ARGON2I_MEMLIMIT_INTERACTIVE);
     }
 
     #[test]

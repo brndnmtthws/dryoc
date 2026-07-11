@@ -19,24 +19,46 @@ jobs:
       discussions: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: brndnmtthws/rust-action@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: stable
-      - run: cargo build
-      - run: cargo test
+          cargo-packages: ""
+      - name: Verify tag matches crate version
+        shell: bash
+        run: |
+          CRATE_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [[ "${GITHUB_REF_NAME}" != "v${CRATE_VERSION}" ]]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${CRATE_VERSION}" >&2
+            exit 1
+          fi
+      - run: cargo test --all-targets
+      - run: cargo test --all-targets --no-default-features
+      - run: cargo test --all-targets --no-default-features --features serde,base64,wincode
+      - run: cargo test --all-targets --no-default-features --features serde,protected
+      - run: cargo test --doc
+      - run: cargo doc --no-default-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo clippy --all-targets --features serde,base64,wincode -- -D warnings
+      - name: Install nightly validation toolchain
+        run: rustup toolchain install nightly --profile minimal --component clippy
+      - run: cargo +nightly test --all-targets --all-features
+      - run: cargo +nightly test --doc --all-features
+      - run: cargo +nightly clippy --all-targets --all-features -- -D warnings
+      - run: cargo package
       - name: Authenticate with crates.io
         id: auth
-        uses: rust-lang/crates-io-auth-action@v1
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
       - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           discussion_category_name: General
           generate_release_notes: true

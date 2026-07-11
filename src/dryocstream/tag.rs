@@ -63,6 +63,10 @@ impl Tag {
     }
 
     /// Convert from a bits value exactly.
+    ///
+    /// Values containing unknown bits are rejected when passed to
+    /// [`DryocStream::push`](super::DryocStream::push), and authenticated
+    /// unknown tags are rejected by Rustaceous pull streams.
     #[inline]
     pub const fn from_bits_retain(bits: u8) -> Self {
         Self(bits)

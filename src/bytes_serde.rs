@@ -23,7 +23,7 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
             type Value = StackByteArray<LENGTH>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "bytes")
+                write!(formatter, "exactly {LENGTH} bytes")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -34,12 +34,15 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
                 let mut idx: usize = 0;
 
                 while let Some(elem) = seq.next_element()? {
-                    if idx < LENGTH {
-                        arr[idx] = elem;
-                        idx += 1;
-                    } else {
-                        break;
+                    if idx >= LENGTH {
+                        return Err(Error::invalid_length(idx + 1, &self));
                     }
+                    arr[idx] = elem;
+                    idx += 1;
+                }
+
+                if idx != LENGTH {
+                    return Err(Error::invalid_length(idx, &self));
                 }
 
                 Ok(arr)
@@ -50,7 +53,7 @@ impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
                 E: Error,
             {
                 if v.len() != LENGTH {
-                    return Err(Error::invalid_length(v.len(), &stringify!(LENGTH)));
+                    return Err(Error::invalid_length(v.len(), &self));
                 }
                 let mut arr = StackByteArray::<LENGTH>::new();
                 arr.copy_from_slice(v);
@@ -82,6 +85,57 @@ mod protected {
             S: Serializer,
         {
             serializer.serialize_bytes(self.as_slice())
+        }
+    }
+
+    impl<'de, const LENGTH: usize> Deserialize<'de> for HeapByteArray<LENGTH> {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct ByteArrayVisitor<const LENGTH: usize>;
+
+            impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
+                type Value = HeapByteArray<LENGTH>;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(formatter, "exactly {LENGTH} bytes")
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut arr = HeapByteArray::<LENGTH>::default();
+                    let mut idx = 0;
+
+                    while let Some(elem) = seq.next_element()? {
+                        if idx >= LENGTH {
+                            return Err(Error::invalid_length(idx + 1, &self));
+                        }
+                        arr[idx] = elem;
+                        idx += 1;
+                    }
+
+                    if idx != LENGTH {
+                        return Err(Error::invalid_length(idx, &self));
+                    }
+
+                    Ok(arr)
+                }
+
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                where
+                    E: Error,
+                {
+                    if v.len() != LENGTH {
+                        return Err(Error::invalid_length(v.len(), &self));
+                    }
+                    HeapByteArray::<LENGTH>::try_from(v).map_err(E::custom)
+                }
+            }
+
+            deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
         }
     }
 
@@ -143,6 +197,8 @@ mod protected {
                         idx += 1;
                     }
 
+                    arr.resize(idx, 0);
+
                     Ok(arr)
                 }
 
@@ -189,6 +245,8 @@ mod protected {
                         idx += 1;
                     }
 
+                    arr.resize(idx, 0);
+
                     Ok(arr)
                 }
 
@@ -215,7 +273,7 @@ mod protected {
                 type Value = Locked<HeapByteArray<LENGTH>>;
 
                 fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    write!(formatter, "bytes")
+                    write!(formatter, "exactly {LENGTH} bytes")
                 }
 
                 fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -227,14 +285,14 @@ mod protected {
                     let mut idx: usize = 0;
                     while let Some(elem) = seq.next_element()? {
                         if idx >= LENGTH {
-                            return Err(Error::invalid_length(idx + 1, &stringify!(LENGTH)));
+                            return Err(Error::invalid_length(idx + 1, &self));
                         }
                         arr[idx] = elem;
                         idx += 1;
                     }
 
                     if idx != LENGTH {
-                        return Err(Error::invalid_length(idx, &stringify!(LENGTH)));
+                        return Err(Error::invalid_length(idx, &self));
                     }
 
                     Ok(arr)
@@ -245,7 +303,7 @@ mod protected {
                     E: Error,
                 {
                     if v.len() != LENGTH {
-                        Err(Error::invalid_length(v.len(), &stringify!(LENGTH)))
+                        Err(Error::invalid_length(v.len(), &self))
                     } else {
                         HeapByteArray::<LENGTH>::from_slice_into_locked(v).map_err(E::custom)
                     }

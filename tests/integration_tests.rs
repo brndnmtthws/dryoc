@@ -548,14 +548,38 @@ fn test_protected_generation_compatibility_api() {
 #[cfg(all(feature = "serde", feature = "protected", any(unix, windows)))]
 #[test]
 fn test_protected_serde_sequence_deserialization() {
-    use dryoc::protected::{HeapByteArray, Locked, LockedBytes};
+    use dryoc::protected::{HeapByteArray, HeapBytes, Locked, LockedBytes};
     use dryoc::types::Bytes;
 
     let bytes: LockedBytes = serde_json::from_str("[1,2,3]").expect("bytes failed");
     assert_eq!(bytes.as_slice(), &[1, 2, 3]);
 
+    let empty_bytes: LockedBytes = serde_json::from_str("[]").expect("empty bytes failed");
+    assert!(empty_bytes.is_empty());
+
+    let empty_heap_bytes: HeapBytes = serde_json::from_str("[]").expect("empty heap bytes failed");
+    assert!(empty_heap_bytes.is_empty());
+
     let array: Locked<HeapByteArray<3>> = serde_json::from_str("[4,5,6]").expect("array failed");
     assert_eq!(array.as_slice(), &[4, 5, 6]);
+
+    let heap_array: HeapByteArray<3> = serde_json::from_str("[7,8,9]").expect("heap array failed");
+    assert_eq!(heap_array.as_slice(), &[7, 8, 9]);
+
+    assert!(serde_json::from_str::<HeapByteArray<3>>("[1,2]").is_err());
+    assert!(serde_json::from_str::<HeapByteArray<3>>("[1,2,3,4]").is_err());
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_stack_byte_array_serde_requires_exact_length() {
+    use dryoc::types::{Bytes, StackByteArray};
+
+    let array: StackByteArray<3> = serde_json::from_str("[1,2,3]").expect("array failed");
+    assert_eq!(array.as_slice(), &[1, 2, 3]);
+
+    assert!(serde_json::from_str::<StackByteArray<3>>("[1,2]").is_err());
+    assert!(serde_json::from_str::<StackByteArray<3>>("[1,2,3,4]").is_err());
 }
 
 #[test]

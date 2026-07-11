@@ -22,7 +22,9 @@
 //! let key = StackKdf::generate();
 //! let subkey_id = 0;
 //!
-//! let subkey = key.derive_subkey_to_vec(subkey_id).expect("derive failed");
+//! let subkey = key
+//!     .derive_subkey_to_vec(subkey_id, 32)
+//!     .expect("derive failed");
 //! println!(
 //!     "Subkey {}: {}",
 //!     subkey_id,
@@ -35,11 +37,13 @@
 //! * See <https://doc.libsodium.org/key_derivation> for additional details on
 //!   key derivation
 
+use std::fmt;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::classic::crypto_kdf::crypto_kdf_derive_from_key;
+use crate::classic::crypto_kdf::{crypto_kdf_derive_from_key, validate_subkey_length};
 use crate::constants::{CRYPTO_KDF_CONTEXTBYTES, CRYPTO_KDF_KEYBYTES};
 use crate::error::Error;
 use crate::types::*;
@@ -49,19 +53,32 @@ pub type Key = StackByteArray<CRYPTO_KDF_KEYBYTES>;
 /// Stack-allocated context type alias for key derivation with [`Kdf`].
 pub type Context = StackByteArray<CRYPTO_KDF_CONTEXTBYTES>;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
 /// Key derivation implementation based on Blake2b, compatible with libsodium's
 /// `crypto_kdf_*` functions.
+///
+/// The main-key type must implement [`ZeroizeOnDrop`] so keys remain
+/// self-wiping after [`Kdf::into_parts`] transfers ownership to the caller.
 pub struct Kdf<
-    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize,
+    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize + ZeroizeOnDrop,
     Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
 > {
     main_key: Key,
     context: Context,
+}
+
+impl<
+    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize + ZeroizeOnDrop,
+    Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
+> fmt::Debug for Kdf<Key, Context>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Kdf")
+            .field("main_key", &"[REDACTED]")
+            .field("context", &self.context.as_slice())
+            .finish()
+    }
 }
 
 /// Stack-allocated type alias for [`Kdf`]. Provided for convenience.
@@ -108,7 +125,7 @@ pub mod protected {
 }
 
 impl<
-    Key: NewByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize,
+    Key: NewByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize + ZeroizeOnDrop,
     Context: NewByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
 > Kdf<Key, Context>
 {
@@ -131,7 +148,7 @@ impl<
 }
 
 impl<
-    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize,
+    Key: ByteArray<CRYPTO_KDF_KEYBYTES> + Zeroize + ZeroizeOnDrop,
     Context: ByteArray<CRYPTO_KDF_CONTEXTBYTES> + Zeroize,
 > Kdf<Key, Context>
 {
@@ -139,12 +156,16 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if the requested subkey length is rejected. The
-    /// fixed-size Rustaceous subkey type uses a supported length.
-    pub fn derive_subkey<Subkey: NewByteArray<CRYPTO_KDF_KEYBYTES>>(
+    /// Returns an error unless `LENGTH` is between
+    /// [`CRYPTO_KDF_BLAKE2B_BYTES_MIN`](crate::constants::CRYPTO_KDF_BLAKE2B_BYTES_MIN)
+    /// and
+    /// [`CRYPTO_KDF_BLAKE2B_BYTES_MAX`](crate::constants::CRYPTO_KDF_BLAKE2B_BYTES_MAX),
+    /// inclusive.
+    pub fn derive_subkey<const LENGTH: usize, Subkey: NewByteArray<LENGTH>>(
         &self,
         subkey_id: u64,
     ) -> Result<Subkey, Error> {
+        validate_subkey_length(LENGTH)?;
         let mut subkey = Subkey::new_byte_array();
         crypto_kdf_derive_from_key(
             subkey.as_mut_array(),
@@ -160,10 +181,21 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if subkey derivation fails. See
-    /// [`Kdf::derive_subkey`].
-    pub fn derive_subkey_to_vec(&self, subkey_id: u64) -> Result<Vec<u8>, Error> {
-        self.derive_subkey(subkey_id)
+    /// Returns an error unless `length` is between
+    /// [`CRYPTO_KDF_BLAKE2B_BYTES_MIN`](crate::constants::CRYPTO_KDF_BLAKE2B_BYTES_MIN)
+    /// and
+    /// [`CRYPTO_KDF_BLAKE2B_BYTES_MAX`](crate::constants::CRYPTO_KDF_BLAKE2B_BYTES_MAX),
+    /// inclusive.
+    pub fn derive_subkey_to_vec(&self, subkey_id: u64, length: usize) -> Result<Vec<u8>, Error> {
+        validate_subkey_length(length)?;
+        let mut subkey = vec![0u8; length];
+        crypto_kdf_derive_from_key(
+            &mut subkey,
+            subkey_id,
+            self.context.as_array(),
+            self.main_key.as_array(),
+        )?;
+        Ok(subkey)
     }
 
     /// Constructs a new instance from `key` and `context`, consuming them both.
@@ -205,6 +237,22 @@ mod tests {
     fn test_kdf() {
         let key = StackKdf::generate();
 
-        let _subkey = key.derive_subkey_to_vec(0).expect("derive failed");
+        let short_subkey: StackByteArray<16> = key.derive_subkey(0).expect("derive failed");
+        let long_subkey = key.derive_subkey_to_vec(0, 64).expect("derive failed");
+
+        assert_eq!(short_subkey.len(), 16);
+        assert_eq!(long_subkey.len(), 64);
+        assert!(format!("{key:?}").contains("[REDACTED]"));
+        assert!(matches!(
+            key.derive_subkey_to_vec(0, usize::MAX),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Subkey,
+                actual: usize::MAX,
+                ..
+            })
+        ));
+
+        let invalid_fixed: Result<StackByteArray<15>, Error> = key.derive_subkey(0);
+        assert!(invalid_fixed.is_err());
     }
 }

@@ -24,9 +24,13 @@
 //! derives its nonce from a newly generated ephemeral public key and the
 //! recipient public key.
 //!
-//! With the `serde` feature, [`serde::Deserialize`] and [`serde::Serialize`]
-//! are implemented for [`DryocBox`]. With `wincode`, [`wincode::SchemaRead`]
-//! and [`wincode::SchemaWrite`] are implemented.
+//! With the `serde` feature,
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
+//! for [`DryocBox`]. With `wincode`,
+//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
+//! implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -284,8 +288,9 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if `recipient_public_key` is an unacceptable low-order
-    /// key or the output storage does not resize to the message length.
+    /// Returns an error if the message is too long, `recipient_public_key` is
+    /// an unacceptable low-order key, or the output storage does not resize to
+    /// the message length.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
@@ -324,8 +329,8 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if the output storage does not resize to the message
-    /// length.
+    /// Returns an error if the message is too long or the output storage does
+    /// not resize to the message length.
     pub fn precalc_encrypt<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Message: Bytes + ?Sized,
@@ -369,8 +374,9 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if `recipient_public_key` is an unacceptable low-order
-    /// key or the output storage does not resize to the message length.
+    /// Returns an error if the message is too long, `recipient_public_key` is
+    /// an unacceptable low-order key, or the output storage does not resize to
+    /// the message length.
     ///
     /// # Panics
     ///
@@ -508,9 +514,10 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if `sender_public_key` is an unacceptable low-order
-    /// key, the output storage has the wrong length, or authentication fails.
-    /// Authentication fails for a wrong key, nonce, tag, or ciphertext.
+    /// Returns an error if the ciphertext is too long, `sender_public_key` is
+    /// an unacceptable low-order key, the output storage has the wrong length,
+    /// or authentication fails. Authentication fails for a wrong key, nonce,
+    /// tag, or ciphertext.
     pub fn decrypt<
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         SenderPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
@@ -544,9 +551,9 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if the output storage has the wrong length or
-    /// authentication fails because the precomputed key, nonce, tag, or
-    /// ciphertext does not match.
+    /// Returns an error if the ciphertext is too long, the output storage has
+    /// the wrong length, or authentication fails because the precomputed key,
+    /// nonce, tag, or ciphertext does not match.
     pub fn precalc_decrypt<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
@@ -576,10 +583,11 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if the box has no ephemeral public key, that key is an
-    /// unacceptable low-order key, the output storage has the wrong length, or
-    /// authentication fails. Authentication fails for the wrong recipient key
-    /// pair or modified box data.
+    /// Returns an error if the ciphertext is too long, the box has no
+    /// ephemeral public key, that key is an unacceptable low-order key, the
+    /// output storage has the wrong length, or authentication fails.
+    /// Authentication fails for the wrong recipient key pair or modified box
+    /// data.
     pub fn unseal<
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
@@ -646,8 +654,8 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns an error if `recipient_public_key` is an unacceptable low-order
-    /// key.
+    /// Returns an error if the message is too long or `recipient_public_key` is
+    /// an unacceptable low-order key.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
@@ -665,7 +673,8 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the output storage cannot hold the ciphertext.
+    /// Returns an error if the message is too long or the output storage cannot
+    /// hold the ciphertext.
     pub fn precalc_encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
@@ -683,8 +692,8 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns an error if `recipient_public_key` is an unacceptable low-order
-    /// key.
+    /// Returns an error if the message is too long or `recipient_public_key` is
+    /// an unacceptable low-order key.
     ///
     /// # Panics
     ///
@@ -702,9 +711,9 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns an error if `sender_public_key` is an unacceptable low-order
-    /// key or authentication fails because a key, nonce, tag, or ciphertext is
-    /// wrong.
+    /// Returns an error if the ciphertext is too long, `sender_public_key` is
+    /// an unacceptable low-order key, or authentication fails because a key,
+    /// nonce, tag, or ciphertext is wrong.
     pub fn decrypt_to_vec<SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>>(
         &self,
         nonce: &Nonce,
@@ -720,8 +729,8 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns an error if authentication fails because the precomputed key,
-    /// nonce, tag, or ciphertext does not match.
+    /// Returns an error if the ciphertext is too long or authentication fails
+    /// because the precomputed key, nonce, tag, or ciphertext does not match.
     pub fn precalc_decrypt_to_vec<
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
@@ -736,9 +745,10 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the box has no ephemeral public key, that key is an
-    /// unacceptable low-order key, or authentication fails because the
-    /// recipient key pair or box data is wrong.
+    /// Returns an error if the ciphertext is too long, the box has no
+    /// ephemeral public key, that key is an unacceptable low-order key, or
+    /// authentication fails because the recipient key pair or box data is
+    /// wrong.
     pub fn unseal_to_vec<
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,

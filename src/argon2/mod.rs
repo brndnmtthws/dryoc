@@ -185,7 +185,7 @@ impl Argon2Instance {
         type_: Argon2Type,
         t_cost: u32,
         lanes: u32,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut ret = Self {
             region: BlockRegion::default(),
             pseudo_rands: Vec::new(),
@@ -196,18 +196,26 @@ impl Argon2Instance {
             passes: t_cost,
             lanes,
         };
-        ret.initialize();
-        ret
+        ret.initialize()?;
+        Ok(ret)
     }
 
-    fn initialize(&mut self) {
+    fn initialize(&mut self) -> Result<(), Error> {
         // 1. Memory allocation
-        self.pseudo_rands.resize(self.segment_length as usize, 0);
-
+        try_reserve_argon2(&mut self.region.memory, self.memory_blocks as usize)?;
+        try_reserve_argon2(&mut self.pseudo_rands, self.segment_length as usize)?;
         self.region
             .memory
             .resize(self.memory_blocks as usize, Default::default());
+        self.pseudo_rands.resize(self.segment_length as usize, 0);
+        Ok(())
     }
+}
+
+fn try_reserve_argon2<T>(values: &mut Vec<T>, additional: usize) -> Result<(), Error> {
+    values
+        .try_reserve_exact(additional)
+        .map_err(|_| Error::allocation_failed(crate::ErrorContext::MemoryCost))
 }
 
 impl<'a> Argon2Context<'a> {
@@ -223,25 +231,13 @@ impl<'a> Argon2Context<'a> {
         parallelism: u32,
     ) -> Result<Self, Error> {
         // validate the inputs
-        validate_length!(
-            ARGON2_MIN_OUTLEN,
-            ARGON2_MAX_OUTLEN,
-            output.len(),
-            crate::ErrorContext::Output
-        );
+        validate_argon2_pwhash_parameters(output.len(), salt.len(), t_cost, m_cost, parallelism)?;
         validate_length!(
             ARGON2_MIN_PWD_LENGTH,
             ARGON2_MAX_PWD_LENGTH,
             password.len(),
             crate::ErrorContext::Password
         );
-        validate_length!(
-            ARGON2_MIN_SALT_LENGTH,
-            ARGON2_MAX_SALT_LENGTH,
-            salt.len(),
-            crate::ErrorContext::PasswordHashSalt
-        );
-
         if let Some(secret) = secret {
             validate_length!(
                 ARGON2_MIN_SECRET,
@@ -259,25 +255,6 @@ impl<'a> Argon2Context<'a> {
             );
         }
 
-        validate_value!(
-            ARGON2_MIN_LANES,
-            ARGON2_MAX_LANES,
-            parallelism,
-            crate::ErrorContext::Parallelism
-        );
-        validate_value!(
-            ARGON2_MIN_MEMORY,
-            ARGON2_MAX_MEMORY,
-            m_cost,
-            crate::ErrorContext::MemoryCost
-        );
-        validate_value!(
-            ARGON2_MIN_TIME,
-            ARGON2_MAX_TIME,
-            t_cost,
-            crate::ErrorContext::TimeCost
-        );
-
         Ok(Self {
             output,
             password,
@@ -289,6 +266,47 @@ impl<'a> Argon2Context<'a> {
             lanes: parallelism,
         })
     }
+}
+
+pub(crate) fn validate_argon2_pwhash_parameters(
+    output_len: usize,
+    salt_len: usize,
+    t_cost: u32,
+    m_cost: u32,
+    parallelism: u32,
+) -> Result<(), Error> {
+    validate_length!(
+        ARGON2_MIN_OUTLEN,
+        ARGON2_MAX_OUTLEN,
+        output_len,
+        crate::ErrorContext::Output
+    );
+    validate_length!(
+        ARGON2_MIN_SALT_LENGTH,
+        ARGON2_MAX_SALT_LENGTH,
+        salt_len,
+        crate::ErrorContext::PasswordHashSalt
+    );
+    validate_value!(
+        ARGON2_MIN_LANES,
+        ARGON2_MAX_LANES,
+        parallelism,
+        crate::ErrorContext::Parallelism
+    );
+    let minimum_memory = ARGON2_MIN_MEMORY * parallelism;
+    validate_value!(
+        minimum_memory,
+        ARGON2_MAX_MEMORY,
+        m_cost,
+        crate::ErrorContext::MemoryCost
+    );
+    validate_value!(
+        ARGON2_MIN_TIME,
+        ARGON2_MAX_TIME,
+        t_cost,
+        crate::ErrorContext::TimeCost
+    );
+    Ok(())
 }
 
 struct Argon2Context<'a> {
@@ -314,16 +332,6 @@ pub(crate) fn argon2_hash(
     output: &mut [u8],
     type_: Argon2Type,
 ) -> Result<(), Error> {
-    let memory_blocks = if m_cost < 2 * ARGON2_SYNC_POINTS * parallelism {
-        2 * ARGON2_SYNC_POINTS * parallelism
-    } else {
-        m_cost
-    };
-
-    let segment_length = memory_blocks / (parallelism * ARGON2_SYNC_POINTS);
-    /* Ensure that all segments have equal length */
-    let memory_blocks = segment_length * (parallelism * ARGON2_SYNC_POINTS);
-
     let context = Argon2Context::new(
         output,
         password,
@@ -335,8 +343,18 @@ pub(crate) fn argon2_hash(
         parallelism,
     )?;
 
+    let memory_blocks = if m_cost < 2 * ARGON2_SYNC_POINTS * parallelism {
+        2 * ARGON2_SYNC_POINTS * parallelism
+    } else {
+        m_cost
+    };
+
+    let segment_length = memory_blocks / (parallelism * ARGON2_SYNC_POINTS);
+    /* Ensure that all segments have equal length */
+    let memory_blocks = segment_length * (parallelism * ARGON2_SYNC_POINTS);
+
     let mut instance =
-        Argon2Instance::new(memory_blocks, segment_length, type_, t_cost, parallelism);
+        Argon2Instance::new(memory_blocks, segment_length, type_, t_cost, parallelism)?;
 
     // 2. Initial hashing
     // H_0 + 8 extra bytes to produce the first blocks
@@ -688,6 +706,17 @@ mod tests {
     }
 
     #[test]
+    fn impossible_memory_reservation_returns_an_error() {
+        let mut blocks = Vec::<Block>::new();
+        assert!(matches!(
+            try_reserve_argon2(&mut blocks, usize::MAX),
+            Err(Error::AllocationFailed {
+                context: crate::ErrorContext::MemoryCost,
+            })
+        ));
+    }
+
+    #[test]
     fn context_rejects_invalid_parameters_with_specific_errors() {
         fn context_error(
             output_len: usize,
@@ -737,6 +766,10 @@ mod tests {
                 crate::ErrorContext::MemoryCost,
             ),
             (
+                context_error(ARGON2_MIN_OUTLEN, ARGON2_MIN_SALT_LENGTH, 1, 8, 2),
+                crate::ErrorContext::MemoryCost,
+            ),
+            (
                 context_error(ARGON2_MIN_OUTLEN, ARGON2_MIN_SALT_LENGTH, 0, 8, 1),
                 crate::ErrorContext::TimeCost,
             ),
@@ -750,6 +783,25 @@ mod tests {
                 other => panic!("unexpected Argon2 error: {other:?}"),
             };
             assert_eq!(context, expected_context);
+        }
+
+        let salt = [0u8; ARGON2_MIN_SALT_LENGTH];
+        for parallelism in [0, u32::MAX] {
+            let mut output = [0u8; ARGON2_MIN_OUTLEN];
+            assert!(
+                argon2_hash(
+                    1,
+                    8,
+                    parallelism,
+                    b"password",
+                    &salt,
+                    None,
+                    None,
+                    &mut output,
+                    Argon2Type::Argon2id,
+                )
+                .is_err()
+            );
         }
     }
 

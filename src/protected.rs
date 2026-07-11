@@ -22,7 +22,12 @@
 //!   turn some out-of-bounds reads or writes into immediate process faults.
 //! - Read-only and no-access modes change OS page permissions, so invalid reads
 //!   or writes can fault instead of silently exposing or corrupting data.
-//! - Protected values are zeroized before their allocation is released.
+//! - Explicit zeroization preserves the value's lock and page-protection state.
+//! - Dropping a protected value zeroizes its allocation and, if it is locked,
+//!   unlocks it exactly once before releasing it.
+//! - If cleanup cannot make memory writable, restore its protection, or unlock
+//!   it, the process aborts rather than continuing with uncertain secret-memory
+//!   state.
 //! - It does not make bytes invisible to the current process, privileged OS
 //!   tooling, debuggers, other processes with permission to inspect this
 //!   process's address space, or copies made before data enters protected
@@ -87,9 +92,10 @@
 //! and can fail when the process exceeds the working-set limits enforced by the
 //! OS. There is no `MADV_DONTDUMP` equivalent in this module.
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`HeapBytes`] and
-//! [`HeapByteArray`].
+//! If the `serde` feature is enabled, the
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) traits will be
+//! implemented for [`HeapBytes`] and [`HeapByteArray`].
 //!
 //! ## Example
 //!
@@ -226,7 +232,7 @@ pub trait Lock<A: Zeroize + Bytes, PM: traits::ProtectMode> {
     fn mlock(self) -> Result<Protected<A, PM, traits::Locked>, error::Error>;
 }
 
-/// Protected region of memory that can be locked (i.e., is already locked).
+/// Protected region of memory that is already locked and can be unlocked.
 pub trait Unlock<A: Zeroize + Bytes, PM: traits::ProtectMode> {
     /// Unlocks a region of memory, using `munlock()` on UNIX, or
     /// `VirtualUnlock()` on Windows.
@@ -363,8 +369,9 @@ pub trait NewLockedFromSlice<A: Zeroize + NewBytes + Lockable<A>> {
     ) -> Result<Protected<A, traits::ReadOnly, traits::Locked>, crate::error::Error>;
 }
 
-/// Holds Protected region of memory. Does not implement traits such as
-/// [Copy], [Clone], or [std::fmt::Debug].
+/// Holds a protected region of memory. Does not implement [`Copy`] or
+/// [`Debug`](std::fmt::Debug). Accessible states implement [`Clone`] when the
+/// backing storage supports it; each clone has a distinct allocation.
 pub struct Protected<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> {
     i: Option<int::InternalData<A>>,
     p: PhantomData<PM>,
@@ -459,9 +466,10 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         // SAFETY: `data` is a valid, non-empty byte slice. `VirtualLock` pins
         // the corresponding pages and reports failure through its return value.
         let res = unsafe { VirtualLock(data.as_ptr() as LPVOID, data.len()) };
-        match res {
-            1 => Ok(()),
-            _ => Err(std::io::Error::last_os_error()),
+        if res != 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
         }
     }
 }
@@ -501,9 +509,10 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
         // SAFETY: `data` is a valid, non-empty byte slice. `VirtualUnlock`
         // unpins the corresponding pages and reports failure via `res`.
         let res = unsafe { VirtualUnlock(data.as_ptr() as LPVOID, data.len()) };
-        match res {
-            1 => Ok(()),
-            _ => Err(std::io::Error::last_os_error()),
+        if res != 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
         }
     }
 }
@@ -534,6 +543,14 @@ fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
         data.len(),
         PageProtectMode::NoAccess,
     )
+}
+
+fn dryoc_mprotect_mode(data: &[u8], mode: &int::ProtectMode) -> Result<(), std::io::Error> {
+    match mode {
+        int::ProtectMode::ReadOnly => dryoc_mprotect_readonly(data),
+        int::ProtectMode::ReadWrite => dryoc_mprotect_readwrite(data),
+        int::ProtectMode::NoAccess => dryoc_mprotect_noaccess(data),
+    }
 }
 
 fn dryoc_mprotect_noaccess_ptr(data: *mut u8, len: usize) -> Result<(), std::io::Error> {
@@ -589,9 +606,10 @@ fn dryoc_mprotect_ptr(
         // `VirtualProtect` changes page permissions and reports errors via
         // `res`.
         let res = unsafe { VirtualProtect(data as LPVOID, len, protect, &mut old) };
-        match res {
-            1 => Ok(()),
-            _ => Err(std::io::Error::last_os_error()),
+        if res != 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
         }
     }
 }
@@ -638,8 +656,8 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
     }
 }
 
-impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Unlock<A, PM>
-    for Protected<A, PM, LM>
+impl<A: Zeroize + Bytes, PM: traits::ProtectMode> Unlock<A, PM>
+    for Protected<A, PM, traits::Locked>
 {
     fn munlock(mut self) -> Result<Protected<A, PM, traits::Unlocked>, error::Error> {
         self.swap_some_or_err(|old| {
@@ -1903,7 +1921,27 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
     for Protected<A, PM, LM>
 {
     fn drop(&mut self) {
-        self.zeroize()
+        let Some(mut data) = self.i.take() else {
+            return;
+        };
+
+        let writable = data.a.as_slice().is_empty()
+            || data.pm == int::ProtectMode::ReadWrite
+            || match dryoc_mprotect_readwrite(data.a.as_slice()) {
+                Ok(()) => true,
+                Err(err) => abort_protected_memory_failure("making memory writable for drop", err),
+            };
+
+        if writable {
+            data.a.zeroize();
+        }
+
+        if data.lm == int::LockMode::Locked {
+            match dryoc_munlock(data.a.as_slice()) {
+                Ok(()) => data.lm = int::LockMode::Unlocked,
+                Err(err) => abort_protected_memory_failure("unlocking memory for drop", err),
+            }
+        }
     }
 }
 
@@ -1916,22 +1954,32 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
     for Protected<A, PM, LM>
 {
     fn zeroize(&mut self) {
-        if let Some(d) = &mut self.i
-            && !d.a.as_slice().is_empty()
+        let Some(data) = &mut self.i else {
+            return;
+        };
+        if data.a.as_slice().is_empty() {
+            return;
+        }
+
+        let previous_mode = data.pm.clone();
+        if previous_mode != int::ProtectMode::ReadWrite
+            && let Err(error) = dryoc_mprotect_readwrite(data.a.as_slice())
         {
-            if d.pm != int::ProtectMode::ReadWrite {
-                dryoc_mprotect_readwrite(d.a.as_slice())
-                    .map_err(|err| eprintln!("mprotect_readwrite error on drop = {:?}", err))
-                    .ok();
-            }
-            d.a.zeroize();
-            if d.lm == int::LockMode::Locked {
-                dryoc_munlock(d.a.as_slice())
-                    .map_err(|err| eprintln!("dryoc_munlock error on drop = {:?}", err))
-                    .ok();
-            }
+            abort_protected_memory_failure("making memory writable for zeroization", error);
+        }
+
+        data.a.zeroize();
+
+        if previous_mode != int::ProtectMode::ReadWrite
+            && let Err(error) = dryoc_mprotect_mode(data.a.as_slice(), &previous_mode)
+        {
+            abort_protected_memory_failure("restoring memory protection after zeroization", error);
         }
     }
+}
+
+fn abort_protected_memory_failure(_operation: &str, _error: std::io::Error) -> ! {
+    std::process::abort()
 }
 
 #[cfg(test)]
@@ -1995,6 +2043,73 @@ mod tests {
         let unlocked_key = locked_key.munlock().expect("unlock failed");
 
         assert_eq!(unlocked_key.as_slice(), key_clone.as_slice());
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn explicit_zeroize_preserves_locked_readwrite_state() {
+        let mut locked =
+            HeapBytes::from_slice_into_locked(b"sensitive").expect("locked allocation failed");
+
+        locked.zeroize();
+
+        assert_eq!(locked.as_slice(), &[0; 9]);
+        let state = locked.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Locked);
+        assert_eq!(state.pm, int::ProtectMode::ReadWrite);
+
+        let unlocked = locked.munlock().expect("unlock after zeroize failed");
+        assert_eq!(unlocked.as_slice(), &[0; 9]);
+    }
+
+    #[cfg(unix)]
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn explicit_zeroize_restores_readonly_protection() {
+        let mut readonly = HeapBytes::from_slice_into_readonly_locked(b"sensitive")
+            .expect("read-only locked allocation failed");
+
+        readonly.zeroize();
+
+        assert_eq!(readonly.as_slice(), &[0; 9]);
+        let state = readonly.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Locked);
+        assert_eq!(state.pm, int::ProtectMode::ReadOnly);
+
+        // Verify the operating-system permissions, not just the typestate.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            let data = readonly.as_slice().as_ptr() as *mut u8;
+            // SAFETY: The child intentionally probes the read-only page. A
+            // correct implementation terminates it with SIGSEGV or SIGBUS.
+            unsafe {
+                std::ptr::write_volatile(data, 1);
+                libc::_exit(0);
+            }
+        }
+
+        let mut status = 0;
+        // SAFETY: `child` is the positive PID returned by `fork`, and `status`
+        // points to writable storage for the wait status.
+        let wait_ret = unsafe { libc::waitpid(child, &mut status, 0) };
+        assert_eq!(wait_ret, child);
+        assert!(
+            libc::WIFSIGNALED(status),
+            "child unexpectedly wrote to explicitly zeroized read-only memory"
+        );
+
+        let readwrite = readonly
+            .mprotect_readwrite()
+            .expect("read-write transition failed");
+        let unlocked = readwrite.munlock().expect("unlock failed");
+        assert_eq!(unlocked.as_slice(), &[0; 9]);
     }
 
     #[cfg_attr(

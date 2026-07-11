@@ -1,10 +1,10 @@
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{BLOCK_SIZE, pad_partial_block};
 use crate::types::*;
 use crate::utils::load_u64_le;
 
-#[derive(Default, Zeroize)]
+#[derive(Default, Zeroize, ZeroizeOnDrop)]
 pub struct Poly1305 {
     r: [u64; 3],
     h: [u64; 3],
@@ -233,6 +233,14 @@ mod tests {
 
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     extern crate test;
+
+    #[test]
+    fn incremental_state_zeroizes_on_drop() {
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+
+        assert_zeroize_on_drop::<Poly1305>();
+        assert!(std::mem::needs_drop::<Poly1305>());
+    }
 
     #[test]
     fn test_example_vector() {

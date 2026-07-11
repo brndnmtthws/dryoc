@@ -136,27 +136,33 @@ pub fn crypto_kdf_derive_from_key(
     context: &Context,
     main_key: &Key,
 ) -> Result<(), Error> {
-    if subkey.len() < CRYPTO_KDF_BLAKE2B_BYTES_MIN || subkey.len() > CRYPTO_KDF_BLAKE2B_BYTES_MAX {
+    validate_subkey_length(subkey.len())?;
+
+    let mut ctx_padded = [0u8; CRYPTO_GENERICHASH_BLAKE2B_PERSONALBYTES];
+    let mut salt = [0u8; CRYPTO_GENERICHASH_BLAKE2B_SALTBYTES];
+
+    ctx_padded[..CRYPTO_KDF_CONTEXTBYTES].copy_from_slice(context);
+    salt[..8].copy_from_slice(&subkey_id.to_le_bytes());
+
+    let state = blake2b::State::init(
+        subkey.len() as u8,
+        Some(main_key),
+        Some(&salt),
+        Some(&ctx_padded),
+    )?;
+    state.finalize(subkey)
+}
+
+pub(crate) fn validate_subkey_length(length: usize) -> Result<(), Error> {
+    if !(CRYPTO_KDF_BLAKE2B_BYTES_MIN..=CRYPTO_KDF_BLAKE2B_BYTES_MAX).contains(&length) {
         Err(length_error!(
             crate::ErrorContext::Subkey,
-            subkey.len(),
+            length,
             range CRYPTO_KDF_BLAKE2B_BYTES_MIN,
             CRYPTO_KDF_BLAKE2B_BYTES_MAX
         ))
     } else {
-        let mut ctx_padded = [0u8; CRYPTO_GENERICHASH_BLAKE2B_PERSONALBYTES];
-        let mut salt = [0u8; CRYPTO_GENERICHASH_BLAKE2B_SALTBYTES];
-
-        ctx_padded[..CRYPTO_KDF_CONTEXTBYTES].copy_from_slice(context);
-        salt[..8].copy_from_slice(&subkey_id.to_le_bytes());
-
-        let state = blake2b::State::init(
-            CRYPTO_KDF_KEYBYTES as u8,
-            Some(main_key),
-            Some(&salt),
-            Some(&ctx_padded),
-        )?;
-        state.finalize(subkey)
+        Ok(())
     }
 }
 
@@ -322,6 +328,28 @@ mod tests {
                     },
                 }) if actual == length
             ));
+        }
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_crypto_kdf_variable_lengths_match_libsodium() {
+        use sodiumoxide::crypto::kdf;
+
+        let key = [0x42; CRYPTO_KDF_KEYBYTES];
+        let context = *b"dryockdf";
+        let sodium_key = kdf::Key::from_slice(&key).expect("invalid key length");
+
+        for length in [16, 32, 64] {
+            let mut ours = vec![0u8; length];
+            let mut sodium = vec![0u8; length];
+
+            crypto_kdf_derive_from_key(&mut ours, 7, &context, &key)
+                .expect("dryoc derivation failed");
+            kdf::derive_from_key(&mut sodium, 7, context, &sodium_key)
+                .expect("libsodium derivation failed");
+
+            assert_eq!(ours, sodium);
         }
     }
 

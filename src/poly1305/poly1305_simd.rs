@@ -1,6 +1,6 @@
 use std::simd::Simd;
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{BLOCK_SIZE, pad_partial_block};
 use crate::types::*;
@@ -13,7 +13,7 @@ const HIBIT: u64 = 1 << 24;
 type Fe = [u64; 5];
 type Fe4 = [Simd<u64, LANES>; 5];
 
-#[derive(Default, Zeroize)]
+#[derive(Default, Zeroize, ZeroizeOnDrop)]
 pub struct Poly1305 {
     r: Fe,
     r2: Fe,
@@ -351,6 +351,14 @@ mod tests {
 
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     extern crate test;
+
+    #[test]
+    fn incremental_state_zeroizes_on_drop() {
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+
+        assert_zeroize_on_drop::<Poly1305>();
+        assert!(std::mem::needs_drop::<Poly1305>());
+    }
 
     fn simd_mac(key: &[u8; 32], chunks: &[&[u8]]) -> [u8; BLOCK_SIZE] {
         let key = Key::from(key);

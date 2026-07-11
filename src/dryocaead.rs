@@ -13,11 +13,14 @@
 //! key. [`DryocAeadEnvelope`] generates and stores a nonce for each message;
 //! callers using [`DryocAead`] must manage this uniqueness themselves.
 //!
-//! If the `serde` feature is enabled, [`serde::Deserialize`] and
-//! [`serde::Serialize`] are implemented for [`AeadBox`] and [`AeadEnvelope`].
+//! If the `serde` feature is enabled,
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
+//! for [`AeadBox`] and [`AeadEnvelope`].
 //! If the `wincode` feature is enabled,
-//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`]
-//! are implemented for [`VecBox`] and [`VecEnvelope`].
+//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
+//! implemented for [`VecBox`] and [`VecEnvelope`].
 //!
 //! ## Rustaceous API example
 //!

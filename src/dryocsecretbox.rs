@@ -22,9 +22,13 @@
 //! key. Store each nonce with its ciphertext or use a counter that cannot
 //! repeat for that key.
 //!
-//! With the `serde` feature, [`serde::Deserialize`] and [`serde::Serialize`]
-//! are implemented for [`DryocSecretBox`]. With `wincode`,
-//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] are implemented.
+//! With the `serde` feature,
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
+//! for [`DryocSecretBox`]. With `wincode`,
+//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
+//! implemented.
 //!
 //! ## Rustaceous API example
 //!
@@ -206,8 +210,10 @@ impl<
     ///
     /// # Panics
     ///
-    /// Panics if allocation or resizing panics, or if a custom `Data`
-    /// implementation leaves its buffer shorter than the message.
+    /// Panics if allocation or resizing panics, the message exceeds
+    /// [`CRYPTO_SECRETBOX_MESSAGEBYTES_MAX`](crate::constants::CRYPTO_SECRETBOX_MESSAGEBYTES_MAX),
+    /// or a custom `Data` implementation leaves its buffer shorter than the
+    /// message.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,

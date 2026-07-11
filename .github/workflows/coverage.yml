@@ -10,15 +10,18 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: coverage
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup nightly Rust toolchain with caching
-        uses: brndnmtthws/rust-action@v1
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: nightly
           cargo-packages: |
@@ -27,7 +30,7 @@ jobs:
       - run: cargo hold voyage
       - run: cargo tarpaulin --features serde,nightly,wincode --out Xml
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.repository == 'brndnmtthws/dryoc'
         with:
           fail_ci_if_error: true
