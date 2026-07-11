@@ -187,4 +187,7 @@ jobs:
         with:
           toolchain: nightly
           cargo-packages: cargo-fuzz
-      - run: cargo fuzz build --features base64
+      - name: Build fuzz targets for the Rust host
+        run: |
+          HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+          cargo fuzz build --target "$HOST_TARGET" --features base64
