@@ -109,15 +109,14 @@
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
 //! enabled with the `serde` feature flag. When enabled, the
-//! [`Serialize`](serde::ser::Serialize) and
-//! [`Deserialize`](serde::de::Deserialize) traits are provided for data
+//! `serde::Serialize` and `serde::Deserialize` traits are provided for data
 //! structures.
 //!
 //! ## Using wincode
 //!
 //! This crate includes optional [wincode](https://crates.io/crates/wincode)
 //! support which can be enabled with the `wincode` feature flag. When enabled,
-//! [`wincode::SchemaWrite`] and [`wincode::SchemaRead`] are provided for
+//! `wincode::SchemaWrite` and `wincode::SchemaRead` are provided for
 //! supported Rustaceous box types, including
 //! [`DryocBox`](dryocbox::DryocBox),
 //! [`DryocSecretBox`](dryocsecretbox::DryocSecretBox), and

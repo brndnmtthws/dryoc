@@ -50,10 +50,11 @@ impl Default for Params {
 pub struct State {
     t: [u64; 2],
     f: [u64; 2],
-    #[zeroize(skip)]
-    a: Simd<u64, 4>,
-    #[zeroize(skip)]
-    b: Simd<u64, 4>,
+    // Keep the persistent chaining state in scalar arrays so zeroize can wipe
+    // it with volatile writes. Compression converts these values to SIMD only
+    // for the duration of a block operation.
+    a: [u64; 4],
+    b: [u64; 4],
     last_node: u8,
     buf: [u8; BLOCKBYTES],
     buflen: usize,
@@ -64,8 +65,8 @@ impl Default for State {
         Self {
             t: [0u64; 2],
             f: [0u64; 2],
-            a: Simd::splat(0),
-            b: Simd::splat(0),
+            a: [0; 4],
+            b: [0; 4],
             last_node: 0,
             buf: [0u8; BLOCKBYTES],
             buflen: 0,
@@ -154,7 +155,7 @@ fn unpermute(a: &mut Simd<u64, 4>, c: &mut Simd<u64, 4>, d: &mut Simd<u64, 4>) {
 }
 
 #[inline(always)]
-fn compress(
+fn compress_simd(
     a: &mut Simd<u64, 4>,
     b: &mut Simd<u64, 4>,
     st: &[u64; 2],
@@ -419,6 +420,21 @@ fn compress(
     *b ^= iv1;
 }
 
+#[inline(always)]
+fn compress(
+    a: &mut [u64; 4],
+    b: &mut [u64; 4],
+    st: &[u64; 2],
+    sf: &[u64; 2],
+    block: &[u8; BLOCKBYTES],
+) {
+    let mut simd_a = Simd::from_array(*a);
+    let mut simd_b = Simd::from_array(*b);
+    compress_simd(&mut simd_a, &mut simd_b, st, sf, block);
+    *a = simd_a.to_array();
+    *b = simd_b.to_array();
+}
+
 fn increment_counter(t: &mut [u64; 2], inc: usize) {
     let inc = inc as u64;
     let (lo, carry) = t[0].overflowing_add(inc);
@@ -441,25 +457,31 @@ impl State {
             )
         };
 
-        state.a ^= Simd::<u64, 4>::from([
+        let param_a = [
             load_u64_le(&pslice[0..8]),
             load_u64_le(&pslice[8..16]),
             load_u64_le(&pslice[16..24]),
             load_u64_le(&pslice[24..32]),
-        ]);
-        state.b ^= Simd::<u64, 4>::from([
+        ];
+        let param_b = [
             load_u64_le(&pslice[32..40]),
             load_u64_le(&pslice[40..48]),
             load_u64_le(&pslice[48..56]),
             load_u64_le(&pslice[56..64]),
-        ]);
+        ];
+        for (state_word, parameter_word) in state.a.iter_mut().zip(param_a) {
+            *state_word ^= parameter_word;
+        }
+        for (state_word, parameter_word) in state.b.iter_mut().zip(param_b) {
+            *state_word ^= parameter_word;
+        }
 
         state
     }
 
     fn init0(&mut self) {
-        self.a = Simd::from_array([IV[0], IV[1], IV[2], IV[3]]);
-        self.b = Simd::from_array([IV[4], IV[5], IV[6], IV[7]]);
+        self.a.copy_from_slice(&IV[..4]);
+        self.b.copy_from_slice(&IV[4..]);
     }
 
     pub(crate) fn init(
@@ -574,9 +596,8 @@ impl State {
         buffer[56..64].copy_from_slice(&self.b[3].to_le_bytes());
         output.copy_from_slice(&buffer[..output.len()]);
 
-        self.a = Simd::splat(0);
-        self.b = Simd::splat(0);
-        self.buf.zeroize();
+        buffer.zeroize();
+        self.zeroize();
 
         Ok(())
     }
@@ -699,6 +720,14 @@ mod tests {
     static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| {
         serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap()
     });
+
+    #[test]
+    fn incremental_state_zeroizes_on_drop() {
+        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+
+        assert_zeroize_on_drop::<State>();
+        assert!(std::mem::needs_drop::<State>());
+    }
 
     #[test]
     fn test_vectors() {

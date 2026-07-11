@@ -33,7 +33,8 @@
 
 use crate::classic::crypto_secretbox_impl::*;
 use crate::constants::{
-    CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
+    CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_MESSAGEBYTES_MAX,
+    CRYPTO_SECRETBOX_NONCEBYTES,
 };
 use crate::error::Error;
 use crate::rng::copy_randombytes;
@@ -45,6 +46,18 @@ pub type Mac = [u8; CRYPTO_SECRETBOX_MACBYTES];
 pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
 /// Key (or secret) for secret key authenticated boxes.
 pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
+
+fn validate_message_len(message_len: usize, context: crate::ErrorContext) -> Result<(), Error> {
+    if message_len > CRYPTO_SECRETBOX_MESSAGEBYTES_MAX {
+        Err(length_error!(
+            context,
+            message_len,
+            max CRYPTO_SECRETBOX_MESSAGEBYTES_MAX
+        ))
+    } else {
+        Ok(())
+    }
+}
 
 /// In-place variant of [`crypto_secretbox_keygen`]
 pub fn crypto_secretbox_keygen_inplace(key: &mut Key) {
@@ -63,7 +76,8 @@ pub fn crypto_secretbox_keygen() -> Key {
 ///
 /// # Errors
 ///
-/// Returns an error if `ciphertext` is shorter than `message`.
+/// Returns an error if `message` is too long or `ciphertext` is shorter than
+/// `message`.
 pub fn crypto_secretbox_detached(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -71,6 +85,8 @@ pub fn crypto_secretbox_detached(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
+    validate_message_len(message.len(), crate::ErrorContext::Message)?;
+
     if ciphertext.len() < message.len() {
         return Err(
             length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min message.len()),
@@ -87,8 +103,8 @@ pub fn crypto_secretbox_detached(
 ///
 /// # Errors
 ///
-/// Returns an error if `message` is shorter than `ciphertext` or
-/// authentication fails.
+/// Returns an error if `ciphertext` is too long, `message` is shorter than
+/// `ciphertext`, or authentication fails.
 pub fn crypto_secretbox_open_detached(
     message: &mut [u8],
     mac: &Mac,
@@ -97,6 +113,8 @@ pub fn crypto_secretbox_open_detached(
     key: &Key,
 ) -> Result<(), Error> {
     let c_len = ciphertext.len();
+    validate_message_len(c_len, crate::ErrorContext::Ciphertext)?;
+
     if message.len() < c_len {
         return Err(length_error!(crate::ErrorContext::Message, message.len(), min c_len));
     }
@@ -110,18 +128,17 @@ pub fn crypto_secretbox_open_detached(
 ///
 /// # Errors
 ///
-/// Returns an error if the required ciphertext length overflows `usize` or
-/// `ciphertext` is not exactly one authentication tag longer than `message`.
+/// Returns an error if `message` is too long or `ciphertext` is not exactly one
+/// authentication tag longer than `message`.
 pub fn crypto_secretbox_easy(
     ciphertext: &mut [u8],
     message: &[u8],
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let expected_len = message
-        .len()
-        .checked_add(CRYPTO_SECRETBOX_MACBYTES)
-        .ok_or(Error::arithmetic_overflow(crate::ErrorContext::Ciphertext))?;
+    validate_message_len(message.len(), crate::ErrorContext::Message)?;
+
+    let expected_len = message.len() + CRYPTO_SECRETBOX_MACBYTES;
     if ciphertext.len() != expected_len {
         return Err(
             length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), exact expected_len),
@@ -223,6 +240,25 @@ pub fn crypto_secretbox_open_easy_inplace(
         ciphertext.rotate_left(CRYPTO_SECRETBOX_MACBYTES);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod length_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_lengths_above_the_libsodium_limit() {
+        let too_long = CRYPTO_SECRETBOX_MESSAGEBYTES_MAX + 1;
+
+        assert!(matches!(
+            validate_message_len(too_long, crate::ErrorContext::Message),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                actual,
+                constraint: crate::LengthConstraint::AtMost(CRYPTO_SECRETBOX_MESSAGEBYTES_MAX),
+            }) if actual == too_long
+        ));
     }
 }
 

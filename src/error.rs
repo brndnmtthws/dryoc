@@ -239,6 +239,12 @@ pub enum Error {
         context: ErrorContext,
     },
 
+    /// Memory required for an operation could not be allocated.
+    AllocationFailed {
+        /// The input or operation requiring the allocation.
+        context: ErrorContext,
+    },
+
     /// An operating-system I/O operation failed.
     Io(std::io::Error),
 }
@@ -262,6 +268,10 @@ impl Error {
 
     pub(crate) const fn arithmetic_overflow(context: ErrorContext) -> Self {
         Self::ArithmeticOverflow { context }
+    }
+
+    pub(crate) const fn allocation_failed(context: ErrorContext) -> Self {
+        Self::AllocationFailed { context }
     }
 }
 
@@ -297,6 +307,9 @@ impl Display for Error {
             Self::InvalidState { context } => write!(f, "invalid {context} state"),
             Self::ArithmeticOverflow { context } => {
                 write!(f, "arithmetic overflow while calculating {context} length")
+            }
+            Self::AllocationFailed { context } => {
+                write!(f, "unable to allocate memory for {context}")
             }
             Self::Io(error) => write!(f, "I/O error: {error}"),
         }
@@ -535,6 +548,12 @@ mod tests {
                     context: ErrorContext::Ciphertext,
                 },
                 "arithmetic overflow while calculating ciphertext length",
+            ),
+            (
+                Error::AllocationFailed {
+                    context: ErrorContext::MemoryCost,
+                },
+                "unable to allocate memory for memory cost",
             ),
         ];
 

@@ -30,10 +30,11 @@
 //! ```
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
-use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
+use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
 use zeroize::Zeroize;
 
+use super::crypto_core::decompress_canonical_ed25519_point;
 use crate::constants::{
     CRYPTO_HASH_SHA512_BYTES, CRYPTO_SCALARMULT_CURVE25519_BYTES,
     CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES, CRYPTO_SIGN_ED25519_BYTES,
@@ -129,14 +130,14 @@ fn clamp_hash(
 ///
 /// # Errors
 ///
-/// Returns an error if `ed25519_public_key` does not encode a valid
-/// Edwards25519 point.
+/// Returns an error if `ed25519_public_key` is noncanonical, has small order,
+/// is not on the curve, or is not in the main subgroup.
 pub fn crypto_sign_ed25519_pk_to_curve25519(
     x25519_public_key: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     ed25519_public_key: &PublicKey,
 ) -> Result<(), Error> {
-    let ep = CompressedEdwardsY(*ed25519_public_key)
-        .decompress()
+    let ep = decompress_canonical_ed25519_point(ed25519_public_key)
+        .filter(|point| !point.is_small_order() && point.is_torsion_free())
         .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
     x25519_public_key.copy_from_slice(ep.to_montgomery().as_bytes());
 
@@ -144,9 +145,9 @@ pub fn crypto_sign_ed25519_pk_to_curve25519(
 }
 
 /// Converts an Ed25519 secret key `ed25519_secret_key` into an X25519 secret
-/// key key, placing the result into `x25519_secret_key`.
+/// key, placing the result into `x25519_secret_key`.
 ///
-/// Compatible with libsodium's `crypto_sign_ed25519_sk_to_curve25519`
+/// Compatible with libsodium's `crypto_sign_ed25519_sk_to_curve25519`.
 pub fn crypto_sign_ed25519_sk_to_curve25519(
     x25519_secret_key: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     ed25519_secret_key: &SecretKey,
@@ -278,20 +279,17 @@ fn crypto_sign_ed25519_verify_detached_impl(
     public_key: &PublicKey,
     prehashed: bool,
 ) -> Result<(), Error> {
-    let s = Scalar::from_bytes_mod_order(
-        *<&[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]>::try_from(&signature[32..])
-            .map_err(|_| Error::AuthenticationFailed)?,
-    );
-    let big_r = CompressedEdwardsY::from_slice(&signature[..32])
-        .map_err(|_| Error::AuthenticationFailed)?
-        .decompress()
+    let s_bytes = *<&[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]>::try_from(&signature[32..])
+        .map_err(|_| Error::AuthenticationFailed)?;
+    let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s_bytes))
         .ok_or(Error::AuthenticationFailed)?;
+    let r_bytes = <&[u8; CRYPTO_SIGN_ED25519_PUBLICKEYBYTES]>::try_from(&signature[..32])
+        .map_err(|_| Error::AuthenticationFailed)?;
+    let big_r = decompress_canonical_ed25519_point(r_bytes).ok_or(Error::AuthenticationFailed)?;
     if big_r.is_small_order() {
         return Err(Error::AuthenticationFailed);
     }
-    let pk = CompressedEdwardsY::from_slice(public_key)
-        .map_err(|_| Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?
-        .decompress()
+    let pk = decompress_canonical_ed25519_point(public_key)
         .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
     if pk.is_small_order() {
         return Err(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey));
@@ -380,6 +378,110 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
     res
 }
 
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+
+    const ED25519_GROUP_ORDER: [u8; 32] = [
+        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
+        0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x10,
+    ];
+
+    pub(super) fn add_group_order_to_s(signature: &mut Signature) {
+        let mut carry = 0u16;
+        for (s, order) in signature[32..].iter_mut().zip(ED25519_GROUP_ORDER) {
+            let sum = u16::from(*s) + u16::from(order) + carry;
+            *s = sum as u8;
+            carry = sum >> 8;
+        }
+        assert_eq!(carry, 0, "a reduced Ed25519 scalar plus L fits in 256 bits");
+    }
+
+    #[test]
+    fn verification_rejects_s_plus_group_order() {
+        let message = b"malleability regression";
+        let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[7u8; 32]);
+
+        let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        crypto_sign_ed25519_verify_detached(&signature, message, &public_key).unwrap();
+        add_group_order_to_s(&mut signature);
+        assert!(matches!(
+            crypto_sign_ed25519_verify_detached(&signature, message, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        let mut signed_message = vec![0u8; message.len() + CRYPTO_SIGN_ED25519_BYTES];
+        crypto_sign_ed25519(&mut signed_message, message, &secret_key).unwrap();
+        let embedded_signature =
+            <&mut Signature>::try_from(&mut signed_message[..CRYPTO_SIGN_ED25519_BYTES]).unwrap();
+        add_group_order_to_s(embedded_signature);
+        let mut opened_message = vec![0u8; message.len()];
+        assert!(matches!(
+            crypto_sign_ed25519_open(&mut opened_message, &signed_message, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        let mut signer = crypto_sign_ed25519ph_init();
+        crypto_sign_ed25519ph_update(&mut signer, message);
+        let mut prehash_signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
+        crypto_sign_ed25519ph_final_create(signer, &mut prehash_signature, &secret_key).unwrap();
+        add_group_order_to_s(&mut prehash_signature);
+
+        let mut verifier = crypto_sign_ed25519ph_init();
+        crypto_sign_ed25519ph_update(&mut verifier, message);
+        assert!(matches!(
+            crypto_sign_ed25519ph_final_verify(verifier, &prehash_signature, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+    }
+
+    #[test]
+    fn public_key_conversion_rejects_invalid_edwards_points() {
+        let identity = {
+            let mut point = [0u8; 32];
+            point[0] = 1;
+            point
+        };
+        let noncanonical_identity = {
+            let mut point = [0xff; 32];
+            point[0] = 0xee;
+            point[31] = 0x7f;
+            point
+        };
+        let mixed_order = (curve25519_dalek::constants::ED25519_BASEPOINT_POINT
+            + curve25519_dalek::constants::EIGHT_TORSION[1])
+            .compress()
+            .to_bytes();
+        let mixed_point = decompress_canonical_ed25519_point(&mixed_order).unwrap();
+        assert!(!mixed_point.is_small_order());
+        assert!(!mixed_point.is_torsion_free());
+
+        for invalid_key in [identity, noncanonical_identity, mixed_order] {
+            let mut output = [0xa5; CRYPTO_SCALARMULT_CURVE25519_BYTES];
+            assert!(crypto_sign_ed25519_pk_to_curve25519(&mut output, &invalid_key).is_err());
+            assert_eq!(
+                output, [0xa5; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+                "conversion failure must not modify the output"
+            );
+        }
+    }
+
+    #[test]
+    fn public_key_conversion_accepts_valid_high_sign_bit() {
+        let basepoint = curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
+        let mut negative_basepoint = basepoint;
+        negative_basepoint[31] |= 0x80;
+
+        let mut positive_output = [0u8; CRYPTO_SCALARMULT_CURVE25519_BYTES];
+        let mut negative_output = [0u8; CRYPTO_SCALARMULT_CURVE25519_BYTES];
+        crypto_sign_ed25519_pk_to_curve25519(&mut positive_output, &basepoint).unwrap();
+        crypto_sign_ed25519_pk_to_curve25519(&mut negative_output, &negative_basepoint).unwrap();
+        assert_eq!(positive_output, negative_output);
+    }
+}
+
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use base64::Engine as _;
@@ -413,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn test_() {
+    fn test_key_conversion() {
         use libsodium_sys::{
             crypto_sign_ed25519_pk_to_curve25519 as so_crypto_sign_ed25519_pk_to_curve25519,
             crypto_sign_ed25519_sk_to_curve25519 as so_crypto_sign_ed25519_sk_to_curve25519,
@@ -443,6 +545,58 @@ mod tests {
                 general_purpose::STANDARD.encode(so_xsk)
             );
         }
+    }
+
+    #[test]
+    fn test_invalid_public_key_conversion_compatibility() {
+        use libsodium_sys::crypto_sign_ed25519_pk_to_curve25519 as sodium_convert;
+
+        let identity = {
+            let mut point = [0u8; 32];
+            point[0] = 1;
+            point
+        };
+        let noncanonical_identity = {
+            let mut point = [0xff; 32];
+            point[0] = 0xee;
+            point[31] = 0x7f;
+            point
+        };
+        let mixed_order = (curve25519_dalek::constants::ED25519_BASEPOINT_POINT
+            + curve25519_dalek::constants::EIGHT_TORSION[1])
+            .compress()
+            .to_bytes();
+
+        for invalid_key in [identity, noncanonical_identity, mixed_order] {
+            let mut output = [0u8; CRYPTO_SCALARMULT_CURVE25519_BYTES];
+            let dryoc_result = crypto_sign_ed25519_pk_to_curve25519(&mut output, &invalid_key);
+            let sodium_result =
+                unsafe { sodium_convert(output.as_mut_ptr(), invalid_key.as_ptr()) };
+            assert!(dryoc_result.is_err());
+            assert_eq!(sodium_result, -1);
+        }
+    }
+
+    #[test]
+    fn test_noncanonical_signature_scalar_compatibility() {
+        use libsodium_sys::crypto_sign_verify_detached as sodium_verify;
+
+        let message = b"malleability regression";
+        let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[7u8; 32]);
+        let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        super::regression_tests::add_group_order_to_s(&mut signature);
+
+        assert!(crypto_sign_ed25519_verify_detached(&signature, message, &public_key).is_err());
+        let sodium_result = unsafe {
+            sodium_verify(
+                signature.as_ptr(),
+                message.as_ptr(),
+                message.len() as u64,
+                public_key.as_ptr(),
+            )
+        };
+        assert_eq!(sodium_result, -1);
     }
 
     #[test]

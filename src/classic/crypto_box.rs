@@ -71,7 +71,7 @@ pub fn crypto_box_keypair_inplace(public_key: &mut PublicKey, secret_key: &mut S
 pub fn crypto_box_seed_keypair_inplace(
     public_key: &mut PublicKey,
     secret_key: &mut SecretKey,
-    seed: &[u8],
+    seed: &[u8; CRYPTO_BOX_SEEDBYTES],
 ) {
     crypto_box_curve25519xsalsa20poly1305_seed_keypair_inplace(public_key, secret_key, seed)
 }
@@ -82,11 +82,10 @@ pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_keypair()
 }
 
-/// Deterministically derives a keypair from `seed`, which can be of arbitrary
-/// length.
+/// Deterministically derives a keypair from a 32-byte `seed`.
 ///
 /// Compatible with libsodium's `crypto_box_seed_keypair`.
-pub fn crypto_box_seed_keypair(seed: &[u8]) -> (PublicKey, SecretKey) {
+pub fn crypto_box_seed_keypair(seed: &[u8; CRYPTO_BOX_SEEDBYTES]) -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed)
 }
 
@@ -102,14 +101,14 @@ pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Re
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
-/// Precalculation variant of
-/// [`crypto_box_easy`].
+/// Precalculation variant of [`crypto_box_detached`].
 ///
 /// Compatible with libsodium's `crypto_box_detached_afternm`.
 ///
 /// # Errors
 ///
-/// Returns an error if `ciphertext` is shorter than `message`.
+/// Returns an error if `message` is too long or `ciphertext` is shorter than
+/// `message`.
 pub fn crypto_box_detached_afternm(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -130,14 +129,56 @@ pub fn crypto_box_detached_afternm_inplace(
     crypto_secretbox_detached_inplace(ciphertext, mac, nonce, key)
 }
 
+/// Encrypts a message using a key computed by [`crypto_box_beforenm`].
+///
+/// The result is placed into `ciphertext`, which must be exactly
+/// [`CRYPTO_BOX_MACBYTES`] bytes longer than `message`.
+///
+/// Compatible with libsodium's `crypto_box_easy_afternm`.
+///
+/// # Errors
+///
+/// Returns an error if `message` is too long or `ciphertext` has the wrong
+/// length.
+pub fn crypto_box_easy_afternm(
+    ciphertext: &mut [u8],
+    message: &[u8],
+    nonce: &Nonce,
+    key: &Key,
+) -> Result<(), Error> {
+    if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
+        return Err(
+            length_error!(crate::ErrorContext::Message, message.len(), max CRYPTO_BOX_MESSAGEBYTES_MAX),
+        );
+    }
+
+    let expected_ciphertext_len = message.len() + CRYPTO_BOX_MACBYTES;
+    if ciphertext.len() != expected_ciphertext_len {
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
+            ciphertext.len(),
+            exact expected_ciphertext_len
+        ));
+    }
+
+    let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
+    crypto_box_detached_afternm(
+        ciphertext,
+        MutByteArray::as_mut_array(mac),
+        message,
+        nonce,
+        key,
+    )
+}
+
 /// Detached variant of [`crypto_box_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_detached`.
 ///
 /// # Errors
 ///
-/// Returns an error if `recipient_public_key` is unacceptable or `ciphertext`
-/// is shorter than `message`.
+/// Returns an error if `message` is too long, `recipient_public_key` is
+/// unacceptable, or `ciphertext` is shorter than `message`.
 pub fn crypto_box_detached(
     ciphertext: &mut [u8],
     mac: &mut Mac,
@@ -228,6 +269,12 @@ pub(crate) fn crypto_box_seal_nonce(nonce: &mut Nonce, epk: &PublicKey, rpk: &Se
     crypto_generichash_final(state, nonce).expect("hash error");
 }
 
+fn crypto_box_seal_ciphertext_len(message_len: usize) -> Result<usize, Error> {
+    message_len
+        .checked_add(CRYPTO_BOX_SEALBYTES)
+        .ok_or(Error::arithmetic_overflow(crate::ErrorContext::SealedBox))
+}
+
 /// Encrypts and seals a message in a box.
 ///
 /// Encrypts `message` with recipient's public key `recipient_public_key`, using
@@ -251,11 +298,12 @@ pub fn crypto_box_seal(
     message: &[u8],
     recipient_public_key: &PublicKey,
 ) -> Result<(), Error> {
-    if ciphertext.len() != message.len() + CRYPTO_BOX_SEALBYTES {
+    let expected_ciphertext_len = crypto_box_seal_ciphertext_len(message.len())?;
+    if ciphertext.len() != expected_ciphertext_len {
         Err(length_error!(
             crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            exact message.len() + CRYPTO_BOX_SEALBYTES
+            exact expected_ciphertext_len
         ))
     } else {
         let mut nonce = Nonce::new_byte_array();
@@ -306,28 +354,37 @@ pub fn crypto_box_easy_inplace(
 ) -> Result<(), Error> {
     if data.len() < CRYPTO_BOX_MACBYTES {
         Err(length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_BOX_MACBYTES))
-    } else if data.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
-        Err(length_error!(crate::ErrorContext::Data, data.len(), max CRYPTO_BOX_MESSAGEBYTES_MAX))
+    } else if data.len() - CRYPTO_BOX_MACBYTES > CRYPTO_BOX_MESSAGEBYTES_MAX {
+        Err(length_error!(
+            crate::ErrorContext::Data,
+            data.len(),
+            max CRYPTO_BOX_MESSAGEBYTES_MAX + CRYPTO_BOX_MACBYTES
+        ))
     } else {
+        let key = Zeroizing::new(crypto_box_beforenm(
+            recipient_public_key,
+            sender_secret_key,
+        )?);
+
         data.rotate_right(CRYPTO_BOX_MACBYTES);
 
         let (mac, data) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
         let mac = MutByteArray::as_mut_array(mac);
 
-        crypto_box_detached_inplace(data, mac, nonce, recipient_public_key, sender_secret_key)?;
+        crypto_box_detached_afternm_inplace(data, mac, nonce, &key);
 
         Ok(())
     }
 }
 
-/// Precalculation variant of [`crypto_box_open_easy`].
+/// Precalculation variant of [`crypto_box_open_detached`].
 ///
 /// Compatible with libsodium's `crypto_box_open_detached_afternm`.
 ///
 /// # Errors
 ///
-/// Returns an error if `message` is shorter than `ciphertext` or authentication
-/// fails.
+/// Returns an error if `ciphertext` is too long, `message` is shorter than
+/// `ciphertext`, or authentication fails.
 pub fn crypto_box_open_detached_afternm(
     message: &mut [u8],
     mac: &Mac,
@@ -352,14 +409,48 @@ pub fn crypto_box_open_detached_afternm_inplace(
     crypto_secretbox_open_detached_inplace(data, mac, nonce, key)
 }
 
+/// Decrypts a box using a key computed by [`crypto_box_beforenm`].
+///
+/// Compatible with libsodium's `crypto_box_open_easy_afternm`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is shorter than an authentication tag,
+/// `message` has the wrong length, or authentication fails.
+pub fn crypto_box_open_easy_afternm(
+    message: &mut [u8],
+    ciphertext: &[u8],
+    nonce: &Nonce,
+    key: &Key,
+) -> Result<(), Error> {
+    if ciphertext.len() < CRYPTO_BOX_MACBYTES {
+        return Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_BOX_MACBYTES),
+        );
+    }
+
+    let expected_message_len = ciphertext.len() - CRYPTO_BOX_MACBYTES;
+    if message.len() != expected_message_len {
+        return Err(length_error!(
+            crate::ErrorContext::Message,
+            message.len(),
+            exact expected_message_len
+        ));
+    }
+
+    let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
+    crypto_box_open_detached_afternm(message, ByteArray::as_array(mac), ciphertext, nonce, key)
+}
+
 /// Detached variant of [`crypto_box_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_box_open_detached`.
 ///
 /// # Errors
 ///
-/// Returns an error if `recipient_public_key` is unacceptable, `message` is
-/// shorter than `ciphertext`, or authentication fails.
+/// Returns an error if `ciphertext` is too long, `recipient_public_key` is
+/// unacceptable, `message` is shorter than `ciphertext`, or authentication
+/// fails.
 pub fn crypto_box_open_detached(
     message: &mut [u8],
     mac: &Mac,
@@ -582,9 +673,57 @@ mod tests {
     }
 
     #[test]
+    fn test_crypto_box_easy_afternm_roundtrip_and_failure_atomicity() {
+        let (sender_public_key, sender_secret_key) = crypto_box_keypair();
+        let (recipient_public_key, recipient_secret_key) = crypto_box_keypair();
+        let nonce = Nonce::generate();
+        let message = b"precomputed crypto box";
+        let sender_key = crypto_box_beforenm(&recipient_public_key, &sender_secret_key)
+            .expect("sender precalculation failed");
+        let recipient_key = crypto_box_beforenm(&sender_public_key, &recipient_secret_key)
+            .expect("recipient precalculation failed");
+        assert_eq!(sender_key, recipient_key);
+
+        let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_MACBYTES];
+        crypto_box_easy_afternm(&mut ciphertext, message, &nonce, &sender_key)
+            .expect("encryption failed");
+        let mut direct_ciphertext = vec![0u8; ciphertext.len()];
+        crypto_box_easy(
+            &mut direct_ciphertext,
+            message,
+            &nonce,
+            &recipient_public_key,
+            &sender_secret_key,
+        )
+        .expect("direct encryption failed");
+        assert_eq!(ciphertext, direct_ciphertext);
+
+        let mut decrypted = vec![0u8; message.len()];
+        crypto_box_open_easy_afternm(&mut decrypted, &ciphertext, &nonce, &recipient_key)
+            .expect("decryption failed");
+        assert_eq!(decrypted, message);
+
+        ciphertext[0] ^= 1;
+        decrypted.fill(0xa5);
+        let original_decrypted = decrypted.clone();
+        assert!(
+            crypto_box_open_easy_afternm(&mut decrypted, &ciphertext, &nonce, &recipient_key)
+                .is_err()
+        );
+        assert_eq!(decrypted, original_decrypted);
+    }
+
+    #[test]
     fn test_crypto_box_seal_rejects_mismatched_buffers() {
         let (recipient_public_key, recipient_secret_key) = crypto_box_keypair();
         let message = b"sealed box buffer validation";
+
+        assert!(matches!(
+            crypto_box_seal_ciphertext_len(usize::MAX),
+            Err(Error::ArithmeticOverflow {
+                context: crate::ErrorContext::SealedBox,
+            })
+        ));
 
         let mut short_ciphertext = vec![0u8; message.len() + CRYPTO_BOX_SEALBYTES - 1];
         assert!(matches!(
@@ -651,6 +790,11 @@ mod tests {
                 )
                 .is_err()
             );
+
+            let mut data = b"message with tag storage\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0".to_vec();
+            let original_data = data.clone();
+            assert!(crypto_box_easy_inplace(&mut data, &nonce, &public_key, &secret_key).is_err());
+            assert_eq!(data, original_data);
         }
     }
     #[test]
@@ -832,7 +976,9 @@ mod tests {
             use sodiumoxide::crypto::box_::{Seed, keypair_from_seed};
 
             for _ in 0..10 {
-                let seed = randombytes_buf(CRYPTO_BOX_SEEDBYTES);
+                let seed: [u8; CRYPTO_BOX_SEEDBYTES] = randombytes_buf(CRYPTO_BOX_SEEDBYTES)
+                    .try_into()
+                    .expect("seed length");
 
                 let (pk, sk) = crypto_box_seed_keypair(&seed);
                 let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());

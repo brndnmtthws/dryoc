@@ -40,7 +40,7 @@ pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair_inplace(
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair_inplace(
     public_key: &mut PublicKey,
     secret_key: &mut SecretKey,
-    seed: &[u8],
+    seed: &[u8; CRYPTO_BOX_SEEDBYTES],
 ) {
     let mut hash = [0u8; CRYPTO_HASH_SHA512_BYTES];
     crypto_hash_sha512(&mut hash, seed);
@@ -61,7 +61,7 @@ pub(crate) fn crypto_box_curve25519xsalsa20poly1305_keypair() -> (PublicKey, Sec
 }
 
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_seed_keypair(
-    seed: &[u8],
+    seed: &[u8; CRYPTO_BOX_SEEDBYTES],
 ) -> (PublicKey, SecretKey) {
     let mut secret_key = [0u8; CRYPTO_BOX_SEEDBYTES];
     let mut public_key = [0u8; CRYPTO_BOX_SEEDBYTES];

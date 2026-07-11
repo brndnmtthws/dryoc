@@ -49,7 +49,7 @@ use std::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_kx::{crypto_kx_client_session_keys, crypto_kx_server_session_keys};
 use crate::constants::{
@@ -71,12 +71,15 @@ pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
 /// Key derivation implementation based on Curve25519, Diffie-Hellman, and
 /// Blake2b. Compatible with libsodium's `crypto_kx_*` functions.
-pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> {
+///
+/// The session-key type must implement [`ZeroizeOnDrop`] so keys remain
+/// self-wiping after [`Session::into_parts`] transfers ownership to the caller.
+pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop> {
     rx_key: SessionKey,
     tx_key: SessionKey,
 }
 
-impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> fmt::Debug
+impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop> fmt::Debug
     for Session<SessionKey>
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -150,7 +153,9 @@ pub mod protected {
     pub type LockedSession = Session<Locked<SessionKey>>;
 }
 
-impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> Session<SessionKey> {
+impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop>
+    Session<SessionKey>
+{
     /// Computes client session keys, given `client_keypair` and
     /// `server_public_key`, returning a new session upon success.
     ///
@@ -246,7 +251,9 @@ impl Session<SessionKey> {
     }
 }
 
-impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> Session<SessionKey> {
+impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop>
+    Session<SessionKey>
+{
     /// Moves the rx_key and tx_key out of this instance, returning them as a
     /// tuple with `(rx_key, tx_key)`.
     pub fn into_parts(self) -> (SessionKey, SessionKey) {

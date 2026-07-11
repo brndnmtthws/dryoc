@@ -3,6 +3,7 @@
 use dryoc::classic::crypto_generichash::crypto_generichash;
 use dryoc::dryocbox::{DryocBox, KeyPair, NewByteArray, Nonce};
 use dryoc::dryocsecretbox::{DryocSecretBox, Key};
+use dryoc::dryocstream::{DryocStream, Header, Key as StreamKey, Tag};
 use dryoc::precalc::PrecalcSecretKey;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -68,6 +69,25 @@ fn dryocsecretbox_roundtrip() {
         .expect("unable to decrypt");
 
     assert_eq!(message, decrypted.as_slice());
+}
+
+#[wasm_bindgen_test]
+fn dryocstream_roundtrip() {
+    let key = StreamKey::generate();
+    let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+    let message = b"wasm secretstream".to_vec();
+    let associated_data = b"fixed-width lengths".to_vec();
+    let ciphertext = push_stream
+        .push_to_vec(&message, Some(&associated_data), Tag::FINAL)
+        .expect("secretstream push failed");
+
+    let mut pull_stream = DryocStream::init_pull(&key, &header);
+    let (decrypted, tag) = pull_stream
+        .pull_to_vec(&ciphertext, Some(&associated_data))
+        .expect("secretstream pull failed");
+
+    assert_eq!(decrypted, message);
+    assert_eq!(tag, Tag::FINAL);
 }
 
 #[wasm_bindgen_test]

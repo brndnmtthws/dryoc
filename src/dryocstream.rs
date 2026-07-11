@@ -231,19 +231,33 @@ impl DryocStream<Push> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the message exceeds the stream's maximum message
-    /// length or the output storage does not resize to exactly the required
-    /// ciphertext length.
+    /// Returns an error if `tag` contains unknown bits, the message exceeds the
+    /// stream's maximum message length, or the output storage does not resize
+    /// to exactly the required ciphertext length.
     pub fn push<Input: Bytes, Output: NewBytes + ResizableBytes>(
         &mut self,
         message: &Input,
         associated_data: Option<&Input>,
         tag: Tag,
     ) -> Result<Output, Error> {
-        use crate::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+        use crate::constants::{
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
+        };
+        Tag::try_from(tag.bits())?;
+
+        let message_len = message.as_slice().len();
+        if message_len > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
+            return Err(length_error!(
+                crate::ErrorContext::Message,
+                message_len,
+                max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+            ));
+        }
+
         let mut ciphertext = Output::new_bytes();
         ciphertext.resize(
-            message.as_slice().len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            message_len + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
             0,
         );
         crypto_secretstream_xchacha20poly1305_push(
@@ -261,8 +275,8 @@ impl DryocStream<Push> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the message exceeds the stream's maximum message
-    /// length.
+    /// Returns an error if `tag` contains unknown bits or the message exceeds
+    /// the stream's maximum message length.
     pub fn push_to_vec<Input: Bytes>(
         &mut self,
         message: &Input,
@@ -303,17 +317,17 @@ impl DryocStream<Pull> {
     /// storage cannot hold the plaintext, or authentication fails.
     /// Authentication fails for a wrong key or header, mismatched associated
     /// data, modified ciphertext, or messages processed out of order.
-    ///
-    /// # Panics
-    ///
-    /// Panics if an authenticated ciphertext contains tag bits that are not
-    /// represented by [`Tag`]. Rustaceous push streams only emit valid tags.
+    /// Authenticated tag values containing unknown bits are also rejected
+    /// without advancing the stream.
     pub fn pull<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(
         &mut self,
         ciphertext: &Input,
         associated_data: Option<&Input>,
     ) -> Result<(Output, Tag), Error> {
-        use crate::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+        use crate::constants::{
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
+        };
         if ciphertext.as_slice().len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
             return Err(length_error!(
                 crate::ErrorContext::Ciphertext,
@@ -322,21 +336,39 @@ impl DryocStream<Pull> {
             ));
         }
 
+        let message_len =
+            ciphertext.as_slice().len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+        if message_len > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
+            return Err(length_error!(
+                crate::ErrorContext::Ciphertext,
+                ciphertext.as_slice().len(),
+                max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+                    + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+            ));
+        }
+
         let mut message = Output::default();
-        message.resize(
-            ciphertext.as_slice().len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-            0,
-        );
+        message.resize(message_len, 0);
         let mut tag = 0u8;
+        let mut next_state = self.state.clone();
         crypto_secretstream_xchacha20poly1305_pull(
-            &mut self.state,
+            &mut next_state,
             message.as_mut_slice(),
             &mut tag,
             ciphertext.as_slice(),
             associated_data.map(|aad| aad.as_slice()),
         )?;
 
-        Ok((message, Tag::try_from(tag)?))
+        let tag = match Tag::try_from(tag) {
+            Ok(tag) => tag,
+            Err(error) => {
+                message.as_mut_slice().zeroize();
+                return Err(error);
+            }
+        };
+        self.state = next_state;
+
+        Ok((message, tag))
     }
 
     /// Decrypts `ciphertext` for this stream with `associated_data`, returning
@@ -346,18 +378,95 @@ impl DryocStream<Pull> {
     ///
     /// Returns an error if the ciphertext is too short or too long, or
     /// authentication fails because the key, header, associated data, stream
-    /// position, or ciphertext does not match.
-    ///
-    /// # Panics
-    ///
-    /// Panics if an authenticated ciphertext contains tag bits that are not
-    /// represented by [`Tag`]. Rustaceous push streams only emit valid tags.
+    /// position, or ciphertext does not match. Authenticated tag values
+    /// containing unknown bits are also rejected without advancing the stream.
     pub fn pull_to_vec<Input: Bytes>(
         &mut self,
         ciphertext: &Input,
         associated_data: Option<&Input>,
     ) -> Result<(Vec<u8>, Tag), Error> {
         self.pull(ciphertext, associated_data)
+    }
+}
+
+#[cfg(test)]
+mod validation_tests {
+    use super::*;
+    use crate::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+
+    #[test]
+    fn rustaceous_push_rejects_unknown_tag_without_advancing_state() {
+        let key = Key::generate();
+        let (mut push_stream, _header): (_, Header) = DryocStream::init_push(&key);
+        let original_state = push_stream.state.clone();
+        let invalid_tag = Tag::from_bits_retain(0x80);
+
+        let result: Result<Vec<u8>, Error> = push_stream.push_to_vec(b"message", None, invalid_tag);
+        assert!(matches!(
+            result,
+            Err(Error::InvalidValue {
+                context: crate::ErrorContext::Tag,
+                ..
+            })
+        ));
+        assert!(push_stream.state == original_state);
+    }
+
+    #[test]
+    fn rustaceous_pull_rejects_unknown_tag_without_advancing_state() {
+        let key = Key::generate();
+        let mut invalid_push_state = State::new();
+        let mut raw_header =
+            [0u8; crate::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
+        crypto_secretstream_xchacha20poly1305_init_push(
+            &mut invalid_push_state,
+            &mut raw_header,
+            key.as_array(),
+        );
+        let mut valid_push_state = invalid_push_state.clone();
+        let header = Header::try_from(raw_header.as_slice()).expect("header conversion failed");
+        let mut pull_stream = DryocStream::init_pull(&key, &header);
+        let original_pull_state = pull_stream.state.clone();
+        let message = b"authenticated unknown tag";
+
+        let mut invalid_ciphertext =
+            vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+        crypto_secretstream_xchacha20poly1305_push(
+            &mut invalid_push_state,
+            &mut invalid_ciphertext,
+            message,
+            None,
+            0x80,
+        )
+        .expect("classic push failed");
+
+        let error = pull_stream
+            .pull_to_vec(&invalid_ciphertext, None)
+            .expect_err("unknown tag must be rejected");
+        assert!(matches!(
+            error,
+            Error::InvalidValue {
+                context: crate::ErrorContext::Tag,
+                ..
+            }
+        ));
+        assert!(pull_stream.state == original_pull_state);
+
+        let mut valid_ciphertext =
+            vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+        crypto_secretstream_xchacha20poly1305_push(
+            &mut valid_push_state,
+            &mut valid_ciphertext,
+            message,
+            None,
+            Tag::MESSAGE.bits(),
+        )
+        .expect("classic push failed");
+        let (decrypted, tag) = pull_stream
+            .pull_to_vec(&valid_ciphertext, None)
+            .expect("state must remain usable after rejection");
+        assert_eq!(decrypted, message);
+        assert_eq!(tag, Tag::MESSAGE);
     }
 }
 

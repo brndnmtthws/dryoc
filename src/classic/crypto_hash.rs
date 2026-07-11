@@ -13,6 +13,10 @@
 //!
 //! let message = b"The empty vessel makes the loudest sound.";
 //!
+//! let mut default_digest: Digest = [0u8; 64];
+//! crypto_hash(&mut default_digest, message);
+//! assert_eq!(default_digest.len(), 64);
+//!
 //! let mut sha256 = Sha256Digest::default();
 //! crypto_hash_sha256(&mut sha256, message);
 //! assert_eq!(sha256.len(), 32);
@@ -48,6 +52,12 @@ pub type Sha512Digest = [u8; CRYPTO_HASH_SHA512_BYTES];
 pub type Sha3256Digest = [u8; CRYPTO_HASH_SHA3256_BYTES];
 /// Type alias for SHA3-512 digest output.
 pub type Sha3512Digest = [u8; CRYPTO_HASH_SHA3512_BYTES];
+
+/// Computes a SHA-512 hash from `input` using libsodium's default
+/// `crypto_hash` primitive.
+pub fn crypto_hash(output: &mut Digest, input: &[u8]) {
+    crypto_hash_sha512(output, input);
+}
 
 /// Computes a SHA-256 hash from `input`.
 pub fn crypto_hash_sha256(output: &mut Sha256Digest, input: &[u8]) {
@@ -178,6 +188,17 @@ mod tests {
             hex::decode("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
                 .expect("hex failed");
         assert_eq!(our_digest.as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn test_crypto_hash_uses_sha512() {
+        let mut generic = [0u8; CRYPTO_HASH_SHA512_BYTES];
+        let mut sha512 = [0u8; CRYPTO_HASH_SHA512_BYTES];
+
+        crypto_hash(&mut generic, b"abc");
+        crypto_hash_sha512(&mut sha512, b"abc");
+
+        assert_eq!(generic, sha512);
     }
 
     #[test]

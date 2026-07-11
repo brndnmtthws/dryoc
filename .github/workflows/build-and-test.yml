@@ -8,7 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,9 +21,9 @@ jobs:
     name: dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup stable Rust toolchain with caching
-        uses: brndnmtthws/rust-action@v1
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: stable
           cargo-packages: cargo-deny
@@ -31,25 +33,27 @@ jobs:
     name: wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup stable Rust toolchain with caching
-        uses: brndnmtthws/rust-action@v1
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: stable
+          cargo-packages: ""
       - run: rustup target add wasm32-unknown-unknown
       - name: Install matching wasm-bindgen test runner
         run: |
           WASM_BINDGEN_VERSION="$(
-            cargo tree --target wasm32-unknown-unknown --features serde,base64,wincode \
+            cargo tree --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode \
               | sed -n 's/.*wasm-bindgen v\([0-9.]*\).*/\1/p' \
               | head -n 1
           )"
           cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
-      - run: cargo test --target wasm32-unknown-unknown --features serde,base64,wincode
+      - run: cargo test --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
 
-  build:
+  platform:
+    name: ${{ matrix.os }} / ${{ matrix.rust }} / ${{ matrix.features }}
     strategy:
       matrix:
         rust:
@@ -57,11 +61,9 @@ jobs:
           # - beta
           - nightly
         features:
-          - serde
-          - base64
-          - wincode
-          - simd_backend
           - default
+          - serde
+          - simd_backend
         os:
           - ubuntu-latest
           - macos-latest
@@ -75,17 +77,15 @@ jobs:
     env:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup ${{ matrix.rust }} Rust toolchain with caching
-        uses: brndnmtthws/rust-action@v1
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: ${{ matrix.rust }}
-          cargo-packages: |
-            cargo-nextest
-            cargo-tarpaulin
+          cargo-packages: cargo-nextest
       - name: Install cargo-hold
         if: runner.os != 'Windows'
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
         with:
           packages: cargo-hold
       - run: cargo hold voyage
@@ -95,5 +95,96 @@ jobs:
         env:
           RUST_BACKTRACE: 1
       - run: cargo fmt --all -- --check
-        if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' && matrix.features == 'default' }}
       - run: cargo clippy --features ${{ env.FEATURES }} -- -D warnings
+
+  feature-matrix:
+    name: features / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: minimal
+            flags: --no-default-features
+          - name: base64-only
+            flags: --no-default-features --features base64
+          - name: serde-only
+            flags: --no-default-features --features serde
+          - name: wincode-only
+            flags: --no-default-features --features wincode
+          - name: optional-features
+            flags: --no-default-features --features serde,base64,wincode
+          - name: protected-only
+            flags: --no-default-features --features protected
+          - name: serde-protected
+            flags: --no-default-features --features serde,protected
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup stable Rust toolchain with caching
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        with:
+          toolchain: stable
+          cargo-packages: ""
+      - run: cargo test --all-targets ${{ matrix.flags }}
+        env:
+          RUST_BACKTRACE: 1
+      - run: cargo clippy --all-targets ${{ matrix.flags }} -- -D warnings
+
+  msrv:
+    name: Rust 1.89 MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup MSRV toolchain with caching
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        with:
+          toolchain: 1.89.0
+          cargo-packages: ""
+      - run: cargo test --all-targets --features serde,wincode
+
+  all-features:
+    name: all features / nightly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup nightly Rust toolchain with caching
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        with:
+          toolchain: nightly
+          cargo-packages: ""
+      - run: cargo test --all-targets --all-features
+        env:
+          RUST_BACKTRACE: 1
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  docs:
+    name: documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup nightly Rust toolchain with caching
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        with:
+          toolchain: nightly
+          cargo-packages: ""
+      - run: cargo test --doc --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo doc --no-default-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo doc --all-features --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  fuzz-build:
+    name: fuzz targets compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup nightly Rust and cargo-fuzz
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        with:
+          toolchain: nightly
+          cargo-packages: cargo-fuzz
+      - run: cargo fuzz build --features base64
