@@ -1,4 +1,4 @@
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::blake2b;
 use crate::error::Error;
@@ -68,7 +68,7 @@ pub(crate) enum Argon2Type {
     Argon2id = 2,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 #[repr(align(64))]
 struct Block {
     v: [u64; ARGON2_QWORDS_IN_BLOCK],
@@ -157,6 +157,13 @@ struct Argon2Instance {
     type_: Argon2Type,
 }
 
+impl Drop for Argon2Instance {
+    fn drop(&mut self) {
+        self.region.memory.zeroize();
+        self.pseudo_rands.zeroize();
+    }
+}
+
 impl Default for Argon2Instance {
     fn default() -> Self {
         Self {
@@ -181,13 +188,14 @@ impl Argon2Instance {
         lanes: u32,
     ) -> Self {
         let mut ret = Self {
+            region: BlockRegion::default(),
+            pseudo_rands: Vec::new(),
             memory_blocks,
             segment_length,
             type_,
             lane_length: segment_length * ARGON2_SYNC_POINTS,
             passes: t_cost,
             lanes,
-            ..Default::default()
         };
         ret.initialize();
         ret
@@ -336,15 +344,15 @@ fn argon2_finalize(context: Argon2Context, instance: Argon2Instance) -> Result<(
         xor_block(&mut blockhash, &instance.region.memory[last_block_in_lane]);
     }
 
-    let mut blockhash_bytes = [0u8; ARGON2_BLOCK_SIZE];
-    store_block(&mut blockhash_bytes, &blockhash);
-    blake2b::longhash(context.output, &blockhash_bytes)
+    let mut blockhash_bytes = Zeroizing::new([0u8; ARGON2_BLOCK_SIZE]);
+    store_block(&mut blockhash_bytes[..], &blockhash);
+    blake2b::longhash(context.output, &blockhash_bytes[..])
 }
 
 fn argon2_initial_hash(
     context: &Argon2Context,
     type_: Argon2Type,
-) -> Result<[u8; ARGON2_PREHASH_SEED_LENGTH], Error> {
+) -> Result<Zeroizing<[u8; ARGON2_PREHASH_SEED_LENGTH]>, Error> {
     let mut blake2b = blake2b::State::init(ARGON2_PREHASH_DIGEST_LENGTH as u8, None, None, None)?;
     blake2b.update(&context.lanes.to_le_bytes());
     blake2b.update(&(context.output.len() as u32).to_le_bytes());
@@ -380,7 +388,7 @@ fn argon2_initial_hash(
         None => blake2b.update(&(0u32.to_le_bytes())), // ad, unused
     }
 
-    let mut blockhash = [0u8; ARGON2_PREHASH_SEED_LENGTH];
+    let mut blockhash = Zeroizing::new([0u8; ARGON2_PREHASH_SEED_LENGTH]);
     blake2b.finalize(&mut blockhash[..ARGON2_PREHASH_DIGEST_LENGTH])?;
     Ok(blockhash)
 }
@@ -597,34 +605,31 @@ fn xor_block(dst: &mut Block, src: &Block) {
 }
 
 fn argon2_fill_first_blocks(
-    mut blockhash: [u8; ARGON2_PREHASH_SEED_LENGTH],
+    mut blockhash: Zeroizing<[u8; ARGON2_PREHASH_SEED_LENGTH]>,
     instance: &mut Argon2Instance,
 ) -> Result<(), Error> {
-    let mut blockhash_bytes = [0u8; ARGON2_BLOCK_SIZE];
+    let mut blockhash_bytes = Zeroizing::new([0u8; ARGON2_BLOCK_SIZE]);
 
     for l in 0..instance.lanes {
         blockhash[ARGON2_PREHASH_DIGEST_LENGTH..(ARGON2_PREHASH_DIGEST_LENGTH + 4)]
             .copy_from_slice(&[0, 0, 0, 0]);
         blockhash[(ARGON2_PREHASH_DIGEST_LENGTH + 4)..(ARGON2_PREHASH_DIGEST_LENGTH + 8)]
             .copy_from_slice(&l.to_le_bytes());
-        blake2b::longhash(&mut blockhash_bytes, &blockhash)?;
+        blake2b::longhash(&mut blockhash_bytes[..], &blockhash[..])?;
 
         load_block(
             &mut instance.region.memory[(l * instance.lane_length) as usize],
-            &blockhash_bytes,
+            &blockhash_bytes[..],
         );
 
         blockhash[ARGON2_PREHASH_DIGEST_LENGTH..(ARGON2_PREHASH_DIGEST_LENGTH + 4)]
             .copy_from_slice(&[1, 0, 0, 0]);
-        blake2b::longhash(&mut blockhash_bytes, &blockhash)?;
+        blake2b::longhash(&mut blockhash_bytes[..], &blockhash[..])?;
         load_block(
             &mut instance.region.memory[(l * instance.lane_length + 1) as usize],
-            &blockhash_bytes,
+            &blockhash_bytes[..],
         );
     }
-
-    blockhash_bytes.zeroize();
-    blockhash.zeroize();
 
     Ok(())
 }
@@ -651,6 +656,12 @@ mod tests {
     extern crate test;
 
     use super::*;
+
+    #[test]
+    fn secret_working_types_zeroize_on_drop() {
+        assert!(std::mem::needs_drop::<Block>());
+        assert!(std::mem::needs_drop::<Argon2Instance>());
+    }
 
     #[cfg(feature = "nightly")]
     fn bench_argon2id(b: &mut test::Bencher, t_cost: u32, m_cost: u32) {

@@ -5,6 +5,8 @@
 //!
 //! Refer to the [protected] mod for details on usage with protected memory.
 
+use std::fmt;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -29,9 +31,9 @@ pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
 
 #[cfg_attr(
     feature = "serde",
-    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Debug, Clone)
+    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Clone)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Debug, Clone))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
 /// Public/private keypair for use with [`crate::dryocbox::DryocBox`], aka
 /// libsodium box
 pub struct KeyPair<
@@ -42,6 +44,19 @@ pub struct KeyPair<
     pub public_key: PublicKey,
     /// Secret key
     pub secret_key: SecretKey,
+}
+
+impl<
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
+> fmt::Debug for KeyPair<PublicKey, SecretKey>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyPair")
+            .field("public_key", &"[REDACTED]")
+            .field("secret_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl<
@@ -157,19 +172,10 @@ impl<
     /// Checks if the given public key is valid according to X25519 rules.
     ///
     /// For X25519 ([`crypto_box`](`crate::classic::crypto_box`),
-    /// [`DryocBox`](`crate::dryocbox::DryocBox`)), a public key is considered
-    /// valid if:
-    /// - It is not the all-zero point `[0, ..., 0]`.
-    /// - The high bit of the last byte is 0.
-    ///
-    /// This function verifies these conditions.
-    ///
-    /// **Note:** This validation is specific to X25519 keys used in
-    /// Diffie-Hellman key exchange (`crypto_box`). It primarily aims to
-    /// exclude degenerate keys and does **not** explicitly verify that the
-    /// point lies on the underlying curve, unlike stricter Ed25519 point
-    /// validation (see
-    /// [`crypto_core_ed25519_is_valid_point`](`crate::classic::crypto_core::crypto_core_ed25519_is_valid_point`)).
+    /// [`DryocBox`](`crate::dryocbox::DryocBox`)), this performs a trial scalar
+    /// multiplication and rejects public keys that produce an all-zero shared
+    /// secret, including low-order inputs rejected by libsodium. As required by
+    /// RFC 7748, the high bit of the encoded public key is ignored.
     ///
     /// ## Validating Protected Keys
     ///
@@ -216,23 +222,11 @@ impl<
     /// # }
     /// ```
     pub fn is_valid_public_key<PK: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(key: &PK) -> bool {
-        const ZERO_POINT: [u8; CRYPTO_BOX_PUBLICKEYBYTES] = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
-        let key_array = key.as_array();
+        let scalar = [0u8; CRYPTO_BOX_SECRETKEYBYTES];
+        let mut shared_secret = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
 
-        // Check 1: Not the all-zero point
-        if key_array == &ZERO_POINT {
-            return false;
-        }
-
-        // Check 2: High bit of the last byte must be 0
-        // Although clamping during generation usually ensures this, we check it.
-        if key_array[CRYPTO_BOX_PUBLICKEYBYTES - 1] & 0x80 != 0 {
-            return false;
-        }
-
-        // If both checks pass, it's considered a valid X25519 public key
-        // representation.
-        true
+        crate::classic::crypto_core::crypto_scalarmult(&mut shared_secret, &scalar, key.as_array())
+            .is_ok()
     }
 
     /// Checks if the given key is a valid Ed25519 public key, using relaxed
@@ -275,7 +269,7 @@ impl<
     pub fn precalculate(
         &self,
         third_party_public_key: &PublicKey,
-    ) -> PrecalcSecretKey<StackByteArray<CRYPTO_BOX_BEFORENMBYTES>> {
+    ) -> Result<PrecalcSecretKey<StackByteArray<CRYPTO_BOX_BEFORENMBYTES>>, Error> {
         PrecalcSecretKey::precalculate(third_party_public_key, &self.secret_key)
     }
 }
@@ -342,7 +336,7 @@ pub mod protected {
         pub fn precalculate_locked<OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(
             &self,
             third_party_public_key: &OtherPublicKey,
-        ) -> Result<PrecalcSecretKey<Locked<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>, std::io::Error>
+        ) -> Result<PrecalcSecretKey<Locked<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>, Error>
         {
             PrecalcSecretKey::precalculate_locked(third_party_public_key, &self.secret_key)
         }
@@ -391,10 +385,8 @@ pub mod protected {
         >(
             &self,
             third_party_public_key: &OtherPublicKey,
-        ) -> Result<
-            PrecalcSecretKey<LockedRO<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>,
-            std::io::Error,
-        > {
+        ) -> Result<PrecalcSecretKey<LockedRO<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>>, Error>
+        {
             PrecalcSecretKey::precalculate_readonly_locked(third_party_public_key, &self.secret_key)
         }
     }
@@ -425,6 +417,17 @@ mod tests {
 
     use super::*;
     use crate::kx::Session;
+
+    #[test]
+    fn keypair_debug_redacts_keys() {
+        let keypair = StackKeyPair::generate();
+        let debug = format!("{keypair:?}");
+
+        assert_eq!(
+            debug,
+            "KeyPair { public_key: \"[REDACTED]\", secret_key: \"[REDACTED]\" }"
+        );
+    }
 
     fn all_eq<T>(t: &[T], v: T) -> bool
     where
@@ -470,7 +473,7 @@ mod tests {
     fn test_keypair_precalculate() {
         let kp1 = KeyPair::generate_with_defaults();
         let kp2 = KeyPair::generate_with_defaults();
-        let precalc = kp1.precalculate(&kp2.public_key);
+        let precalc = kp1.precalculate(&kp2.public_key).unwrap();
         assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
     }
 
@@ -545,13 +548,15 @@ mod tests {
             "Known valid key failed validation"
         );
 
-        // Invalid: High bit set
-        let mut invalid_high_bit_bytes = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
-        invalid_high_bit_bytes[31] = 0x80;
-        let invalid_high_bit = PublicKey::from(invalid_high_bit_bytes);
+        // RFC 7748 requires the high bit to be ignored when decoding X25519
+        // public keys.
+        let mut high_bit_bytes = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
+        high_bit_bytes[0] = 9;
+        high_bit_bytes[31] = 0x80;
+        let high_bit = PublicKey::from(high_bit_bytes);
         assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&invalid_high_bit),
-            "Key with high bit set should be invalid"
+            KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&high_bit),
+            "RFC 7748 high-bit encoding should be accepted"
         );
 
         // Invalid: Zero point
@@ -562,8 +567,13 @@ mod tests {
             "Zero key should be invalid"
         );
 
-        // The identity point [1, 0, ..., 0] is NOT necessarily invalid for X25519,
-        // unlike Ed25519 validation. We don't explicitly test its rejection here.
+        let mut identity_bytes = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
+        identity_bytes[0] = 1;
+        let identity = PublicKey::from(identity_bytes);
+        assert!(
+            !KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&identity),
+            "Low-order key should be invalid"
+        );
 
         // Generated key should be valid
         let kp = KeyPair::generate_with_defaults();

@@ -40,7 +40,7 @@
 //! assert_eq!(message, decrypted_message);
 //! ```
 
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::crypto_generichash::{
     crypto_generichash_final, crypto_generichash_init, crypto_generichash_update,
@@ -94,7 +94,8 @@ pub fn crypto_box_seed_keypair(seed: &[u8]) -> (PublicKey, SecretKey) {
 /// Resulting shared secret can be used with the precalculation interface.
 ///
 /// Compatible with libsodium's `crypto_box_beforenm`.
-pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Key {
+/// Returns an error when `public_key` is an unacceptable low-order key.
+pub fn crypto_box_beforenm(public_key: &PublicKey, secret_key: &SecretKey) -> Result<Key, Error> {
     crypto_box_curve25519xsalsa20poly1305_beforenm(public_key, secret_key)
 }
 
@@ -108,7 +109,7 @@ pub fn crypto_box_detached_afternm(
     message: &[u8],
     nonce: &Nonce,
     key: &Key,
-) {
+) -> Result<(), Error> {
     crypto_secretbox_detached(ciphertext, mac, message, nonce, key)
 }
 
@@ -132,12 +133,13 @@ pub fn crypto_box_detached(
     nonce: &Nonce,
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
-) {
-    let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
+) -> Result<(), Error> {
+    let key = Zeroizing::new(crypto_box_beforenm(
+        recipient_public_key,
+        sender_secret_key,
+    )?);
 
-    crypto_box_detached_afternm(ciphertext, mac, message, nonce, &key);
-
-    key.zeroize();
+    crypto_box_detached_afternm(ciphertext, mac, message, nonce, &key)
 }
 
 /// In-place variant of [`crypto_box_detached`].
@@ -148,11 +150,12 @@ pub fn crypto_box_detached_inplace(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
+    let key = Zeroizing::new(crypto_box_beforenm(
+        recipient_public_key,
+        sender_secret_key,
+    )?);
 
     crypto_box_detached_afternm_inplace(message, mac, nonce, &key);
-
-    key.zeroize();
 
     Ok(())
 }
@@ -171,17 +174,17 @@ pub fn crypto_box_easy(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if ciphertext.len() < CRYPTO_BOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "ciphertext length {} less than minimum {}",
-            ciphertext.len(),
-            CRYPTO_BOX_MACBYTES
-        )))
-    } else if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
+    if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
         Err(dryoc_error!(format!(
             "message length {} exceeds max message length {}",
             message.len(),
             CRYPTO_BOX_MESSAGEBYTES_MAX
+        )))
+    } else if ciphertext.len() != message.len() + CRYPTO_BOX_MACBYTES {
+        Err(dryoc_error!(format!(
+            "ciphertext length invalid ({} != {})",
+            ciphertext.len(),
+            message.len() + CRYPTO_BOX_MACBYTES
         )))
     } else {
         let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
@@ -193,7 +196,7 @@ pub fn crypto_box_easy(
             nonce,
             recipient_public_key,
             sender_secret_key,
-        );
+        )?;
 
         Ok(())
     }
@@ -219,15 +222,16 @@ pub fn crypto_box_seal(
     message: &[u8],
     recipient_public_key: &PublicKey,
 ) -> Result<(), Error> {
-    if ciphertext.len() < message.len() + CRYPTO_BOX_SEALBYTES {
+    if ciphertext.len() != message.len() + CRYPTO_BOX_SEALBYTES {
         Err(dryoc_error!(format!(
-            "ciphertext length invalid ({} != {}",
+            "ciphertext length invalid ({} != {})",
             ciphertext.len(),
             message.len() + CRYPTO_BOX_SEALBYTES,
         )))
     } else {
         let mut nonce = Nonce::new_byte_array();
-        let (mut epk, mut esk) = crypto_box_keypair();
+        let (mut epk, esk) = crypto_box_keypair();
+        let esk = Zeroizing::new(esk);
         crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
 
         crypto_box_easy(
@@ -241,7 +245,6 @@ pub fn crypto_box_seal(
         ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES].copy_from_slice(&epk);
 
         epk.zeroize();
-        esk.zeroize();
         nonce.zeroize();
 
         Ok(())
@@ -325,11 +328,12 @@ pub fn crypto_box_open_detached(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
+    let key = Zeroizing::new(crypto_box_beforenm(
+        recipient_public_key,
+        sender_secret_key,
+    )?);
 
     crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, &key)?;
-
-    key.zeroize();
 
     Ok(())
 }
@@ -342,11 +346,12 @@ pub fn crypto_box_open_detached_inplace(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let mut key = crypto_box_beforenm(recipient_public_key, sender_secret_key);
+    let key = Zeroizing::new(crypto_box_beforenm(
+        recipient_public_key,
+        sender_secret_key,
+    )?);
 
     crypto_box_open_detached_afternm_inplace(data, mac, nonce, &key)?;
-
-    key.zeroize();
 
     Ok(())
 }
@@ -367,6 +372,12 @@ pub fn crypto_box_open_easy(
             "Impossibly small box ({} < {}",
             ciphertext.len(),
             CRYPTO_BOX_MACBYTES
+        )))
+    } else if message.len() != ciphertext.len() - CRYPTO_BOX_MACBYTES {
+        Err(dryoc_error!(format!(
+            "message length invalid ({} != {})",
+            message.len(),
+            ciphertext.len() - CRYPTO_BOX_MACBYTES
         )))
     } else {
         let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
@@ -482,6 +493,66 @@ mod tests {
                 .expect_err("expected an error");
         }
     }
+
+    #[test]
+    fn test_crypto_box_rejects_mismatched_buffers_without_mutation() {
+        let (sender_pk, sender_sk) = crypto_box_keypair();
+        let (recipient_pk, recipient_sk) = crypto_box_keypair();
+        let nonce = Nonce::default();
+        let message = b"buffer length validation";
+
+        for output_len in [
+            message.len() + CRYPTO_BOX_MACBYTES - 1,
+            message.len() + CRYPTO_BOX_MACBYTES + 1,
+        ] {
+            let mut output = vec![0xa5; output_len];
+            let original = output.clone();
+            assert!(
+                crypto_box_easy(&mut output, message, &nonce, &recipient_pk, &sender_sk,).is_err()
+            );
+            assert_eq!(output, original);
+        }
+
+        let mut ciphertext = vec![0u8; message.len() + CRYPTO_BOX_MACBYTES];
+        crypto_box_easy(&mut ciphertext, message, &nonce, &recipient_pk, &sender_sk)
+            .expect("encrypt failed");
+
+        for output_len in [message.len() - 1, message.len() + 1] {
+            let mut output = vec![0xa5; output_len];
+            let original = output.clone();
+            assert!(
+                crypto_box_open_easy(&mut output, &ciphertext, &nonce, &sender_pk, &recipient_sk,)
+                    .is_err()
+            );
+            assert_eq!(output, original);
+        }
+    }
+
+    #[test]
+    fn test_crypto_box_rejects_low_order_public_keys() {
+        let (_, secret_key) = crypto_box_keypair();
+        let nonce = Nonce::default();
+        let message = b"message";
+        let mut ciphertext = [0u8; 7];
+        let mut mac = Mac::default();
+        let mut one = PublicKey::default();
+        one[0] = 1;
+
+        for public_key in [PublicKey::default(), one] {
+            assert!(crypto_box_beforenm(&public_key, &secret_key).is_err());
+            assert!(
+                crypto_box_detached(
+                    &mut ciphertext,
+                    &mut mac,
+                    message,
+                    &nonce,
+                    &public_key,
+                    &secret_key,
+                )
+                .is_err()
+            );
+        }
+    }
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
         for _ in 0..20 {
@@ -515,6 +586,27 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
+
+        #[test]
+        fn test_crypto_box_beforenm_low_order_compatibility() {
+            let (_, secret_key) = crypto_box_keypair();
+            let mut one = PublicKey::default();
+            one[0] = 1;
+
+            for public_key in [PublicKey::default(), one] {
+                let mut sodium_key = Key::default();
+                let sodium_result = unsafe {
+                    libsodium_sys::crypto_box_curve25519xsalsa20poly1305_beforenm(
+                        sodium_key.as_mut_ptr(),
+                        public_key.as_ptr(),
+                        secret_key.as_ptr(),
+                    )
+                };
+
+                assert!(crypto_box_beforenm(&public_key, &secret_key).is_err());
+                assert_eq!(sodium_result, -1);
+            }
+        }
 
         #[test]
         fn test_crypto_box_easy() {

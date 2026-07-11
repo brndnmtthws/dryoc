@@ -45,6 +45,8 @@
 //! * See <https://doc.libsodium.org/key_exchange> for additional details on key
 //!   exchange
 
+use std::fmt;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -65,16 +67,24 @@ pub type SecretKey = StackByteArray<CRYPTO_KX_SECRETKEYBYTES>;
 /// Stack-allocated keypair type alias
 pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
 /// Key derivation implemantation based on Curve25519, Diffie-Hellman, and
 /// Blake2b. Compatible with libsodium's `crypto_kx_*` functions.
 pub struct Session<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> {
     rx_key: SessionKey,
     tx_key: SessionKey,
+}
+
+impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize> fmt::Debug
+    for Session<SessionKey>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("rx_key", &"[REDACTED]")
+            .field("tx_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Stack-allocated type alias for [`Session`]. Provided for convenience.
@@ -255,6 +265,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn session_debug_redacts_keys() {
+        let session = StackSession {
+            rx_key: SessionKey::from([1u8; CRYPTO_KX_SESSIONKEYBYTES]),
+            tx_key: SessionKey::from([2u8; CRYPTO_KX_SESSIONKEYBYTES]),
+        };
+
+        assert_eq!(
+            format!("{session:?}"),
+            "Session { rx_key: \"[REDACTED]\", tx_key: \"[REDACTED]\" }"
+        );
+    }
+
+    #[test]
     fn test_kx() {
         let client_keypair = KeyPair::generate();
         let server_keypair = KeyPair::generate();
@@ -272,5 +295,13 @@ mod tests {
 
         assert_eq!(client_rx, server_tx);
         assert_eq!(client_tx, server_rx);
+    }
+
+    #[test]
+    fn test_kx_rejects_low_order_public_key() {
+        let client_keypair = KeyPair::generate();
+        let low_order_public_key = PublicKey::default();
+
+        assert!(Session::new_client_with_defaults(&client_keypair, &low_order_public_key).is_err());
     }
 }

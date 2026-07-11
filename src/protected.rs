@@ -148,6 +148,7 @@ use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 use std::sync::LazyLock;
 
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error;
@@ -749,7 +750,8 @@ impl Lockable<HeapBytes> for HeapBytes {
 #[derive(Clone)]
 /// Custom page-aligned allocator implementation. Creates blocks of page-aligned
 /// heap-allocated memory regions, with no-access pages before and after the
-/// allocated region of memory.
+/// allocated region of memory. Allocations whose requested alignment does not
+/// divide the host page size are rejected.
 pub struct PageAlignedAllocator;
 
 #[cfg(unix)]
@@ -1045,13 +1047,16 @@ impl Clone for ProtectedBuffer {
 
 impl fmt::Debug for ProtectedBuffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list().entries(self.as_slice()).finish()
+        f.debug_struct("ProtectedBuffer")
+            .field("len", &self.len())
+            .field("contents", &"[REDACTED]")
+            .finish()
     }
 }
 
 impl PartialEq for ProtectedBuffer {
     fn eq(&self, other: &Self) -> bool {
-        self.as_slice() == other.as_slice()
+        self.as_slice().ct_eq(other.as_slice()).into()
     }
 }
 
@@ -1156,6 +1161,11 @@ impl_index_protected_buffer!(std::ops::RangeToInclusive<usize>);
 unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: std::alloc::Layout) -> Result<NonNull<[u8]>, AllocError> {
+        let pagesize = *PAGESIZE;
+        if pagesize % layout.align() != 0 {
+            return Err(AllocError);
+        }
+
         let raw = allocate_raw_region(layout.size()).map_err(|_| AllocError)?;
         // SAFETY: `raw.data` points to the unique user-visible allocation
         // region returned by `allocate_raw_region`.
@@ -1851,6 +1861,15 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn protected_byte_array_debug_redacts_contents() {
+        let bytes = HeapByteArray::from(StackByteArray::from([0xabu8; 4]));
+        let debug = format!("{bytes:?}");
+
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("171"));
+    }
+
     fn interesting_lengths() -> impl Strategy<Value = usize> {
         let pagesize = *PAGESIZE;
         let max = pagesize.saturating_mul(2).saturating_add(8);
@@ -1936,6 +1955,44 @@ mod tests {
         vec.resize(5, 0);
 
         assert_eq!([1, 2, 3, 0, 1], vec.as_slice());
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_allocator_honors_supported_alignment() {
+        let allocator = PageAlignedAllocator;
+        let layout = std::alloc::Layout::from_size_align(1, *PAGESIZE).unwrap();
+        let allocation = allocator.allocate(layout).unwrap();
+        let data = allocation.as_ptr() as *mut u8;
+
+        assert_eq!(data.addr() % layout.align(), 0);
+
+        // SAFETY: `data` was returned by `allocator` for this exact `layout`.
+        unsafe { allocator.deallocate(NonNull::new_unchecked(data), layout) };
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_allocator_rejects_unsupported_alignment() {
+        let unsupported_alignment = PAGESIZE.checked_mul(2).unwrap();
+        let layout = std::alloc::Layout::from_size_align(1, unsupported_alignment).unwrap();
+
+        assert!(PageAlignedAllocator.allocate(layout).is_err());
+    }
+
+    #[cfg(feature = "nightly")]
+    #[test]
+    fn test_allocator_handles_zero_sized_layout() {
+        let allocator = PageAlignedAllocator;
+        let layout = std::alloc::Layout::from_size_align(0, 1).unwrap();
+        let allocation = allocator.allocate(layout).unwrap();
+        let data = allocation.as_ptr() as *mut u8;
+
+        assert_eq!(allocation.len(), 0);
+        assert_eq!(data.addr() % layout.align(), 0);
+
+        // SAFETY: `data` was returned by `allocator` for this exact `layout`.
+        unsafe { allocator.deallocate(NonNull::new_unchecked(data), layout) };
     }
 
     #[test]

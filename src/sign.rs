@@ -93,10 +93,12 @@
 //! * For stream encryption, see [`DryocStream`](crate::dryocstream)
 //! * See the [protected] mod for an example using the protected memory features
 
+use std::fmt;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::classic::crypto_sign::{
     SignerState, crypto_sign_detached, crypto_sign_ed25519_sk_to_pk,
@@ -148,9 +150,9 @@ pub fn secret_key_to_public_key<
 
 #[cfg_attr(
     feature = "serde",
-    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Debug, Clone)
+    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Clone)
 )]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Debug, Clone))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
 /// An Ed25519 keypair for public-key signatures
 pub struct SigningKeyPair<
     PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
@@ -160,6 +162,19 @@ pub struct SigningKeyPair<
     pub public_key: PublicKey,
     /// Secret key
     pub secret_key: SecretKey,
+}
+
+impl<
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
+> fmt::Debug for SigningKeyPair<PublicKey, SecretKey>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SigningKeyPair")
+            .field("public_key", &"[REDACTED]")
+            .field("secret_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl<
@@ -198,10 +213,10 @@ impl<
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
     /// a new keypair.
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
-        let mut seed = [0u8; 32];
+        let mut seed = Zeroizing::new([0u8; 32]);
         seed.copy_from_slice(&secret_key.as_slice()[..32]);
 
-        Self::from_seed(&seed)
+        Self::from_seed(&*seed)
     }
 
     /// Derives a signing keypair from `seed`, returning

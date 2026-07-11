@@ -222,7 +222,8 @@ impl<
             message.as_slice(),
             nonce.as_array(),
             secret_key.as_array(),
-        );
+        )
+        .expect("allocated ciphertext length matches message length");
 
         new
     }

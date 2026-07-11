@@ -60,19 +60,30 @@ pub fn crypto_secretbox_keygen() -> Key {
 /// Detached version of [`crypto_secretbox_easy`].
 ///
 /// Compatible with libsodium's `crypto_secretbox_detached`.
+/// Returns an error if `ciphertext` is shorter than `message`.
 pub fn crypto_secretbox_detached(
     ciphertext: &mut [u8],
     mac: &mut Mac,
     message: &[u8],
     nonce: &Nonce,
     key: &Key,
-) {
+) -> Result<(), Error> {
+    if ciphertext.len() < message.len() {
+        return Err(dryoc_error!(format!(
+            "ciphertext length {} less than message length {}",
+            ciphertext.len(),
+            message.len()
+        )));
+    }
+
     crypto_secretbox_detached_b2b(&mut ciphertext[..message.len()], mac, message, nonce, key);
+    Ok(())
 }
 
 /// Detached version of [`crypto_secretbox_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_secretbox_open_detached`.
+/// Returns an error if `message` is shorter than `ciphertext`.
 pub fn crypto_secretbox_open_detached(
     message: &mut [u8],
     mac: &Mac,
@@ -81,6 +92,14 @@ pub fn crypto_secretbox_open_detached(
     key: &Key,
 ) -> Result<(), Error> {
     let c_len = ciphertext.len();
+    if message.len() < c_len {
+        return Err(dryoc_error!(format!(
+            "message length {} less than ciphertext length {}",
+            message.len(),
+            c_len
+        )));
+    }
+
     crypto_secretbox_open_detached_b2b(&mut message[..c_len], mac, ciphertext, nonce, key)
 }
 
@@ -93,6 +112,18 @@ pub fn crypto_secretbox_easy(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
+    let expected_len = message
+        .len()
+        .checked_add(CRYPTO_SECRETBOX_MACBYTES)
+        .ok_or_else(|| dryoc_error!("ciphertext length overflow"))?;
+    if ciphertext.len() != expected_len {
+        return Err(dryoc_error!(format!(
+            "ciphertext length invalid ({} != {})",
+            ciphertext.len(),
+            expected_len
+        )));
+    }
+
     let mut mac = Mac::default();
     crypto_secretbox_detached(
         &mut ciphertext[CRYPTO_SECRETBOX_MACBYTES..],
@@ -100,7 +131,7 @@ pub fn crypto_secretbox_easy(
         message,
         nonce,
         key,
-    );
+    )?;
 
     ciphertext[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(&mac);
 
@@ -122,6 +153,12 @@ pub fn crypto_secretbox_open_easy(
             ciphertext.len(),
             CRYPTO_SECRETBOX_MACBYTES
         )))
+    } else if message.len() != ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES {
+        Err(dryoc_error!(format!(
+            "message length invalid ({} != {})",
+            message.len(),
+            ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES
+        )))
     } else {
         let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
         let mac = ByteArray::as_array(mac);
@@ -136,6 +173,13 @@ pub fn crypto_secretbox_easy_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
+    if data.len() < CRYPTO_SECRETBOX_MACBYTES {
+        return Err(dryoc_error!(format!(
+            "data length {} less than minimum {}",
+            data.len(),
+            CRYPTO_SECRETBOX_MACBYTES
+        )));
+    }
     data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
     let (mac, data) = data.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
     let mac = MutByteArray::as_mut_array(mac);
@@ -176,6 +220,63 @@ mod tests {
     extern crate test;
 
     use super::*;
+
+    #[test]
+    fn test_crypto_secretbox_rejects_invalid_buffer_lengths_without_mutation() {
+        let key = Key::default();
+        let nonce = Nonce::default();
+        let message = b"buffer length validation";
+
+        let mut short_detached = vec![0xa5; message.len() - 1];
+        let original_short_detached = short_detached.clone();
+        let mut mac = [0x5a; CRYPTO_SECRETBOX_MACBYTES];
+        let original_mac = mac;
+        assert!(
+            crypto_secretbox_detached(&mut short_detached, &mut mac, message, &nonce, &key)
+                .is_err()
+        );
+        assert_eq!(short_detached, original_short_detached);
+        assert_eq!(mac, original_mac);
+
+        for output_len in [
+            message.len() + CRYPTO_SECRETBOX_MACBYTES - 1,
+            message.len() + CRYPTO_SECRETBOX_MACBYTES + 1,
+        ] {
+            let mut output = vec![0xa5; output_len];
+            let original = output.clone();
+            assert!(crypto_secretbox_easy(&mut output, message, &nonce, &key).is_err());
+            assert_eq!(output, original);
+        }
+
+        let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
+        crypto_secretbox_easy(&mut ciphertext, message, &nonce, &key).expect("encrypt failed");
+
+        for output_len in [message.len() - 1, message.len() + 1] {
+            let mut output = vec![0xa5; output_len];
+            let original = output.clone();
+            assert!(crypto_secretbox_open_easy(&mut output, &ciphertext, &nonce, &key).is_err());
+            assert_eq!(output, original);
+        }
+
+        let mut short_open = vec![0xa5; message.len() - 1];
+        let original_short_open = short_open.clone();
+        assert!(
+            crypto_secretbox_open_detached(
+                &mut short_open,
+                ByteArray::as_array(&ciphertext[..CRYPTO_SECRETBOX_MACBYTES]),
+                &ciphertext[CRYPTO_SECRETBOX_MACBYTES..],
+                &nonce,
+                &key,
+            )
+            .is_err()
+        );
+        assert_eq!(short_open, original_short_open);
+
+        let mut too_short_inplace = vec![0xa5; CRYPTO_SECRETBOX_MACBYTES - 1];
+        let original_too_short_inplace = too_short_inplace.clone();
+        assert!(crypto_secretbox_easy_inplace(&mut too_short_inplace, &nonce, &key).is_err());
+        assert_eq!(too_short_inplace, original_too_short_inplace);
+    }
 
     #[test]
     fn test_crypto_secretbox_easy() {
@@ -271,7 +372,8 @@ mod tests {
         let mut ciphertext = vec![0xa5; message.len() + 8];
         let mut mac = Mac::default();
 
-        crypto_secretbox_detached(&mut ciphertext, &mut mac, message, &nonce, &key);
+        crypto_secretbox_detached(&mut ciphertext, &mut mac, message, &nonce, &key)
+            .expect("encrypt failed");
 
         assert_eq!(&ciphertext[message.len()..], &[0xa5; 8]);
 
@@ -297,7 +399,8 @@ mod tests {
         let mut ciphertext = vec![0u8; message.len()];
         let mut mac = Mac::default();
 
-        crypto_secretbox_detached(&mut ciphertext, &mut mac, message, &nonce, &key);
+        crypto_secretbox_detached(&mut ciphertext, &mut mac, message, &nonce, &key)
+            .expect("encrypt failed");
         mac[0] ^= 1;
 
         let mut decrypted = vec![0x5a; message.len()];
@@ -330,7 +433,8 @@ mod tests {
                 test::black_box(&message),
                 test::black_box(&nonce),
                 test::black_box(&key),
-            );
+            )
+            .expect("encrypt failed");
         });
     }
 

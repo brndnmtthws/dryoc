@@ -33,7 +33,7 @@
 //! assert_eq!(ctx, srx);
 //! ```
 
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use super::crypto_core::{crypto_scalarmult, crypto_scalarmult_base};
 use super::crypto_generichash::{
@@ -88,21 +88,18 @@ fn crypto_kx(
     x2: &mut SessionKey,
     client_pk: &PublicKey,
     server_pk: &PublicKey,
-    mut shared_secret: [u8; CRYPTO_SCALARMULT_BYTES],
+    shared_secret: Zeroizing<[u8; CRYPTO_SCALARMULT_BYTES]>,
 ) -> Result<(), Error> {
-    let mut keys = [0u8; 2 * CRYPTO_KX_SESSIONKEYBYTES];
+    let mut keys = Zeroizing::new([0u8; 2 * CRYPTO_KX_SESSIONKEYBYTES]);
 
     let mut hasher = crypto_generichash_init(None, 2 * CRYPTO_KX_SESSIONKEYBYTES)?;
-    crypto_generichash_update(&mut hasher, &shared_secret);
-    shared_secret.zeroize();
+    crypto_generichash_update(&mut hasher, &shared_secret[..]);
     crypto_generichash_update(&mut hasher, client_pk);
     crypto_generichash_update(&mut hasher, server_pk);
-    crypto_generichash_final(hasher, &mut keys)?;
+    crypto_generichash_final(hasher, &mut keys[..])?;
 
     x1.copy_from_slice(&keys[..CRYPTO_KX_SESSIONKEYBYTES]);
     x2.copy_from_slice(&keys[CRYPTO_KX_SESSIONKEYBYTES..]);
-
-    keys.zeroize();
 
     Ok(())
 }
@@ -118,9 +115,9 @@ pub fn crypto_kx_client_session_keys(
     client_sk: &SecretKey,
     server_pk: &PublicKey,
 ) -> Result<(), Error> {
-    let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+    let mut shared_secret = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
 
-    crypto_scalarmult(&mut shared_secret, client_sk, server_pk);
+    crypto_scalarmult(&mut shared_secret, client_sk, server_pk)?;
 
     crypto_kx(rx, tx, client_pk, server_pk, shared_secret)
 }
@@ -136,9 +133,9 @@ pub fn crypto_kx_server_session_keys(
     server_sk: &SecretKey,
     client_pk: &PublicKey,
 ) -> Result<(), Error> {
-    let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+    let mut shared_secret = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
 
-    crypto_scalarmult(&mut shared_secret, server_sk, client_pk);
+    crypto_scalarmult(&mut shared_secret, server_sk, client_pk)?;
 
     crypto_kx(tx, rx, client_pk, server_pk, shared_secret)
 }
@@ -146,6 +143,38 @@ pub fn crypto_kx_server_session_keys(
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_kx_rejects_low_order_public_keys() {
+        use sodiumoxide::crypto::kx;
+
+        let (client_pk, client_sk) = crypto_kx_keypair();
+        let mut rx = SessionKey::default();
+        let mut tx = SessionKey::default();
+        let mut one = PublicKey::default();
+        one[0] = 1;
+
+        for server_pk in [PublicKey::default(), one] {
+            assert!(
+                crypto_kx_client_session_keys(
+                    &mut rx,
+                    &mut tx,
+                    &client_pk,
+                    &client_sk,
+                    &server_pk,
+                )
+                .is_err()
+            );
+            assert!(
+                kx::client_session_keys(
+                    &kx::PublicKey::from_slice(&client_pk).unwrap(),
+                    &kx::SecretKey::from_slice(&client_sk).unwrap(),
+                    &kx::PublicKey::from_slice(&server_pk).unwrap(),
+                )
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn test_kx() {

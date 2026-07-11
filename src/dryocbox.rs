@@ -98,7 +98,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::constants::{
     CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_MACBYTES, CRYPTO_BOX_NONCEBYTES,
@@ -305,7 +305,7 @@ impl<
             nonce.as_array(),
             recipient_public_key.as_array(),
             sender_secret_key.as_array(),
-        );
+        )?;
 
         Ok(dryocbox)
     }
@@ -337,7 +337,7 @@ impl<
             message.as_slice(),
             nonce.as_array(),
             precalc_secret_key.as_array(),
-        );
+        )?;
 
         Ok(dryocbox)
     }
@@ -365,6 +365,7 @@ impl<
 
         let mut nonce = Nonce::new_byte_array();
         let (epk, esk) = crypto_box_keypair();
+        let esk = Zeroizing::new(esk);
         crypto_box_seal_nonce(nonce.as_mut_array(), &epk, recipient_public_key.as_array());
 
         let mut pk = EphemeralPublicKey::new_byte_array();
@@ -385,7 +386,7 @@ impl<
             nonce.as_array(),
             recipient_public_key.as_array(),
             &esk,
-        );
+        )?;
 
         Ok(dryocbox)
     }
@@ -800,7 +801,8 @@ mod tests {
         let precalc_secret_key = PrecalcSecretKey::precalculate(
             &keypair_sender.secret_key,
             &keypair_recipient.public_key,
-        );
+        )
+        .expect("precalculation failed");
 
         let dryocbox: VecBox = DryocBox::precalc_encrypt(message, &nonce, &precalc_secret_key)
             .expect("unable to encrypt");
@@ -822,7 +824,8 @@ mod tests {
         let precalc_secret_key = PrecalcSecretKey::precalculate(
             &keypair_sender.secret_key,
             &keypair_recipient.public_key,
-        );
+        )
+        .expect("precalculation failed");
 
         let dryocbox = DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &precalc_secret_key)
             .expect("unable to encrypt");
@@ -850,7 +853,8 @@ mod tests {
         let precalc_secret_key = PrecalcSecretKey::precalculate(
             &keypair_sender.secret_key,
             &keypair_recipient.public_key,
-        );
+        )
+        .expect("precalculation failed");
 
         for message in &messages {
             let dryocbox: VecBox = DryocBox::precalc_encrypt(message, &nonce, &precalc_secret_key)
@@ -880,7 +884,8 @@ mod tests {
         let precalc_secret_key = PrecalcSecretKey::precalculate(
             &keypair_sender.secret_key,
             &keypair_recipient.public_key,
-        );
+        )
+        .expect("precalculation failed");
 
         for message in &messages {
             let dryocbox =

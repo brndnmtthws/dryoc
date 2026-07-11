@@ -39,7 +39,8 @@ fn dryocbox_precalc_roundtrip() {
     let nonce = Nonce::generate();
     let message = b"wasm dryocbox precalc";
     let shared_key =
-        PrecalcSecretKey::precalculate(&recipient_keypair.public_key, &sender_keypair.secret_key);
+        PrecalcSecretKey::precalculate(&recipient_keypair.public_key, &sender_keypair.secret_key)
+            .expect("precalculation failed");
 
     let dryocbox =
         DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &shared_key).expect("encrypt failed");

@@ -59,9 +59,11 @@ pub(crate) fn crypto_sign_ed25519_seed_keypair_inplace(
     secret_key: &mut SecretKey,
     seed: &[u8; CRYPTO_SIGN_ED25519_SEEDBYTES],
 ) {
-    let hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
+    let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
 
-    let mut sk = Scalar::from_bytes_mod_order(clamp_hash(hash));
+    let mut clamped = clamp_hash(&mut hash);
+    let mut sk = Scalar::from_bytes_mod_order(clamped);
+    clamped.zeroize();
 
     let pk = (ED25519_BASEPOINT_TABLE * &sk).compress();
     secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
@@ -95,6 +97,7 @@ pub(crate) fn crypto_sign_ed25519_keypair_inplace(
     let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
     copy_randombytes(&mut seed);
     crypto_sign_ed25519_seed_keypair_inplace(public_key, secret_key, &seed);
+    seed.zeroize();
 }
 
 /// Generates a random Ed25519 keypair which can be used for signing
@@ -108,7 +111,7 @@ pub(crate) fn crypto_sign_ed25519_keypair() -> (PublicKey, SecretKey) {
 }
 
 fn clamp_hash(
-    mut hash: [u8; CRYPTO_HASH_SHA512_BYTES],
+    hash: &mut [u8; CRYPTO_HASH_SHA512_BYTES],
 ) -> [u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES] {
     let mut scalar = [0u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES];
     scalar.copy_from_slice(&hash[..CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]);
@@ -143,8 +146,8 @@ pub fn crypto_sign_ed25519_sk_to_curve25519(
     x25519_secret_key: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     ed25519_secret_key: &SecretKey,
 ) {
-    let hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&ed25519_secret_key[..32]);
-    let mut scalar = clamp_hash(hash);
+    let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&ed25519_secret_key[..32]);
+    let mut scalar = clamp_hash(&mut hash);
     x25519_secret_key.copy_from_slice(&scalar);
     scalar.zeroize()
 }
@@ -223,7 +226,7 @@ fn crypto_sign_ed25519_detached_impl(
 
         signature[32..].copy_from_slice(&secret_key[32..]);
 
-        let r = Scalar::from_bytes_mod_order_wide(&nonce);
+        let mut r = Scalar::from_bytes_mod_order_wide(&nonce);
         let big_r = (ED25519_BASEPOINT_TABLE * &r).compress();
 
         signature[..32].copy_from_slice(big_r.as_bytes());
@@ -234,16 +237,23 @@ fn crypto_sign_ed25519_detached_impl(
         }
         hasher.update(signature);
         hasher.update(message);
-        let hram: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
+        let mut hram: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
 
-        let k = Scalar::from_bytes_mod_order_wide(&hram);
-        let clamped = clamp_hash(az);
-        let sig = (k * Scalar::from_bytes_mod_order(clamped)) + r;
+        let mut k = Scalar::from_bytes_mod_order_wide(&hram);
+        let mut clamped = clamp_hash(&mut az);
+        let mut signing_scalar = Scalar::from_bytes_mod_order(clamped);
+        clamped.zeroize();
+        let mut sig = (k * signing_scalar) + r;
 
         signature[32..].copy_from_slice(sig.as_bytes());
 
         az.zeroize();
         nonce.zeroize();
+        hram.zeroize();
+        r.zeroize();
+        k.zeroize();
+        signing_scalar.zeroize();
+        sig.zeroize();
 
         Ok(())
     }
