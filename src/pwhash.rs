@@ -54,10 +54,10 @@
 //!
 //! // Start with a preset, then increase its work factor if your deployment can
 //! // tolerate the extra time. Benchmark the result on the slowest target.
-//! let config = Config::interactive()
+//! let mut config = Config::interactive()
 //!     .with_opslimit(dryoc::constants::CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE + 1);
 //! # // Keep this doctest fast; these minimums are not a production recommendation.
-//! # let config = Config::interactive()
+//! # config = config
 //! #     .with_opslimit(dryoc::constants::CRYPTO_PWHASH_OPSLIMIT_MIN)
 //! #     .with_memlimit(dryoc::constants::CRYPTO_PWHASH_MEMLIMIT_MIN);
 //!
