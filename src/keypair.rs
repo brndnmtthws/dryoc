@@ -156,10 +156,12 @@ impl<
     /// validity or authenticity of keypair.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
         Ok(Self {
-            public_key: PublicKey::try_from(public_key)
-                .map_err(|_e| dryoc_error!("invalid public key"))?,
-            secret_key: SecretKey::try_from(secret_key)
-                .map_err(|_e| dryoc_error!("invalid secret key"))?,
+            public_key: PublicKey::try_from(public_key).map_err(
+                |_| length_error!(crate::ErrorContext::PublicKey, public_key.len(), exact CRYPTO_BOX_PUBLICKEYBYTES),
+            )?,
+            secret_key: SecretKey::try_from(secret_key).map_err(
+                |_| length_error!(crate::ErrorContext::SecretKey, secret_key.len(), exact CRYPTO_BOX_SECRETKEYBYTES),
+            )?,
         })
     }
 }
@@ -299,7 +301,7 @@ pub mod protected {
         >
     {
         /// Returns a new locked keypair.
-        pub fn new_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn new_locked_keypair() -> Result<Self, Error> {
             Ok(Self {
                 public_key: HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?,
                 secret_key: HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?,
@@ -307,7 +309,7 @@ pub mod protected {
         }
 
         /// Returns a new randomly generated locked keypair.
-        pub fn generate_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_locked_keypair() -> Result<Self, Error> {
             let mut res = Self::new_locked_keypair()?;
 
             crypto_box_keypair_inplace(
@@ -323,7 +325,7 @@ pub mod protected {
         /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
         /// This method is retained for compatibility.
         #[deprecated(note = "use generate_locked_keypair() instead")]
-        pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn gen_locked_keypair() -> Result<Self, Error> {
             Self::generate_locked_keypair()
         }
 
@@ -349,7 +351,7 @@ pub mod protected {
         >
     {
         /// Returns a new randomly generated locked, read-only keypair.
-        pub fn generate_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_readonly_locked_keypair() -> Result<Self, Error> {
             let mut public_key = HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?;
 
@@ -370,7 +372,7 @@ pub mod protected {
         /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         /// This method is retained for compatibility.
         #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
-        pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
             Self::generate_readonly_locked_keypair()
         }
 

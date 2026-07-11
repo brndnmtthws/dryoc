@@ -13,12 +13,12 @@ pub(crate) fn crypto_generichash_blake2b_validate_key(key: Option<&[u8]>) -> Res
             if key.len() < CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN
                 || key.len() > CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
             {
-                return Err(dryoc_error!(format!(
-                    "key length is {}, should be at least {} and less than {} bytes",
+                return Err(length_error!(
+                    crate::ErrorContext::Blake2bKey,
                     key.len(),
-                    CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN,
+                    range CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN,
                     CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX
-                )));
+                ));
             }
             Ok(())
         }
@@ -31,10 +31,12 @@ pub(crate) fn crypto_generichash_blake2b_validate_outlen(outlen: usize) -> Resul
     if !(CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN..=CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX)
         .contains(&outlen)
     {
-        return Err(dryoc_error!(format!(
-            "output length is {}, expected at least {} and less than {} bytes",
-            outlen, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN, CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
-        )));
+        return Err(length_error!(
+            crate::ErrorContext::Output,
+            outlen,
+            range CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN,
+            CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX
+        ));
     }
     Ok(())
 }

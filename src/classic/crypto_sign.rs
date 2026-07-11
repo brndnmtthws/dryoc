@@ -98,11 +98,11 @@ pub fn crypto_sign(
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if signed_message.len() != message.len() + CRYPTO_SIGN_BYTES {
-        Err(dryoc_error!(format!(
-            "signed_message length incorrect (expect {}, got {})",
-            message.len() + CRYPTO_SIGN_BYTES,
-            signed_message.len()
-        )))
+        Err(length_error!(
+            crate::ErrorContext::SignedMessage,
+            signed_message.len(),
+            exact message.len() + CRYPTO_SIGN_BYTES
+        ))
     } else {
         crypto_sign_ed25519(signed_message, message, secret_key)
     }
@@ -120,17 +120,15 @@ pub fn crypto_sign_open(
     public_key: &PublicKey,
 ) -> Result<(), Error> {
     if signed_message.len() < CRYPTO_SIGN_BYTES {
-        Err(dryoc_error!(format!(
-            "signed_message length invalid ({} < {})",
-            signed_message.len(),
-            CRYPTO_SIGN_BYTES,
-        )))
+        Err(
+            length_error!(crate::ErrorContext::SignedMessage, signed_message.len(), min CRYPTO_SIGN_BYTES),
+        )
     } else if message.len() != signed_message.len() - CRYPTO_SIGN_BYTES {
-        Err(dryoc_error!(format!(
-            "message length incorrect (expect {}, got {})",
-            signed_message.len() - CRYPTO_SIGN_BYTES,
-            message.len()
-        )))
+        Err(length_error!(
+            crate::ErrorContext::Message,
+            message.len(),
+            exact signed_message.len() - CRYPTO_SIGN_BYTES
+        ))
     } else {
         crypto_sign_ed25519_open(message, signed_message, public_key)
     }

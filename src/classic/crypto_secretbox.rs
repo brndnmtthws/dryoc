@@ -69,11 +69,9 @@ pub fn crypto_secretbox_detached(
     key: &Key,
 ) -> Result<(), Error> {
     if ciphertext.len() < message.len() {
-        return Err(dryoc_error!(format!(
-            "ciphertext length {} less than message length {}",
-            ciphertext.len(),
-            message.len()
-        )));
+        return Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min message.len()),
+        );
     }
 
     crypto_secretbox_detached_b2b(&mut ciphertext[..message.len()], mac, message, nonce, key);
@@ -93,11 +91,7 @@ pub fn crypto_secretbox_open_detached(
 ) -> Result<(), Error> {
     let c_len = ciphertext.len();
     if message.len() < c_len {
-        return Err(dryoc_error!(format!(
-            "message length {} less than ciphertext length {}",
-            message.len(),
-            c_len
-        )));
+        return Err(length_error!(crate::ErrorContext::Message, message.len(), min c_len));
     }
 
     crypto_secretbox_open_detached_b2b(&mut message[..c_len], mac, ciphertext, nonce, key)
@@ -112,16 +106,17 @@ pub fn crypto_secretbox_easy(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let expected_len = message
-        .len()
-        .checked_add(CRYPTO_SECRETBOX_MACBYTES)
-        .ok_or_else(|| dryoc_error!("ciphertext length overflow"))?;
+    let expected_len =
+        message
+            .len()
+            .checked_add(CRYPTO_SECRETBOX_MACBYTES)
+            .ok_or(Error::ArithmeticOverflow {
+                context: crate::ErrorContext::Ciphertext,
+            })?;
     if ciphertext.len() != expected_len {
-        return Err(dryoc_error!(format!(
-            "ciphertext length invalid ({} != {})",
-            ciphertext.len(),
-            expected_len
-        )));
+        return Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), exact expected_len),
+        );
     }
 
     let mut mac = Mac::default();
@@ -148,17 +143,15 @@ pub fn crypto_secretbox_open_easy(
     key: &Key,
 ) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_SECRETBOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "Impossibly small box ({} < {}",
-            ciphertext.len(),
-            CRYPTO_SECRETBOX_MACBYTES
-        )))
+        Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_SECRETBOX_MACBYTES),
+        )
     } else if message.len() != ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "message length invalid ({} != {})",
+        Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES
-        )))
+            exact ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES
+        ))
     } else {
         let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
         let mac = ByteArray::as_array(mac);
@@ -174,11 +167,9 @@ pub fn crypto_secretbox_easy_inplace(
     key: &Key,
 ) -> Result<(), Error> {
     if data.len() < CRYPTO_SECRETBOX_MACBYTES {
-        return Err(dryoc_error!(format!(
-            "data length {} less than minimum {}",
-            data.len(),
-            CRYPTO_SECRETBOX_MACBYTES
-        )));
+        return Err(
+            length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_SECRETBOX_MACBYTES),
+        );
     }
     data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
     let (mac, data) = data.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
@@ -197,11 +188,9 @@ pub fn crypto_secretbox_open_easy_inplace(
     key: &Key,
 ) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_SECRETBOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "Impossibly small box ({} < {}",
-            ciphertext.len(),
-            CRYPTO_SECRETBOX_MACBYTES
-        )))
+        Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_SECRETBOX_MACBYTES),
+        )
     } else {
         let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
         let mac = ByteArray::as_array(mac);

@@ -14,10 +14,10 @@
 //!   * a passphrase with a strong password hashing function, such as
 //!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`DryocSecretBox`]. If
+//! If the `serde` feature is enabled, the `serde::Deserialize` and
+//! `serde::Serialize` traits will be implemented for [`DryocSecretBox`]. If
 //! the `wincode` feature is enabled, the
-//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] traits will be
+//! `wincode::SchemaRead` and `wincode::SchemaWrite` traits will be
 //! implemented.
 //!
 //! ## Rustaceous API example
@@ -241,15 +241,15 @@ impl<
     /// encrypted message.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_SECRETBOX_MACBYTES
-            )))
+            Err(
+                length_error!(crate::ErrorContext::SecretBox, bytes.len(), min CRYPTO_SECRETBOX_MACBYTES),
+            )
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
             Ok(Self {
-                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag).map_err(|_| {
+                    length_error!(crate::ErrorContext::AuthenticationTag, tag.len(), exact CRYPTO_SECRETBOX_MACBYTES)
+                })?,
                 data: Data::from(data),
             })
         }

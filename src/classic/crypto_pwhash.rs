@@ -124,13 +124,13 @@ pub fn crypto_pwhash(
         CRYPTO_PWHASH_OPSLIMIT_MIN,
         CRYPTO_PWHASH_OPSLIMIT_MAX,
         opslimit,
-        "opslimit"
+        crate::ErrorContext::OperationsLimit
     );
     validate!(
         CRYPTO_PWHASH_MEMLIMIT_MIN,
         CRYPTO_PWHASH_MEMLIMIT_MAX,
         memlimit,
-        "memlimit"
+        crate::ErrorContext::MemoryLimit
     );
 
     let (t_cost, m_cost) = convert_costs(opslimit, memlimit);
@@ -263,13 +263,13 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
         CRYPTO_PWHASH_OPSLIMIT_MIN,
         CRYPTO_PWHASH_OPSLIMIT_MAX,
         opslimit,
-        "opslimit"
+        crate::ErrorContext::OperationsLimit
     );
     validate!(
         CRYPTO_PWHASH_MEMLIMIT_MIN,
         CRYPTO_PWHASH_MEMLIMIT_MAX,
         memlimit,
-        "memlimit"
+        crate::ErrorContext::MemoryLimit
     );
 
     let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
@@ -319,54 +319,83 @@ impl Pwhash {
                 match s {
                     "argon2i" => pwhash.type_ = Some(PasswordHashAlgorithm::Argon2i13),
                     "argon2id" => pwhash.type_ = Some(PasswordHashAlgorithm::Argon2id13),
-                    _ => return Err(dryoc_error!(format!("invalid type: {}", s))),
+                    _ => {
+                        return Err(Error::InvalidEncoding {
+                            context: crate::ErrorContext::PasswordHashAlgorithm,
+                        });
+                    }
                 }
             } else if let Some(stripped) = s.strip_prefix("v=") {
-                pwhash.version = Some(
-                    stripped
-                        .parse::<u32>()
-                        .map_err(|_| dryoc_error!("unable to decode password hash version"))?,
-                );
+                pwhash.version =
+                    Some(
+                        stripped
+                            .parse::<u32>()
+                            .map_err(|_| Error::InvalidEncoding {
+                                context: crate::ErrorContext::PasswordHashVersion,
+                            })?,
+                    );
             } else if s.contains("m=") && s.contains("t=") && s.contains("p=") {
                 for p in s.split(',') {
                     if let Some(m_cost) = p.strip_prefix("m=") {
-                        pwhash.m_cost = Some(m_cost.parse::<u32>().map_err(|_| {
-                            dryoc_error!("unable to decode password hash parameter m_cost")
-                        })?);
+                        pwhash.m_cost =
+                            Some(m_cost.parse::<u32>().map_err(|_| Error::InvalidEncoding {
+                                context: crate::ErrorContext::PasswordHashMemoryCost,
+                            })?);
                     } else if let Some(t_cost) = p.strip_prefix("t=") {
-                        pwhash.t_cost = Some(t_cost.parse::<u32>().map_err(|_| {
-                            dryoc_error!("unable to decode password hash parameter t_cost")
-                        })?);
+                        pwhash.t_cost =
+                            Some(t_cost.parse::<u32>().map_err(|_| Error::InvalidEncoding {
+                                context: crate::ErrorContext::PasswordHashTimeCost,
+                            })?);
                     } else if let Some(parallelism) = p.strip_prefix("p=") {
                         pwhash.parallelism = Some(parallelism.parse::<u32>().map_err(|_| {
-                            dryoc_error!("unable to decode password hash parameter t_cost")
+                            Error::InvalidEncoding {
+                                context: crate::ErrorContext::PasswordHashParallelism,
+                            }
                         })?);
                     }
                 }
             } else if pwhash.salt.is_none() {
-                pwhash.salt = base64_no_pad_decode(s);
+                pwhash.salt = Some(base64_no_pad_decode(s).ok_or(Error::InvalidEncoding {
+                    context: crate::ErrorContext::PasswordHashSalt,
+                })?);
             } else if pwhash.pwhash.is_none() {
-                pwhash.pwhash = base64_no_pad_decode(s);
+                pwhash.pwhash = Some(base64_no_pad_decode(s).ok_or(Error::InvalidEncoding {
+                    context: crate::ErrorContext::PasswordHash,
+                })?);
             }
         }
 
         // Check if version is supported
         if pwhash.version.is_none() || pwhash.version.unwrap() != ARGON2_VERSION_NUMBER {
-            Err(dryoc_error!("unsupported password hash"))
+            Err(Error::InvalidEncoding {
+                context: crate::ErrorContext::PasswordHashVersion,
+            })
         // Verify correct value for parallism
         } else if pwhash.parallelism.is_none() || pwhash.parallelism.unwrap() != 1 {
-            Err(dryoc_error!("parallelism missing or invalid"))
+            Err(Error::InvalidEncoding {
+                context: crate::ErrorContext::PasswordHashParallelism,
+            })
         // Check for missing fields
         } else if pwhash.pwhash.is_none() || pwhash.pwhash.as_ref().unwrap().is_empty() {
-            Err(dryoc_error!("password hash missing"))
+            Err(Error::MissingData {
+                context: crate::ErrorContext::PasswordHash,
+            })
         } else if pwhash.salt.is_none() || pwhash.salt.as_ref().unwrap().is_empty() {
-            Err(dryoc_error!("password salt missing"))
+            Err(Error::MissingData {
+                context: crate::ErrorContext::PasswordHashSalt,
+            })
         } else if pwhash.type_.is_none() {
-            Err(dryoc_error!("algorithm type missing"))
+            Err(Error::MissingData {
+                context: crate::ErrorContext::PasswordHashAlgorithm,
+            })
         } else if pwhash.m_cost.is_none() {
-            Err(dryoc_error!("m_cost missing"))
+            Err(Error::MissingData {
+                context: crate::ErrorContext::PasswordHashMemoryCost,
+            })
         } else if pwhash.t_cost.is_none() {
-            Err(dryoc_error!("t_cost missing"))
+            Err(Error::MissingData {
+                context: crate::ErrorContext::PasswordHashTimeCost,
+            })
         } else {
             Ok(pwhash)
         }
@@ -399,7 +428,7 @@ pub fn crypto_pwhash_str_verify(hashed_password: &str, password: &[u8]) -> Resul
     if hash.ct_eq(pwhash.pwhash.unwrap().as_ref()).unwrap_u8() == 1 {
         Ok(())
     } else {
-        Err(dryoc_error!("password hashes do not match"))
+        Err(Error::AuthenticationFailed)
     }
 }
 
@@ -486,6 +515,24 @@ mod tests {
         assert_eq!(base64_no_pad_decode("AA="), None);
         assert_eq!(base64_no_pad_decode("A/"), None);
         assert_eq!(base64_no_pad_decode("AA/"), None);
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn malformed_password_hash_fields_have_structured_errors() {
+        let error = match Pwhash::parse_encoded_pwhash(
+            "$argon2id$v=19$m=65536,t=2,p=1$A$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ) {
+            Ok(_) => panic!("invalid salt encoding should fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            Error::InvalidEncoding {
+                context: crate::ErrorContext::PasswordHashSalt,
+            }
+        ));
     }
 
     #[cfg(feature = "base64")]

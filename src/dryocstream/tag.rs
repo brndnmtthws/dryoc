@@ -349,9 +349,17 @@ impl IntoIterator for Tag {
     }
 }
 
-impl From<u8> for Tag {
-    fn from(other: u8) -> Self {
-        Self::from_bits(other).expect("Unable to parse tag")
+impl TryFrom<u8> for Tag {
+    type Error = crate::Error;
+
+    fn try_from(other: u8) -> Result<Self, Self::Error> {
+        Self::from_bits(other).ok_or(crate::Error::InvalidValue {
+            context: crate::ErrorContext::Tag,
+            actual: other as u64,
+            constraint: crate::ValueConstraint::AllowedBits {
+                mask: Self::KNOWN_BITS as u64,
+            },
+        })
     }
 }
 
@@ -436,7 +444,10 @@ mod tests {
             assert_eq!(Tag::from_bits(bits), expected);
         }
 
-        assert_eq!(Tag::from(Tag::FINAL.bits()), Tag::FINAL);
+        assert_eq!(
+            Tag::try_from(Tag::FINAL.bits()).expect("known tag bits should be accepted"),
+            Tag::FINAL
+        );
         assert_eq!(Tag::from_name("MESSAGE"), Some(Tag::MESSAGE));
         assert_eq!(Tag::from_name("PUSH"), Some(Tag::PUSH));
         assert_eq!(Tag::from_name("REKEY"), Some(Tag::REKEY));
@@ -445,9 +456,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to parse tag")]
     fn tag_from_u8_rejects_unknown_bits() {
-        let _ = Tag::from(0x80);
+        let error = Tag::try_from(0x80).expect_err("unknown tag bits should be rejected");
+
+        assert!(matches!(
+            error,
+            crate::Error::InvalidValue {
+                context: crate::ErrorContext::Tag,
+                actual: 0x80,
+                constraint: crate::ValueConstraint::AllowedBits { .. },
+            }
+        ));
     }
 
     #[test]

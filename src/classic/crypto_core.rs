@@ -54,7 +54,9 @@ pub fn crypto_scalarmult(
     crypto_scalarmult_curve25519(q, n, p);
 
     if q.ct_eq(&[0u8; CRYPTO_SCALARMULT_BYTES]).into() {
-        Err(dryoc_error!("unacceptable Curve25519 public key"))
+        Err(Error::InvalidKey {
+            context: crate::ErrorContext::Curve25519PublicKey,
+        })
     } else {
         Ok(())
     }

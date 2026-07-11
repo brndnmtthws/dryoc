@@ -289,10 +289,12 @@ impl<
     /// not check validity or authenticity of keypair.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
         Ok(Self {
-            public_key: PublicKey::try_from(public_key)
-                .map_err(|_e| dryoc_error!("invalid public key"))?,
-            secret_key: SecretKey::try_from(secret_key)
-                .map_err(|_e| dryoc_error!("invalid secret key"))?,
+            public_key: PublicKey::try_from(public_key).map_err(
+                |_| length_error!(crate::ErrorContext::PublicKey, public_key.len(), exact CRYPTO_SIGN_PUBLICKEYBYTES),
+            )?,
+            secret_key: SecretKey::try_from(secret_key).map_err(
+                |_| length_error!(crate::ErrorContext::SecretKey, secret_key.len(), exact CRYPTO_SIGN_SECRETKEYBYTES),
+            )?,
         })
     }
 }
@@ -355,7 +357,7 @@ pub mod protected {
         >
     {
         /// Returns a new locked signing keypair.
-        pub fn new_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn new_locked_keypair() -> Result<Self, Error> {
             Ok(Self {
                 public_key: HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?,
                 secret_key: HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?,
@@ -363,7 +365,7 @@ pub mod protected {
         }
 
         /// Returns a new randomly generated locked signing keypair.
-        pub fn generate_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_locked_keypair() -> Result<Self, Error> {
             let mut res = Self::new_locked_keypair()?;
 
             crypto_sign_keypair_inplace(
@@ -379,7 +381,7 @@ pub mod protected {
         /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
         /// This method is retained for compatibility.
         #[deprecated(note = "use generate_locked_keypair() instead")]
-        pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn gen_locked_keypair() -> Result<Self, Error> {
             Self::generate_locked_keypair()
         }
     }
@@ -391,7 +393,7 @@ pub mod protected {
         >
     {
         /// Returns a new randomly generated locked, read-only signing keypair.
-        pub fn generate_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_readonly_locked_keypair() -> Result<Self, Error> {
             let mut public_key = HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?;
 
@@ -412,7 +414,7 @@ pub mod protected {
         /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         /// This method is retained for compatibility.
         #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
-        pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
             Self::generate_readonly_locked_keypair()
         }
     }
@@ -555,16 +557,15 @@ impl<
     /// with the remaining bytes containing the message.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SIGN_BYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_SIGN_BYTES
-            )))
+            Err(
+                length_error!(crate::ErrorContext::SignedMessage, bytes.len(), min CRYPTO_SIGN_BYTES),
+            )
         } else {
             let (signature, message) = bytes.split_at(CRYPTO_SIGN_BYTES);
             Ok(Self {
-                signature: Signature::try_from(signature)
-                    .map_err(|_e| dryoc_error!("invalid signature"))?,
+                signature: Signature::try_from(signature).map_err(
+                    |_| length_error!(crate::ErrorContext::Signature, signature.len(), exact CRYPTO_SIGN_BYTES),
+                )?,
                 message: Message::from(message),
             })
         }

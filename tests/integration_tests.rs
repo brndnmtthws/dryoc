@@ -3,6 +3,54 @@ use std::vec;
 use dryoc::precalc::PrecalcSecretKey;
 
 #[test]
+fn test_structured_public_errors() {
+    use dryoc::classic::crypto_auth_hmacsha256::{
+        crypto_auth_hmacsha256, crypto_auth_hmacsha256_keygen, crypto_auth_hmacsha256_verify,
+    };
+    use dryoc::constants::CRYPTO_AUTH_HMACSHA256_BYTES;
+    use dryoc::types::StackByteArray;
+    use dryoc::{Error, LengthConstraint};
+
+    let slice_error =
+        StackByteArray::<4>::try_from(&[1, 2][..]).expect_err("short slices should be rejected");
+    assert_eq!(
+        slice_error.to_string(),
+        "invalid slice length: expected exactly 4, got 2"
+    );
+    assert!(matches!(
+        slice_error,
+        Error::InvalidLength {
+            context: dryoc::ErrorContext::Slice,
+            actual: 2,
+            constraint: LengthConstraint::Exact(4),
+        }
+    ));
+
+    let key = crypto_auth_hmacsha256_keygen();
+    let mut mac = [0u8; CRYPTO_AUTH_HMACSHA256_BYTES];
+    crypto_auth_hmacsha256(&mut mac, b"message", &key);
+    let authentication_error = crypto_auth_hmacsha256_verify(&mac, b"tampered", &key)
+        .expect_err("tampered messages should fail authentication");
+    assert_eq!(authentication_error.to_string(), "authentication failed");
+    assert!(matches!(authentication_error, Error::AuthenticationFailed));
+
+    let tag_error = dryoc::dryocstream::Tag::try_from(0x80)
+        .expect_err("unknown secretstream tag bits should be rejected");
+    assert_eq!(
+        tag_error.to_string(),
+        "invalid tag value: expected a value containing only bits from mask 0x3, got 128"
+    );
+    assert!(matches!(
+        tag_error,
+        Error::InvalidValue {
+            context: dryoc::ErrorContext::Tag,
+            actual: 0x80,
+            constraint: dryoc::ValueConstraint::AllowedBits { .. },
+        }
+    ));
+}
+
+#[test]
 fn test_sha3_public_api() {
     use dryoc::classic::crypto_hash::{
         Sha3256Digest, Sha3512Digest, crypto_hash_sha3256, crypto_hash_sha3256_final,

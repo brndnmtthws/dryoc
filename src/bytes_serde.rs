@@ -176,8 +176,7 @@ mod protected {
                 where
                     A: SeqAccess<'de>,
                 {
-                    let mut arr =
-                        HeapBytes::generate_locked().expect("couldn't create locked bytes");
+                    let mut arr = HeapBytes::new_locked().map_err(A::Error::custom)?;
                     let mut idx: usize = 0;
                     let size_hint = seq.size_hint().unwrap_or(1);
                     arr.resize(size_hint, 0);
@@ -197,8 +196,7 @@ mod protected {
                 where
                     E: Error,
                 {
-                    Ok(HeapBytes::from_slice_into_locked(v)
-                        .expect("couldn't copy slice into locked bytes"))
+                    HeapBytes::from_slice_into_locked(v).map_err(E::custom)
                 }
             }
 
@@ -224,8 +222,8 @@ mod protected {
                 where
                     A: SeqAccess<'de>,
                 {
-                    let mut arr = HeapByteArray::<LENGTH>::generate_locked()
-                        .expect("couldn't create locked bytes");
+                    let mut arr =
+                        HeapByteArray::<LENGTH>::new_locked().map_err(A::Error::custom)?;
                     let mut idx: usize = 0;
                     while let Some(elem) = seq.next_element()? {
                         if idx >= LENGTH {
@@ -249,8 +247,7 @@ mod protected {
                     if v.len() != LENGTH {
                         Err(Error::invalid_length(v.len(), &stringify!(LENGTH)))
                     } else {
-                        Ok(HeapByteArray::<LENGTH>::from_slice_into_locked(v)
-                            .expect("couldn't copy slice into locked bytes"))
+                        HeapByteArray::<LENGTH>::from_slice_into_locked(v).map_err(E::custom)
                     }
                 }
             }

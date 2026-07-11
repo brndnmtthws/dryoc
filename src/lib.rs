@@ -87,6 +87,13 @@
 //! preferences. The Rustaceous API is a wrapper around the underlying classic
 //! API.
 //!
+//! ## Error handling
+//!
+//! Fallible cryptographic operations return [`Error`]. Its structured variants
+//! let callers distinguish authentication failures, invalid lengths or values,
+//! malformed encodings, invalid keys, protected-memory failures, and invalid
+//! operation state without parsing display text.
+//!
 //! It's recommended that you use the Rustaceous API unless you have strong
 //! feelings about using the Classic API. The Classic API includes some pitfalls
 //! and traps that are also present in the original libsodium API, and unless
@@ -122,15 +129,15 @@
 //!
 //! This crate includes optional [Serde](https://serde.rs/) support which can be
 //! enabled with the `serde` feature flag. When enabled, the
-//! [`Serialize`](serde::ser::Serialize) and
-//! [`Deserialize`](serde::de::Deserialize) traits are provided for data
+//! `serde::Serialize` and
+//! `serde::Deserialize` traits are provided for data
 //! structures.
 //!
 //! ## Using wincode
 //!
 //! This crate includes optional [wincode](https://crates.io/crates/wincode)
 //! support which can be enabled with the `wincode` feature flag. When enabled,
-//! [`wincode::SchemaWrite`] and [`wincode::SchemaRead`] are provided for
+//! `wincode::SchemaWrite` and `wincode::SchemaRead` are provided for
 //! supported Rustaceous box types, including
 //! [`DryocBox`](dryocbox::DryocBox),
 //! [`DryocSecretBox`](dryocsecretbox::DryocSecretBox), and
@@ -274,7 +281,7 @@ pub mod types;
 /// # Various utility functions
 pub mod utils;
 
-pub use error::Error;
+pub use error::{Error, ErrorContext, LengthConstraint, ValueConstraint};
 
 #[cfg(test)]
 mod tests {

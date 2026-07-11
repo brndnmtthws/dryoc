@@ -116,7 +116,7 @@ pub(crate) fn crypto_secretbox_open_detached_b2b(
         cipher.xor_b2b(message, ciphertext);
         Ok(())
     } else {
-        Err(dryoc_error!("decryption error (authentication failure)"))
+        Err(Error::AuthenticationFailed)
     }
 }
 
@@ -160,6 +160,6 @@ pub(crate) fn crypto_secretbox_open_detached_inplace(
         cipher.xor(data);
         Ok(())
     } else {
-        Err(dryoc_error!("decryption error (authentication failure)"))
+        Err(Error::AuthenticationFailed)
     }
 }

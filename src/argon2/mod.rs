@@ -223,35 +223,60 @@ impl<'a> Argon2Context<'a> {
         parallelism: u32,
     ) -> Result<Self, Error> {
         // validate the inputs
-        validate!(ARGON2_MIN_OUTLEN, ARGON2_MAX_OUTLEN, output.len(), "output");
-        validate!(
+        validate_length!(
+            ARGON2_MIN_OUTLEN,
+            ARGON2_MAX_OUTLEN,
+            output.len(),
+            crate::ErrorContext::Output
+        );
+        validate_length!(
             ARGON2_MIN_PWD_LENGTH,
             ARGON2_MAX_PWD_LENGTH,
             password.len(),
-            "password"
+            crate::ErrorContext::Password
         );
-        validate!(
+        validate_length!(
             ARGON2_MIN_SALT_LENGTH,
             ARGON2_MAX_SALT_LENGTH,
             salt.len(),
-            "salt"
+            crate::ErrorContext::PasswordHashSalt
         );
 
         if let Some(secret) = secret {
-            validate!(ARGON2_MIN_SECRET, ARGON2_MAX_SECRET, secret.len(), "secret");
+            validate_length!(
+                ARGON2_MIN_SECRET,
+                ARGON2_MAX_SECRET,
+                secret.len(),
+                crate::ErrorContext::Secret
+            );
         }
         if let Some(ad) = ad {
-            validate!(ARGON2_MIN_AD_LENGTH, ARGON2_MAX_AD_LENGTH, ad.len(), "ad");
+            validate_length!(
+                ARGON2_MIN_AD_LENGTH,
+                ARGON2_MAX_AD_LENGTH,
+                ad.len(),
+                crate::ErrorContext::AssociatedData
+            );
         }
 
         validate!(
             ARGON2_MIN_LANES,
             ARGON2_MAX_LANES,
             parallelism,
-            "parallelism"
+            crate::ErrorContext::Parallelism
         );
-        validate!(ARGON2_MIN_MEMORY, ARGON2_MAX_MEMORY, m_cost, "m_cost");
-        validate!(ARGON2_MIN_TIME, ARGON2_MAX_TIME, t_cost, "t_cost");
+        validate!(
+            ARGON2_MIN_MEMORY,
+            ARGON2_MAX_MEMORY,
+            m_cost,
+            crate::ErrorContext::MemoryCost
+        );
+        validate!(
+            ARGON2_MIN_TIME,
+            ARGON2_MAX_TIME,
+            t_cost,
+            crate::ErrorContext::TimeCost
+        );
 
         Ok(Self {
             output,

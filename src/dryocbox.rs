@@ -17,10 +17,10 @@
 //! this, by generating an ephemeral secret key, deriving a nonce, and including
 //! the sender's public key in the box.
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`DryocBox`]. If the
+//! If the `serde` feature is enabled, the `serde::Deserialize` and
+//! `serde::Serialize` traits will be implemented for [`DryocBox`]. If the
 //! `wincode` feature is enabled, the
-//! [`wincode::SchemaRead`] and [`wincode::SchemaWrite`] traits will be
+//! `wincode::SchemaRead` and `wincode::SchemaWrite` traits will be
 //! implemented.
 //!
 //! ## Rustaceous API example
@@ -404,16 +404,14 @@ impl<
     /// with the remaining bytes containing the encrypted message.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_MACBYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_BOX_MACBYTES
-            )))
+            Err(length_error!(crate::ErrorContext::Box, bytes.len(), min CRYPTO_BOX_MACBYTES))
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
             Ok(Self {
                 ephemeral_pk: None,
-                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag).map_err(
+                    |_| length_error!(crate::ErrorContext::AuthenticationTag, tag.len(), exact CRYPTO_BOX_MACBYTES),
+                )?,
                 data: Data::from(data),
             })
         }
@@ -425,20 +423,21 @@ impl<
     /// tag, with the remaining bytes containing the encrypted message.
     pub fn from_sealed_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_SEALBYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_BOX_SEALBYTES
-            )))
+            Err(
+                length_error!(crate::ErrorContext::SealedBox, bytes.len(), min CRYPTO_BOX_SEALBYTES),
+            )
         } else {
             let (seal, data) = bytes.split_at(CRYPTO_BOX_SEALBYTES);
             let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
             Ok(Self {
                 ephemeral_pk: Some(
-                    EphemeralPublicKey::try_from(epk)
-                        .map_err(|_e| dryoc_error!("invalid ephemeral public key"))?,
+                    EphemeralPublicKey::try_from(epk).map_err(|_| {
+                        length_error!(crate::ErrorContext::EphemeralPublicKey, epk.len(), exact CRYPTO_BOX_PUBLICKEYBYTES)
+                    })?,
                 ),
-                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag).map_err(|_| {
+                    length_error!(crate::ErrorContext::AuthenticationTag, tag.len(), exact CRYPTO_BOX_MACBYTES)
+                })?,
                 data: Data::from(data),
             })
         }
@@ -564,9 +563,9 @@ impl<
 
                 Ok(message)
             }
-            None => Err(dryoc_error!(
-                "ephemeral public key is missing, cannot unseal"
-            )),
+            None => Err(Error::MissingData {
+                context: crate::ErrorContext::EphemeralPublicKey,
+            }),
         }
     }
 

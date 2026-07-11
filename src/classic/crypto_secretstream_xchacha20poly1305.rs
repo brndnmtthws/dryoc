@@ -266,19 +266,19 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     let _pad0 = [0u8; 16];
 
     if ciphertext.len() != message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(dryoc_error!(format!(
-            "Ciphertext length was {}, should be {}",
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        )));
+            exact message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
     }
 
     if message.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-        return Err(dryoc_error!(format!(
-            "Message length {} exceeds max length {}",
+        return Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-        )));
+            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+        ));
     }
 
     let associated_data = associated_data.unwrap_or(&[]);
@@ -371,27 +371,27 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     let _pad0 = [0u8; 16];
 
     if ciphertext.len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(dryoc_error!(format!(
-            "Ciphertext length was {}, should be at least {}",
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        )));
+            min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
     }
 
     if message.len() < ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(dryoc_error!(format!(
-            "Message length was {}, should be at least {}",
+        return Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        )));
+            min ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
     }
 
     if ciphertext.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-        return Err(dryoc_error!(format!(
-            "Message length {} exceeds max length {}",
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-        )));
+            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+        ));
     }
 
     let associated_data = associated_data.unwrap_or(&[]);
@@ -440,7 +440,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     cipher.apply_keystream(&mut message[..mlen]);
 
     if ciphertext[1 + mlen..].ct_eq(&mac).unwrap_u8() == 0 {
-        return Err(dryoc_error!("Message authentication mismatch"));
+        return Err(Error::AuthenticationFailed);
     }
 
     let inonce = state_inonce(&mut state.nonce);

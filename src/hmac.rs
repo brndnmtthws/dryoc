@@ -370,7 +370,7 @@ where
         if valid == 1 {
             Ok(())
         } else {
-            Err(dryoc_error!("authentication codes do not match"))
+            Err(Error::AuthenticationFailed)
         }
     }
 }

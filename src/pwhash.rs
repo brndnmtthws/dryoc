@@ -14,8 +14,8 @@
 //! * derive secret keys based on passphrases
 //! * hash arbitrary data in a manner that's strongly resistant to collisions
 //!
-//! If the `serde` feature is enabled, the [`serde::Deserialize`] and
-//! [`serde::Serialize`] traits will be implemented for [`PwHash`].
+//! If the `serde` feature is enabled, the `serde::Deserialize` and
+//! `serde::Serialize` traits will be implemented for [`PwHash`].
 //!
 //! ## Rustaceous API example
 //!
@@ -362,7 +362,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> P
         {
             Ok(())
         } else {
-            Err(dryoc_error!("hashes do not match"))
+            Err(Error::AuthenticationFailed)
         }
     }
 
