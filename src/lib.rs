@@ -76,7 +76,7 @@
 //! Fallible cryptographic operations return [`Error`]. Its structured variants
 //! let callers distinguish authentication failures, invalid lengths or values,
 //! malformed encodings, invalid keys, protected-memory failures, and invalid
-//! operation state without parsing display text.
+//! operation state.
 //!
 //! Prefer the Rustaceous API for new code. Use the Classic API when porting
 //! libsodium code or when its byte-array interface is a better fit.
