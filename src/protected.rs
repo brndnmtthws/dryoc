@@ -92,9 +92,10 @@
 //! and can fail when the process exceeds the working-set limits enforced by the
 //! OS. There is no `MADV_DONTDUMP` equivalent in this module.
 //!
-//! If the `serde` feature is enabled, the `serde::Deserialize` and
-//! `serde::Serialize` traits will be implemented for [`HeapBytes`] and
-//! [`HeapByteArray`].
+//! If the `serde` feature is enabled, the
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) traits will be
+//! implemented for [`HeapBytes`] and [`HeapByteArray`].
 //!
 //! ## Example
 //!
@@ -368,7 +369,7 @@ pub trait NewLockedFromSlice<A: Zeroize + NewBytes + Lockable<A>> {
     ) -> Result<Protected<A, traits::ReadOnly, traits::Locked>, crate::error::Error>;
 }
 
-/// Holds a protected region of memory. Does not implement `Copy` or
+/// Holds a protected region of memory. Does not implement [`Copy`] or
 /// [`Debug`](std::fmt::Debug). Accessible states implement [`Clone`] when the
 /// backing storage supports it; each clone has a distinct allocation.
 pub struct Protected<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> {

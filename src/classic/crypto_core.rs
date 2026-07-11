@@ -168,19 +168,6 @@ pub fn crypto_core_ed25519_is_valid_point(p: &Ed25519Point) -> bool {
     !point.is_small_order() && point.is_torsion_free()
 }
 
-/// Deprecated alias for [`crypto_core_ed25519_is_valid_point`].
-///
-/// Ed25519's high bit encodes the sign of the x-coordinate, so a separate
-/// relaxed validator is unnecessary. This alias now performs the same complete
-/// validation as [`crypto_core_ed25519_is_valid_point`].
-#[deprecated(
-    since = "1.0.0",
-    note = "use crypto_core_ed25519_is_valid_point; valid Ed25519 sign bits are accepted"
-)]
-pub fn crypto_core_ed25519_is_valid_point_relaxed(p: &Ed25519Point) -> bool {
-    crypto_core_ed25519_is_valid_point(p)
-}
-
 /// Decompresses an Ed25519 point only if its encoding is canonical.
 ///
 /// `curve25519-dalek` intentionally reduces the encoded y-coordinate modulo the

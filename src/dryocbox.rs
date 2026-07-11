@@ -24,9 +24,13 @@
 //! derives its nonce from a newly generated ephemeral public key and the
 //! recipient public key.
 //!
-//! With the `serde` feature, `serde::Deserialize` and `serde::Serialize`
-//! are implemented for [`DryocBox`]. With `wincode`, `wincode::SchemaRead`
-//! and `wincode::SchemaWrite` are implemented.
+//! With the `serde` feature,
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
+//! for [`DryocBox`]. With `wincode`,
+//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
+//! implemented.
 //!
 //! ## Rustaceous API example
 //!

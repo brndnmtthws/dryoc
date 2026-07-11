@@ -18,8 +18,10 @@
 //! [`crate::sha256`] for arbitrary data. Password hashing is deliberately much
 //! more expensive.
 //!
-//! If the `serde` feature is enabled, the `serde::Deserialize` and
-//! `serde::Serialize` traits will be implemented for [`PwHash`].
+//! If the `serde` feature is enabled, the
+//! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
+//! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) traits will be
+//! implemented for [`PwHash`].
 //!
 //! ## Rustaceous API example
 //!

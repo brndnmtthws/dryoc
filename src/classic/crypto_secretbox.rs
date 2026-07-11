@@ -244,7 +244,10 @@ pub fn crypto_secretbox_open_easy_inplace(
 }
 
 #[cfg(test)]
-mod length_tests {
+mod tests {
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
+    extern crate test;
+
     use super::*;
 
     #[test]
@@ -260,14 +263,6 @@ mod length_tests {
             }) if actual == too_long
         ));
     }
-}
-
-#[cfg(all(test, dryoc_native_tests))]
-mod tests {
-    #[cfg(feature = "nightly")]
-    extern crate test;
-
-    use super::*;
 
     #[test]
     fn test_crypto_secretbox_rejects_invalid_buffer_lengths_without_mutation() {
@@ -326,6 +321,7 @@ mod tests {
         assert_eq!(too_short_inplace, original_too_short_inplace);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_secretbox_easy() {
         for i in 0..20 {
@@ -368,6 +364,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_secretbox_easy_inplace() {
         for i in 0..20 {
@@ -464,7 +461,7 @@ mod tests {
         assert_eq!(inplace, ciphertext);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     fn bench_crypto_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
         let key: Key = crypto_secretbox_keygen();
         let nonce = Nonce::generate();
@@ -486,25 +483,25 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_64b_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 64);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_1kib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 1024);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_16kib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 16 * 1024);
     }
 
-    #[cfg(feature = "nightly")]
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
     #[bench]
     fn crypto_secretbox_detached_1mib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 1024 * 1024);
