@@ -1,4 +1,5 @@
 use curve25519_dalek::edwards::CompressedEdwardsY;
+use subtle::ConstantTimeEq;
 
 use crate::constants::{
     CRYPTO_CORE_ED25519_BYTES, CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_CORE_HCHACHA20_KEYBYTES,
@@ -6,6 +7,7 @@ use crate::constants::{
     CRYPTO_CORE_HSALSA20_KEYBYTES, CRYPTO_CORE_HSALSA20_OUTPUTBYTES, CRYPTO_SCALARMULT_BYTES,
     CRYPTO_SCALARMULT_SCALARBYTES,
 };
+use crate::error::Error;
 use crate::scalarmult_curve25519::{
     crypto_scalarmult_curve25519, crypto_scalarmult_curve25519_base,
 };
@@ -41,12 +43,21 @@ pub fn crypto_scalarmult_base(
 /// public key, using a Diffie-Hellman key exchange.
 ///
 /// Compatible with libsodium's `crypto_scalarmult`.
+///
+/// Returns an error when `p` is an unacceptable low-order public key that
+/// produces an all-zero shared secret.
 pub fn crypto_scalarmult(
     q: &mut [u8; CRYPTO_SCALARMULT_BYTES],
     n: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
     p: &[u8; CRYPTO_SCALARMULT_BYTES],
-) {
-    crypto_scalarmult_curve25519(q, n, p)
+) -> Result<(), Error> {
+    crypto_scalarmult_curve25519(q, n, p);
+
+    if q.ct_eq(&[0u8; CRYPTO_SCALARMULT_BYTES]).into() {
+        Err(dryoc_error!("unacceptable Curve25519 public key"))
+    } else {
+        Ok(())
+    }
 }
 
 #[inline]
@@ -504,6 +515,36 @@ mod tests {
         println!("X25519 key validation: Success");
     }
 
+    #[test]
+    fn test_crypto_scalarmult_rejects_low_order_points() {
+        let scalar = [0x42; CRYPTO_SCALARMULT_SCALARBYTES];
+        let mut one = [0u8; CRYPTO_SCALARMULT_BYTES];
+        one[0] = 1;
+
+        for public_key in [[0u8; CRYPTO_SCALARMULT_BYTES], one] {
+            let mut shared_secret = [0xa5; CRYPTO_SCALARMULT_BYTES];
+            crypto_scalarmult(&mut shared_secret, &scalar, &public_key)
+                .expect_err("low-order public key must be rejected");
+            assert_eq!(shared_secret, [0u8; CRYPTO_SCALARMULT_BYTES]);
+        }
+    }
+
+    #[test]
+    fn test_crypto_scalarmult_ignores_public_key_high_bit() {
+        let scalar = [0x42; CRYPTO_SCALARMULT_SCALARBYTES];
+        let mut canonical = [0u8; CRYPTO_SCALARMULT_BYTES];
+        canonical[0] = 9;
+        let mut high_bit_set = canonical;
+        high_bit_set[CRYPTO_SCALARMULT_BYTES - 1] = 0x80;
+        let mut canonical_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+        let mut high_bit_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+
+        crypto_scalarmult(&mut canonical_secret, &scalar, &canonical).unwrap();
+        crypto_scalarmult(&mut high_bit_secret, &scalar, &high_bit_set).unwrap();
+
+        assert_eq!(canonical_secret, high_bit_secret);
+    }
+
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
@@ -544,7 +585,8 @@ mod tests {
                 let (their_pk, _their_sk) = crypto_box_keypair();
 
                 let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
-                crypto_scalarmult(&mut shared_secret, &our_sk, &their_pk);
+                crypto_scalarmult(&mut shared_secret, &our_sk, &their_pk)
+                    .expect("scalarmult failed");
 
                 let ge = scalarmult(
                     &Scalar::from_slice(&our_sk).unwrap(),
@@ -555,6 +597,27 @@ mod tests {
                 assert_eq!(
                     general_purpose::STANDARD.encode(ge.as_ref()),
                     general_purpose::STANDARD.encode(shared_secret)
+                );
+            }
+        }
+
+        #[test]
+        fn test_crypto_scalarmult_low_order_compatibility() {
+            use sodiumoxide::crypto::scalarmult::curve25519::{GroupElement, Scalar, scalarmult};
+
+            let scalar = [0x42; CRYPTO_SCALARMULT_SCALARBYTES];
+            let mut one = [0u8; CRYPTO_SCALARMULT_BYTES];
+            one[0] = 1;
+
+            for public_key in [[0u8; CRYPTO_SCALARMULT_BYTES], one] {
+                let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+                assert!(crypto_scalarmult(&mut shared_secret, &scalar, &public_key).is_err());
+                assert!(
+                    scalarmult(
+                        &Scalar::from_slice(&scalar).unwrap(),
+                        &GroupElement::from_slice(&public_key).unwrap(),
+                    )
+                    .is_err()
                 );
             }
         }

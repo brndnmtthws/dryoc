@@ -377,7 +377,8 @@ fn test_dryocbox() {
     assert_eq!(message, decrypted.as_slice());
 
     let shared_key =
-        PrecalcSecretKey::precalculate(&recipient_keypair.public_key, &sender_keypair.secret_key);
+        PrecalcSecretKey::precalculate(&recipient_keypair.public_key, &sender_keypair.secret_key)
+            .expect("precalculation failed");
 
     let dryocbox = DryocBox::precalc_encrypt_to_vecbox(message, &nonce, &shared_key)
         .expect("unable to encrypt");

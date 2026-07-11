@@ -3,11 +3,15 @@
 //!
 //! You may want to use `precalc_*` functions if you need to
 //! encrypt/decrypt multiple messages between the same sender and receiver.
+use std::fmt;
+
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::constants::{
     CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
+use crate::error::Error;
 use crate::types::{ByteArray, Bytes, MutByteArray, MutBytes, StackByteArray};
 
 type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
@@ -22,8 +26,28 @@ type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 ///
 /// Using precalculated secret keys is compatible with libsodium's
 /// `crypto_box_beforenm`.
-#[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
+#[derive(Zeroize, ZeroizeOnDrop, Clone)]
 pub struct PrecalcSecretKey<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize>(InnerKey);
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> fmt::Debug
+    for PrecalcSecretKey<InnerKey>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("PrecalcSecretKey")
+            .field(&"[REDACTED]")
+            .finish()
+    }
+}
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> PartialEq
+    for PrecalcSecretKey<InnerKey>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_slice().ct_eq(other.0.as_slice()).into()
+    }
+}
+
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> Eq for PrecalcSecretKey<InnerKey> {}
 
 impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Bytes + Zeroize> Bytes
     for PrecalcSecretKey<InnerKey>
@@ -88,10 +112,12 @@ impl PrecalcSecretKey<InnerKey> {
     >(
         third_party_public_key: &ThirdPartyPublicKey,
         secret_key: &SecretKey,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         use crate::classic::crypto_box::crypto_box_beforenm;
 
-        Self(crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array()).into())
+        Ok(Self(
+            crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array())?.into(),
+        ))
     }
 }
 
@@ -115,12 +141,12 @@ pub mod protected {
         >(
             third_party_public_key: &ThirdPartyPublicKey,
             secret_key: &SecretKey,
-        ) -> Result<Self, std::io::Error> {
+        ) -> Result<Self, Error> {
             use crate::classic::crypto_box::crypto_box_beforenm;
 
             let mut precalc = HeapByteArray::<CRYPTO_BOX_BEFORENMBYTES>::new_locked()?;
             let mut key =
-                crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array());
+                crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array())?;
 
             precalc.copy_from_slice(&key);
             key.zeroize();
@@ -141,12 +167,12 @@ pub mod protected {
         >(
             third_party_public_key: &ThirdPartyPublicKey,
             secret_key: &SecretKey,
-        ) -> Result<Self, std::io::Error> {
+        ) -> Result<Self, Error> {
             use crate::classic::crypto_box::crypto_box_beforenm;
 
             let mut precalc = HeapByteArray::<CRYPTO_BOX_BEFORENMBYTES>::new_locked()?;
             let mut key =
-                crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array());
+                crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array())?;
 
             precalc.copy_from_slice(&key);
             key.zeroize();
@@ -176,21 +202,37 @@ impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> std::ops::DerefMut
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn precalculated_key_debug_redacts_contents_and_equality_is_value_based() {
+        let key = PrecalcSecretKey(StackByteArray::from([0xabu8; CRYPTO_BOX_BEFORENMBYTES]));
+        let same = key.clone();
+        let different = PrecalcSecretKey(StackByteArray::from([0xcdu8; CRYPTO_BOX_BEFORENMBYTES]));
+
+        assert_eq!(format!("{key:?}"), "PrecalcSecretKey(\"[REDACTED]\")");
+        assert_eq!(key, same);
+        assert_ne!(key, different);
+    }
     use crate::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
 
     #[test]
     fn test_precalculate() {
-        let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        public_key.as_mut_array()[0] = 9;
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
-        let precalc_key = PrecalcSecretKey::precalculate(&public_key, &secret_key);
+        let precalc_key = PrecalcSecretKey::precalculate(&public_key, &secret_key).unwrap();
         assert!(!precalc_key.is_empty());
         assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+
+        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        assert!(PrecalcSecretKey::precalculate(&low_order_public_key, &secret_key).is_err());
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn test_precalculate_locked() {
-        let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        public_key.as_mut_array()[0] = 9;
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
         let mut precalc_key =
             PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
@@ -200,17 +242,26 @@ mod tests {
         // should be able to write now without blowing up
         precalc_key.as_mut_slice()[0] = 0;
         precalc_key.as_mut_array()[0] = 1;
-        precalc_key.copy_from_slice(&precalc_key.as_slice().to_owned());
+
+        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        assert!(PrecalcSecretKey::precalculate_locked(&low_order_public_key, &secret_key).is_err());
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn test_precalculate_readonly_locked() {
-        let public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        public_key.as_mut_array()[0] = 9;
         let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
         let precalc_key =
             PrecalcSecretKey::precalculate_readonly_locked(&public_key, &secret_key).unwrap();
         assert!(!precalc_key.is_empty());
         assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+
+        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        assert!(
+            PrecalcSecretKey::precalculate_readonly_locked(&low_order_public_key, &secret_key)
+                .is_err()
+        );
     }
 }

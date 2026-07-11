@@ -575,7 +575,8 @@ mod tests {
         ) {
             let mut simd_ciphertext = message.clone();
             let mut simd_mac = [0u8; 16];
-            crypto_secretbox_detached(&mut simd_ciphertext, &mut simd_mac, &message, &nonce, &key);
+            crypto_secretbox_detached(&mut simd_ciphertext, &mut simd_mac, &message, &nonce, &key)
+                .expect("SIMD secretbox encryption failed");
 
             let mut rustcrypto_ciphertext = message.clone();
             let mut rustcrypto_mac_key = Poly1305Key::new();

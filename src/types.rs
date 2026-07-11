@@ -1,13 +1,32 @@
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::rng::copy_randombytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
 /// optional [Serde](https://serde.rs) features.
-#[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone)]
+#[derive(Zeroize, ZeroizeOnDrop, Clone)]
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
+
+impl<const LENGTH: usize> fmt::Debug for StackByteArray<LENGTH> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StackByteArray")
+            .field("len", &LENGTH)
+            .field("contents", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl<const LENGTH: usize> PartialEq for StackByteArray<LENGTH> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ct_eq(&other.0).into()
+    }
+}
+
+impl<const LENGTH: usize> Eq for StackByteArray<LENGTH> {}
 
 /// Fixed-length byte array.
 pub trait ByteArray<const LENGTH: usize>: Bytes {
@@ -572,5 +591,14 @@ mod tests {
     fn test_vec_as_mut_array_out_of_bounds_ok() {
         let mut vec = vec![1, 2];
         let _ = <Vec<u8> as MutByteArray<2>>::as_mut_array(&mut vec)[1];
+    }
+
+    #[test]
+    fn stack_byte_array_debug_redacts_contents() {
+        let bytes = StackByteArray::from([0xabu8; 4]);
+        let debug = format!("{bytes:?}");
+
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("171"));
     }
 }

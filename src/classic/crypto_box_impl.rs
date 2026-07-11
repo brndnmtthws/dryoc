@@ -1,4 +1,4 @@
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::crypto_core::crypto_scalarmult;
 use crate::classic::crypto_box::{PublicKey, SecretKey};
@@ -10,20 +10,21 @@ use crate::constants::{
     CRYPTO_HASH_SHA512_BYTES, CRYPTO_SCALARMULT_BYTES,
 };
 use crate::dryocstream::ByteArray;
+use crate::error::Error;
 use crate::rng::copy_randombytes;
 use crate::scalarmult_curve25519::*;
 
 pub(crate) fn crypto_box_curve25519xsalsa20poly1305_beforenm(
     public_key: &PublicKey,
     secret_key: &SecretKey,
-) -> Key {
-    let mut s = [0u8; CRYPTO_SCALARMULT_BYTES];
-    crypto_scalarmult(&mut s, secret_key.as_array(), public_key.as_array());
+) -> Result<Key, Error> {
+    let mut s = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
+    crypto_scalarmult(&mut s, secret_key.as_array(), public_key.as_array())?;
 
     let mut hash = [0u8; CRYPTO_CORE_HSALSA20_OUTPUTBYTES];
     crypto_core_hsalsa20(&mut hash, &[0u8; CRYPTO_CORE_HSALSA20_INPUTBYTES], &s, None);
 
-    hash
+    Ok(hash)
 }
 
 #[inline]
