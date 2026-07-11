@@ -65,10 +65,6 @@ For example usage, refer to the
 dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
 by `rust-version` in `Cargo.toml`.
 
-Rust 2024 reserves `gen` as a keyword. Prefer generation APIs such as
-`Key::generate()`. Existing `gen` APIs remain available through raw identifier
-syntax, such as `Key::r#gen()`, for compatibility and are deprecated.
-
 The `simd_backend` and `nightly` features enable dryoc's portable SIMD
 backends. CPU-specific dependency backends and local benchmarking may also
 benefit from target-specific `RUSTFLAGS`:
