@@ -204,10 +204,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn precalculated_key_debug_redacts_contents() {
+    fn precalculated_key_debug_redacts_contents_and_equality_is_value_based() {
         let key = PrecalcSecretKey(StackByteArray::from([0xabu8; CRYPTO_BOX_BEFORENMBYTES]));
+        let same = key.clone();
+        let different = PrecalcSecretKey(StackByteArray::from([0xcdu8; CRYPTO_BOX_BEFORENMBYTES]));
 
         assert_eq!(format!("{key:?}"), "PrecalcSecretKey(\"[REDACTED]\")");
+        assert_eq!(key, same);
+        assert_ne!(key, different);
     }
     use crate::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
 
@@ -238,6 +242,9 @@ mod tests {
         // should be able to write now without blowing up
         precalc_key.as_mut_slice()[0] = 0;
         precalc_key.as_mut_array()[0] = 1;
+
+        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        assert!(PrecalcSecretKey::precalculate_locked(&low_order_public_key, &secret_key).is_err());
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
@@ -250,5 +257,11 @@ mod tests {
             PrecalcSecretKey::precalculate_readonly_locked(&public_key, &secret_key).unwrap();
         assert!(!precalc_key.is_empty());
         assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+
+        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        assert!(
+            PrecalcSecretKey::precalculate_readonly_locked(&low_order_public_key, &secret_key)
+                .is_err()
+        );
     }
 }

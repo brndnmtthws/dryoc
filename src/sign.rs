@@ -647,6 +647,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn signing_keypair_debug_redacts_keys_and_secret_key_reconstructs_keypair() {
+        let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+        let debug = format!("{keypair:?}");
+        let reconstructed = SigningKeyPair::from_secret_key(keypair.secret_key.clone());
+
+        assert_eq!(
+            debug,
+            "SigningKeyPair { public_key: \"[REDACTED]\", secret_key: \"[REDACTED]\" }"
+        );
+        assert_eq!(reconstructed, keypair);
+    }
+
+    #[test]
     fn test_message_signing() {
         let keypair = SigningKeyPair::generate_with_defaults();
         let message = b"hello my frens";

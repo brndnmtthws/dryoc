@@ -159,7 +159,6 @@ struct Argon2Instance {
 
 impl Drop for Argon2Instance {
     fn drop(&mut self) {
-        self.region.memory.zeroize();
         self.pseudo_rands.zeroize();
     }
 }

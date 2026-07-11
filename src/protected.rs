@@ -1162,7 +1162,7 @@ unsafe impl Allocator for PageAlignedAllocator {
     #[inline]
     fn allocate(&self, layout: std::alloc::Layout) -> Result<NonNull<[u8]>, AllocError> {
         let pagesize = *PAGESIZE;
-        if pagesize % layout.align() != 0 {
+        if !pagesize.is_multiple_of(layout.align()) {
             return Err(AllocError);
         }
 
