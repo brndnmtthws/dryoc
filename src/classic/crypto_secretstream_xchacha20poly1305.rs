@@ -271,19 +271,19 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     let _pad0 = [0u8; 16];
 
     if ciphertext.len() != message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(dryoc_error!(format!(
-            "Ciphertext length was {}, should be {}",
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        )));
+            exact message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
     }
 
     if message.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-        return Err(dryoc_error!(format!(
-            "Message length {} exceeds max length {}",
+        return Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-        )));
+            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+        ));
     }
 
     let associated_data = associated_data.unwrap_or(&[]);
@@ -381,27 +381,27 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     let _pad0 = [0u8; 16];
 
     if ciphertext.len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(dryoc_error!(format!(
-            "Ciphertext length was {}, should be at least {}",
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        )));
+            min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
     }
 
     if message.len() < ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(dryoc_error!(format!(
-            "Message length was {}, should be at least {}",
+        return Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        )));
+            min ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+        ));
     }
 
     if ciphertext.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-        return Err(dryoc_error!(format!(
-            "Message length {} exceeds max length {}",
+        return Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-        )));
+            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+        ));
     }
 
     let associated_data = associated_data.unwrap_or(&[]);
@@ -450,7 +450,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     cipher.apply_keystream(&mut message[..mlen]);
 
     if ciphertext[1 + mlen..].ct_eq(&mac).unwrap_u8() == 0 {
-        return Err(dryoc_error!("Message authentication mismatch"));
+        return Err(Error::AuthenticationFailed);
     }
 
     let inonce = state_inonce(&mut state.nonce);
@@ -476,6 +476,62 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 mod tests {
     use super::*;
     use crate::dryocstream::Tag;
+
+    #[test]
+    fn push_and_pull_reject_invalid_buffer_lengths() {
+        let mut state = State::new();
+        let mut tag = 0;
+
+        let error = crypto_secretstream_xchacha20poly1305_push(
+            &mut state,
+            &mut [],
+            b"message",
+            None,
+            Tag::MESSAGE.bits(),
+        )
+        .expect_err("ciphertext must include secretstream overhead");
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                ..
+            }
+        ));
+
+        let short_ciphertext = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES - 1];
+        let error = crypto_secretstream_xchacha20poly1305_pull(
+            &mut state,
+            &mut [],
+            &mut tag,
+            &short_ciphertext,
+            None,
+        )
+        .expect_err("ciphertext must include secretstream overhead");
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                ..
+            }
+        ));
+
+        let ciphertext = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES + 1];
+        let error = crypto_secretstream_xchacha20poly1305_pull(
+            &mut state,
+            &mut [],
+            &mut tag,
+            &ciphertext,
+            None,
+        )
+        .expect_err("the message buffer must hold the plaintext");
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn test_sizes() {

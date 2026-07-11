@@ -82,7 +82,7 @@ pub fn crypto_auth_hmacsha512256_verify(mac: &Mac, input: &[u8], key: &Key) -> R
     if valid == 1 {
         Ok(())
     } else {
-        Err(dryoc_error!("authentication codes do not match"))
+        Err(Error::AuthenticationFailed)
     }
 }
 

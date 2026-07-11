@@ -171,12 +171,12 @@ pub trait HkdfVariant<const PRK_LENGTH: usize> {
     /// [`Self::OUTPUT_BYTES_MIN`] or larger than [`Self::OUTPUT_BYTES_MAX`].
     fn validate_output_len(output_len: usize) -> Result<(), Error> {
         if output_len < Self::OUTPUT_BYTES_MIN || output_len > Self::OUTPUT_BYTES_MAX {
-            Err(dryoc_error!(format!(
-                "invalid output length {}, should be at least {} and no more than {}",
+            Err(length_error!(
+                crate::ErrorContext::Output,
                 output_len,
-                Self::OUTPUT_BYTES_MIN,
+                range Self::OUTPUT_BYTES_MIN,
                 Self::OUTPUT_BYTES_MAX
-            )))
+            ))
         } else {
             Ok(())
         }

@@ -196,17 +196,15 @@ pub fn crypto_box_easy(
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
-        Err(dryoc_error!(format!(
-            "message length {} exceeds max message length {}",
-            message.len(),
-            CRYPTO_BOX_MESSAGEBYTES_MAX
-        )))
+        Err(
+            length_error!(crate::ErrorContext::Message, message.len(), max CRYPTO_BOX_MESSAGEBYTES_MAX),
+        )
     } else if ciphertext.len() != message.len() + CRYPTO_BOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "ciphertext length invalid ({} != {})",
+        Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            message.len() + CRYPTO_BOX_MACBYTES
-        )))
+            exact message.len() + CRYPTO_BOX_MACBYTES
+        ))
     } else {
         let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
         let mac = MutByteArray::as_mut_array(mac);
@@ -254,11 +252,11 @@ pub fn crypto_box_seal(
     recipient_public_key: &PublicKey,
 ) -> Result<(), Error> {
     if ciphertext.len() != message.len() + CRYPTO_BOX_SEALBYTES {
-        Err(dryoc_error!(format!(
-            "ciphertext length invalid ({} != {})",
+        Err(length_error!(
+            crate::ErrorContext::Ciphertext,
             ciphertext.len(),
-            message.len() + CRYPTO_BOX_SEALBYTES,
-        )))
+            exact message.len() + CRYPTO_BOX_SEALBYTES
+        ))
     } else {
         let mut nonce = Nonce::new_byte_array();
         let (mut epk, esk) = crypto_box_keypair();
@@ -307,17 +305,9 @@ pub fn crypto_box_easy_inplace(
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if data.len() < CRYPTO_BOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "Message length {} less than {}, impossibly small",
-            data.len(),
-            CRYPTO_BOX_MACBYTES
-        )))
+        Err(length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_BOX_MACBYTES))
     } else if data.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
-        Err(dryoc_error!(format!(
-            "Message length {} exceeds max message length {}",
-            data.len(),
-            CRYPTO_BOX_MESSAGEBYTES_MAX
-        )))
+        Err(length_error!(crate::ErrorContext::Data, data.len(), max CRYPTO_BOX_MESSAGEBYTES_MAX))
     } else {
         data.rotate_right(CRYPTO_BOX_MACBYTES);
 
@@ -429,17 +419,15 @@ pub fn crypto_box_open_easy(
     recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_BOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "Impossibly small box ({} < {}",
-            ciphertext.len(),
-            CRYPTO_BOX_MACBYTES
-        )))
+        Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_BOX_MACBYTES),
+        )
     } else if message.len() != ciphertext.len() - CRYPTO_BOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "message length invalid ({} != {})",
+        Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            ciphertext.len() - CRYPTO_BOX_MACBYTES
-        )))
+            exact ciphertext.len() - CRYPTO_BOX_MACBYTES
+        ))
     } else {
         let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
         let mac = ByteArray::as_array(mac);
@@ -476,17 +464,15 @@ pub fn crypto_box_seal_open(
     recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if ciphertext.len() < CRYPTO_BOX_SEALBYTES {
-        Err(dryoc_error!(format!(
-            "Impossibly small box ({} < {}",
-            ciphertext.len(),
-            CRYPTO_BOX_SEALBYTES,
-        )))
+        Err(
+            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_BOX_SEALBYTES),
+        )
     } else if message.len() != ciphertext.len() - CRYPTO_BOX_SEALBYTES {
-        Err(dryoc_error!(format!(
-            "message length invalid ({} != {}",
+        Err(length_error!(
+            crate::ErrorContext::Message,
             message.len(),
-            ciphertext.len() - CRYPTO_BOX_SEALBYTES,
-        )))
+            exact ciphertext.len() - CRYPTO_BOX_SEALBYTES
+        ))
     } else {
         let mut nonce = Nonce::new_byte_array();
         let mut epk = PublicKey::new_byte_array();
@@ -528,11 +514,7 @@ pub fn crypto_box_open_easy_inplace(
     recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if data.len() < CRYPTO_BOX_MACBYTES {
-        Err(dryoc_error!(format!(
-            "Impossibly small box ({} < {}",
-            data.len(),
-            CRYPTO_BOX_MACBYTES
-        )))
+        Err(length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_BOX_MACBYTES))
     } else {
         let (mac, d) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
         let mac = ByteArray::as_array(mac);
@@ -597,6 +579,53 @@ mod tests {
             );
             assert_eq!(output, original);
         }
+    }
+
+    #[test]
+    fn test_crypto_box_seal_rejects_mismatched_buffers() {
+        let (recipient_public_key, recipient_secret_key) = crypto_box_keypair();
+        let message = b"sealed box buffer validation";
+
+        let mut short_ciphertext = vec![0u8; message.len() + CRYPTO_BOX_SEALBYTES - 1];
+        assert!(matches!(
+            crypto_box_seal(&mut short_ciphertext, message, &recipient_public_key),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                actual,
+                constraint: crate::LengthConstraint::Exact(expected),
+            }) if actual == short_ciphertext.len()
+                && expected == message.len() + CRYPTO_BOX_SEALBYTES
+        ));
+
+        let short_sealed_box = vec![0u8; CRYPTO_BOX_SEALBYTES - 1];
+        assert!(matches!(
+            crypto_box_seal_open(
+                &mut [],
+                &short_sealed_box,
+                &recipient_public_key,
+                &recipient_secret_key,
+            ),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                actual,
+                constraint: crate::LengthConstraint::AtLeast(CRYPTO_BOX_SEALBYTES),
+            }) if actual == short_sealed_box.len()
+        ));
+
+        let sealed_box = vec![0u8; CRYPTO_BOX_SEALBYTES + 1];
+        assert!(matches!(
+            crypto_box_seal_open(
+                &mut [],
+                &sealed_box,
+                &recipient_public_key,
+                &recipient_secret_key,
+            ),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                actual: 0,
+                constraint: crate::LengthConstraint::Exact(1),
+            })
+        ));
     }
 
     #[test]

@@ -433,16 +433,13 @@ impl<
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_MACBYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_BOX_MACBYTES
-            )))
+            Err(length_error!(crate::ErrorContext::Box, bytes.len(), min CRYPTO_BOX_MACBYTES))
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
             Ok(Self {
                 ephemeral_pk: None,
-                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }
@@ -460,20 +457,19 @@ impl<
     /// its target type.
     pub fn from_sealed_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_BOX_SEALBYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_BOX_SEALBYTES
-            )))
+            Err(
+                length_error!(crate::ErrorContext::SealedBox, bytes.len(), min CRYPTO_BOX_SEALBYTES),
+            )
         } else {
             let (seal, data) = bytes.split_at(CRYPTO_BOX_SEALBYTES);
             let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
             Ok(Self {
                 ephemeral_pk: Some(
                     EphemeralPublicKey::try_from(epk)
-                        .map_err(|_e| dryoc_error!("invalid ephemeral public key"))?,
+                        .map_err(|_| Error::invalid_key(crate::ErrorContext::EphemeralPublicKey))?,
                 ),
-                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }
@@ -617,9 +613,7 @@ impl<
 
                 Ok(message)
             }
-            None => Err(dryoc_error!(
-                "ephemeral public key is missing, cannot unseal"
-            )),
+            None => Err(Error::missing_data(crate::ErrorContext::EphemeralPublicKey)),
         }
     }
 
@@ -826,6 +820,23 @@ impl<
 mod tests {
     use super::*;
     use crate::precalc::PrecalcSecretKey;
+
+    #[test]
+    fn unseal_requires_an_ephemeral_public_key() {
+        let box_without_ephemeral_key =
+            VecBox::from_bytes(&[0u8; CRYPTO_BOX_MACBYTES]).expect("a regular box should parse");
+        let recipient_keypair = KeyPair::generate();
+
+        let error = box_without_ephemeral_key
+            .unseal::<_, _, Vec<u8>>(&recipient_keypair)
+            .expect_err("a regular box cannot be unsealed");
+        assert!(matches!(
+            error,
+            Error::MissingData {
+                context: crate::ErrorContext::EphemeralPublicKey,
+            }
+        ));
+    }
 
     #[test]
     fn test_decrypt_failure_empty() {

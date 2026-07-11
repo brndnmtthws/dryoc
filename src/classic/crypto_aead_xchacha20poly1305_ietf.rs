@@ -79,32 +79,34 @@ pub fn crypto_aead_xchacha20poly1305_ietf_keygen() -> Key {
 
 fn validate_message_len(message_len: usize) -> Result<(), Error> {
     if message_len > CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX {
-        Err(dryoc_error!(format!(
-            "message length {} exceeds max message length {}",
-            message_len, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
-        )))
+        Err(length_error!(
+            crate::ErrorContext::Message,
+            message_len,
+            max CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
+        ))
     } else {
         Ok(())
     }
 }
 
-fn validate_output_len(output_len: usize, expected_len: usize, name: &str) -> Result<(), Error> {
+fn validate_output_len(
+    output_len: usize,
+    expected_len: usize,
+    context: crate::ErrorContext,
+) -> Result<(), Error> {
     if output_len != expected_len {
-        Err(dryoc_error!(format!(
-            "{} length invalid ({} != {})",
-            name, output_len, expected_len
-        )))
+        Err(length_error!(context, output_len, exact expected_len))
     } else {
         Ok(())
     }
 }
 
-fn message_len_from_combined_len(combined_len: usize, name: &str) -> Result<usize, Error> {
+fn message_len_from_combined_len(
+    combined_len: usize,
+    context: crate::ErrorContext,
+) -> Result<usize, Error> {
     if combined_len < CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES {
-        Err(dryoc_error!(format!(
-            "{} length {} less than minimum {}",
-            name, combined_len, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
-        )))
+        Err(length_error!(context, combined_len, min CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES))
     } else {
         let message_len = combined_len - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
         validate_message_len(message_len)?;
@@ -168,7 +170,7 @@ fn verify_mac(mac: &Mac, computed_mac: &Mac) -> Result<(), Error> {
     if mac.ct_eq(computed_mac).unwrap_u8() == 1 {
         Ok(())
     } else {
-        Err(dryoc_error!("decryption error (authentication failure)"))
+        Err(Error::AuthenticationFailed)
     }
 }
 
@@ -190,7 +192,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
     key: &Key,
 ) -> Result<(), Error> {
     validate_message_len(message.len())?;
-    validate_output_len(ciphertext.len(), message.len(), "ciphertext")?;
+    validate_output_len(
+        ciphertext.len(),
+        message.len(),
+        crate::ErrorContext::Ciphertext,
+    )?;
 
     let associated_data = associated_data.unwrap_or(&[]);
     let mut cipher = chacha20_xietf_ext(nonce, key);
@@ -248,7 +254,11 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
     key: &Key,
 ) -> Result<(), Error> {
     validate_message_len(ciphertext.len())?;
-    validate_output_len(message.len(), ciphertext.len(), "message")?;
+    validate_output_len(
+        message.len(),
+        ciphertext.len(),
+        crate::ErrorContext::Message,
+    )?;
 
     let associated_data = associated_data.unwrap_or(&[]);
     let mut cipher = chacha20_xietf_ext(nonce, key);
@@ -308,7 +318,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt(
     validate_output_len(
         ciphertext.len(),
         message.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
-        "ciphertext",
+        crate::ErrorContext::Ciphertext,
     )?;
 
     let (ciphertext, mac) = ciphertext.split_at_mut(message.len());
@@ -338,8 +348,9 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let message_len = message_len_from_combined_len(ciphertext.len(), "ciphertext")?;
-    validate_output_len(message.len(), message_len, "message")?;
+    let message_len =
+        message_len_from_combined_len(ciphertext.len(), crate::ErrorContext::Ciphertext)?;
+    validate_output_len(message.len(), message_len, crate::ErrorContext::Message)?;
 
     let (ciphertext, mac) = ciphertext.split_at(message_len);
     let mac = ByteArray::as_array(mac);
@@ -368,7 +379,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let message_len = message_len_from_combined_len(data.len(), "data")?;
+    let message_len = message_len_from_combined_len(data.len(), crate::ErrorContext::Data)?;
     let (data, mac) = data.split_at_mut(message_len);
     let mac = MutByteArray::as_mut_array(mac);
     crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
@@ -395,7 +406,7 @@ pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    let message_len = message_len_from_combined_len(data.len(), "data")?;
+    let message_len = message_len_from_combined_len(data.len(), crate::ErrorContext::Data)?;
     let (data, mac) = data.split_at_mut(message_len);
     let mac = ByteArray::as_array(mac);
     crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(

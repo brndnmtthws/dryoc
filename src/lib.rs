@@ -71,6 +71,13 @@
 //! The _Classic_ API closely follows libsodium's functions and types. The
 //! _Rustaceous_ API wraps the same operations in Rust types.
 //!
+//! ## Error handling
+//!
+//! Fallible cryptographic operations return [`Error`]. Its structured variants
+//! let callers distinguish authentication failures, invalid lengths or values,
+//! malformed encodings, invalid keys, protected-memory failures, and invalid
+//! operation state.
+//!
 //! Prefer the Rustaceous API for new code. Use the Classic API when porting
 //! libsodium code or when its byte-array interface is a better fit.
 //!
@@ -243,7 +250,7 @@ pub mod types;
 /// # Various utility functions
 pub mod utils;
 
-pub use error::Error;
+pub use error::{Error, ErrorContext, LengthConstraint, ValueConstraint};
 
 #[cfg(test)]
 mod tests {

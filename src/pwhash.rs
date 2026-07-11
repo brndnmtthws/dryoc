@@ -421,7 +421,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Clone + Zeroize> P
         {
             Ok(())
         } else {
-            Err(dryoc_error!("hashes do not match"))
+            Err(Error::AuthenticationFailed)
         }
     }
 
@@ -475,25 +475,32 @@ impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroiz
     pub fn from_string(hashed_password: &str) -> Result<Self, Error> {
         let parsed_pwhash = crypto_pwhash::Pwhash::parse_encoded_pwhash(hashed_password)?;
 
-        let opslimit = parsed_pwhash
-            .t_cost
-            .ok_or_else(|| dryoc_error!("encoded password hash has no computation cost"))?
-            as u64;
-        let encoded_memlimit = parsed_pwhash
-            .m_cost
-            .ok_or_else(|| dryoc_error!("encoded password hash has no memory cost"))?;
-        let memlimit = 1024usize
-            .checked_mul(encoded_memlimit as usize)
-            .ok_or_else(|| dryoc_error!("encoded memory cost is too large"))?;
+        let opslimit = parsed_pwhash.t_cost.ok_or(Error::missing_data(
+            crate::ErrorContext::PasswordHashTimeCost,
+        ))? as u64;
+        let encoded_memlimit = parsed_pwhash.m_cost.ok_or(Error::missing_data(
+            crate::ErrorContext::PasswordHashMemoryCost,
+        ))?;
+        let memlimit =
+            1024usize
+                .checked_mul(encoded_memlimit as usize)
+                .ok_or(Error::InvalidValue {
+                    context: crate::ErrorContext::PasswordHashMemoryCost,
+                    actual: encoded_memlimit as u64,
+                    constraint: crate::ValueConstraint::Between {
+                        min: 0,
+                        max: (usize::MAX / 1024) as u64,
+                    },
+                })?;
         let hash = parsed_pwhash
             .pwhash
-            .ok_or_else(|| dryoc_error!("encoded password hash has no hash value"))?;
+            .ok_or(Error::missing_data(crate::ErrorContext::PasswordHash))?;
         let salt = parsed_pwhash
             .salt
-            .ok_or_else(|| dryoc_error!("encoded password hash has no salt"))?;
-        let algorithm = parsed_pwhash
-            .type_
-            .ok_or_else(|| dryoc_error!("encoded password hash has no algorithm"))?;
+            .ok_or(Error::missing_data(crate::ErrorContext::PasswordHashSalt))?;
+        let algorithm = parsed_pwhash.type_.ok_or(Error::missing_data(
+            crate::ErrorContext::PasswordHashAlgorithm,
+        ))?;
         let hash_length = hash.len();
         let salt_length = salt.len();
 

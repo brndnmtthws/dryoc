@@ -137,7 +137,7 @@ pub fn crypto_sign_ed25519_pk_to_curve25519(
 ) -> Result<(), Error> {
     let ep = CompressedEdwardsY(*ed25519_public_key)
         .decompress()
-        .ok_or_else(|| dryoc_error!("failed to convert to Edwards point"))?;
+        .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
     x25519_public_key.copy_from_slice(ep.to_montgomery().as_bytes());
 
     Ok(())
@@ -183,11 +183,11 @@ pub(crate) fn crypto_sign_ed25519(
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
     if signed_message.len() != message.len() + CRYPTO_SIGN_ED25519_BYTES {
-        Err(dryoc_error!(format!(
-            "signed_message length incorrect (expect {}, got {})",
-            message.len() + CRYPTO_SIGN_ED25519_BYTES,
-            signed_message.len()
-        )))
+        Err(length_error!(
+            crate::ErrorContext::SignedMessage,
+            signed_message.len(),
+            exact message.len() + CRYPTO_SIGN_ED25519_BYTES
+        ))
     } else {
         let (sig, sm) = signed_message.split_at_mut(CRYPTO_SIGN_ED25519_BYTES);
         let sig: &mut [u8; CRYPTO_SIGN_ED25519_BYTES] =
@@ -213,11 +213,11 @@ fn crypto_sign_ed25519_detached_impl(
     prehashed: bool,
 ) -> Result<(), Error> {
     if signature.len() != CRYPTO_SIGN_ED25519_BYTES {
-        Err(dryoc_error!(format!(
-            "signature length incorrect (expect {}, got {})",
-            CRYPTO_SIGN_ED25519_BYTES,
-            signature.len()
-        )))
+        Err(length_error!(
+            crate::ErrorContext::Signature,
+            signature.len(),
+            exact CRYPTO_SIGN_ED25519_BYTES
+        ))
     } else {
         let mut az: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&secret_key[..32]);
 
@@ -280,19 +280,21 @@ fn crypto_sign_ed25519_verify_detached_impl(
 ) -> Result<(), Error> {
     let s = Scalar::from_bytes_mod_order(
         *<&[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]>::try_from(&signature[32..])
-            .map_err(|_| dryoc_error!("bad signature"))?,
+            .map_err(|_| Error::AuthenticationFailed)?,
     );
-    let big_r = CompressedEdwardsY::from_slice(&signature[..32])?
+    let big_r = CompressedEdwardsY::from_slice(&signature[..32])
+        .map_err(|_| Error::AuthenticationFailed)?
         .decompress()
-        .ok_or_else(|| dryoc_error!("bad signature"))?;
+        .ok_or(Error::AuthenticationFailed)?;
     if big_r.is_small_order() {
-        return Err(dryoc_error!("bad signature"));
+        return Err(Error::AuthenticationFailed);
     }
-    let pk = CompressedEdwardsY::from_slice(public_key)?
+    let pk = CompressedEdwardsY::from_slice(public_key)
+        .map_err(|_| Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?
         .decompress()
-        .ok_or_else(|| dryoc_error!("bad public key"))?;
+        .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
     if pk.is_small_order() {
-        return Err(dryoc_error!("bad public key"));
+        return Err(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey));
     }
 
     let mut hasher = Sha512::new();
@@ -311,7 +313,7 @@ fn crypto_sign_ed25519_verify_detached_impl(
     if sig_r == big_r {
         Ok(())
     } else {
-        Err(dryoc_error!("bad signature"))
+        Err(Error::AuthenticationFailed)
     }
 }
 
@@ -321,17 +323,17 @@ pub(crate) fn crypto_sign_ed25519_open(
     public_key: &PublicKey,
 ) -> Result<(), Error> {
     if signed_message.len() < CRYPTO_SIGN_ED25519_BYTES {
-        Err(dryoc_error!(format!(
-            "signed_message length invalid ({} < {})",
+        Err(length_error!(
+            crate::ErrorContext::SignedMessage,
             signed_message.len(),
-            CRYPTO_SIGN_ED25519_BYTES,
-        )))
+            min CRYPTO_SIGN_ED25519_BYTES
+        ))
     } else if message.len() != signed_message.len() - CRYPTO_SIGN_ED25519_BYTES {
-        Err(dryoc_error!(format!(
-            "message length incorrect (expect {}, got {})",
-            signed_message.len() - CRYPTO_SIGN_ED25519_BYTES,
-            message.len()
-        )))
+        Err(length_error!(
+            crate::ErrorContext::Message,
+            message.len(),
+            exact signed_message.len() - CRYPTO_SIGN_ED25519_BYTES
+        ))
     } else {
         let (sig, sm) = signed_message.split_at(CRYPTO_SIGN_ED25519_BYTES);
         let sig: &[u8; CRYPTO_SIGN_ED25519_BYTES] =

@@ -174,20 +174,17 @@ impl State {
         personal: Option<&[u8; PERSONALBYTES]>,
     ) -> Result<State, Error> {
         if outlen == 0 || outlen as usize > OUTBYTES {
-            return Err(dryoc_error!(format!("invalid blake2b outlen: {}", outlen)));
+            return Err(
+                length_error!(crate::ErrorContext::Blake2bOutput, outlen as usize, range 1, OUTBYTES),
+            );
         }
 
-        let key_length: u8 = match key {
-            Some(key) => key.len() as u8,
-            None => 0,
-        };
+        let key_length = key.map_or(0, <[u8]>::len);
 
-        if key_length > KEYBYTES as u8 {
-            return Err(dryoc_error!(format!(
-                "invalid blake2b key length: {} max: {}",
-                key_length, KEYBYTES
-            )));
+        if key_length > KEYBYTES {
+            return Err(length_error!(crate::ErrorContext::Blake2bKey, key_length, max KEYBYTES));
         }
+        let key_length = key_length as u8;
 
         let salt = match salt {
             Some(salt) => *salt,
@@ -265,15 +262,13 @@ impl State {
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
         if output.is_empty() || output.len() > OUTBYTES {
-            return Err(dryoc_error!(format!(
-                "invalid output length {}, should be <= {}",
-                output.len(),
-                OUTBYTES
-            )));
+            return Err(
+                length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
+            );
         }
 
         if self.is_lastblock() {
-            return Err(dryoc_error!("already on last block"));
+            return Err(Error::invalid_state(crate::ErrorContext::Blake2b));
         }
 
         if self.buf.len() > BLOCKBYTES {
@@ -333,11 +328,7 @@ impl State {
 
 pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
     if output.len() > OUTBYTES {
-        return Err(dryoc_error!(format!(
-            "output length {} greater than max {}",
-            output.len(),
-            OUTBYTES
-        )));
+        return Err(length_error!(crate::ErrorContext::Blake2bOutput, output.len(), max OUTBYTES));
     }
 
     let mut state = State::init(output.len() as u8, key, None, None)?;
@@ -433,6 +424,21 @@ mod tests {
 
             assert_eq!(vector.out, hex::encode(output));
         }
+    }
+
+    #[test]
+    fn rejects_key_lengths_that_do_not_fit_in_u8() {
+        let key = [0u8; 256];
+        let error = State::init(64, Some(&key), None, None).expect_err("key should be rejected");
+
+        assert!(matches!(
+            error,
+            Error::InvalidLength {
+                context: crate::ErrorContext::Blake2bKey,
+                actual: 256,
+                constraint: crate::LengthConstraint::AtMost(KEYBYTES),
+            }
+        ));
     }
 
     #[cfg(feature = "nightly")]

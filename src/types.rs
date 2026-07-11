@@ -550,11 +550,7 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
         if src.len() != LENGTH {
-            Err(dryoc_error!(format!(
-                "Invalid size: expected {} found {}",
-                LENGTH,
-                src.len()
-            )))
+            Err(length_error!(crate::ErrorContext::Slice, src.len(), exact LENGTH))
         } else {
             let mut arr = Self::default();
             arr.0.copy_from_slice(src);

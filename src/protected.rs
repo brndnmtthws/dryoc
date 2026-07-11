@@ -207,9 +207,9 @@ pub trait Lockable<A: Zeroize + Bytes> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the pages cannot be locked. A common cause is
-    /// exceeding the process's locked-memory limit.
-    fn mlock(self) -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the pages cannot be locked. A common
+    /// cause is exceeding the process's locked-memory limit.
+    fn mlock(self) -> Result<Protected<A, traits::ReadWrite, traits::Locked>, error::Error>;
 }
 
 /// Protected region of memory that can be locked.
@@ -221,9 +221,9 @@ pub trait Lock<A: Zeroize + Bytes, PM: traits::ProtectMode> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the pages cannot be locked, for example because
-    /// the process has reached its locked-memory limit.
-    fn mlock(self) -> Result<Protected<A, PM, traits::Locked>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the pages cannot be locked, for example
+    /// because the process has reached its locked-memory limit.
+    fn mlock(self) -> Result<Protected<A, PM, traits::Locked>, error::Error>;
 }
 
 /// Protected region of memory that can be locked (i.e., is already locked).
@@ -233,8 +233,8 @@ pub trait Unlock<A: Zeroize + Bytes, PM: traits::ProtectMode> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the pages cannot be unlocked.
-    fn munlock(self) -> Result<Protected<A, PM, traits::Unlocked>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the pages cannot be unlocked.
+    fn munlock(self) -> Result<Protected<A, PM, traits::Unlocked>, error::Error>;
 }
 
 /// Protected region of memory that can be set as read-only.
@@ -244,8 +244,8 @@ pub trait ProtectReadOnly<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: trait
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the page permissions cannot be changed.
-    fn mprotect_readonly(self) -> Result<Protected<A, traits::ReadOnly, LM>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the page permissions cannot be changed.
+    fn mprotect_readonly(self) -> Result<Protected<A, traits::ReadOnly, LM>, error::Error>;
 }
 
 /// Protected region of memory that can be set as read-write.
@@ -255,8 +255,8 @@ pub trait ProtectReadWrite<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: trai
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the page permissions cannot be changed.
-    fn mprotect_readwrite(self) -> Result<Protected<A, traits::ReadWrite, LM>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the page permissions cannot be changed.
+    fn mprotect_readwrite(self) -> Result<Protected<A, traits::ReadWrite, LM>, error::Error>;
 }
 
 /// Protected region of memory that can be set as no-access. Must be unlocked.
@@ -266,10 +266,10 @@ pub trait ProtectNoAccess<A: Zeroize + Bytes, PM: traits::ProtectMode> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the page permissions cannot be changed.
+    /// Returns [`error::Error::Io`] if the page permissions cannot be changed.
     fn mprotect_noaccess(
         self,
-    ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, std::io::Error>;
+    ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, error::Error>;
 }
 
 /// Bytes which can be allocated and protected.
@@ -278,31 +278,30 @@ pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the allocation cannot be locked, commonly
-    /// because the process has reached its locked-memory limit.
-    fn new_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the allocation cannot be locked,
+    /// commonly because the process has reached its locked-memory limit.
+    fn new_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, error::Error>;
     /// Returns a new locked byte array.
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the allocation cannot be locked or its page
-    /// permissions cannot be changed to read-only.
-    fn new_readonly_locked()
-    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the allocation cannot be locked or its
+    /// page permissions cannot be changed to read-only.
+    fn new_readonly_locked() -> Result<Protected<A, traits::ReadOnly, traits::Locked>, error::Error>;
     /// Returns a new locked byte array, filled with random data.
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the allocation cannot be locked.
-    fn generate_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error>;
+    /// Returns [`error::Error::Io`] if the allocation cannot be locked.
+    fn generate_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, error::Error>;
     /// Returns a new read-only, locked byte array, filled with random data.
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the allocation cannot be locked or its page
-    /// permissions cannot be changed to read-only.
+    /// Returns [`error::Error::Io`] if the allocation cannot be locked or its
+    /// page permissions cannot be changed to read-only.
     fn generate_readonly_locked()
-    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error>;
+    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, error::Error>;
     /// Returns a new locked byte array, filled with random data.
     ///
     /// Prefer [`generate_locked`](Self::generate_locked). This method is
@@ -312,7 +311,7 @@ pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     ///
     /// Returns the same errors as [`generate_locked`](Self::generate_locked).
     #[deprecated(note = "use generate_locked() instead")]
-    fn gen_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, std::io::Error> {
+    fn gen_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, error::Error> {
         Self::generate_locked()
     }
     /// Returns a new read-only, locked byte array, filled with random data.
@@ -325,8 +324,8 @@ pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     /// Returns the same errors as
     /// [`generate_readonly_locked`](Self::generate_readonly_locked).
     #[deprecated(note = "use generate_readonly_locked() instead")]
-    fn gen_readonly_locked()
-    -> Result<Protected<A, traits::ReadOnly, traits::Locked>, std::io::Error> {
+    fn gen_readonly_locked() -> Result<Protected<A, traits::ReadOnly, traits::Locked>, error::Error>
+    {
         Self::generate_readonly_locked()
     }
 }
@@ -621,9 +620,9 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
     fn swap_some_or_err<F, OPM: traits::ProtectMode, OLM: traits::LockMode>(
         &mut self,
         f: F,
-    ) -> Result<Protected<A, OPM, OLM>, std::io::Error>
+    ) -> Result<Protected<A, OPM, OLM>, error::Error>
     where
-        F: Fn(&mut int::InternalData<A>) -> Result<Protected<A, OPM, OLM>, std::io::Error>,
+        F: Fn(&mut int::InternalData<A>) -> Result<Protected<A, OPM, OLM>, error::Error>,
     {
         match &mut self.i {
             Some(d) => {
@@ -632,9 +631,8 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
                 std::mem::swap(&mut new.i, &mut self.i);
                 Ok(new)
             }
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "unexpected empty internal struct",
+            _ => Err(error::Error::invalid_state(
+                crate::ErrorContext::ProtectedMemory,
             )),
         }
     }
@@ -643,7 +641,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
 impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Unlock<A, PM>
     for Protected<A, PM, LM>
 {
-    fn munlock(mut self) -> Result<Protected<A, PM, traits::Unlocked>, std::io::Error> {
+    fn munlock(mut self) -> Result<Protected<A, PM, traits::Unlocked>, error::Error> {
         self.swap_some_or_err(|old| {
             dryoc_munlock(old.a.as_slice())?;
             // update internal state
@@ -656,7 +654,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Unlock<A
 impl<A: Zeroize + Bytes + Default, PM: traits::ProtectMode> Lock<A, PM>
     for Protected<A, PM, traits::Unlocked>
 {
-    fn mlock(mut self) -> Result<Protected<A, PM, traits::Locked>, std::io::Error> {
+    fn mlock(mut self) -> Result<Protected<A, PM, traits::Locked>, error::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mlock(old.a.as_slice())?;
             // update internal state
@@ -669,7 +667,7 @@ impl<A: Zeroize + Bytes + Default, PM: traits::ProtectMode> Lock<A, PM>
 impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectReadOnly<A, PM, LM>
     for Protected<A, PM, LM>
 {
-    fn mprotect_readonly(mut self) -> Result<Protected<A, traits::ReadOnly, LM>, std::io::Error> {
+    fn mprotect_readonly(mut self) -> Result<Protected<A, traits::ReadOnly, LM>, error::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mprotect_readonly(old.a.as_slice())?;
             // update internal state
@@ -682,7 +680,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectR
 impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectReadWrite<A, PM, LM>
     for Protected<A, PM, LM>
 {
-    fn mprotect_readwrite(mut self) -> Result<Protected<A, traits::ReadWrite, LM>, std::io::Error> {
+    fn mprotect_readwrite(mut self) -> Result<Protected<A, traits::ReadWrite, LM>, error::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mprotect_readwrite(old.a.as_slice())?;
             // update internal state
@@ -697,7 +695,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode> ProtectNoAccess<A, PM>
 {
     fn mprotect_noaccess(
         mut self,
-    ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, std::io::Error> {
+    ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, error::Error> {
         self.swap_some_or_err(|old| {
             dryoc_mprotect_noaccess(old.a.as_slice())?;
             // update internal state
@@ -781,7 +779,7 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the pages cannot be locked.
+    /// Returns [`error::Error::Io`] if the pages cannot be locked.
     ///
     /// # Panics
     ///
@@ -789,7 +787,7 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     /// cannot be represented after page rounding and adding guard pages.
     pub fn mlock(
         self,
-    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>, std::io::Error>
+    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>, error::Error>
     {
         Protected::<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>::new_with(
             self.into(),
@@ -803,8 +801,8 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     ///
     /// # Errors
     ///
-    /// Returns an OS error if the page permissions cannot be changed to
-    /// read-only.
+    /// Returns [`error::Error::Io`] if the page permissions cannot be changed
+    /// to read-only.
     ///
     /// # Panics
     ///
@@ -812,7 +810,7 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     /// cannot be represented after page rounding and adding guard pages.
     pub fn mprotect_readonly(
         self,
-    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Unlocked>, std::io::Error>
+    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Unlocked>, error::Error>
     {
         Protected::<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>::new_with(
             self.into(),
@@ -825,7 +823,7 @@ impl<const LENGTH: usize> Lockable<HeapByteArray<LENGTH>> for HeapByteArray<LENG
     /// Locks a [HeapByteArray], and returns a [Protected] wrapper.
     fn mlock(
         self,
-    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>, std::io::Error>
+    ) -> Result<Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>, error::Error>
     {
         Protected::<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>::new_with(self)
             .mlock()
@@ -836,7 +834,7 @@ impl Lockable<HeapBytes> for HeapBytes {
     /// Locks a [HeapBytes], and returns a [Protected] wrapper.
     fn mlock(
         self,
-    ) -> Result<Protected<HeapBytes, traits::ReadWrite, traits::Locked>, std::io::Error> {
+    ) -> Result<Protected<HeapBytes, traits::ReadWrite, traits::Locked>, error::Error> {
         Protected::<HeapBytes, traits::ReadWrite, traits::Unlocked>::new_with(self).mlock()
     }
 }
@@ -1314,26 +1312,26 @@ pub struct HeapByteArray<const LENGTH: usize>(ProtectedBuffer);
 pub struct HeapBytes(ProtectedBuffer);
 
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
-    fn new_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
+    fn new_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, error::Error> {
         Self::new_bytes().mlock()
     }
 
     fn new_readonly_locked()
-    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, std::io::Error> {
+    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, error::Error> {
         Self::new_bytes()
             .mlock()
             .and_then(|p| p.mprotect_readonly())
     }
 
-    fn generate_locked()
-    -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, std::io::Error> {
+    fn generate_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, error::Error>
+    {
         let mut res = Self::new_bytes().mlock()?;
         copy_randombytes(res.as_mut_slice());
         Ok(res)
     }
 
     fn generate_readonly_locked()
-    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, std::io::Error> {
+    -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, error::Error> {
         Self::generate_locked().and_then(|s| s.mprotect_readonly())
     }
 }
@@ -1353,8 +1351,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A>
     fn from_slice_into_readonly_locked(
         src: &[u8],
     ) -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, crate::error::Error> {
-        Self::from_slice_into_locked(src)
-            .and_then(|s| s.mprotect_readonly().map_err(|err| err.into()))
+        Self::from_slice_into_locked(src).and_then(|s| s.mprotect_readonly())
     }
 }
 
@@ -1364,11 +1361,7 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
         other: &[u8],
     ) -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, crate::error::Error> {
         if other.len() != LENGTH {
-            return Err(dryoc_error!(format!(
-                "slice length {} doesn't match expected {}",
-                other.len(),
-                LENGTH
-            )));
+            return Err(length_error!(crate::ErrorContext::Slice, other.len(), exact LENGTH));
         }
         let mut res = Self::new_bytes().mlock()?;
         res.as_mut_slice().copy_from_slice(other);
@@ -1378,8 +1371,7 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
     fn from_slice_into_readonly_locked(
         other: &[u8],
     ) -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, crate::error::Error> {
-        Self::from_slice_into_locked(other)
-            .and_then(|s| s.mprotect_readonly().map_err(|err| err.into()))
+        Self::from_slice_into_locked(other).and_then(|s| s.mprotect_readonly())
     }
 }
 
@@ -1719,11 +1711,7 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for HeapByteArray<LENGTH> {
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
         if src.len() != LENGTH {
-            Err(dryoc_error!(format!(
-                "Invalid size: expected {} found {}",
-                LENGTH,
-                src.len()
-            )))
+            Err(length_error!(crate::ErrorContext::Slice, src.len(), exact LENGTH))
         } else {
             let mut arr = Self::default();
             arr.0.copy_from_slice(src);

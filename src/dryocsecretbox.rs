@@ -255,15 +255,14 @@ impl<
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_SECRETBOX_MACBYTES
-            )))
+            Err(
+                length_error!(crate::ErrorContext::SecretBox, bytes.len(), min CRYPTO_SECRETBOX_MACBYTES),
+            )
         } else {
             let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
             Ok(Self {
-                tag: Mac::try_from(tag).map_err(|_e| dryoc_error!("invalid tag"))?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
                 data: Data::from(data),
             })
         }

@@ -79,7 +79,7 @@ fn crypto_onetimeauth_poly1305_verify(mac: &Mac, input: &[u8], key: &Key) -> Res
     if mac.ct_eq(&computed_mac).unwrap_u8() == 1 {
         Ok(())
     } else {
-        Err(dryoc_error!("authentication codes do not match"))
+        Err(Error::AuthenticationFailed)
     }
 }
 

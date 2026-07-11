@@ -137,12 +137,12 @@ pub fn crypto_kdf_derive_from_key(
     main_key: &Key,
 ) -> Result<(), Error> {
     if subkey.len() < CRYPTO_KDF_BLAKE2B_BYTES_MIN || subkey.len() > CRYPTO_KDF_BLAKE2B_BYTES_MAX {
-        Err(dryoc_error!(format!(
-            "invalid subkey length {}, should be at least {} and no more than {}",
+        Err(length_error!(
+            crate::ErrorContext::Subkey,
             subkey.len(),
-            CRYPTO_KDF_BLAKE2B_BYTES_MIN,
+            range CRYPTO_KDF_BLAKE2B_BYTES_MIN,
             CRYPTO_KDF_BLAKE2B_BYTES_MAX
-        )))
+        ))
     } else {
         let mut ctx_padded = [0u8; CRYPTO_GENERICHASH_BLAKE2B_PERSONALBYTES];
         let mut salt = [0u8; CRYPTO_GENERICHASH_BLAKE2B_SALTBYTES];
@@ -166,10 +166,7 @@ fn validate_hkdf_output_len(
     max_len: usize,
 ) -> Result<(), Error> {
     if output_len < min_len || output_len > max_len {
-        Err(dryoc_error!(format!(
-            "invalid output length {}, should be at least {} and no more than {}",
-            output_len, min_len, max_len
-        )))
+        Err(length_error!(crate::ErrorContext::Output, output_len, range min_len, max_len))
     } else {
         Ok(())
     }
@@ -303,6 +300,30 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_crypto_kdf_rejects_invalid_subkey_lengths() {
+        let context = Context::default();
+        let key = Key::default();
+
+        for length in [
+            CRYPTO_KDF_BLAKE2B_BYTES_MIN - 1,
+            CRYPTO_KDF_BLAKE2B_BYTES_MAX + 1,
+        ] {
+            let mut subkey = vec![0u8; length];
+            assert!(matches!(
+                crypto_kdf_derive_from_key(&mut subkey, 0, &context, &key),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Subkey,
+                    actual,
+                    constraint: crate::LengthConstraint::Between {
+                        min: CRYPTO_KDF_BLAKE2B_BYTES_MIN,
+                        max: CRYPTO_KDF_BLAKE2B_BYTES_MAX,
+                    },
+                }) if actual == length
+            ));
+        }
+    }
 
     fn bytes_in_range(start: u8, end_inclusive: u8) -> Vec<u8> {
         (start..=end_inclusive).collect()

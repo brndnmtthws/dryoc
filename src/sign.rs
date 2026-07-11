@@ -290,13 +290,25 @@ impl<
     ///
     /// # Errors
     ///
-    /// Returns an error if either slice has the wrong length for its key type.
+    /// Returns an error if either slice has the wrong length for its key type,
+    /// or if the target key type rejects the key bytes.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
+        validate_length!(
+            exact CRYPTO_SIGN_PUBLICKEYBYTES,
+            public_key.len(),
+            crate::ErrorContext::PublicKey
+        );
+        validate_length!(
+            exact CRYPTO_SIGN_SECRETKEYBYTES,
+            secret_key.len(),
+            crate::ErrorContext::SecretKey
+        );
+
         Ok(Self {
             public_key: PublicKey::try_from(public_key)
-                .map_err(|_e| dryoc_error!("invalid public key"))?,
+                .map_err(|_| Error::invalid_key(crate::ErrorContext::PublicKey))?,
             secret_key: SecretKey::try_from(secret_key)
-                .map_err(|_e| dryoc_error!("invalid secret key"))?,
+                .map_err(|_| Error::invalid_key(crate::ErrorContext::SecretKey))?,
         })
     }
 }
@@ -362,13 +374,13 @@ pub mod protected {
         ///
         /// # Errors
         ///
-        /// Returns an OS error if either allocation cannot be locked.
+        /// Returns [`Error::Io`] if either allocation cannot be locked.
         ///
         /// # Panics
         ///
         /// Panics if either page-aligned allocation cannot be created or its
         /// size cannot be represented with guard pages.
-        pub fn new_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn new_locked_keypair() -> Result<Self, Error> {
             Ok(Self {
                 public_key: HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?,
                 secret_key: HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?,
@@ -379,14 +391,14 @@ pub mod protected {
         ///
         /// # Errors
         ///
-        /// Returns an OS error if either allocation cannot be locked.
+        /// Returns [`Error::Io`] if either allocation cannot be locked.
         ///
         /// # Panics
         ///
         /// Panics if either page-aligned allocation cannot be created, its
         /// size cannot be represented with guard pages, or the operating
         /// system's random number generator fails.
-        pub fn generate_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_locked_keypair() -> Result<Self, Error> {
             let mut res = Self::new_locked_keypair()?;
 
             crypto_sign_keypair_inplace(
@@ -412,7 +424,7 @@ pub mod protected {
         /// Panics under the same conditions as
         /// [`generate_locked_keypair`](Self::generate_locked_keypair).
         #[deprecated(note = "use generate_locked_keypair() instead")]
-        pub fn gen_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn gen_locked_keypair() -> Result<Self, Error> {
             Self::generate_locked_keypair()
         }
     }
@@ -427,7 +439,7 @@ pub mod protected {
         ///
         /// # Errors
         ///
-        /// Returns an OS error if either allocation cannot be locked or its
+        /// Returns [`Error::Io`] if either allocation cannot be locked or its
         /// page permissions cannot be changed to read-only.
         ///
         /// # Panics
@@ -435,7 +447,7 @@ pub mod protected {
         /// Panics if either page-aligned allocation cannot be created, its
         /// size cannot be represented with guard pages, or the operating
         /// system's random number generator fails.
-        pub fn generate_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn generate_readonly_locked_keypair() -> Result<Self, Error> {
             let mut public_key = HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?;
 
@@ -466,7 +478,7 @@ pub mod protected {
         /// Panics under the same conditions as
         /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
-        pub fn gen_readonly_locked_keypair() -> Result<Self, std::io::Error> {
+        pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
             Self::generate_readonly_locked_keypair()
         }
     }
@@ -644,16 +656,14 @@ impl<
     /// signature cannot be converted to the requested output type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SIGN_BYTES {
-            Err(dryoc_error!(format!(
-                "bytes of len {} less than expected minimum of {}",
-                bytes.len(),
-                CRYPTO_SIGN_BYTES
-            )))
+            Err(
+                length_error!(crate::ErrorContext::SignedMessage, bytes.len(), min CRYPTO_SIGN_BYTES),
+            )
         } else {
             let (signature, message) = bytes.split_at(CRYPTO_SIGN_BYTES);
             Ok(Self {
                 signature: Signature::try_from(signature)
-                    .map_err(|_e| dryoc_error!("invalid signature"))?,
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Signature))?,
                 message: Message::from(message),
             })
         }
