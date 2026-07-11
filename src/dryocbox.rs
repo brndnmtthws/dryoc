@@ -799,8 +799,8 @@ mod tests {
 
         let message = b"To be, or not to be, that is the question:";
         let precalc_secret_key = PrecalcSecretKey::precalculate(
-            &keypair_sender.secret_key,
             &keypair_recipient.public_key,
+            &keypair_sender.secret_key,
         )
         .expect("precalculation failed");
 
@@ -822,8 +822,8 @@ mod tests {
 
         let message = b"All the world's a stage, and all the men and women merely players:";
         let precalc_secret_key = PrecalcSecretKey::precalculate(
-            &keypair_sender.secret_key,
             &keypair_recipient.public_key,
+            &keypair_sender.secret_key,
         )
         .expect("precalculation failed");
 
@@ -851,8 +851,8 @@ mod tests {
         ];
 
         let precalc_secret_key = PrecalcSecretKey::precalculate(
-            &keypair_sender.secret_key,
             &keypair_recipient.public_key,
+            &keypair_sender.secret_key,
         )
         .expect("precalculation failed");
 
@@ -882,8 +882,8 @@ mod tests {
         ];
 
         let precalc_secret_key = PrecalcSecretKey::precalculate(
-            &keypair_sender.secret_key,
             &keypair_recipient.public_key,
+            &keypair_sender.secret_key,
         )
         .expect("precalculation failed");
 
