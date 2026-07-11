@@ -4,44 +4,32 @@
 
 # dryoc: Don't Roll Your Own Crypto™<sup>[^1]</sup>
 
-dryoc is a pure-Rust, general-purpose cryptography library that's hard to misuse. It's based on the excellent
-[libsodium](https://github.com/jedisct1/libsodium) library, but in _pure_ Rust. It
-also includes protected memory features throughout, which makes it dead simple
-to build secure, robust, and safe cryptographic software. The original goal of this library was to provide a pure-Rust alternative to libsodium.
+dryoc is a pure-Rust, general-purpose cryptography library based on
+[libsodium](https://github.com/jedisct1/libsodium). Many supported operations
+use libsodium-compatible algorithms and wire formats, allowing dryoc and
+libsodium applications to interoperate.
 
 ![Granny says no](dryoc.png)
 
-The purpose of this project is to provide a pure-Rust, mostly drop-in
-replacement for libsodium. This library has nearly the same ergonomics as
-libsodium (referred to in dryoc as the _Classic_ API), such that people
-familiar with libsodium can use this library nearly interchangeably. While
-the API is not 100% identical to libsodium, most functions have the same or
-very similar signatures.
+The _Classic_ API closely follows libsodium's functions and types. It is not
+identical to libsodium, but most implemented functions have the same or similar
+signatures.
 
-In addition to the Classic API, there's a _Rustaceous_ API which aims to bring
-an idiomatic Rust implementation of libsodium's core features: public and
-secret key authenticated cryptography and general-purpose cryptography tools.
+The _Rustaceous_ API wraps the same operations in Rust types that make key,
+nonce, and output sizes explicit. The two APIs can be used together.
 
-Not all features from libsodium are implemented here, either because there
-exist better implementations in other crates, or because they aren't
-necessary as part of this crate.
+dryoc does not implement every libsodium feature. See [Project status](#project-status)
+for current coverage.
 
-Additionally, this crate provides exceptionally safe cryptography thanks to
-Rust's safety features. The Rustaceous API is designed designed to make it
-difficult to shoot yourself in the foot. It's worth noting, however, you
-certainly can still shoot yourself if you choose (either by leaking private
-data, using insecure hardware, OPSEC issues, etc).
-
-For example usage, refer to the
-[official docs](https://docs.rs/dryoc/latest/dryoc/) or the
-[integration tests](/tests/integration_tests.rs).
+See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
+[integration tests](tests/integration_tests.rs) for examples.
 
 ## Features
 
-* 100% pure Rust, no hidden C libraries
-* mostly free of unsafe code[^2]
-* Hard to misuse, helping you avoid common costly cryptography mistakes
-* Many libsodium features implemented with both Classic and Rustaceous API
+* Pure Rust, with no hidden C libraries
+* Limited use of unsafe code[^2]
+* Typed Rustaceous APIs for keys, nonces, and outputs
+* Classic and Rustaceous APIs for many libsodium operations
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
   equivalents) on stable Rust for Unix and Windows targets, enabled by default
   with the `protected` feature
@@ -56,7 +44,8 @@ For example usage, refer to the
     AArch64 where dryoc keeps the soft backend because the portable-SIMD path
     is slower there
 * [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend at build time
-* [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by sealed boxes) includes SIMD implementation for AVX2
+* [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used for SHA-256
+  and SHA-512 hashing and seeded box key generation) includes an AVX2 backend
 * [SHA3](https://github.com/RustCrypto/hashes/tree/master/sha3) (used by SHA-3 compatibility hashing)
 * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for NEON, AVX2, and SSE2
 
@@ -82,11 +71,6 @@ Poly1305 is a special exception on AArch64: even with `simd_backend` and
 `nightly` enabled, dryoc uses the soft Poly1305 backend because profiling shows
 the portable-SIMD implementation is slower on that architecture.
 
-_Note that eventually this project will converge on portable SIMD implementations
-for all the core algos which will work across all platforms supported by LLVM,
-rather than relying on hand-coded assembly or intrinsics, but this is a work in
-progress_.
-
 See [BENCHMARKS.md](BENCHMARKS.md) for side-by-side software and SIMD benchmark
 results.
 
@@ -101,11 +85,18 @@ and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaR
 for supported Rustaceous box types, including `DryocBox` and
 `DryocSecretBox`, plus AEAD boxes and envelopes from `dryocaead`.
 
+## Security
+
+dryoc has not undergone a third-party security audit. Its compatibility tests,
+Rust types, and limited use of unsafe code reduce some classes of defects, but
+do not guarantee that an application is secure. Applications must still follow
+the documented key and nonce rules, protect secret material, handle errors, and
+choose primitives appropriate for their protocol.
+
 ## Project status
 
-The following libsodium features are currently implemented, or awaiting
-implementation. This list has been reviewed against
-[libsodium 1.0.22](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE):
+The following features are implemented. The libsodium-compatible entries have
+been reviewed against [libsodium 1.0.22](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE):
 
 * [x] [Public-key cryptography](https://docs.rs/dryoc/latest/dryoc/dryocbox/index.html) (`crypto_box_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography)
 * [x] [Secret-key cryptography](https://docs.rs/dryoc/latest/dryoc/dryocsecretbox/index.html) (`crypto_secretbox_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography)
@@ -125,8 +116,8 @@ implementation. This list has been reviewed against
 * [x] [Public-key signatures](https://docs.rs/dryoc/latest/dryoc/sign/index.html) (`crypto_sign_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [x] [Ed25519 to Curve25519](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_*`) [libsodium link](https://doc.libsodium.org/advanced/ed25519-curve25519)
 * [x] [Signature secret-key extraction helpers](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_sk_to_seed`, `crypto_sign_ed25519_sk_to_pk`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
-* [x] [SHA-2 hashing](https://docs.rs/dryoc/latest/dryoc/classic/crypto_hash/index.html) (`crypto_hash_sha256_*`, `crypto_hash_sha512_*`) [libsodium link](https://doc.libsodium.org/hashing/sha-2)
-* [x] [SHA-3 hashing](https://docs.rs/dryoc/latest/dryoc/sha3/index.html) (`crypto_hash_sha3256_*`, `crypto_hash_sha3512_*`) [NIST FIPS 202 link](https://nvlpubs.nist.gov/nistpubs/fips/nist.fips.202.pdf)
+* [x] [SHA-2 hashing](https://docs.rs/dryoc/latest/dryoc/classic/crypto_hash/index.html) (`crypto_hash_sha256_*`, `crypto_hash_sha512_*`) [libsodium link](https://doc.libsodium.org/advanced/sha-2_hash_function)
+* [x] [SHA-3 hashing](https://docs.rs/dryoc/latest/dryoc/sha3/index.html) (`crypto_hash_sha3256_*`, `crypto_hash_sha3512_*`; dryoc extension) [NIST FIPS 202 link](https://nvlpubs.nist.gov/nistpubs/fips/nist.fips.202.pdf)
 * [x] [Short-input hashing](https://docs.rs/dryoc/latest/dryoc/classic/crypto_shorthash/index.html) (`crypto_shorthash`) [libsodium link](https://doc.libsodium.org/hashing/short-input_hashing)
 * [x] [Password hashing](https://docs.rs/dryoc/latest/dryoc/pwhash/index.html) (`crypto_pwhash_*`) [libsodium link](https://doc.libsodium.org/password_hashing/default_phf)
 * [x] [HKDF key derivation variants](https://docs.rs/dryoc/latest/dryoc/hkdf/index.html) (`crypto_kdf_hkdf_sha256_*`, `crypto_kdf_hkdf_sha512_*`) [libsodium link](https://doc.libsodium.org/key_derivation/hkdf)
@@ -151,7 +142,7 @@ crates:
   * [ ] [Finite field and group arithmetic](https://doc.libsodium.org/advanced/point-arithmetic) (`crypto_core_ed25519_*`, `crypto_core_ristretto255_*`; try the [curve25519-dalek](https://crates.io/crates/curve25519-dalek) crate)
   * [ ] Ed25519 and Ristretto255 scalar multiplication variants (`crypto_scalarmult_ed25519_*`, `crypto_scalarmult_ristretto255_*`)
 
-## Other NaCl-related Rust implementations worth mentioning
+## Other NaCl-related Rust implementations
 
 * [sodiumoxide](https://crates.io/crates/sodiumoxide)
 * [crypto_box](https://crates.io/crates/crypto_box)
@@ -163,10 +154,8 @@ available on Unix and Windows targets with the default `protected` feature.
 Unsupported targets do not expose the protected-memory API. These features
 require custom memory allocation, system calls, and pointer arithmetic, which
 are unsafe in Rust. Some optional SIMD code, including dependency-provided SIMD
-implementations and small internal helpers, may contain unsafe code. In
-particular, many SIMD implementations are considered "unsafe" due to their use
-of assembly or intrinsics, however without SIMD-based cryptography you may be
-exposed to timing attacks. The in-crate unsafe inventory includes fixed-size
+implementations and small internal helpers, may contain unsafe code. The
+in-crate unsafe inventory includes fixed-size
 byte views, optional wincode schema impls for Rustaceous boxes and AEAD
 envelopes, BLAKE2b parameter byte views, protected memory guarded heap buffers
 and OS protection calls, and Salsa20 SIMD unaligned in-place and

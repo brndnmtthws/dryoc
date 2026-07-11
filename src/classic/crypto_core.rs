@@ -44,7 +44,9 @@ pub fn crypto_scalarmult_base(
 ///
 /// Compatible with libsodium's `crypto_scalarmult`.
 ///
-/// Returns an error when `p` is an unacceptable low-order public key that
+/// # Errors
+///
+/// Returns an error if `p` is an unacceptable low-order public key that
 /// produces an all-zero shared secret.
 pub fn crypto_scalarmult(
     q: &mut [u8; CRYPTO_SCALARMULT_BYTES],
@@ -87,8 +89,6 @@ pub fn crypto_core_hchacha20(
 ) {
     let input = input.as_array();
     let key = key.as_array();
-    assert_eq!(input.len(), 16);
-    assert_eq!(key.len(), 32);
     let (mut x0, mut x1, mut x2, mut x3) =
         constants.unwrap_or((0x61707865, 0x3320646e, 0x79622d32, 0x6b206574));
     let (

@@ -9,7 +9,10 @@
 //! * you have a pre-shared key between both parties
 //! * (optionally) you want to share the authentication tag publicly
 //!
-//! # Rustaceous API example, one-time interface
+//! The same HMAC key can authenticate multiple messages. Keep the key secret,
+//! and use separate keys when protocols require domain separation.
+//!
+//! # Rustaceous API example, single-part interface
 //!
 //! ```
 //! use dryoc::auth::*;
@@ -18,12 +21,11 @@
 //! // Generate a random key
 //! let key = Key::generate();
 //!
-//! // Compute the mac in one shot. Here we clone the key for the purpose of this
-//! // example, but normally you would not do this as you never want to re-use a
-//! // key.
+//! // Compute the MAC in one shot. This API takes ownership of the key, so clone
+//! // it when the same key is also needed for verification.
 //! let mac = Auth::compute_to_vec(key.clone(), b"Data to authenticate");
 //!
-//! // Verify the mac
+//! // Verify the MAC
 //! Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
 //! ```
 //!
@@ -36,19 +38,19 @@
 //! // Generate a random key
 //! let key = Key::generate();
 //!
-//! // Initialize the MAC, clone the key (don't do this)
+//! // Initialize the MAC
 //! let mut mac = Auth::new(key.clone());
 //! mac.update(b"Multi-part");
 //! mac.update(b"data");
 //! let mac = mac.finalize_to_vec();
 //!
-//! // Verify it's correct, clone the key (don't do this)
+//! // Verify the MAC
 //! let mut verify_mac = Auth::new(key.clone());
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"data");
 //! verify_mac.verify(&mac).expect("verify failed");
 //!
-//! // Check that invalid data fails, consume the key
+//! // Check that invalid data fails
 //! let mut verify_mac = Auth::new(key);
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"bad data");
@@ -75,11 +77,9 @@ pub type Mac = StackByteArray<CRYPTO_AUTH_BYTES>;
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`Auth`]
+    //! # Protected memory type aliases for [`Auth`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`Auth`]. These type aliases are provided for
-    //! convenience.
+    //! Protected-memory aliases for authentication keys and codes.
     //!
     //! ## Example
     //!
@@ -91,17 +91,17 @@ pub mod protected {
     //! let key = Key::generate_readonly_locked().expect("generate failed");
     //! let input =
     //!     HeapBytes::from_slice_into_readonly_locked(b"super secret input").expect("input failed");
-    //! // Compute the message authentication code, consuming the key.
+    //! // Compute the message authentication code. This takes ownership of the key.
     //! let mac: Locked<Mac> = Auth::compute(key, &input);
     //! ```
     use super::*;
     pub use crate::protected::*;
 
-    /// Heap-allocated, page-aligned secret key for the generic hash algorithm,
-    /// for use with protected memory.
+    /// Heap-allocated, page-aligned secret key for authentication with
+    /// protected memory.
     pub type Key = HeapByteArray<CRYPTO_AUTH_KEYBYTES>;
-    /// Heap-allocated, page-aligned hash output for the generic hash algorithm,
-    /// for use with protected memory.
+    /// Heap-allocated, page-aligned authentication code for use with protected
+    /// memory.
     pub type Mac = HeapByteArray<CRYPTO_AUTH_BYTES>;
 }
 
@@ -112,9 +112,10 @@ pub struct Auth {
 }
 
 impl Auth {
-    /// Single-part interface for [`Auth`]. Computes (and returns) the
-    /// message authentication code for `input` using `key`. The `key` is
-    /// consumed to prevent accidental re-use of the same key.
+    /// Computes the message authentication code for `input` using `key`.
+    ///
+    /// This function takes ownership of `key`, but HMAC keys may be reused for
+    /// multiple messages. Clone the key first when it is needed again.
     pub fn compute<
         Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
         Input: Bytes,
@@ -128,9 +129,9 @@ impl Auth {
         output
     }
 
-    /// Convience wrapper around [`Auth::compute`]. Returns the message
-    /// authentication code as a [`Vec`]. The `key` is
-    /// consumed to prevent accidental re-use of the same key.
+    /// Computes the message authentication code and returns it as a [`Vec`].
+    ///
+    /// This is a convenience wrapper around [`Auth::compute`].
     pub fn compute_to_vec<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>, Input: Bytes>(
         key: Key,
         input: &Input,
@@ -138,9 +139,12 @@ impl Auth {
         Self::compute(key, input)
     }
 
-    /// Verifies the message authentication code `other_mac` matches the
-    /// expected code for `key` and `input`. The `key` is
-    /// consumed to prevent accidental re-use of the same key.
+    /// Verifies that `other_mac` authenticates `input` under `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `other_mac` does not match the authentication code
+    /// computed from `key` and `input`.
     pub fn compute_and_verify<
         OtherMac: ByteArray<CRYPTO_AUTH_BYTES>,
         Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
@@ -153,8 +157,10 @@ impl Auth {
         crypto_auth_verify(other_mac.as_array(), input.as_slice(), key.as_array())
     }
 
-    /// Returns a new secret-key authenticator for `key`. The `key` is
-    /// consumed to prevent accidental re-use of the same key.
+    /// Returns a new incremental authenticator for `key`.
+    ///
+    /// This function takes ownership of `key`, but HMAC keys may be reused for
+    /// multiple messages. Clone the key first when it is needed again.
     pub fn new<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>>(key: Key) -> Self {
         Self {
             state: crypto_auth_init(key.as_array()),
@@ -183,6 +189,11 @@ impl Auth {
 
     /// Finalizes this authenticator, and verifies that the computed code
     /// matches `other_mac` using a constant-time comparison.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `other_mac` does not match the authentication code
+    /// computed from the data passed to [`Auth::update`].
     pub fn verify<OtherMac: ByteArray<CRYPTO_AUTH_BYTES>>(
         self,
         other_mac: &OtherMac,

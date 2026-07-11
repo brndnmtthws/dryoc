@@ -112,6 +112,11 @@ impl From<PasswordHashAlgorithm> for argon2::Argon2Type {
 ///   [`CRYPTO_PWHASH_MEMLIMIT_SENSITIVE`] for sensitive operations
 ///
 /// Compatible with libsodium's `crypto_pwhash`.
+///
+/// # Errors
+///
+/// Returns an error if the cost parameters, salt length, or output length are
+/// invalid, or if Argon2 cannot hash the password with the requested settings.
 pub fn crypto_pwhash(
     output: &mut [u8],
     password: &[u8],
@@ -256,6 +261,15 @@ pub(crate) fn convert_costs(opslimit: u64, memlimit: usize) -> (u32, u32) {
 /// password using [`crypto_pwhash_str_verify`].
 ///
 /// Compatible with libsodium's `crypto_pwhash_str`.
+///
+/// # Errors
+///
+/// Returns an error if `opslimit` or `memlimit` is outside the supported range,
+/// or if Argon2 cannot hash the password.
+///
+/// # Panics
+///
+/// Panics if the operating system's random number generator fails.
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Result<String, Error> {
@@ -370,7 +384,7 @@ impl Pwhash {
             Err(Error::InvalidEncoding {
                 context: crate::ErrorContext::PasswordHashVersion,
             })
-        // Verify correct value for parallism
+        // Verify the parallelism value
         } else if pwhash.parallelism.is_none() || pwhash.parallelism.unwrap() != 1 {
             Err(Error::InvalidEncoding {
                 context: crate::ErrorContext::PasswordHashParallelism,
@@ -406,26 +420,49 @@ impl Pwhash {
 /// password was encoded using `crypto_pwhash_str`.
 ///
 /// Compatible with libsodium's `crypto_pwhash_str_verify`.
+///
+/// # Errors
+///
+/// Returns an error if `hashed_password` is malformed, uses unsupported
+/// parameters, or does not match `password`.
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str_verify(hashed_password: &str, password: &[u8]) -> Result<(), Error> {
     let mut hash = [0u8; STR_HASHBYTES];
 
     let pwhash = Pwhash::parse_encoded_pwhash(hashed_password)?;
+    let t_cost = pwhash.t_cost.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashTimeCost,
+    })?;
+    let m_cost = pwhash.m_cost.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashMemoryCost,
+    })?;
+    let parallelism = pwhash.parallelism.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashParallelism,
+    })?;
+    let salt = pwhash.salt.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashSalt,
+    })?;
+    let algorithm = pwhash.type_.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashAlgorithm,
+    })?;
+    let expected_hash = pwhash.pwhash.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHash,
+    })?;
 
     argon2_hash(
-        pwhash.t_cost.unwrap(),
-        pwhash.m_cost.unwrap(),
-        pwhash.parallelism.unwrap(),
+        t_cost,
+        m_cost,
+        parallelism,
         password,
-        pwhash.salt.unwrap().as_ref(),
+        &salt,
         None,
         None,
         &mut hash,
-        pwhash.type_.unwrap().into(),
+        algorithm.into(),
     )?;
 
-    if hash.ct_eq(pwhash.pwhash.unwrap().as_ref()).unwrap_u8() == 1 {
+    if hash.ct_eq(expected_hash.as_slice()).unwrap_u8() == 1 {
         Ok(())
     } else {
         Err(Error::AuthenticationFailed)
@@ -437,6 +474,11 @@ pub fn crypto_pwhash_str_verify(hashed_password: &str, password: &[u8]) -> Resul
 /// parameters are mismatched (requiring a rehash).
 ///
 /// Compatible with libsodium's `crypto_pwhash_str_needs_rehash`.
+///
+/// # Errors
+///
+/// Returns an error if `hashed_password` is malformed or uses unsupported
+/// parameters.
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str_needs_rehash(
@@ -445,10 +487,16 @@ pub fn crypto_pwhash_str_needs_rehash(
     memlimit: usize,
 ) -> Result<bool, Error> {
     let pwhash = Pwhash::parse_encoded_pwhash(hashed_password)?;
+    let parsed_t_cost = pwhash.t_cost.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashTimeCost,
+    })?;
+    let parsed_m_cost = pwhash.m_cost.ok_or(Error::MissingData {
+        context: crate::ErrorContext::PasswordHashMemoryCost,
+    })?;
 
     let (t_cost, m_cost) = convert_costs(opslimit, memlimit);
 
-    if t_cost != pwhash.t_cost.unwrap() || m_cost != pwhash.m_cost.unwrap() {
+    if t_cost != parsed_t_cost || m_cost != parsed_m_cost {
         Ok(true)
     } else {
         Ok(false)

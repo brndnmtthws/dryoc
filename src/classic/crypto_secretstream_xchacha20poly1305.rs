@@ -251,6 +251,11 @@ pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
 /// was left in place, and is reflected in this implementation for compatibility
 /// purposes. Refer to [commit
 /// 290197ba3ee72245fdab5e971c8de43a82b19874](https://github.com/jedisct1/libsodium/commit/290197ba3ee72245fdab5e971c8de43a82b19874#diff-dbd9b6026ac3fd057df0ddf00e4d671af16e5df99b4cc7d08b73b61f193d10f5)
+///
+/// # Errors
+///
+/// Returns an error if `message` exceeds the maximum supported length or
+/// `ciphertext` is not exactly one authentication tag longer than `message`.
 pub fn crypto_secretstream_xchacha20poly1305_push(
     state: &mut State,
     ciphertext: &mut [u8],
@@ -356,6 +361,11 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
 /// was left in place, and is reflected in this implementation for compatibility
 /// purposes. Refer to [commit
 /// 290197ba3ee72245fdab5e971c8de43a82b19874](https://github.com/jedisct1/libsodium/commit/290197ba3ee72245fdab5e971c8de43a82b19874#diff-dbd9b6026ac3fd057df0ddf00e4d671af16e5df99b4cc7d08b73b61f193d10f5)
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is too short or too long, `message` lacks
+/// space for the plaintext, or authentication fails.
 pub fn crypto_secretstream_xchacha20poly1305_pull(
     state: &mut State,
     message: &mut [u8],

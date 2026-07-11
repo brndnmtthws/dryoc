@@ -5,31 +5,20 @@
 //! formats, so supported operations can interoperate with libsodium across
 //! languages.
 //!
-//! Doing cryptography properly is _hard_. While no human is infallible,
-//! computers are pretty good at following instructions. Humans are bad at
-//! following instructions, but they do a decent job of giving instructions,
-//! provided they can effectively communicate intent. Thus, if the instructions
-//! humans give the computer are correct, we can be reasonably assured
-//! that the operations the computer does are correct too.
-//!
-//! This library tries to make it easy to give the computer the correct
-//! instructions, and it does so by providing well-known implementations of
-//! general-purpose cryptography functions, in an API that's relatively easy to
-//! use, type safe, and hard to use incorrectly.
-//!
-//! As the name of this library implies, one should avoid trying to "roll their
-//! own crypto", as it often results in avoidable mistakes. In the context of
-//! cryptography, mistakes can be very costly.
+//! dryoc provides a libsodium-like Classic API and a typed Rustaceous API. The
+//! Rustaceous types make key, nonce, and output sizes explicit; the Classic API
+//! eases migration from libsodium. Both APIs use the same implementations and
+//! can be used together.
 //!
 //! This crate uses the Rust 2024 edition. The minimum supported Rust version
 //! (MSRV) is **Rust 1.89** or newer.
 //!
 //! ## Features
 //!
-//! * 100% pure Rust, no hidden C libraries
-//! * mostly free of unsafe code[^2]
-//! * Hard to misuse, helping you avoid common costly cryptography mistakes
-//! * Many libsodium features implemented with both Classic and Rustaceous API
+//! * Pure Rust, with no hidden C libraries
+//! * Limited use of unsafe code[^2]
+//! * Typed Rustaceous APIs for keys, nonces, and outputs
+//! * Classic and Rustaceous APIs for many libsodium operations
 //! * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
 //!   equivalents) on stable Rust for Unix and Windows targets, enabled by
 //!   default with the `protected` feature
@@ -48,8 +37,11 @@
 //! * [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
 //!   (used by public/private key functions) selects its own serial or x86_64
 //!   vector backend at build time
-//! * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used by
-//!   sealed boxes) includes SIMD implementation for AVX2
+//! * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used for
+//!   SHA-256 and SHA-512 hashing and seeded box key generation) includes an
+//!   AVX2 backend
+//! * [SHA3](https://github.com/RustCrypto/hashes/tree/master/sha3) (used for
+//!   SHA-3 hashing)
 //! * [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20)
 //!   (used by streaming interface) includes SIMD implementations for NEON,
 //!   AVX2, and SSE2
@@ -71,21 +63,13 @@
 //! `nightly` enabled, dryoc uses the soft Poly1305 backend because profiling
 //! shows the portable-SIMD implementation is slower on that architecture.
 //!
-//! _Note that eventually this project will converge on portable SIMD
-//! implementations for all the core algos which will work across all platforms
-//! supported by LLVM, rather than relying on hand-coded assembly or intrinsics,
-//! but this is a work in progress_.
-//!
 //! See [BENCHMARKS.md](https://github.com/brndnmtthws/dryoc/blob/main/BENCHMARKS.md)
 //! for side-by-side software and SIMD benchmark results.
 //!
 //! ## APIs
 //!
-//! This library includes both a _Classic_ API, which is very similar to the
-//! original libsodium API, and _Rustaceous_ API with Rust-specific features.
-//! Both APIs can be used together interchangeably, according to your
-//! preferences. The Rustaceous API is a wrapper around the underlying classic
-//! API.
+//! The _Classic_ API closely follows libsodium's functions and types. The
+//! _Rustaceous_ API wraps the same operations in Rust types.
 //!
 //! ## Error handling
 //!
@@ -94,17 +78,12 @@
 //! malformed encodings, invalid keys, protected-memory failures, and invalid
 //! operation state without parsing display text.
 //!
-//! It's recommended that you use the Rustaceous API unless you have strong
-//! feelings about using the Classic API. The Classic API includes some pitfalls
-//! and traps that are also present in the original libsodium API, and unless
-//! you're extra careful you could make mistakes. With the Rustaceous API, it's
-//! harder to make mistakes thanks to strict type and safety features.
+//! Prefer the Rustaceous API for new code. Use the Classic API when porting
+//! libsodium code or when its byte-array interface is a better fit.
 //!
-//! The Rustaceous API is, arguably, somewhat trickier to use, especially if
-//! you're new to Rust. The Rustaceous API requires knowing and specifying the
-//! desired type in many cases. For your convenience, type aliases are provided
-//! for common types within each module. The Classic API only uses base types
-//! (fixed length byte arrays and byte slices).
+//! Rustaceous functions sometimes require an explicit output type. Each module
+//! provides type aliases for its common key, nonce, and output types. The
+//! Classic API instead uses fixed-size byte arrays and byte slices.
 //!
 //! | Feature | Rustaceous API | Classic API | Reference |
 //! |-|-|-|-|
@@ -112,7 +91,8 @@
 //! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
 //! | Authenticated encryption with additional data | [`DryocAead`](dryocaead) | [`crypto_aead_xchacha20poly1305_ietf`](classic::crypto_aead_xchacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction) |
 //! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
-//! | Generic hashing, HMAC | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
+//! | Generic hashing and keyed hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
+//! | SHA-2 hashing | [`Sha256`](sha256::Sha256), [`Sha512`](sha512::Sha512) | [`crypto_hash`](classic::crypto_hash) | [Link](https://doc.libsodium.org/advanced/sha-2_hash_function) |
 //! | SHA-3 hashing | [`Sha3256`](sha3::Sha3256), [`Sha3512`](sha3::Sha3512) | [`crypto_hash`](classic::crypto_hash) | [Link](https://nvlpubs.nist.gov/nistpubs/fips/nist.fips.202.pdf) |
 //! | Secret-key authentication | [`Auth`](auth) | [`crypto_auth`](classic::crypto_auth) | [Link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication) |
 //! | Direct HMAC authentication | [`Hmac`](hmac) | [`crypto_auth_hmacsha256`](classic::crypto_auth_hmacsha256), [`crypto_auth_hmacsha512`](classic::crypto_auth_hmacsha512), [`crypto_auth_hmacsha512256`](classic::crypto_auth_hmacsha512256) | [Link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication) |
@@ -161,21 +141,17 @@
 //!
 //! ## Security notes
 //!
-//! This crate has not been audited by any 3rd parties. It uses well-known
-//! implementations of the underlying algorithms which have been previously
-//! verified as using constant-time operations.
-//!
-//! With that out of the way, the deterministic nature of cryptography and
-//! extensive testing used in this crate means it's relatively safe to use,
-//! provided the underlying algorithms remain safe. Arguably, this crate is
-//! _incredibly_ safe (as far as cryptography libraries go) thanks to the
-//! features provided by the API of this crate, and those provided by the Rust
-//! language itself.
+//! dryoc has not undergone a third-party security audit. Its compatibility
+//! tests, Rust types, and limited use of unsafe code reduce some classes of
+//! defects, but do not guarantee that an application is secure. Applications
+//! must still follow the documented key and nonce rules, protect secret
+//! material, handle errors, and choose primitives appropriate for their
+//! protocol.
 //!
 //! ## Acknowledgements
 //!
-//! Big ups to the authors and contributors of [NaCl](https://nacl.cr.yp.to/) and [libsodium](https://github.com/jedisct1/libsodium) for paving the
-//! way toward better cryptography libraries.
+//! Thanks to the authors and contributors of [NaCl](https://nacl.cr.yp.to/) and
+//! [libsodium](https://github.com/jedisct1/libsodium).
 //!
 //! [^1]: Not actually trademarked.
 //!
@@ -185,13 +161,8 @@
 //! require custom memory allocation, system calls, and pointer arithmetic,
 //! which are unsafe in Rust. Some optional SIMD code, including
 //! dependency-provided SIMD implementations and small internal helpers, may
-//! contain unsafe code. In particular, many SIMD implementations are considered
-//! "unsafe" due to their use of assembly or intrinsics, however without
-//! SIMD-based cryptography you may be exposed to timing attacks. See the unsafe
-//! code section above for the non-test unsafe inventory in this crate.
-//!
-//! [^3]: The Rustaceous API is designed to protect users of this library from
-//! making mistakes, however the Classic API allows one to do as one pleases.
+//! contain unsafe code. See the unsafe code section above for the non-test
+//! unsafe inventory in this crate.
 //!
 //! [^4]: Available on Unix and Windows targets with the `protected` feature
 //! flag enabled. The `protected` feature is enabled by default.
@@ -220,11 +191,9 @@ mod siphash24;
 pub mod classic {
     //! # Classic API
     //!
-    //! The Classic API contains functions designed to match the interface of
-    //! libsodium as closely as possible. It's provided to make it easier to
-    //! switch code from using libsodium directly over to dryoc, and also to
-    //! provide a familiar interface for anyone already comfortable with
-    //! libsodium.
+    //! The Classic API follows libsodium's interface closely. Use it to port
+    //! libsodium code or when fixed-size byte arrays and byte slices are a
+    //! better fit than the Rustaceous types.
     mod crypto_auth_hmac_impl;
     mod crypto_box_impl;
     mod crypto_secretbox_impl;

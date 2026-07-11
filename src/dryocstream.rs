@@ -4,9 +4,9 @@
 //! encryption, also known as a _secretstream_. This implementation uses the
 //! XChaCha20 stream cipher, and Poly1305 for message authentication.
 //!
-//! You should use a [`DryocStream`] when you want to:
+//! Use [`DryocStream`] to:
 //!
-//! * read and write messages from/to a file or network socket
+//! * encrypt a sequence of messages written to a file or network socket
 //! * exchange messages between two parties
 //! * send messages in a particular sequence, and authenticate the order of
 //!   messages
@@ -17,6 +17,10 @@
 //!   * [`Kx`](crate::kx)
 //!   * a passphrase with a strong password hashing function, such as
 //!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
+//!
+//! [`DryocStream::init_push`] generates a public header for each stream. Send
+//! that header to the pull side and do not reuse the same key/header pair for a
+//! separate stream, because doing so repeats the stream's initial state.
 //!
 //! # Rustaceous API example
 //!
@@ -107,10 +111,9 @@ pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYT
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory type aliases for [`DryocStream`]
+    //! # Protected memory type aliases for [`DryocStream`]
     //!
-    //! This mod provides re-exports of type aliases for protected memory usage
-    //! with [`DryocStream`]. These type aliases are provided for convenience.
+    //! Type aliases for using [`DryocStream`] with protected memory.
     //!
     //! ## Example
     //! ```
@@ -142,7 +145,7 @@ pub mod protected {
     //!     .push(&message3, None, Tag::FINAL)
     //!     .expect("Encrypt failed");
     //!
-    //! // Initialized the pull stream
+    //! // Initialize the pull stream
     //! let mut pull_stream = DryocStream::init_pull(&key, &header);
     //!
     //! // Decrypt the set of messages, putting everything into locked memory
@@ -187,11 +190,9 @@ impl<Mode> Drop for DryocStream<Mode> {
 
 impl<M> DryocStream<M> {
     /// Manually rekeys the stream. Both the push and pull sides of the stream
-    /// need to manually rekey if you use this function (i.e., it's not handled
-    /// by the library).
+    /// must rekey at the same position.
     ///
-    /// Automatic rekeying will occur normally, and you generally shouldn't need
-    /// to manually rekey.
+    /// Automatic rekeying normally makes manual rekeying unnecessary.
     ///
     /// Refer to the [libsodium
     /// docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream#rekeying)
@@ -227,6 +228,12 @@ impl DryocStream<Push> {
 
     /// Encrypts `message` for this stream with `associated_data` and `tag`,
     /// returning the ciphertext.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the stream's maximum message
+    /// length or the output storage does not resize to exactly the required
+    /// ciphertext length.
     pub fn push<Input: Bytes, Output: NewBytes + ResizableBytes>(
         &mut self,
         message: &Input,
@@ -251,6 +258,11 @@ impl DryocStream<Push> {
 
     /// Encrypts `message` for this stream with `associated_data` and `tag`,
     /// returning the ciphertext.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the stream's maximum message
+    /// length.
     pub fn push_to_vec<Input: Bytes>(
         &mut self,
         message: &Input,
@@ -284,6 +296,18 @@ impl DryocStream<Pull> {
 
     /// Decrypts `ciphertext` for this stream with `associated_data`, returning
     /// the decrypted message and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext is too short or too long, the output
+    /// storage cannot hold the plaintext, or authentication fails.
+    /// Authentication fails for a wrong key or header, mismatched associated
+    /// data, modified ciphertext, or messages processed out of order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an authenticated ciphertext contains tag bits that are not
+    /// represented by [`Tag`]. Rustaceous push streams only emit valid tags.
     pub fn pull<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(
         &mut self,
         ciphertext: &Input,
@@ -317,6 +341,17 @@ impl DryocStream<Pull> {
 
     /// Decrypts `ciphertext` for this stream with `associated_data`, returning
     /// the decrypted message and tag into a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext is too short or too long, or
+    /// authentication fails because the key, header, associated data, stream
+    /// position, or ciphertext does not match.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an authenticated ciphertext contains tag bits that are not
+    /// represented by [`Tag`]. Rustaceous push streams only emit valid tags.
     pub fn pull_to_vec<Input: Bytes>(
         &mut self,
         ciphertext: &Input,

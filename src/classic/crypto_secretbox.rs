@@ -60,6 +60,9 @@ pub fn crypto_secretbox_keygen() -> Key {
 /// Detached version of [`crypto_secretbox_easy`].
 ///
 /// Compatible with libsodium's `crypto_secretbox_detached`.
+///
+/// # Errors
+///
 /// Returns an error if `ciphertext` is shorter than `message`.
 pub fn crypto_secretbox_detached(
     ciphertext: &mut [u8],
@@ -81,7 +84,11 @@ pub fn crypto_secretbox_detached(
 /// Detached version of [`crypto_secretbox_open_easy`].
 ///
 /// Compatible with libsodium's `crypto_secretbox_open_detached`.
-/// Returns an error if `message` is shorter than `ciphertext`.
+///
+/// # Errors
+///
+/// Returns an error if `message` is shorter than `ciphertext` or
+/// authentication fails.
 pub fn crypto_secretbox_open_detached(
     message: &mut [u8],
     mac: &Mac,
@@ -100,6 +107,11 @@ pub fn crypto_secretbox_open_detached(
 /// Encrypts `message` with `nonce` and `key`.
 ///
 /// Compatible with libsodium's `crypto_secretbox_easy`.
+///
+/// # Errors
+///
+/// Returns an error if the required ciphertext length overflows `usize` or
+/// `ciphertext` is not exactly one authentication tag longer than `message`.
 pub fn crypto_secretbox_easy(
     ciphertext: &mut [u8],
     message: &[u8],
@@ -136,6 +148,11 @@ pub fn crypto_secretbox_easy(
 /// Decrypts `ciphertext` with `nonce` and `key`.
 ///
 /// Compatible with libsodium's `crypto_secretbox_open_easy`.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is shorter than an authentication tag,
+/// `message` has the wrong length, or authentication fails.
 pub fn crypto_secretbox_open_easy(
     message: &mut [u8],
     ciphertext: &[u8],
@@ -160,7 +177,11 @@ pub fn crypto_secretbox_open_easy(
 }
 
 /// Encrypts `message` with `nonce` and `key` in-place, without allocating
-/// additional memory for the ciphertext.
+/// additional memory for ciphertext.
+///
+/// # Errors
+///
+/// Returns an error if `data` is shorter than an authentication tag.
 pub fn crypto_secretbox_easy_inplace(
     data: &mut [u8],
     nonce: &Nonce,
@@ -182,6 +203,11 @@ pub fn crypto_secretbox_easy_inplace(
 
 /// Decrypts `ciphertext` with `nonce` and `key` in-place, without allocating
 /// additional memory for the message.
+///
+/// # Errors
+///
+/// Returns an error if `ciphertext` is shorter than an authentication tag or
+/// authentication fails.
 pub fn crypto_secretbox_open_easy_inplace(
     ciphertext: &mut [u8],
     nonce: &Nonce,

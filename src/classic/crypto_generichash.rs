@@ -1,11 +1,12 @@
 //! # Generic hashing
 //!
-//! Implements libsodium's generic hashing functions, based on blake2b. Can also
-//! be used as an HMAC function, if a key is provided.
+//! Implements libsodium's generic hashing functions with BLAKE2b. With a secret
+//! key, BLAKE2b acts as a message authentication code (MAC) or pseudorandom
+//! function (PRF); it is not HMAC.
 //!
 //! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/hashing/generic_hashing).
 //!
-//! # Classic API example, one-time interface
+//! # Classic API example, single-part interface
 //!
 //! ```
 //! use base64::Engine as _;
@@ -15,7 +16,7 @@
 //!
 //! // Use the default hash length
 //! let mut output = [0u8; CRYPTO_GENERICHASH_BYTES];
-//! // Compute the hash using the one-time interface
+//! // Compute the hash using the single-part interface
 //! crypto_generichash(&mut output, b"a string of bytes", None).ok();
 //!
 //! assert_eq!(
@@ -59,7 +60,11 @@ Computes a hash from `input` and `key`, copying the result into `output`.
 | `output` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [ `CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
 | `key` | [`CRYPTO_GENERICHASH_KEYBYTES`] | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
 
-Compatible with libsodium's `crypto_generichash_final`
+Compatible with libsodium's `crypto_generichash`.
+
+# Errors
+
+Returns an error if the output or key length is outside the supported range.
 */
 #[inline]
 pub fn crypto_generichash(
@@ -83,7 +88,11 @@ Initializes the state for the generic hash function using `outlen` for the expec
 | `outlen` | [`CRYPTO_GENERICHASH_BYTES`](crate::constants::CRYPTO_GENERICHASH_BYTES) | [`CRYPTO_GENERICHASH_BYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_BYTES_MIN) | [`CRYPTO_GENERICHASH_BYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_BYTES_MAX) |
 | `key` | [`CRYPTO_GENERICHASH_KEYBYTES`] | [`CRYPTO_GENERICHASH_KEYBYTES_MIN`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN) | [ `CRYPTO_GENERICHASH_KEYBYTES_MAX`](crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MAX) |
 
-Equivalent to libsodium's `crypto_generichash_final`
+Equivalent to libsodium's `crypto_generichash_init`.
+
+# Errors
+
+Returns an error if `outlen` or the key length is outside the supported range.
 */
 #[inline]
 pub fn crypto_generichash_init(
@@ -107,6 +116,11 @@ pub fn crypto_generichash_update(state: &mut GenericHashState, input: &[u8]) {
 /// [`crypto_generichash_init`].
 ///
 /// Equivalent to libsodium's `crypto_generichash_final`
+///
+/// # Errors
+///
+/// Returns an error if `output` is empty or longer than the maximum supported
+/// digest.
 #[inline]
 pub fn crypto_generichash_final(state: GenericHashState, output: &mut [u8]) -> Result<(), Error> {
     crypto_generichash_blake2b_final(state.state, output)

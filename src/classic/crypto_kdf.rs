@@ -126,6 +126,10 @@ pub fn crypto_kdf_hkdf_sha512_keygen() -> HkdfSha512Key {
 /// Derives `subkey` from `main_key`, using `context` and `subkey_id` such that
 /// `subkey` will always be the same for the given set of inputs, but `main_key`
 /// cannot be derived from `subkey`.
+///
+/// # Errors
+///
+/// Returns an error if `subkey` is outside the supported length range.
 pub fn crypto_kdf_derive_from_key(
     subkey: &mut [u8],
     subkey_id: u64,
@@ -193,6 +197,11 @@ pub fn crypto_kdf_hkdf_sha256_extract_final(state: HkdfSha256State, prk: &mut Hk
 }
 
 /// Expands an HKDF-SHA-256 pseudorandom key into output keying material.
+///
+/// # Errors
+///
+/// Returns an error if `output` is outside the supported HKDF-SHA-256 output
+/// length range.
 pub fn crypto_kdf_hkdf_sha256_expand(
     output: &mut [u8],
     context: &[u8],
@@ -232,6 +241,11 @@ pub fn crypto_kdf_hkdf_sha512_extract_final(state: HkdfSha512State, prk: &mut Hk
 }
 
 /// Expands an HKDF-SHA-512 pseudorandom key into output keying material.
+///
+/// # Errors
+///
+/// Returns an error if `output` is outside the supported HKDF-SHA-512 output
+/// length range.
 pub fn crypto_kdf_hkdf_sha512_expand(
     output: &mut [u8],
     context: &[u8],

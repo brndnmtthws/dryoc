@@ -14,7 +14,7 @@
 //! The single-part and multi-part variants use slightly different algorithms,
 //! and thus they are not compatible with each other.
 //!
-//! You should use a this module when you want to:
+//! Use this module when you want to:
 //!
 //! * share a message with other parties, and provide a proof that the message
 //!   is authentic
@@ -23,9 +23,9 @@
 //!
 //! The public key of the signer must be known to the verifier.
 //!
-//! One should take note that keys used for signing and encryption should remain
-//! separate. While it's possible to convert Ed25519 keys to X25519 keys (or
-//! derive them from the same seed), one is cautioned against doing so.
+//! Keep signing and encryption keys separate. Although Ed25519 keys can be
+//! converted to X25519 keys or derived from the same seed, doing so couples two
+//! distinct security roles.
 //!
 //! Signing secret keys include both the seed and public key. Use
 //! [`secret_key_to_seed`], [`secret_key_to_public_key`],
@@ -287,6 +287,10 @@ impl<
 {
     /// Constructs a new signing keypair from key slices, consuming them. Does
     /// not check validity or authenticity of keypair.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either slice has the wrong length for its key type.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
         Ok(Self {
             public_key: PublicKey::try_from(public_key).map_err(
@@ -302,7 +306,7 @@ impl<
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory for [`SigningKeyPair`] and [`SignedMessage`].
+    //! # Protected memory for [`SigningKeyPair`] and [`SignedMessage`]
     //!
     //! ## Example
     //! ```
@@ -357,6 +361,15 @@ pub mod protected {
         >
     {
         /// Returns a new locked signing keypair.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`Error::Io`] if either allocation cannot be locked.
+        ///
+        /// # Panics
+        ///
+        /// Panics if either page-aligned allocation cannot be created or its
+        /// size cannot be represented with guard pages.
         pub fn new_locked_keypair() -> Result<Self, Error> {
             Ok(Self {
                 public_key: HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?,
@@ -365,6 +378,16 @@ pub mod protected {
         }
 
         /// Returns a new randomly generated locked signing keypair.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`Error::Io`] if either allocation cannot be locked.
+        ///
+        /// # Panics
+        ///
+        /// Panics if either page-aligned allocation cannot be created, its
+        /// size cannot be represented with guard pages, or the operating
+        /// system's random number generator fails.
         pub fn generate_locked_keypair() -> Result<Self, Error> {
             let mut res = Self::new_locked_keypair()?;
 
@@ -380,6 +403,16 @@ pub mod protected {
         ///
         /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
         /// This method is retained for compatibility.
+        ///
+        /// # Errors
+        ///
+        /// Returns the same errors as
+        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
+        ///
+        /// # Panics
+        ///
+        /// Panics under the same conditions as
+        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
         #[deprecated(note = "use generate_locked_keypair() instead")]
         pub fn gen_locked_keypair() -> Result<Self, Error> {
             Self::generate_locked_keypair()
@@ -393,6 +426,17 @@ pub mod protected {
         >
     {
         /// Returns a new randomly generated locked, read-only signing keypair.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`Error::Io`] if either allocation cannot be locked or its
+        /// page permissions cannot be changed to read-only.
+        ///
+        /// # Panics
+        ///
+        /// Panics if either page-aligned allocation cannot be created, its
+        /// size cannot be represented with guard pages, or the operating
+        /// system's random number generator fails.
         pub fn generate_readonly_locked_keypair() -> Result<Self, Error> {
             let mut public_key = HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?;
             let mut secret_key = HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?;
@@ -413,6 +457,16 @@ pub mod protected {
         /// Prefer
         /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         /// This method is retained for compatibility.
+        ///
+        /// # Errors
+        ///
+        /// Returns the same errors as
+        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
+        ///
+        /// # Panics
+        ///
+        /// Panics under the same conditions as
+        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
         #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
         pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
             Self::generate_readonly_locked_keypair()
@@ -445,6 +499,13 @@ impl<
     /// Signs `message` using this keypair, consuming the message, and returning
     /// a new [`SignedMessage`]. The type of `message` should match that of the
     /// target signed message.
+    ///
+    /// # Errors
+    ///
+    /// The fixed-size signature and secret-key types satisfy the current
+    /// implementation's requirements, so this function does not return an
+    /// error for valid type implementations. The [`Result`] is retained for
+    /// compatibility with the underlying signing API.
     pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>(
         &self,
         message: Message,
@@ -461,6 +522,12 @@ impl<
 
     /// Signs `message`, putting the result into a [`Vec`]. Convenience wrapper
     /// for [`SigningKeyPair::sign`].
+    ///
+    /// # Errors
+    ///
+    /// The default fixed-size types satisfy the current implementation's
+    /// requirements, so this function does not return an error in normal use.
+    /// The [`Result`] is retained for API compatibility.
     pub fn sign_with_defaults<Message: Bytes>(
         &self,
         message: Message,
@@ -495,6 +562,13 @@ impl IncrementalSigner {
 
     /// Finalizes this incremental signer, returning the signature upon
     /// success.
+    ///
+    /// # Errors
+    ///
+    /// The fixed-size signature and secret-key types satisfy the current
+    /// implementation's requirements, so this function does not return an
+    /// error for valid type implementations. The [`Result`] is retained for
+    /// compatibility with the underlying signing API.
     pub fn finalize<
         Signature: NewByteArray<CRYPTO_SIGN_BYTES>,
         SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -510,6 +584,11 @@ impl IncrementalSigner {
     }
 
     /// Verifies `signature` as a valid signature for this signer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `signature` is not valid for the accumulated
+    /// message and `public_key`.
     pub fn verify<
         Signature: ByteArray<CRYPTO_SIGN_BYTES>,
         PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
@@ -534,6 +613,11 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
     SignedMessage<Signature, Message>
 {
     /// Verifies that this signed message is valid for `public_key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signature is not valid for the message and
+    /// `public_key`.
     pub fn verify<PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(
         &self,
         public_key: &PublicKey,
@@ -555,6 +639,11 @@ impl<
     /// Initializes a [`SignedMessage`] from a slice. Expects the first
     /// [`CRYPTO_SIGN_BYTES`] bytes to contain the message signature,
     /// with the remaining bytes containing the message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than a signature or the
+    /// signature cannot be converted to the requested output type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
         if bytes.len() < CRYPTO_SIGN_BYTES {
             Err(

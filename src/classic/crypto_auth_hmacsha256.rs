@@ -60,6 +60,10 @@ pub fn crypto_auth_hmacsha256(mac: &mut Mac, message: &[u8], key: &Key) {
 }
 
 /// Verifies that `mac` is the correct authenticator for `message` using `key`.
+///
+/// # Errors
+///
+/// Returns an error if `mac` is not valid for `input` under `key`.
 pub fn crypto_auth_hmacsha256_verify(mac: &Mac, input: &[u8], key: &Key) -> Result<(), Error> {
     hmac_verify::<Sha256, CRYPTO_AUTH_HMACSHA256_KEYBYTES, 64, CRYPTO_AUTH_HMACSHA256_BYTES>(
         mac, input, key,

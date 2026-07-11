@@ -1,8 +1,8 @@
 //! Precalculated secret key for use with `precalc_*` functions in
 //! [`crate::dryocbox::DryocBox`]
 //!
-//! You may want to use `precalc_*` functions if you need to
-//! encrypt/decrypt multiple messages between the same sender and receiver.
+//! Precalculation avoids repeating the public-key operation when encrypting or
+//! decrypting multiple messages between the same sender and receiver.
 use std::fmt;
 
 use subtle::ConstantTimeEq;
@@ -19,10 +19,9 @@ type InnerKey = StackByteArray<CRYPTO_BOX_BEFORENMBYTES>;
 /// Precalculated secret key for use with `precalc_*` functions in
 /// [`crate::dryocbox::DryocBox`].
 ///
-/// You probably want to use `precalc_*` functions if you need to
-/// encrypt/decrypt multiple messages between the same sender and receiver.
-/// These functions save computation time by using [`PrecalcSecretKey`]
-/// instead of computing the shared secret every time.
+/// Use `precalc_*` functions to encrypt or decrypt multiple messages between
+/// the same sender and receiver. They reuse this shared secret instead of
+/// repeating the public-key operation for every message.
 ///
 /// Using precalculated secret keys is compatible with libsodium's
 /// `crypto_box_beforenm`.
@@ -105,6 +104,11 @@ impl PrecalcSecretKey<InnerKey> {
     /// `third_party_public_key` and `secret_key`.
     ///
     /// Compatible with libsodium's `crypto_box_beforenm`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `third_party_public_key` is an unacceptable
+    /// low-order point.
     #[inline]
     pub fn precalculate<
         ThirdPartyPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
@@ -124,7 +128,7 @@ impl PrecalcSecretKey<InnerKey> {
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
-    //! #  Protected memory for [`PrecalcSecretKey`]
+    //! # Protected memory for [`PrecalcSecretKey`]
     use super::*;
     pub use crate::protected::*;
 
@@ -135,6 +139,16 @@ pub mod protected {
         /// for the given `third_party_public_key` and `secret_key`.
         ///
         /// Compatible with libsodium's `crypto_box_beforenm`.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `third_party_public_key` is an unacceptable
+        /// low-order point or the protected allocation cannot be locked.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the page-aligned allocation cannot be created or its size
+        /// cannot be represented with guard pages.
         pub fn precalculate_locked<
             ThirdPartyPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
             SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
@@ -161,6 +175,17 @@ pub mod protected {
         /// `secret_key`.
         ///
         /// Compatible with libsodium's `crypto_box_beforenm`.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if `third_party_public_key` is an unacceptable
+        /// low-order point, the protected allocation cannot be locked, or its
+        /// page permissions cannot be changed to read-only.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the page-aligned allocation cannot be created or its size
+        /// cannot be represented with guard pages.
         pub fn precalculate_readonly_locked<
             ThirdPartyPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
             SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,

@@ -16,10 +16,10 @@ use sha2::{Digest as DigestImpl, Sha512 as Sha512Impl};
 use crate::constants::CRYPTO_HASH_SHA512_BYTES;
 use crate::types::*;
 
-/// Type alias for SHA512 digest, provided for convience.
+/// Type alias for a SHA-512 digest.
 pub type Digest = StackByteArray<CRYPTO_HASH_SHA512_BYTES>;
 
-/// SHA-512 wrapper, provided for convience.
+/// SHA-512 wrapper.
 pub struct Sha512 {
     hasher: Sha512Impl,
 }

@@ -156,9 +156,19 @@ pub trait HkdfVariant<const PRK_LENGTH: usize> {
     /// Creates a PRK from input keying material and optional salt.
     fn extract(prk: &mut [u8; PRK_LENGTH], salt: Option<&[u8]>, ikm: &[u8]);
     /// Expands a PRK into output keying material.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `output.len()` is outside the range supported by
+    /// this variant.
     fn expand(output: &mut [u8], context: &[u8], prk: &[u8; PRK_LENGTH]) -> Result<(), Error>;
 
     /// Validates an output length before allocating output storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `output_len` is smaller than
+    /// [`Self::OUTPUT_BYTES_MIN`] or larger than [`Self::OUTPUT_BYTES_MAX`].
     fn validate_output_len(output_len: usize) -> Result<(), Error> {
         if output_len < Self::OUTPUT_BYTES_MIN || output_len > Self::OUTPUT_BYTES_MAX {
             Err(length_error!(
@@ -264,6 +274,11 @@ where
     }
 
     /// One-shot HKDF extract-and-expand into a fixed-size output type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `OUTPUT_LENGTH` is outside the range supported by
+    /// the selected HKDF variant.
     pub fn extract_and_expand<
         const OUTPUT_LENGTH: usize,
         Salt: Bytes + ?Sized,
@@ -279,6 +294,11 @@ where
     }
 
     /// One-shot HKDF extract-and-expand into a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `output_len` is outside the range supported by the
+    /// selected HKDF variant.
     pub fn extract_and_expand_to_vec<
         Salt: Bytes + ?Sized,
         Ikm: Bytes + ?Sized,
@@ -293,6 +313,11 @@ where
     }
 
     /// One-shot HKDF extract-and-expand into a runtime-sized byte container.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `output_len` is outside the range supported by the
+    /// selected HKDF variant.
     pub fn extract_and_expand_to_bytes<
         Salt: Bytes + ?Sized,
         Ikm: Bytes + ?Sized,
@@ -327,6 +352,11 @@ where
     }
 
     /// Expands this PRK into a fixed-size output type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `OUTPUT_LENGTH` is outside the range supported by
+    /// the selected HKDF variant.
     pub fn expand<const OUTPUT_LENGTH: usize, Context: Bytes + ?Sized, Output>(
         &self,
         context: &Context,
@@ -345,6 +375,11 @@ where
     }
 
     /// Expands this PRK into a [`Vec`] of `output_len` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `output_len` is outside the range supported by the
+    /// selected HKDF variant.
     pub fn expand_to_vec<Context: Bytes + ?Sized>(
         &self,
         output_len: usize,
@@ -354,6 +389,11 @@ where
     }
 
     /// Expands this PRK into a runtime-sized byte container.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `output_len` is outside the range supported by the
+    /// selected HKDF variant.
     pub fn expand_to_bytes<Context: Bytes + ?Sized, Output: NewBytes + ResizableBytes>(
         &self,
         output_len: usize,
