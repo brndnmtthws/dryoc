@@ -82,12 +82,16 @@ jobs:
         uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: ${{ matrix.rust }}
-          cargo-packages: cargo-nextest
+          cargo-packages: --locked cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Install cargo-hold
         if: runner.os != 'Windows'
         uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
         with:
           packages: cargo-hold
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: cargo hold voyage
         if: runner.os != 'Windows'
       - run: cargo build --features ${{ env.FEATURES }}
