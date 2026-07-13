@@ -670,6 +670,119 @@ fn test_dryocaead() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[test]
+fn test_crypto_aead_chacha20poly1305_ietf() {
+    use dryoc::classic::crypto_aead_chacha20poly1305_ietf::*;
+    use dryoc::constants::CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+
+    let key = crypto_aead_chacha20poly1305_ietf_keygen();
+    let nonce = [0x42; 12];
+    let message = b"ChaCha20-Poly1305-IETF";
+    let associated_data = b"metadata";
+    let mut ciphertext = vec![0u8; message.len() + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES];
+
+    crypto_aead_chacha20poly1305_ietf_encrypt(
+        &mut ciphertext,
+        message,
+        Some(associated_data),
+        &nonce,
+        &key,
+    )
+    .expect("encrypt");
+
+    let mut plaintext = vec![0u8; message.len()];
+    crypto_aead_chacha20poly1305_ietf_decrypt(
+        &mut plaintext,
+        &ciphertext,
+        Some(associated_data),
+        &nonce,
+        &key,
+    )
+    .expect("decrypt");
+
+    assert_eq!(plaintext, message);
+}
+
+#[test]
+fn test_dryocaead_chacha20poly1305_ietf() {
+    use dryoc::classic::crypto_aead_chacha20poly1305_ietf::crypto_aead_chacha20poly1305_ietf_encrypt;
+    use dryoc::constants::{
+        CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
+    };
+    use dryoc::dryocaead::chacha20poly1305_ietf::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::from([0x42; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES]);
+    let message = b"Rustaceous ChaCha20-Poly1305-IETF";
+    let aad = b"metadata";
+
+    let dryocaead =
+        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("encrypt failed");
+    let mut classic = vec![0u8; message.len() + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES];
+    crypto_aead_chacha20poly1305_ietf_encrypt(
+        &mut classic,
+        message,
+        Some(aad),
+        nonce.as_array(),
+        key.as_array(),
+    )
+    .expect("classic encrypt failed");
+    assert_eq!(dryocaead.to_vec(), classic);
+
+    let parsed = VecBox::from_bytes(&classic).expect("from bytes");
+    assert_eq!(
+        parsed
+            .decrypt_to_vec(Some(aad), &nonce, &key)
+            .expect("decrypt failed"),
+        message
+    );
+
+    let (tag, data) = dryocaead.into_parts();
+    let envelope = VecEnvelope::from_parts(nonce, tag, data);
+    assert_eq!(
+        envelope.to_vec().len(),
+        CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES
+            + message.len()
+            + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES
+    );
+    let parsed = VecEnvelope::from_bytes(&envelope.to_vec()).expect("from bytes");
+    assert_eq!(
+        parsed.open_to_vec(Some(aad), &key).expect("open failed"),
+        message
+    );
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
+    use dryoc::dryocaead::chacha20poly1305_ietf::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::from([0x42; 12]);
+    let dryocaead = VecBox::encrypt_to_vecbox(b"message", None, &nonce, &key).expect("encrypt");
+    let encoded = serde_json::to_string(&dryocaead).expect("serialize");
+    let decoded: VecBox = serde_json::from_str(&encoded).expect("deserialize");
+    assert_eq!(
+        decoded.decrypt_to_vec(None, &nonce, &key).expect("decrypt"),
+        b"message"
+    );
+}
+
+#[cfg(feature = "wincode")]
+#[test]
+fn test_dryocaead_chacha20poly1305_ietf_wincode() {
+    use dryoc::dryocaead::chacha20poly1305_ietf::*;
+
+    let key = Key::generate();
+    let nonce = Nonce::from([0x42; 12]);
+    let aead_box = VecBox::encrypt_to_vecbox(b"message", None, &nonce, &key).expect("encrypt");
+    let (tag, data) = aead_box.into_parts();
+    let envelope = VecEnvelope::from_parts(nonce, tag, data);
+    let encoded = wincode::serialize(&envelope).expect("serialize");
+    let decoded: VecEnvelope = wincode::deserialize(&encoded).expect("deserialize");
+    assert_eq!(decoded.open_to_vec(None, &key).expect("open"), b"message");
+}
+
 #[cfg(feature = "serde")]
 #[test]
 fn test_dryocbox_serde_json() {
@@ -992,6 +1105,29 @@ fn test_dryocaead_protected() {
     let decrypted: LockedBytes = envelope
         .open(Some(aad.as_slice()), &key)
         .expect("open failed");
+    assert_eq!(message.as_slice(), decrypted.as_slice());
+}
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn test_dryocaead_chacha20poly1305_ietf_protected() {
+    use dryoc::dryocaead::chacha20poly1305_ietf::protected::*;
+
+    let key = Key::generate_readonly_locked().expect("key failed");
+    let nonce = Nonce::from_slice_into_locked(&[0x42; 12]).expect("nonce failed");
+    let message = HeapBytes::from_slice_into_readonly_locked(b"protected ietf aead message")
+        .expect("message");
+
+    let dryocaead: LockedBox =
+        LockedBox::encrypt(&message, None, &nonce, &key).expect("encrypt failed");
+    let decrypted: LockedBytes = dryocaead
+        .decrypt(None, &nonce, &key)
+        .expect("decrypt failed");
+    assert_eq!(message.as_slice(), decrypted.as_slice());
+
+    let (tag, data) = dryocaead.into_parts();
+    let envelope: LockedEnvelope = LockedEnvelope::from_parts(nonce, tag, data);
+    let decrypted: LockedBytes = envelope.open(None, &key).expect("open failed");
     assert_eq!(message.as_slice(), decrypted.as_slice());
 }
 
