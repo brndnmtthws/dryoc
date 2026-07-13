@@ -89,6 +89,7 @@
 //! |-|-|-|-|
 //! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
 //! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
+//! | ChaCha20-Poly1305-IETF authenticated encryption | [`chacha20poly1305_ietf`](dryocaead::chacha20poly1305_ietf) | [`crypto_aead_chacha20poly1305_ietf`](classic::crypto_aead_chacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/ietf_chacha20-poly1305_construction) |
 //! | Authenticated encryption with additional data | [`DryocAead`](dryocaead) | [`crypto_aead_xchacha20poly1305_ietf`](classic::crypto_aead_xchacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction) |
 //! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
 //! | Generic hashing and keyed hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
@@ -131,7 +132,7 @@
 //! | Area | Feature gate | Why `unsafe` is required |
 //! |-|-|-|
 //! | `src/types.rs` fixed-size byte views | Always available | Converts validated byte slices and vectors into `[u8; N]` references without copying. Each cast is guarded by a length check or an exact-size wrapper invariant. |
-//! | `src/dryocbox.rs`, `src/dryocsecretbox.rs`, and `src/dryocaead.rs` wincode impls | `wincode` | Implements `unsafe` wincode schema traits for the Rustaceous box wire formats. The implementations write and read initialized fields in the same order. |
+//! | `src/dryocbox.rs`, `src/dryocsecretbox.rs`, and `src/dryocaead.rs` wincode impls | `wincode` | Implements `unsafe` wincode schema traits for the Rustaceous box wire formats, including both AEAD nonce sizes. The implementations write and read initialized fields in the same order. |
 //! | `src/blake2b/blake2b_soft.rs` and `src/blake2b/blake2b_simd.rs` parameter blocks | Always available for the soft backend; `simd_backend,nightly` for SIMD | Views a `repr(C, packed)` BLAKE2b parameter block as bytes so the initialization vector is mixed exactly as specified. The parameter type contains only initialized byte fields. |
 //! | `src/protected.rs` protected memory | `protected` on Unix/Windows | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements page-aligned guarded heap buffers, and exposes exact-size byte-array views over protected heap buffers. |
 //! | `src/classic/salsa20_simd.rs` Salsa20 SIMD backend | `simd_backend,nightly` | Performs little-endian unaligned in-place and buffer-to-buffer word XOR in 256-byte chunks, plus volatile zeroization of cached SIMD lanes containing derived key material. |
@@ -202,6 +203,7 @@ pub mod classic {
     #[cfg(all(feature = "simd_backend", feature = "nightly"))]
     mod salsa20_simd;
 
+    pub mod crypto_aead_chacha20poly1305_ietf;
     pub mod crypto_aead_xchacha20poly1305_ietf;
     pub mod crypto_auth;
     pub mod crypto_auth_hmacsha256;

@@ -1,8 +1,10 @@
 //! # Authenticated encryption with additional data
 //!
 //! [`DryocAead`] implements libsodium's XChaCha20-Poly1305-IETF AEAD
-//! construction. It encrypts messages, authenticates optional additional data,
-//! and is compatible with `crypto_aead_xchacha20poly1305_ietf_*`.
+//! construction. The [`chacha20poly1305_ietf`] module provides the RFC 8439
+//! ChaCha20-Poly1305-IETF variant with 96-bit nonces. Both encrypt messages,
+//! authenticate optional additional data, and use libsodium-compatible wire
+//! formats.
 //!
 //! Use [`DryocAead`] when you already manage nonces and need libsodium's
 //! `ciphertext || tag` wire format. Use [`DryocAeadEnvelope`] when you want
@@ -68,8 +70,9 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::constants::{
-    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
-    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
+    CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
+    CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
+    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
 };
 use crate::error::Error;
 pub use crate::types::*;
@@ -94,6 +97,13 @@ pub struct XChaCha20Poly1305Ietf;
 
 impl sealed::Sealed for XChaCha20Poly1305Ietf {}
 impl AeadAlgorithm for XChaCha20Poly1305Ietf {}
+
+/// ChaCha20-Poly1305-IETF AEAD algorithm marker.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChaCha20Poly1305Ietf;
+
+impl sealed::Sealed for ChaCha20Poly1305Ietf {}
+impl AeadAlgorithm for ChaCha20Poly1305Ietf {}
 
 /// Stack-allocated secret key for XChaCha20-Poly1305-IETF AEAD.
 pub type Key = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
@@ -134,6 +144,81 @@ pub mod xchacha20poly1305_ietf {
     pub type VecEnvelope = super::VecEnvelope;
 }
 
+/// ChaCha20-Poly1305-IETF Rustaceous AEAD API.
+///
+/// A nonce must never repeat with the same key. RFC 8439 requires callers to
+/// manage these 96-bit nonces uniquely, typically with a counter, rather than
+/// generate them randomly. Accordingly, this variant does not provide the
+/// generated-nonce [`AeadEnvelope::seal`] convenience available to XChaCha20.
+/// Use [`AeadBox::encrypt`] with an explicitly managed nonce; an
+/// [`AeadEnvelope`] can store that nonce via [`AeadEnvelope::from_parts`].
+///
+/// ## Rustaceous API example
+///
+/// ```
+/// use dryoc::dryocaead::chacha20poly1305_ietf::*;
+///
+/// let key = Key::generate();
+/// // This 96-bit nonce must be unique for every message encrypted with `key`.
+/// let nonce = Nonce::from([0u8; 12]);
+/// let message = b"Better three hours too soon than a minute too late.";
+/// let aad = b"metadata";
+///
+/// let dryocaead =
+///     VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("encrypt failed");
+/// let bytes = dryocaead.to_vec();
+/// let dryocaead = VecBox::from_bytes(&bytes).expect("from bytes");
+/// let decrypted = dryocaead
+///     .decrypt_to_vec(Some(aad), &nonce, &key)
+///     .expect("decrypt failed");
+///
+/// assert_eq!(message, decrypted.as_slice());
+/// ```
+pub mod chacha20poly1305_ietf {
+    pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, ChaCha20Poly1305Ietf};
+    use crate::constants::{
+        CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
+        CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
+    };
+    pub use crate::types::*;
+
+    /// Stack-allocated secret key.
+    pub type Key = StackByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>;
+    /// Stack-allocated public nonce.
+    pub type Nonce = StackByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES>;
+    /// Stack-allocated authentication tag.
+    pub type Mac = StackByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES>;
+    /// ChaCha20-Poly1305-IETF AEAD box.
+    pub type DryocAead<Mac, Data> = AeadBox<ChaCha20Poly1305Ietf, Mac, Data>;
+    /// ChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
+    pub type DryocAeadEnvelope<Nonce, Mac, Data> =
+        AeadEnvelope<ChaCha20Poly1305Ietf, Nonce, Mac, Data>;
+    /// [`Vec`]-based ChaCha20-Poly1305-IETF AEAD box.
+    pub type VecBox = DryocAead<Mac, Vec<u8>>;
+    /// [`Vec`]-based ChaCha20-Poly1305-IETF AEAD envelope.
+    pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
+
+    #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
+    pub mod protected {
+        //! Protected-memory aliases for ChaCha20-Poly1305-IETF.
+        use super::*;
+        pub use crate::protected::*;
+
+        /// Heap-allocated, page-aligned secret key.
+        pub type Key = HeapByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>;
+        /// Heap-allocated, page-aligned public nonce.
+        pub type Nonce = HeapByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES>;
+        /// Heap-allocated, page-aligned authentication tag.
+        pub type Mac = HeapByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES>;
+        /// Locked AEAD box.
+        pub type LockedBox = AeadBox<ChaCha20Poly1305Ietf, Locked<Mac>, LockedBytes>;
+        /// Locked AEAD envelope with stored nonce.
+        pub type LockedEnvelope =
+            AeadEnvelope<ChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
+    }
+}
+
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
@@ -164,7 +249,7 @@ pub mod protected {
 #[cfg_attr(not(feature = "serde"), derive(Clone, Debug))]
 /// Authenticated encrypted data for a concrete AEAD algorithm.
 ///
-/// The byte representation for XChaCha20-Poly1305-IETF is `ciphertext || tag`.
+/// The byte representation for the supported algorithms is `ciphertext || tag`.
 pub struct AeadBox<Algorithm: AeadAlgorithm, Mac, Data> {
     #[cfg_attr(feature = "serde", serde(skip))]
     algorithm: PhantomData<Algorithm>,
@@ -176,7 +261,7 @@ pub struct AeadBox<Algorithm: AeadAlgorithm, Mac, Data> {
 #[cfg_attr(not(feature = "serde"), derive(Clone, Debug))]
 /// Authenticated encrypted data with its nonce stored alongside it.
 ///
-/// The byte representation for XChaCha20-Poly1305-IETF is
+/// The byte representation for the supported algorithms is
 /// `nonce || ciphertext || tag`.
 pub struct AeadEnvelope<Algorithm: AeadAlgorithm, Nonce, Mac, Data> {
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -282,6 +367,122 @@ unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for Vec
         >>::get(reader.by_ref())?;
         let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
         let tag = <[u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaRead<
+            'de,
+            C,
+        >>::get(reader)?;
+        dst.write(Self {
+            algorithm: PhantomData,
+            nonce: nonce.into(),
+            tag: tag.into(),
+            data,
+        });
+        Ok(())
+    }
+}
+
+#[cfg(feature = "wincode")]
+// SAFETY: The implementation writes exactly the fields used to reconstruct
+// `chacha20poly1305_ietf::VecBox` below, using `wincode` schema implementations
+// for each initialized field and preserving their order.
+unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for chacha20poly1305_ietf::VecBox {
+    type Src = Self;
+
+    fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
+        Ok(<Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?
+            + <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaWrite<C>>::size_of(
+                src.tag.as_array(),
+            )?)
+    }
+
+    fn write(mut writer: impl wincode::io::Writer, src: &Self::Src) -> wincode::WriteResult<()> {
+        <Vec<u8> as wincode::SchemaWrite<C>>::write(writer.by_ref(), &src.data)?;
+        <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaWrite<C>>::write(
+            writer,
+            src.tag.as_array(),
+        )
+    }
+}
+
+#[cfg(feature = "wincode")]
+// SAFETY: The implementation fully initializes `dst` with a valid
+// `chacha20poly1305_ietf::VecBox` after successfully reading each field in the
+// same order as `SchemaWrite`.
+unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C>
+    for chacha20poly1305_ietf::VecBox
+{
+    type Dst = Self;
+
+    fn read(
+        mut reader: impl wincode::io::Reader<'de>,
+        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+    ) -> wincode::ReadResult<()> {
+        let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
+        let tag = <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaRead<
+            'de,
+            C,
+        >>::get(reader)?;
+        dst.write(Self {
+            algorithm: PhantomData,
+            tag: tag.into(),
+            data,
+        });
+        Ok(())
+    }
+}
+
+#[cfg(feature = "wincode")]
+// SAFETY: The implementation writes exactly the fields used to reconstruct
+// `chacha20poly1305_ietf::VecEnvelope` below, using `wincode` schema
+// implementations for each initialized field and preserving their order.
+unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C>
+    for chacha20poly1305_ietf::VecEnvelope
+{
+    type Src = Self;
+
+    fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
+        Ok(
+            <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES] as wincode::SchemaWrite<
+                C,
+            >>::size_of(src.nonce.as_array())?
+                + <Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?
+                + <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaWrite<
+                    C,
+                >>::size_of(src.tag.as_array())?,
+        )
+    }
+
+    fn write(mut writer: impl wincode::io::Writer, src: &Self::Src) -> wincode::WriteResult<()> {
+        <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES] as wincode::SchemaWrite<C>>::write(
+            writer.by_ref(),
+            src.nonce.as_array(),
+        )?;
+        <Vec<u8> as wincode::SchemaWrite<C>>::write(writer.by_ref(), &src.data)?;
+        <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaWrite<C>>::write(
+            writer,
+            src.tag.as_array(),
+        )
+    }
+}
+
+#[cfg(feature = "wincode")]
+// SAFETY: The implementation fully initializes `dst` with a valid
+// `chacha20poly1305_ietf::VecEnvelope` after successfully reading each field in
+// the same order as `SchemaWrite`.
+unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C>
+    for chacha20poly1305_ietf::VecEnvelope
+{
+    type Dst = Self;
+
+    fn read(
+        mut reader: impl wincode::io::Reader<'de>,
+        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+    ) -> wincode::ReadResult<()> {
+        let nonce = <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES] as wincode::SchemaRead<
+            'de,
+            C,
+        >>::get(reader.by_ref())?;
+        let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
+        let tag = <[u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES] as wincode::SchemaRead<
             'de,
             C,
         >>::get(reader)?;
@@ -469,6 +670,276 @@ impl<
                 data: Data::from(data),
             })
         }
+    }
+}
+
+impl<
+    Mac: NewByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES> + Zeroize,
+    Data: NewBytes + ResizableBytes + Zeroize,
+> AeadBox<ChaCha20Poly1305Ietf, Mac, Data>
+{
+    /// Encrypts a message using `key`, `nonce`, and optional associated data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the construction's maximum
+    /// length or the output storage does not resize to the message length.
+    pub fn encrypt<
+        Message: Bytes + ?Sized,
+        Nonce: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES>,
+        SecretKey: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>,
+    >(
+        message: &Message,
+        associated_data: Option<&[u8]>,
+        nonce: &Nonce,
+        key: &SecretKey,
+    ) -> Result<Self, Error> {
+        use crate::classic::crypto_aead_chacha20poly1305_ietf::crypto_aead_chacha20poly1305_ietf_encrypt_detached;
+
+        let mut new = Self {
+            algorithm: PhantomData,
+            tag: Mac::new_byte_array(),
+            data: Data::new_bytes(),
+        };
+        new.data.resize(message.len(), 0);
+
+        crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+            new.data.as_mut_slice(),
+            new.tag.as_mut_array(),
+            message.as_slice(),
+            associated_data,
+            nonce.as_array(),
+            key.as_array(),
+        )?;
+
+        Ok(new)
+    }
+}
+
+impl<
+    'a,
+    Mac: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Data: Bytes + From<&'a [u8]> + Zeroize,
+> AeadBox<ChaCha20Poly1305Ietf, Mac, Data>
+{
+    /// Initializes an [`AeadBox`] from `ciphertext || tag`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one authentication tag or
+    /// the tag cannot be converted to `Mac`.
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
+        if bytes.len() < CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES {
+            Err(length_error!(
+                crate::ErrorContext::AeadCiphertext,
+                bytes.len(),
+                min CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES
+            ))
+        } else {
+            let (data, tag) =
+                bytes.split_at(bytes.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES);
+            Ok(Self {
+                algorithm: PhantomData,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
+                data: Data::from(data),
+            })
+        }
+    }
+}
+
+impl<
+    'a,
+    Nonce: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES>
+        + std::convert::TryFrom<&'a [u8]>
+        + Zeroize,
+    Mac: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Data: Bytes + From<&'a [u8]> + Zeroize,
+> AeadEnvelope<ChaCha20Poly1305Ietf, Nonce, Mac, Data>
+{
+    /// Initializes an [`AeadEnvelope`] from `nonce || ciphertext || tag`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `bytes` is shorter than one nonce plus one
+    /// authentication tag, or if either field cannot be converted to its
+    /// target type.
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
+        let minimum_len =
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+        if bytes.len() < minimum_len {
+            Err(length_error!(crate::ErrorContext::AeadEnvelope, bytes.len(), min minimum_len))
+        } else {
+            let (nonce, rest) = bytes.split_at(CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES);
+            let (data, tag) = rest.split_at(rest.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES);
+            Ok(Self {
+                algorithm: PhantomData,
+                nonce: Nonce::try_from(nonce)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Nonce))?,
+                tag: Mac::try_from(tag)
+                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
+                data: Data::from(data),
+            })
+        }
+    }
+}
+
+impl<Mac: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES>, Data: Bytes>
+    AeadBox<ChaCha20Poly1305Ietf, Mac, Data>
+{
+    /// Decrypts this box using `key`, `nonce`, and optional associated data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length, the output storage has the wrong length, or authentication
+    /// fails. Authentication fails when the key, nonce, associated data,
+    /// ciphertext, or tag does not match the value used during encryption.
+    pub fn decrypt<
+        Output: ResizableBytes + NewBytes,
+        Nonce: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES>,
+        SecretKey: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>,
+    >(
+        &self,
+        associated_data: Option<&[u8]>,
+        nonce: &Nonce,
+        key: &SecretKey,
+    ) -> Result<Output, Error> {
+        use crate::classic::crypto_aead_chacha20poly1305_ietf::crypto_aead_chacha20poly1305_ietf_decrypt_detached;
+
+        let mut message = Output::new_bytes();
+        message.resize(self.data.as_slice().len(), 0);
+
+        crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+            message.as_mut_slice(),
+            self.data.as_slice(),
+            self.tag.as_array(),
+            associated_data,
+            nonce.as_array(),
+            key.as_array(),
+        )?;
+
+        Ok(message)
+    }
+}
+
+impl<
+    Nonce: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES>,
+    Mac: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES>,
+    Data: Bytes,
+> AeadEnvelope<ChaCha20Poly1305Ietf, Nonce, Mac, Data>
+{
+    /// Decrypts this envelope using `key` and optional associated data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length, the output storage has the wrong length, or authentication
+    /// fails. Authentication fails when the key, associated data, stored
+    /// nonce, ciphertext, or tag does not match the value used during
+    /// encryption.
+    pub fn open<
+        Output: ResizableBytes + NewBytes,
+        SecretKey: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>,
+    >(
+        &self,
+        associated_data: Option<&[u8]>,
+        key: &SecretKey,
+    ) -> Result<Output, Error> {
+        use crate::classic::crypto_aead_chacha20poly1305_ietf::crypto_aead_chacha20poly1305_ietf_decrypt_detached;
+
+        let mut message = Output::new_bytes();
+        message.resize(self.data.as_slice().len(), 0);
+
+        crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+            message.as_mut_slice(),
+            self.data.as_slice(),
+            self.tag.as_array(),
+            associated_data,
+            self.nonce.as_array(),
+            key.as_array(),
+        )?;
+
+        Ok(message)
+    }
+}
+
+impl AeadBox<ChaCha20Poly1305Ietf, chacha20poly1305_ietf::Mac, Vec<u8>> {
+    /// Encrypts a message and returns a [`VecBox`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the message exceeds the construction's maximum
+    /// length.
+    pub fn encrypt_to_vecbox<
+        Message: Bytes + ?Sized,
+        SecretKey: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>,
+    >(
+        message: &Message,
+        associated_data: Option<&[u8]>,
+        nonce: &chacha20poly1305_ietf::Nonce,
+        key: &SecretKey,
+    ) -> Result<Self, Error> {
+        Self::encrypt(message, associated_data, nonce, key)
+    }
+
+    /// Decrypts this box and returns the plaintext as a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length or authentication fails because the key, nonce, associated data,
+    /// ciphertext, or tag does not match.
+    pub fn decrypt_to_vec<SecretKey: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>>(
+        &self,
+        associated_data: Option<&[u8]>,
+        nonce: &chacha20poly1305_ietf::Nonce,
+        key: &SecretKey,
+    ) -> Result<Vec<u8>, Error> {
+        self.decrypt(associated_data, nonce, key)
+    }
+
+    /// Consumes this box and returns it as `ciphertext || tag`.
+    pub fn into_vec(mut self) -> Vec<u8> {
+        self.data.resize(
+            self.data.len() + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES,
+            0,
+        );
+        let tag_offset = self.data.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+        self.data[tag_offset..].copy_from_slice(self.tag.as_slice());
+        self.data
+    }
+}
+
+impl
+    AeadEnvelope<
+        ChaCha20Poly1305Ietf,
+        chacha20poly1305_ietf::Nonce,
+        chacha20poly1305_ietf::Mac,
+        Vec<u8>,
+    >
+{
+    /// Decrypts this envelope and returns the plaintext as a [`Vec`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ciphertext exceeds the construction's maximum
+    /// length or authentication fails because the key, associated data, stored
+    /// nonce, ciphertext, or tag does not match.
+    pub fn open_to_vec<SecretKey: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>>(
+        &self,
+        associated_data: Option<&[u8]>,
+        key: &SecretKey,
+    ) -> Result<Vec<u8>, Error> {
+        self.open(associated_data, key)
+    }
+
+    /// Consumes this envelope and returns it as `nonce || ciphertext || tag`.
+    pub fn into_vec(self) -> Vec<u8> {
+        let mut output = self.nonce.to_vec();
+        output.extend_from_slice(self.data.as_slice());
+        output.extend_from_slice(self.tag.as_slice());
+        output
     }
 }
 

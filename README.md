@@ -105,6 +105,7 @@ been reviewed against [libsodium 1.0.22](https://github.com/jedisct1/libsodium/r
 * [x] [Generating random data](https://docs.rs/dryoc/latest/dryoc/rng/index.html) (`randombytes_buf`) [libsodium link](https://doc.libsodium.org/generating_random_data)
 * [x] [Encrypted streams](https://docs.rs/dryoc/latest/dryoc/dryocstream/index.html) (`crypto_secretstream_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/secretstream)
 * [x] [XChaCha20-Poly1305-IETF AEAD](https://docs.rs/dryoc/latest/dryoc/dryocaead/index.html) (`crypto_aead_xchacha20poly1305_ietf_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction)
+* [x] [ChaCha20-Poly1305-IETF AEAD](https://docs.rs/dryoc/latest/dryoc/dryocaead/chacha20poly1305_ietf/index.html) (`crypto_aead_chacha20poly1305_ietf_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/ietf_chacha20-poly1305_construction)
 * [x] [Memory locking](https://docs.rs/dryoc/latest/dryoc/protected/index.html) (`sodium_mlock`, `sodium_munlock`, `sodium_mprotect_*`) [libsodium link](https://doc.libsodium.org/memory_management)
 * [x] [Encrypting related messages](https://docs.rs/dryoc/latest/dryoc/utils/fn.increment_bytes.html) (`sodium_increment`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/encrypted-messages)
 * [x] [Generic hashing](https://docs.rs/dryoc/latest/dryoc/generichash/index.html) (`crypto_generichash_*`) [libsodium link](https://doc.libsodium.org/hashing/generic_hashing)
@@ -127,7 +128,7 @@ The following libsodium features are either incomplete, not exposed as public
 APIs, or not implemented; you may find equivalent functionality in other
 crates:
 
-* [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) beyond XChaCha20-Poly1305-IETF, including AEGIS-128L/256, AES256-GCM, and ChaCha20-Poly1305
+* [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) beyond the ChaCha20-Poly1305-IETF variants, including AEGIS-128L/256, AES256-GCM, and the legacy 64-bit-nonce ChaCha20-Poly1305 construction
 * [ ] XChaCha20-Poly1305 box and secretbox variants (`crypto_box_curve25519xchacha20poly1305_*`, `crypto_secretbox_xchacha20poly1305_*`)
 * [ ] Extendable-output functions (`crypto_xof_shake*`, `crypto_xof_turboshake*`), added in libsodium 1.0.21
 * [ ] [Key encapsulation](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE) (`crypto_kem_*`, `crypto_kem_mlkem768_*`, `crypto_kem_xwing_*`), added in libsodium 1.0.22
@@ -156,9 +157,9 @@ require custom memory allocation, system calls, and pointer arithmetic, which
 are unsafe in Rust. Some optional SIMD code, including dependency-provided SIMD
 implementations and small internal helpers, may contain unsafe code. The
 in-crate unsafe inventory includes fixed-size
-byte views, optional wincode schema impls for Rustaceous boxes and AEAD
-envelopes, BLAKE2b parameter byte views, protected memory guarded heap buffers
-and OS protection calls, and Salsa20 SIMD unaligned in-place and
+byte views, optional wincode schema impls for Rustaceous boxes and both AEAD
+envelope nonce sizes, BLAKE2b parameter byte views, protected memory guarded
+heap buffers and OS protection calls, and Salsa20 SIMD unaligned in-place and
 buffer-to-buffer XOR.
 See the [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 for the full non-test unsafe inventory in this crate.
