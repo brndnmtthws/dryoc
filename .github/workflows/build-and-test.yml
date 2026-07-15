@@ -17,6 +17,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  semver:
+    name: semver compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup stable Rust toolchain with caching
+        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        with:
+          toolchain: stable
+          cargo-packages: --locked cargo-semver-checks
+      - run: cargo semver-checks --verbose
+
   audit:
     name: dependency audit
     runs-on: ubuntu-latest
