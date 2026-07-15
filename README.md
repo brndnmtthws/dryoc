@@ -30,6 +30,7 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Limited use of unsafe code[^2]
 * Typed Rustaceous APIs for keys, nonces, and outputs
 * Classic and Rustaceous APIs for many libsodium operations
+* WebAssembly support via the `wasm32-unknown-unknown` target
 * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
   equivalents) on stable Rust for Unix and Windows targets, enabled by default
   with the `protected` feature
