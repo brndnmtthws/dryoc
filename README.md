@@ -44,7 +44,7 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
   * Poly1305 (used by one-time authentication and secret boxes), except on
     AArch64 where dryoc keeps the soft backend because the portable-SIMD path
     is slower there
-* [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend at build time
+* [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend
 * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used for SHA-256
   and SHA-512 hashing and seeded box key generation) includes an AVX2 backend
 * [SHA3](https://github.com/RustCrypto/hashes/tree/master/sha3) (used by SHA-3 compatibility hashing)
@@ -55,15 +55,9 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
 by `rust-version` in `Cargo.toml`.
 
-The `simd_backend` and `nightly` features enable dryoc's portable SIMD
-backends. CPU-specific dependency backends and local benchmarking may also
-benefit from target-specific `RUSTFLAGS`:
-* For AVX2 set `RUSTFLAGS=-Ctarget-cpu=haswell -Ctarget-feature=+avx2`
-* For SSE2 set `RUSTFLAGS=-Ctarget-feature=+sse2`
-* For NEON set `RUSTFLAGS=-Ctarget-feature=+neon`
-* For local Apple Silicon benchmarks, use `RUSTFLAGS=-Ctarget-cpu=native`.
-  NEON is part of the AArch64 macOS baseline target, so adding
-  `-Ctarget-feature=+neon` is not expected to change native results.
+Enable both `simd_backend` and `nightly` to use dryoc's portable SIMD backends.
+No target-specific `RUSTFLAGS` are required; CPU-specific dependencies select
+supported implementations independently.
 
 The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 `simd_backend` feature.
