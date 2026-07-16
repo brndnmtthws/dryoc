@@ -46,8 +46,9 @@
 //!   (used by streaming interface) includes SIMD implementations for NEON,
 //!   AVX2, and SSE2
 //!
-//! Enable both `simd_backend` and `nightly` to use dryoc's portable SIMD
-//! backends.
+//! Dryoc's portable SIMD backends require a nightly Rust toolchain and
+//! `--features simd_backend,nightly`. `simd_backend` selects the SIMD code;
+//! `nightly` enables Rust's unstable `portable_simd` API.
 //!
 //! The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 //! `simd_backend` feature.

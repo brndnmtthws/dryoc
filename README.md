@@ -55,7 +55,9 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
 by `rust-version` in `Cargo.toml`.
 
-Enable both `simd_backend` and `nightly` to use dryoc's portable SIMD backends.
+Dryoc's portable SIMD backends require a nightly Rust toolchain and
+`--features simd_backend,nightly`. `simd_backend` selects the SIMD code;
+`nightly` enables Rust's unstable `portable_simd` API.
 
 The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 `simd_backend` feature.
