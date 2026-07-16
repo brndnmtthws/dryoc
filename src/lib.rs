@@ -47,8 +47,7 @@
 //!   AVX2, and SSE2
 //!
 //! Enable both `simd_backend` and `nightly` to use dryoc's portable SIMD
-//! backends. No target-specific `RUSTFLAGS` are required; CPU-specific
-//! dependencies select supported implementations independently.
+//! backends.
 //!
 //! The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 //! `simd_backend` feature.

@@ -56,8 +56,6 @@ dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
 by `rust-version` in `Cargo.toml`.
 
 Enable both `simd_backend` and `nightly` to use dryoc's portable SIMD backends.
-No target-specific `RUSTFLAGS` are required; CPU-specific dependencies select
-supported implementations independently.
 
 The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
 `simd_backend` feature.
