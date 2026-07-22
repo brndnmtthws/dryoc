@@ -23,7 +23,9 @@ jobs:
       - uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
         with:
           toolchain: stable
-          cargo-packages: ""
+          cargo-packages: --locked cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Verify tag matches crate version
         shell: bash
         run: |
@@ -32,10 +34,10 @@ jobs:
             echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${CRATE_VERSION}" >&2
             exit 1
           fi
-      - run: cargo test --all-targets
-      - run: cargo test --all-targets --no-default-features
-      - run: cargo test --all-targets --no-default-features --features serde,base64,wincode
-      - run: cargo test --all-targets --no-default-features --features serde,protected
+      - run: cargo nextest run --all-targets
+      - run: cargo nextest run --all-targets --no-default-features
+      - run: cargo nextest run --all-targets --no-default-features --features serde,base64,wincode
+      - run: cargo nextest run --all-targets --no-default-features --features serde,protected
       - run: cargo test --doc
       - run: cargo doc --no-default-features --no-deps
         env:
@@ -43,7 +45,7 @@ jobs:
       - run: cargo clippy --all-targets --features serde,base64,wincode -- -D warnings
       - name: Install nightly validation toolchain
         run: rustup toolchain install nightly --profile minimal --component clippy
-      - run: cargo +nightly test --all-targets --all-features
+      - run: cargo +nightly nextest run --all-targets --all-features
       - run: cargo +nightly test --doc --all-features
       - run: cargo +nightly clippy --all-targets --all-features -- -D warnings
       - run: cargo package
