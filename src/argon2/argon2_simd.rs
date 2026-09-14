@@ -1,16 +1,20 @@
 use std::simd::{Simd, simd_swizzle};
 
-use super::{Block, finalize_block, prepare_block};
+use super::{Block, finish_in_place, prepare_in_place};
 
+/// Overwrites `dst` with `P(R) ^ R [^ old dst]` for `R = prev_block ^
+/// ref_block`; see [`super::fill_block`].
 #[inline]
 pub(super) fn fill_block(
+    dst: &mut Block,
     prev_block: &Block,
     ref_block: &Block,
-    next_block: Option<&Block>,
-) -> Block {
-    let (mut block_r, block_tmp) = prepare_block(prev_block, ref_block, next_block);
-    apply_block_rounds!(&mut block_r, blake2_round_nomsg_simd);
-    finalize_block(block_tmp, &block_r)
+    xor_old: bool,
+    scratch: &mut Block,
+) {
+    prepare_in_place(dst, prev_block, ref_block, xor_old, scratch);
+    apply_block_rounds!(dst, blake2_round_nomsg_simd);
+    finish_in_place(dst, prev_block, ref_block, xor_old, scratch);
 }
 
 #[inline(always)]

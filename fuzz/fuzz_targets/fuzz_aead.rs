@@ -12,16 +12,12 @@ use dryoc::constants::{
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
 };
 use dryoc::dryocaead::{Key, Nonce, VecBox, VecEnvelope};
-use dryoc::types::{ByteArray, Bytes};
+use dryoc::types::ByteArray;
 use libfuzzer_sys::fuzz_target;
 
-fn fill<const N: usize>(data: &mut &[u8]) -> [u8; N] {
-    let mut out = [0u8; N];
-    let n = out.len().min(data.len());
-    out[..n].copy_from_slice(&data[..n]);
-    *data = &data[n..];
-    out
-}
+#[path = "common.rs"]
+mod common;
+use common::fill;
 
 fn take_len_prefixed(data: &mut &[u8]) -> Vec<u8> {
     let len = match data.split_first() {

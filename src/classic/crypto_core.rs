@@ -1,4 +1,3 @@
-use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use subtle::ConstantTimeEq;
 
 use crate::constants::{
@@ -7,6 +6,7 @@ use crate::constants::{
     CRYPTO_CORE_HSALSA20_KEYBYTES, CRYPTO_CORE_HSALSA20_OUTPUTBYTES, CRYPTO_SCALARMULT_BYTES,
     CRYPTO_SCALARMULT_SCALARBYTES,
 };
+use crate::edwards25519::Point;
 use crate::error::Error;
 use crate::scalarmult_curve25519::{
     crypto_scalarmult_curve25519, crypto_scalarmult_curve25519_base,
@@ -62,20 +62,6 @@ pub fn crypto_scalarmult(
     }
 }
 
-#[inline]
-fn chacha20_round(x: &mut u32, y: &u32, z: &mut u32, rot: u32) {
-    *x = x.wrapping_add(*y);
-    *z = (*z ^ *x).rotate_left(rot);
-}
-
-#[inline]
-fn chacha20_quarterround(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
-    chacha20_round(a, b, d, 16);
-    chacha20_round(c, d, b, 12);
-    chacha20_round(a, b, d, 8);
-    chacha20_round(c, d, b, 7);
-}
-
 /// Implements the HChaCha20 function.
 ///
 /// Compatible with libsodium's `crypto_core_hchacha20`.
@@ -87,55 +73,25 @@ pub fn crypto_core_hchacha20(
 ) {
     let input = input.as_array();
     let key = key.as_array();
-    let (mut x0, mut x1, mut x2, mut x3) =
-        constants.unwrap_or((0x61707865, 0x3320646e, 0x79622d32, 0x6b206574));
-    let (
-        mut x4,
-        mut x5,
-        mut x6,
-        mut x7,
-        mut x8,
-        mut x9,
-        mut x10,
-        mut x11,
-        mut x12,
-        mut x13,
-        mut x14,
-        mut x15,
-    ) = (
-        load_u32_le(&key[0..4]),
-        load_u32_le(&key[4..8]),
-        load_u32_le(&key[8..12]),
-        load_u32_le(&key[12..16]),
-        load_u32_le(&key[16..20]),
-        load_u32_le(&key[20..24]),
-        load_u32_le(&key[24..28]),
-        load_u32_le(&key[28..32]),
-        load_u32_le(&input[0..4]),
-        load_u32_le(&input[4..8]),
-        load_u32_le(&input[8..12]),
-        load_u32_le(&input[12..16]),
-    );
-
-    for _ in 0..10 {
-        chacha20_quarterround(&mut x0, &mut x4, &mut x8, &mut x12);
-        chacha20_quarterround(&mut x1, &mut x5, &mut x9, &mut x13);
-        chacha20_quarterround(&mut x2, &mut x6, &mut x10, &mut x14);
-        chacha20_quarterround(&mut x3, &mut x7, &mut x11, &mut x15);
-        chacha20_quarterround(&mut x0, &mut x5, &mut x10, &mut x15);
-        chacha20_quarterround(&mut x1, &mut x6, &mut x11, &mut x12);
-        chacha20_quarterround(&mut x2, &mut x7, &mut x8, &mut x13);
-        chacha20_quarterround(&mut x3, &mut x4, &mut x9, &mut x14);
+    let (c0, c1, c2, c3) = constants.unwrap_or((0x61707865, 0x3320646e, 0x79622d32, 0x6b206574));
+    let mut x = [c0, c1, c2, c3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (word, bytes) in x[4..12].iter_mut().zip(key.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*bytes);
+    }
+    for (word, bytes) in x[12..].iter_mut().zip(input.as_chunks::<4>().0) {
+        *word = u32::from_le_bytes(*bytes);
     }
 
-    output[0..4].copy_from_slice(&x0.to_le_bytes());
-    output[4..8].copy_from_slice(&x1.to_le_bytes());
-    output[8..12].copy_from_slice(&x2.to_le_bytes());
-    output[12..16].copy_from_slice(&x3.to_le_bytes());
-    output[16..20].copy_from_slice(&x12.to_le_bytes());
-    output[20..24].copy_from_slice(&x13.to_le_bytes());
-    output[24..28].copy_from_slice(&x14.to_le_bytes());
-    output[28..32].copy_from_slice(&x15.to_le_bytes());
+    crate::chacha20::rounds(&mut x);
+
+    for (chunk, word) in output
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip([x[0], x[1], x[2], x[3], x[12], x[13], x[14], x[15]])
+    {
+        *chunk = word.to_le_bytes();
+    }
 }
 
 /// Checks whether `p` is a valid prime-order Ed25519 point.
@@ -161,27 +117,60 @@ pub fn crypto_core_hchacha20(
 /// later. Libsodium versions through 1.0.20 incorrectly accepted some
 /// mixed-order points; this function rejects them.
 pub fn crypto_core_ed25519_is_valid_point(p: &Ed25519Point) -> bool {
-    let Some(point) = decompress_canonical_ed25519_point(p) else {
-        return false;
-    };
+    decompress_prime_order_ed25519_point(p).is_some()
+}
 
-    !point.is_small_order() && point.is_torsion_free()
+/// Decompresses `p` only if it is a canonical encoding of a point in the
+/// prime-order subgroup: not small order and torsion free.
+pub(crate) fn decompress_prime_order_ed25519_point(p: &Ed25519Point) -> Option<Point> {
+    decompress_canonical_ed25519_point(p)
+        .filter(|point| !point.is_small_order() && ed25519_is_torsion_free(point))
+}
+
+/// Whether `point` lies in the prime-order subgroup, i.e. `[L]P` is the
+/// identity for the basepoint order `L`.
+///
+/// The multiplication runs in variable time with respect to the scalar: `L`
+/// is a public constant and the points checked here are public keys and
+/// encodings, so nothing secret is involved, and the NAF form of `L` needs a
+/// third fewer point additions than a constant-time fixed-window
+/// multiplication.
+pub(crate) fn ed25519_is_torsion_free(point: &Point) -> bool {
+    point.is_torsion_free_vartime()
 }
 
 /// Decompresses an Ed25519 point only if its encoding is canonical.
 ///
-/// `curve25519-dalek` intentionally reduces the encoded y-coordinate modulo the
-/// field prime while decompressing. Recompressing and comparing prevents
-/// alternate encodings of the same point from being accepted.
-pub(crate) fn decompress_canonical_ed25519_point(p: &Ed25519Point) -> Option<EdwardsPoint> {
-    let compressed = CompressedEdwardsY(*p);
-    let point = compressed.decompress()?;
-
-    if point.compress() == compressed {
-        Some(point)
-    } else {
-        None
+/// Decompression reduces the encoded y-coordinate modulo the field prime, and
+/// any sign bit decodes when `x == 0`. Checking the encoding first rejects
+/// alternate encodings of the same point without recompressing the result,
+/// which would cost a field inversion.
+pub(crate) fn decompress_canonical_ed25519_point(p: &Ed25519Point) -> Option<Point> {
+    if !is_canonical_ed25519_encoding(p) {
+        return None;
     }
+    Point::decompress(p)
+}
+
+/// Whether `p` is the unique encoding of the point it decodes to (if any):
+/// its y-coordinate is below the field prime `2^255 - 19`, and its sign bit
+/// is clear when `y` is `1` or `-1`, the only y-coordinates with `x == 0`.
+///
+/// This is the byte-level equivalent of decompressing and recompressing the
+/// point, which is how a non-canonical encoding would otherwise be detected.
+fn is_canonical_ed25519_encoding(p: &Ed25519Point) -> bool {
+    let sign = p[31] >> 7;
+    let y_top = p[31] & 0x7f;
+    let y_middle_all_ones = p[1..31].iter().all(|&b| b == 0xff);
+    let y_middle_all_zero = p[1..31].iter().all(|&b| b == 0);
+
+    // y >= p: bits 8..255 all set (p = 2^255 - 19 has them set) and the low
+    // byte at least 0xed.
+    let y_at_least_p = y_top == 0x7f && y_middle_all_ones && p[0] >= 0xed;
+    let y_is_one = y_top == 0 && y_middle_all_zero && p[0] == 1;
+    let y_is_minus_one = y_top == 0x7f && y_middle_all_ones && p[0] == 0xec;
+
+    !y_at_least_p && !(sign == 1 && (y_is_one || y_is_minus_one))
 }
 
 #[inline]
@@ -275,6 +264,8 @@ pub fn crypto_core_hsalsa20(
 
 #[cfg(test)]
 mod tests {
+    use curve25519_dalek::edwards::CompressedEdwardsY;
+
     use super::*;
     use crate::classic::crypto_sign::crypto_sign_keypair;
 
@@ -338,6 +329,74 @@ mod tests {
         }
     }
 
+    /// The variable-time subgroup check must agree with dalek's constant-time
+    /// one on prime-order, small-order and mixed-order points.
+    #[test]
+    fn test_torsion_check_matches_dalek() {
+        let mut points = vec![curve25519_dalek::constants::ED25519_BASEPOINT_POINT];
+        for _ in 0..32 {
+            let (pk, _) = crypto_sign_keypair();
+            points.push(CompressedEdwardsY(pk).decompress().unwrap());
+        }
+        let prime_order = points.clone();
+        for torsion in curve25519_dalek::constants::EIGHT_TORSION {
+            points.push(torsion);
+            for point in &prime_order {
+                points.push(point + torsion);
+            }
+        }
+        for point in points {
+            let ours = Point::decompress(&point.compress().to_bytes()).unwrap();
+            assert_eq!(ed25519_is_torsion_free(&ours), point.is_torsion_free());
+        }
+    }
+
+    /// The byte-level canonical check must accept exactly the encodings that
+    /// survive a decompress/recompress round trip.
+    #[test]
+    fn test_canonical_encoding_check_matches_recompression() {
+        let round_trip = |p: &Ed25519Point| {
+            let compressed = CompressedEdwardsY(*p);
+            compressed
+                .decompress()
+                .is_some_and(|point| point.compress() == compressed)
+        };
+        let mut cases = Vec::new();
+        // Every y in p - 2 ..= 2^255 - 1 (canonical, then the 19 non-canonical
+        // encodings of 0..18), and small y, each with both sign bits.
+        for low in 0xebu8..=0xff {
+            let mut point = [0xff; CRYPTO_CORE_ED25519_BYTES];
+            point[0] = low;
+            point[31] = 0x7f;
+            cases.push(point);
+        }
+        for low in 0u8..=20 {
+            let mut point = [0; CRYPTO_CORE_ED25519_BYTES];
+            point[0] = low;
+            cases.push(point);
+        }
+        cases.push(curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes());
+        for torsion in curve25519_dalek::constants::EIGHT_TORSION {
+            cases.push(torsion.compress().to_bytes());
+        }
+        for _ in 0..64 {
+            cases.push(crypto_sign_keypair().0);
+            let mut random = [0u8; CRYPTO_CORE_ED25519_BYTES];
+            crate::rng::copy_randombytes(&mut random);
+            cases.push(random);
+        }
+        for mut point in cases {
+            for sign in [0u8, 0x80] {
+                point[31] = (point[31] & 0x7f) | sign;
+                assert_eq!(
+                    decompress_canonical_ed25519_point(&point).is_some(),
+                    round_trip(&point),
+                    "{point:02x?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_crypto_core_ed25519_rejects_legacy_libsodium_mixed_order_points() {
         let mut y_is_nine = [0u8; CRYPTO_CORE_ED25519_BYTES];
@@ -352,7 +411,7 @@ mod tests {
             let decoded = decompress_canonical_ed25519_point(&point)
                 .expect("regression vector must be a canonical curve point");
             assert!(!decoded.is_small_order());
-            assert!(!decoded.is_torsion_free());
+            assert!(!ed25519_is_torsion_free(&decoded));
             assert!(!crypto_core_ed25519_is_valid_point(&point));
         }
     }

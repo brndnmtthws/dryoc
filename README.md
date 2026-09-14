@@ -39,16 +39,61 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * [wincode](https://crates.io/crates/wincode) support for direct binary serialization of Rustaceous box types (with `features = ["wincode"]`)
 * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html) implementations on nightly, with `features = ["simd_backend", "nightly"]`:
   * Blake2b (used by generic hashing, password hashing, and key derivation)
-  * Argon2 block mixing (used by password hashing)
-  * Salsa20 (used by XSalsa20-Poly1305 secretbox)
+  * Argon2 block mixing (used by password hashing), except on x86-64 where
+    the runtime-detected AVX2/AVX-512 backend below is used instead
+  * Salsa20 (used by XSalsa20-Poly1305 secretbox), except on little-endian
+    AArch64 and on x86-64 where the runtime-detected backends below are used
+    instead
   * Poly1305 (used by one-time authentication and secret boxes), except on
-    AArch64 where dryoc keeps the soft backend because the portable-SIMD path
-    is slower there
-* [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek) (used by public/private key functions) selects its own serial or x86_64 vector backend
-* [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) (used for SHA-256
-  and SHA-512 hashing and seeded box key generation) includes an AVX2 backend
+    AArch64 and x86-64 where dryoc keeps the soft backend with its
+    runtime-detected bulk path because the portable-SIMD path is slower
+* Runtime-detected AArch64 backends on stable Rust, always built in on that
+  architecture: NEON and SVE2 keystream kernels for Salsa20 and ChaCha20, a
+  NEON Poly1305, `sha2`/`sha3` instruction SHA-256 and SHA-512 compression,
+  and a NEON Ed25519 basepoint table lookup
+* AArch64 `asm!` on stable Rust, built in on that architecture: the
+  Curve25519 field multiply and square, register-scheduled scalar ChaCha20
+  rounds, and (little-endian, default BLAKE2b backend) register-scheduled
+  BLAKE2b rounds
+* Runtime-detected x86-64 backends on stable Rust, always built in on that
+  architecture: AVX2 and AVX-512 keystream kernels for Salsa20 and ChaCha20,
+  AVX2, AVX-512 and AVX-512 IFMA Poly1305 bulk paths, AVX2 and AVX-512
+  Argon2 block compression, and AVX2 and AVX-512VL BLAKE2b compression;
+  CPUs without AVX2 use the portable code
+* Curve25519 and Ed25519 group arithmetic implemented in-crate;
+  [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
+  supplies the scalar arithmetic modulo the group order
+* [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) provides the
+  portable SHA-256 and SHA-512 compression functions used where no hardware
+  path is detected
 * [SHA3](https://github.com/RustCrypto/hashes/tree/master/sha3) (used by SHA-3 compatibility hashing)
-* [ChaCha20](https://github.com/RustCrypto/stream-ciphers/tree/master/chacha20) (used by streaming interface) includes SIMD implementations for NEON, AVX2, and SSE2
+
+## Performance
+
+dryoc is faster than libsodium 1.0.18 on the hot paths it has optimized, on
+both x86-64 and AArch64. Relative speed measured against libsodium in the
+same process on the same buffers, single thread, `-Ctarget-cpu=native`:
+
+| Workload | Intel Xeon 6975P-C (AVX-512) | Arm Neoverse V3 (NEON/SVE2) |
+| --- | ---: | ---: |
+| Poly1305, 1 MiB | `5.85x faster` | `3.28x faster` |
+| Poly1305, 16 KiB | `5.59x faster` | `3.14x faster` |
+| XSalsa20-Poly1305 secretbox, 1 MiB | `3.07x faster` | `2.84x faster` |
+| XSalsa20-Poly1305 secretbox, 1 KiB | `3.16x faster` | `2.04x faster` |
+| BLAKE2b, 694,200 B | `1.19x faster` | `1.43x faster` |
+
+![dryoc speedup over libsodium by workload](benchmarks/speedup.svg)
+
+The Poly1305 and Salsa20 kernels behind these rows are selected at runtime by
+CPU feature detection, and the BLAKE2b path is a runtime-detected kernel on
+x86-64 and `asm!` rounds on AArch64, so none of them require target flags to
+be used; the rows above change by 6% or less without
+`-Ctarget-cpu=native`. Argon2id's margin is smaller and build-dependent: on
+the Xeon `1.10x`–`1.17x` faster with `-Ctarget-cpu=native` and `1.06x`
+slower to `1.11x` faster without; on the Neoverse V3 `1.11x`–`1.19x` with and `1.51x`–`1.55x`
+without. See [BENCHMARKS.md](BENCHMARKS.md) for the full tables, the
+no-flags and portable-SIMD builds, the environment, and the rows where
+libsodium is closer or ahead.
 
 ## Rust version
 
@@ -59,15 +104,21 @@ Dryoc's portable SIMD backends require a nightly Rust toolchain and
 `--features simd_backend,nightly`. `simd_backend` selects the SIMD code;
 `nightly` enables Rust's unstable `portable_simd` API.
 
-The Curve25519 backend is selected by `curve25519-dalek`, not by dryoc's
+The Curve25519 and Ed25519 group arithmetic is dryoc's own (a radix-2^51
+field with register-only AArch64 `asm!` products, an X25519 ladder and an
+edwards25519 point implementation); `curve25519-dalek` supplies the scalar
+arithmetic modulo the group order. None of it is affected by dryoc's
 `simd_backend` feature.
 
-Poly1305 is a special exception on AArch64: even with `simd_backend` and
-`nightly` enabled, dryoc uses the soft Poly1305 backend because profiling shows
-the portable-SIMD implementation is slower on that architecture.
-
-See [BENCHMARKS.md](BENCHMARKS.md) for side-by-side software and SIMD benchmark
-results.
+Poly1305, Salsa20 and (on x86-64) Argon2 are special exceptions. Even with
+`simd_backend` and `nightly` enabled, dryoc keeps the soft Poly1305 backend
+with its runtime-detected bulk path on AArch64 and x86-64 because profiling
+shows the portable-SIMD implementation is slower; on AArch64 it uses the
+runtime-detected NEON Salsa20 kernels, which run about 2.5x faster than the
+portable-SIMD lane set on Neoverse cores, and on x86-64 it uses its
+runtime-detected AVX2/AVX-512 Salsa20 and Argon2 kernels. The default (soft)
+BLAKE2b backend likewise compresses through a runtime-detected AVX2 or
+AVX-512VL kernel on x86-64.
 
 ## Optional serialization
 
@@ -151,10 +202,21 @@ Unsupported targets do not expose the protected-memory API. These features
 require custom memory allocation, system calls, and pointer arithmetic, which
 are unsafe in Rust. Some optional SIMD code, including dependency-provided SIMD
 implementations and small internal helpers, may contain unsafe code. The
-in-crate unsafe inventory includes fixed-size
-byte views, optional wincode schema impls for Rustaceous boxes and both AEAD
-envelope nonce sizes, BLAKE2b parameter byte views, protected memory guarded
-heap buffers and OS protection calls, and Salsa20 SIMD unaligned in-place and
-buffer-to-buffer XOR.
+in-crate unsafe inventory includes fixed-size byte views, optional wincode
+schema impls for Rustaceous boxes and both AEAD envelope nonce sizes, BLAKE2b
+parameter byte views, protected memory guarded heap buffers and OS protection
+calls, 16-byte volatile zeroization of secret buffers, the x86-64 backends
+(runtime-detected AVX2, AVX-512 and AVX-512 IFMA entry points for ChaCha20,
+XSalsa20, Poly1305, the Argon2 block compression and the BLAKE2b compression,
+`asm!` scalar ChaCha20 and Salsa20 double rounds that run beside the AVX-512
+lane sets, an AVX-512
+Ed25519 basepoint table lookup, and BMI2-compiled copies of the Curve25519
+scalar multiplication, inversion and square-root loops), and the AArch64
+backends: runtime-detected NEON entry points for Poly1305, XSalsa20, ChaCha20,
+and the Ed25519 basepoint table lookup, register-only SVE2 `asm!` blocks for
+the ChaCha20 and XSalsa20 rounds, scalar `asm!` blocks for the ChaCha20 and
+BLAKE2b rounds and the Curve25519 field products, and runtime-detected
+`sha2`/`sha3` instruction `asm!` loops for the SHA-256 and SHA-512
+compression functions.
 See the [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 for the full non-test unsafe inventory in this crate.

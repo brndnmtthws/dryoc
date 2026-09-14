@@ -57,7 +57,6 @@ use super::crypto_sign_ed25519::*;
 pub use super::crypto_sign_ed25519::{
     PublicKey, SecretKey, crypto_sign_ed25519_sk_to_pk, crypto_sign_ed25519_sk_to_seed,
 };
-use crate::constants::CRYPTO_SIGN_BYTES;
 use crate::error::Error;
 
 /// In-place variant of [`crypto_sign_keypair`].
@@ -88,7 +87,7 @@ pub fn crypto_sign_seed_keypair(seed: &[u8; 32]) -> (PublicKey, SecretKey) {
 
 /// Signs `message`, placing the result into `signed_message`. The length of
 /// `signed_message` should be the length of the message plus
-/// [`CRYPTO_SIGN_BYTES`].
+/// [`CRYPTO_SIGN_BYTES`](crate::constants::CRYPTO_SIGN_BYTES).
 ///
 /// This function is compatible with libsodium's `crypto_sign`; the
 /// `ED25519_NONDETERMINISTIC` feature is not supported.
@@ -102,20 +101,12 @@ pub fn crypto_sign(
     message: &[u8],
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if signed_message.len() != message.len() + CRYPTO_SIGN_BYTES {
-        Err(length_error!(
-            crate::ErrorContext::SignedMessage,
-            signed_message.len(),
-            exact message.len() + CRYPTO_SIGN_BYTES
-        ))
-    } else {
-        crypto_sign_ed25519(signed_message, message, secret_key)
-    }
+    crypto_sign_ed25519(signed_message, message, secret_key)
 }
 
 /// Verifies the signature of `signed_message`, placing the result into
 /// `message`. The length of `message` should be the length of the signed
-/// message minus [`CRYPTO_SIGN_BYTES`].
+/// message minus [`CRYPTO_SIGN_BYTES`](crate::constants::CRYPTO_SIGN_BYTES).
 ///
 /// This function is compatible with libsodium's `crypto_sign_open`; the
 /// `ED25519_NONDETERMINISTIC` feature is not supported.
@@ -129,19 +120,7 @@ pub fn crypto_sign_open(
     signed_message: &[u8],
     public_key: &PublicKey,
 ) -> Result<(), Error> {
-    if signed_message.len() < CRYPTO_SIGN_BYTES {
-        Err(
-            length_error!(crate::ErrorContext::SignedMessage, signed_message.len(), min CRYPTO_SIGN_BYTES),
-        )
-    } else if message.len() != signed_message.len() - CRYPTO_SIGN_BYTES {
-        Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            exact signed_message.len() - CRYPTO_SIGN_BYTES
-        ))
-    } else {
-        crypto_sign_ed25519_open(message, signed_message, public_key)
-    }
+    crypto_sign_ed25519_open(message, signed_message, public_key)
 }
 
 /// Signs `message`, placing the signature into `signature` upon success.
@@ -232,7 +211,7 @@ pub fn crypto_sign_final_verify(
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
-    use crate::constants::CRYPTO_SIGN_PUBLICKEYBYTES;
+    use crate::constants::{CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES};
 
     #[test]
     fn combined_signing_rejects_invalid_buffer_lengths() {
@@ -285,6 +264,34 @@ mod tests {
         tampered_signature[CRYPTO_SIGN_BYTES - 1] ^= 1;
         assert!(matches!(
             crypto_sign_verify_detached(&tampered_signature, message, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        // The top byte of S is rejected by the scalar decoding before any
+        // curve arithmetic; a low bit of S (still below the group order) is a
+        // forgery that only the double-scalar multiplication can catch.
+        let mut tampered_s_low = signature;
+        tampered_s_low[32] ^= 1;
+        assert!(matches!(
+            crypto_sign_verify_detached(&tampered_s_low, message, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        // A flipped bit in R (still a valid curve point or not) and a changed
+        // message must both fail, not just a changed S.
+        for byte in [0, 15, 31] {
+            let mut tampered_r = signature;
+            tampered_r[byte] ^= 0x10;
+            assert!(matches!(
+                crypto_sign_verify_detached(&tampered_r, message, &public_key),
+                Err(Error::AuthenticationFailed)
+            ));
+        }
+        assert!(matches!(
+            crypto_sign_verify_detached(&signature, b"important massage", &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        let (other_public_key, _) = crypto_sign_keypair();
+        assert!(matches!(
+            crypto_sign_verify_detached(&signature, message, &other_public_key),
             Err(Error::AuthenticationFailed)
         ));
 

@@ -1,144 +1,172 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use super::{
+    BLOCKBYTES, HALFOUTBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES,
+    blake2b_longhash, increment_counter,
+};
 use crate::error::Error;
-use crate::utils::{load_u64_le, rotr64};
+use crate::utils::{load_u64_le, zeroize_bytes};
 
-const BLOCKBYTES: usize = 128;
-const OUTBYTES: usize = 64;
-const HALFOUTBYTES: usize = OUTBYTES / 2;
-const KEYBYTES: usize = 64;
-const SALTBYTES: usize = 16;
-const PERSONALBYTES: usize = 16;
-
-#[repr(C, packed)]
-#[allow(dead_code)]
-struct Params {
-    digest_length: u8,
-    key_length: u8,
-    fanout: u8,
-    depth: u8,
-    leaf_length: [u8; 4],
-    node_offset: [u8; 8],
-    node_depth: u8,
-    inner_length: u8,
-    reserved: [u8; 14],
-    salt: [u8; SALTBYTES],
-    personal: [u8; PERSONALBYTES],
-}
-
-impl Default for Params {
-    fn default() -> Self {
-        Self {
-            digest_length: 0,
-            key_length: 0,
-            fanout: 1,
-            depth: 1,
-            leaf_length: [0u8; 4],
-            node_offset: [0u8; 8],
-            node_depth: 0,
-            inner_length: 0,
-            reserved: [0u8; 14],
-            salt: [0u8; SALTBYTES],
-            personal: [0u8; PERSONALBYTES],
-        }
-    }
-}
-
-#[derive(Zeroize, ZeroizeOnDrop, Debug, Default)]
+#[derive(Debug)]
 pub struct State {
     h: [u64; 8],
     t: [u64; 2],
     f: [u64; 2],
     last_node: u8,
-    buf: Vec<u8>,
+    buf: [u8; BLOCKBYTES],
+    buflen: usize,
 }
 
-const SIGMA: [[usize; 16]; 12] = [
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
-    [11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4],
-    [7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8],
-    [9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13],
-    [2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9],
-    [12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11],
-    [13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10],
-    [6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5],
-    [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0],
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
-];
-
-const IV: [u64; 8] = [
-    0x6a09e667f3bcc908,
-    0xbb67ae8584caa73b,
-    0x3c6ef372fe94f82b,
-    0xa54ff53a5f1d36f1,
-    0x510e527fade682d1,
-    0x9b05688c2b3e6c1f,
-    0x1f83d9abfb41bd6b,
-    0x5be0cd19137e2179,
-];
-
-fn compress(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8]) {
-    let mut tm = [0u64; 16];
-    let mut tv = [0u64; 16];
-
-    for i in 0..16 {
-        tm[i] = load_u64_le(&block[(i * 8)..(i * 8 + 8)]);
+impl Zeroize for State {
+    fn zeroize(&mut self) {
+        self.h.zeroize();
+        self.t.zeroize();
+        self.f.zeroize();
+        self.last_node.zeroize();
+        zeroize_bytes(&mut self.buf);
+        self.buflen.zeroize();
     }
-    tv[..8].copy_from_slice(sh);
-    tv[8] = IV[0];
-    tv[9] = IV[1];
-    tv[10] = IV[2];
-    tv[11] = IV[3];
-    tv[12] = st[0] ^ IV[4];
-    tv[13] = st[1] ^ IV[5];
-    tv[14] = sf[0] ^ IV[6];
-    tv[15] = sf[1] ^ IV[7];
+}
 
-    let mut g = |r: usize, i: usize, a: usize, b: usize, c: usize, d: usize| {
-        tv[a] = tv[a].wrapping_add(tv[b].wrapping_add(tm[(SIGMA[r] as [usize; 16])[2 * i]]));
-        tv[d] = rotr64(tv[d] ^ tv[a], 32);
-        tv[c] = tv[c].wrapping_add(tv[d]);
-        tv[b] = rotr64(tv[b] ^ tv[c], 24);
-        tv[a] = tv[a].wrapping_add(tv[b].wrapping_add(tm[(SIGMA[r] as [usize; 16])[2 * i + 1]]));
-        tv[d] = rotr64(tv[d] ^ tv[a], 16);
-        tv[c] = tv[c].wrapping_add(tv[d]);
-        tv[b] = rotr64(tv[b] ^ tv[c], 63);
+impl Drop for State {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for State {}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            h: [0u64; 8],
+            t: [0u64; 2],
+            f: [0u64; 2],
+            last_node: 0,
+            buf: [0u8; BLOCKBYTES],
+            buflen: 0,
+        }
+    }
+}
+
+/// One BLAKE2b `G` mixing step on four state words with two message words.
+#[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), test))]
+macro_rules! g {
+    ($v:ident, $a:expr, $b:expr, $c:expr, $d:expr, $x:expr, $y:expr) => {
+        $v[$a] = $v[$a].wrapping_add($v[$b]).wrapping_add($x);
+        $v[$d] = ($v[$d] ^ $v[$a]).rotate_right(32);
+        $v[$c] = $v[$c].wrapping_add($v[$d]);
+        $v[$b] = ($v[$b] ^ $v[$c]).rotate_right(24);
+        $v[$a] = $v[$a].wrapping_add($v[$b]).wrapping_add($y);
+        $v[$d] = ($v[$d] ^ $v[$a]).rotate_right(16);
+        $v[$c] = $v[$c].wrapping_add($v[$d]);
+        $v[$b] = ($v[$b] ^ $v[$c]).rotate_right(63);
     };
-    let mut round = |r| {
-        g(r, 0, 0, 4, 8, 12);
-        g(r, 1, 1, 5, 9, 13);
-        g(r, 2, 2, 6, 10, 14);
-        g(r, 3, 3, 7, 11, 15);
-        g(r, 4, 0, 5, 10, 15);
-        g(r, 5, 1, 6, 11, 12);
-        g(r, 6, 2, 7, 8, 13);
-        g(r, 7, 3, 4, 9, 14);
+}
+
+/// One full BLAKE2b round; `$s*` are the SIGMA permutation entries for the
+/// round, spelled out as literals so every index is a compile-time constant.
+#[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), test))]
+macro_rules! round {
+    (
+        $v:ident,
+        $m:ident,
+        $s0:literal,
+        $s1:literal,
+        $s2:literal,
+        $s3:literal,
+        $s4:literal,
+        $s5:literal,
+        $s6:literal,
+        $s7:literal,
+        $s8:literal,
+        $s9:literal,
+        $s10:literal,
+        $s11:literal,
+        $s12:literal,
+        $s13:literal,
+        $s14:literal,
+        $s15:literal
+    ) => {
+        g!($v, 0, 4, 8, 12, $m[$s0], $m[$s1]);
+        g!($v, 1, 5, 9, 13, $m[$s2], $m[$s3]);
+        g!($v, 2, 6, 10, 14, $m[$s4], $m[$s5]);
+        g!($v, 3, 7, 11, 15, $m[$s6], $m[$s7]);
+        g!($v, 0, 5, 10, 15, $m[$s8], $m[$s9]);
+        g!($v, 1, 6, 11, 12, $m[$s10], $m[$s11]);
+        g!($v, 2, 7, 8, 13, $m[$s12], $m[$s13]);
+        g!($v, 3, 4, 9, 14, $m[$s14], $m[$s15]);
     };
-    round(0);
-    round(1);
-    round(2);
-    round(3);
-    round(4);
-    round(5);
-    round(6);
-    round(7);
-    round(8);
-    round(9);
-    round(10);
-    round(11);
+}
+
+/// The twelve BLAKE2b rounds over the working state `v` with the message
+/// words of `block`.
+#[inline]
+fn rounds(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    super::blake2b_aarch64::rounds(v, block);
+    #[cfg(not(all(target_arch = "aarch64", target_endian = "little")))]
+    rounds_portable(v, block);
+}
+
+#[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), test))]
+fn rounds_portable(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
+    let mut m = [0u64; 16];
+    for (word, chunk) in m.iter_mut().zip(block.as_chunks::<8>().0) {
+        *word = u64::from_le_bytes(*chunk);
+    }
+    round!(v, m, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    round!(v, m, 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3);
+    round!(v, m, 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4);
+    round!(v, m, 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8);
+    round!(v, m, 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13);
+    round!(v, m, 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9);
+    round!(v, m, 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11);
+    round!(v, m, 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10);
+    round!(v, m, 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5);
+    round!(v, m, 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0);
+    round!(v, m, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    round!(v, m, 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3);
+}
+
+/// Compresses `block` into `sh`, through the runtime-detected x86-64 kernel
+/// when there is one, else the portable rounds.
+#[inline]
+fn compress(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKBYTES]) {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(kernel) = super::blake2b_x86_64::detect() {
+        kernel.compress(sh, st, sf, block);
+        return;
+    }
+    compress_portable(sh, st, sf, block);
+}
+
+#[inline]
+fn compress_portable(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKBYTES]) {
+    let mut v = [
+        sh[0],
+        sh[1],
+        sh[2],
+        sh[3],
+        sh[4],
+        sh[5],
+        sh[6],
+        sh[7],
+        IV[0],
+        IV[1],
+        IV[2],
+        IV[3],
+        st[0] ^ IV[4],
+        st[1] ^ IV[5],
+        sf[0] ^ IV[6],
+        sf[1] ^ IV[7],
+    ];
+
+    rounds(&mut v, block);
 
     for i in 0..8 {
-        sh[i] = sh[i] ^ tv[i] ^ tv[i + 8];
+        sh[i] ^= v[i] ^ v[i + 8];
     }
-}
-
-fn increment_counter(t: &mut [u64; 2], inc: usize) {
-    let mut c: u128 = ((t[1] as u128) << 64) | t[0] as u128;
-    c += inc as u128;
-    t[0] = c as u64;
-    t[1] = (c >> 64) as u64;
 }
 
 impl State {
@@ -146,15 +174,7 @@ impl State {
         let mut state = Self::default();
         state.init0();
 
-        // SAFETY: `Params` is `repr(C, packed)` and consists only of `u8`
-        // fields and byte arrays, so every byte in its object representation is
-        // initialized parameter data with alignment 1.
-        let pslice = unsafe {
-            std::slice::from_raw_parts(
-                (params as *const Params) as *const u8,
-                std::mem::size_of::<Params>(),
-            )
-        };
+        let pslice = params.as_bytes();
 
         for i in 0..8 {
             state.h[i] ^= load_u64_le(&pslice[(8 * i)..(8 * i + 8)]);
@@ -210,54 +230,44 @@ impl State {
             let mut block = [0u8; BLOCKBYTES];
             block[..key.len()].copy_from_slice(key);
             state.update(&block);
-            block.zeroize();
+            zeroize_bytes(&mut block);
         }
 
         Ok(state)
     }
 
-    pub(crate) fn update(&mut self, input: &[u8]) {
+    pub(crate) fn update(&mut self, mut input: &[u8]) {
         if input.is_empty() {
-            // return early if the input is empty
             return;
         }
-        if input.len() + self.buf.len() <= BLOCKBYTES {
-            // do nothing, not enough data to make a block, just append input to buf
-            self.buf.extend_from_slice(input);
-        } else {
-            let start = if !self.buf.is_empty() && self.buf.len() < BLOCKBYTES {
-                let start = BLOCKBYTES - self.buf.len();
-                self.buf.extend_from_slice(&input[..start]);
-                start
-            } else {
-                0
-            };
-            let remaining = input.len() - start;
-            let end = if remaining > BLOCKBYTES && remaining.is_multiple_of(BLOCKBYTES) {
-                input.len() - BLOCKBYTES
-            } else if remaining > BLOCKBYTES {
-                input.len() - remaining % BLOCKBYTES
-            } else {
-                start
-            };
 
-            let h = &mut self.h;
-            let t = &mut self.t;
-            let f = &mut self.f;
-
-            for chunk in self.buf.as_chunks::<BLOCKBYTES>().0 {
-                increment_counter(t, BLOCKBYTES);
-                compress(h, t, f, chunk);
+        // Fill a partially-filled buffer first. The buffer is only compressed
+        // once more input follows it, so a message that ends exactly on a
+        // block boundary keeps its final block for `finalize`.
+        if self.buflen > 0 {
+            let take = BLOCKBYTES - self.buflen;
+            if input.len() <= take {
+                self.buf[self.buflen..self.buflen + input.len()].copy_from_slice(input);
+                self.buflen += input.len();
+                return;
             }
-            for chunk in input[start..end].as_chunks::<BLOCKBYTES>().0 {
-                increment_counter(t, BLOCKBYTES);
-                compress(h, t, f, chunk);
-            }
-
-            // finally, copy whatever's leftover from the input into buf
-            self.buf.resize(input[end..].len(), 0);
-            self.buf.copy_from_slice(&input[end..]);
+            self.buf[self.buflen..].copy_from_slice(&input[..take]);
+            input = &input[take..];
+            increment_counter(&mut self.t, BLOCKBYTES);
+            compress(&mut self.h, &self.t, &self.f, &self.buf);
+            self.buflen = 0;
         }
+
+        // Compress every full block except the last one, which may be final.
+        while input.len() > BLOCKBYTES {
+            let (block, rest) = input.split_first_chunk::<BLOCKBYTES>().unwrap();
+            increment_counter(&mut self.t, BLOCKBYTES);
+            compress(&mut self.h, &self.t, &self.f, block);
+            input = rest;
+        }
+
+        self.buf[..input.len()].copy_from_slice(input);
+        self.buflen = input.len();
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
@@ -271,27 +281,10 @@ impl State {
             return Err(Error::invalid_state(crate::ErrorContext::Blake2b));
         }
 
-        if self.buf.len() > BLOCKBYTES {
-            increment_counter(&mut self.t, BLOCKBYTES);
-            compress(&mut self.h, &self.t, &self.f, &self.buf[..BLOCKBYTES]);
-
-            increment_counter(&mut self.t, self.buf.len() - BLOCKBYTES);
-            self.set_lastblock();
-
-            // fill last block with zero padding
-            self.buf.resize(2 * BLOCKBYTES, 0);
-
-            compress(&mut self.h, &self.t, &self.f, &self.buf[BLOCKBYTES..]);
-        } else {
-            increment_counter(&mut self.t, self.buf.len());
-            self.set_lastblock();
-
-            // fill last block with zero padding
-            self.buf.resize(BLOCKBYTES, 0);
-
-            compress(&mut self.h, &self.t, &self.f, &self.buf);
-        }
-        self.buf.zeroize();
+        increment_counter(&mut self.t, self.buflen);
+        self.set_lastblock();
+        self.buf[self.buflen..].fill(0);
+        compress(&mut self.h, &self.t, &self.f, &self.buf);
 
         let mut buffer = [0u8; OUTBYTES];
         buffer[0..8].copy_from_slice(&self.h[0].to_le_bytes());
@@ -303,9 +296,8 @@ impl State {
         buffer[48..56].copy_from_slice(&self.h[6].to_le_bytes());
         buffer[56..64].copy_from_slice(&self.h[7].to_le_bytes());
         output.copy_from_slice(&buffer[..output.len()]);
-
-        self.h.zeroize();
-        self.buf.zeroize();
+        zeroize_bytes(&mut buffer);
+        // `self` is dropped here, which wipes the whole state.
 
         Ok(())
     }
@@ -326,9 +318,48 @@ impl State {
     }
 }
 
+/// Hashes a message that fits one block in a single compression, without
+/// building, buffering through and wiping a `State`.
+///
+/// `h` is the parameter-block-adjusted IV, `block` the zero-padded final
+/// block and `counter` the byte count it stands for (`BLOCKBYTES` for a key
+/// block, the message length otherwise). `output` must hold `1..=OUTBYTES`.
+fn hash_single_block(
+    output: &mut [u8],
+    mut h: [u64; 8],
+    block: &mut [u8; BLOCKBYTES],
+    counter: u64,
+) {
+    debug_assert!(!output.is_empty() && output.len() <= OUTBYTES);
+    let t = [counter, 0];
+    let f = [u64::MAX, 0];
+    compress(&mut h, &t, &f, block);
+
+    let mut buffer = [0u8; OUTBYTES];
+    for (chunk, word) in buffer.as_chunks_mut::<8>().0.iter_mut().zip(h) {
+        *chunk = word.to_le_bytes();
+    }
+    output.copy_from_slice(&buffer[..output.len()]);
+    zeroize_bytes(&mut buffer);
+    zeroize_bytes(block);
+    h.zeroize();
+}
+
 pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
     if output.len() > OUTBYTES {
         return Err(length_error!(crate::ErrorContext::Blake2bOutput, output.len(), max OUTBYTES));
+    }
+
+    if key.is_none() && !output.is_empty() && input.len() <= BLOCKBYTES {
+        // Unkeyed message of at most one block. The parameter block is
+        // `digest_length | fanout << 16 | depth << 24` in the first word and
+        // zero elsewhere (no key, salt or personalization).
+        let mut h = IV;
+        h[0] ^= (output.len() as u64) | (1 << 16) | (1 << 24);
+        let mut block = [0u8; BLOCKBYTES];
+        block[..input.len()].copy_from_slice(input);
+        hash_single_block(output, h, &mut block, input.len() as u64);
+        return Ok(());
     }
 
     let mut state = State::init(output.len() as u8, key, None, None)?;
@@ -337,53 +368,39 @@ pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), E
     state.finalize(output)
 }
 
-pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
-    // long variant of blake2b, used by argon2
-    // fills output with bytes from blake2b based on input
-
-    assert!(output.len() > 4);
-    assert!(output.len() < u32::MAX as usize);
-
-    let outlen = output.len() as u32;
-    let outlen_bytes = outlen.to_le_bytes();
-
-    let mut state = State::init(
-        std::cmp::min(outlen, OUTBYTES as u32) as u8,
-        None,
-        None,
-        None,
-    )?;
-    state.update(&outlen_bytes);
-    state.update(input);
-
-    if outlen as usize <= OUTBYTES {
-        state.finalize(output)
-    } else {
-        let mut in_buffer = [0u8; OUTBYTES];
-
-        state.finalize(&mut output[..OUTBYTES])?;
-        in_buffer.copy_from_slice(&output[..OUTBYTES]);
-
-        let outlen = output.len() - HALFOUTBYTES;
-        let chunk_count = if outlen.is_multiple_of(HALFOUTBYTES) {
-            outlen / HALFOUTBYTES - 2
-        } else {
-            outlen / HALFOUTBYTES - 1
-        };
-        let end = chunk_count * HALFOUTBYTES;
-        let (start, end) = output[HALFOUTBYTES..].split_at_mut(end);
-
-        for chunk in start.as_chunks_mut::<HALFOUTBYTES>().0 {
-            let mut out_buffer = [0u8; OUTBYTES];
-
-            hash(&mut out_buffer, &in_buffer, None)?;
-
-            chunk.copy_from_slice(&out_buffer[..HALFOUTBYTES]);
-            in_buffer.copy_from_slice(&out_buffer);
-        }
-        hash(end, &in_buffer, None)
+/// Keyed BLAKE2b of the empty message with `salt` and `personal` (the
+/// `crypto_kdf` construction): the padded key block is the only block, so this
+/// is one compression.
+pub(crate) fn hash_key_only(
+    output: &mut [u8],
+    key: &[u8],
+    salt: &[u8; SALTBYTES],
+    personal: &[u8; PERSONALBYTES],
+) -> Result<(), Error> {
+    if output.is_empty() || output.len() > OUTBYTES {
+        return Err(
+            length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
+        );
     }
+    if key.is_empty() || key.len() > KEYBYTES {
+        return Err(length_error!(crate::ErrorContext::Blake2bKey, key.len(), range 1, KEYBYTES));
+    }
+    // Parameter block words: digest_length | key_length << 8 | fanout << 16 |
+    // depth << 24, then leaf_length/node_offset/node_depth/inner_length/
+    // reserved (all zero), then salt (words 4, 5) and personal (words 6, 7).
+    let mut h = IV;
+    h[0] ^= (output.len() as u64) | ((key.len() as u64) << 8) | (1 << 16) | (1 << 24);
+    h[4] ^= load_u64_le(&salt[..8]);
+    h[5] ^= load_u64_le(&salt[8..]);
+    h[6] ^= load_u64_le(&personal[..8]);
+    h[7] ^= load_u64_le(&personal[8..]);
+    let mut block = [0u8; BLOCKBYTES];
+    block[..key.len()].copy_from_slice(key);
+    hash_single_block(output, h, &mut block, BLOCKBYTES as u64);
+    Ok(())
 }
+
+blake2b_longhash!();
 
 #[cfg(test)]
 mod tests {
@@ -394,6 +411,64 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use super::*;
+
+    /// The register-scheduled AArch64 rounds agree with the portable rounds
+    /// on random states and blocks.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    #[test]
+    fn test_rounds_match_portable() {
+        let mut seed = 0x243f_6a88_85a3_08d3u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            seed
+        };
+        for _ in 0..200 {
+            let mut v = [0u64; 16];
+            for word in &mut v {
+                *word = next();
+            }
+            let mut block = [0u8; BLOCKBYTES];
+            for chunk in block.as_chunks_mut::<8>().0 {
+                *chunk = next().to_le_bytes();
+            }
+            let mut expected = v;
+            rounds_portable(&mut expected, &block);
+            rounds(&mut v, &block);
+            assert_eq!(v, expected);
+        }
+    }
+
+    /// Every supported x86-64 kernel agrees with the portable compression
+    /// on random chaining states, counters, flags and blocks.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_x86_64_compress_matches_portable() {
+        let mut seed = 0x1319_8a2e_0370_7344u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            seed
+        };
+        for kernel in super::super::blake2b_x86_64::Kernel::all() {
+            for _ in 0..200 {
+                let h: [u64; 8] = std::array::from_fn(|_| next());
+                let t = [next(), next()];
+                let f = [next(), next()];
+                let mut block = [0u8; BLOCKBYTES];
+                for chunk in block.as_chunks_mut::<8>().0 {
+                    *chunk = next().to_le_bytes();
+                }
+                let mut expected = h;
+                compress_portable(&mut expected, &t, &f, &block);
+                let mut actual = h;
+                kernel.compress(&mut actual, &t, &f, &block);
+                assert_eq!(actual, expected, "{kernel:?}");
+            }
+        }
+    }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct TestVector {
@@ -426,6 +501,62 @@ mod tests {
         }
     }
 
+    /// The one-shot `hash` (single-block fast path for unkeyed messages of at
+    /// most one block, buffered `State` otherwise) matches the official
+    /// vectors and the `State` path for every output length and every
+    /// message length around the block boundary.
+    #[test]
+    fn test_hash_one_shot_matches_state_path() {
+        for vector in TEST_VECTORS.iter().filter(|v| v.key.is_empty()) {
+            let input = hex::decode(&vector.in_).unwrap();
+            let mut output = [0u8; 64];
+            hash(&mut output, &input, None).expect("hash");
+            assert_eq!(
+                vector.out,
+                hex::encode(output),
+                "vector len {}",
+                input.len()
+            );
+        }
+        let input: Vec<u8> = (0..=255u8)
+            .map(|b| b.wrapping_mul(37).wrapping_add(11))
+            .collect();
+        for len in [0usize, 1, 63, 64, 127, 128, 129, 200, 255, 256] {
+            for outlen in [1usize, 16, 31, 32, 33, 48, 63, 64] {
+                let mut fast = vec![0u8; outlen];
+                hash(&mut fast, &input[..len], None).expect("hash");
+                let mut state = State::init(outlen as u8, None, None, None).expect("init");
+                state.update(&input[..len]);
+                let mut slow = vec![0u8; outlen];
+                state.finalize(&mut slow).expect("finalize");
+                assert_eq!(fast, slow, "len {len} outlen {outlen}");
+            }
+        }
+        // Output length errors are unchanged.
+        assert!(hash(&mut [], b"x", None).is_err());
+        assert!(hash(&mut [0u8; 65], b"x", None).is_err());
+
+        // Keyed empty-message hash with salt and personalization (the KDF
+        // construction) against the `State` path for every key length.
+        let salt: [u8; SALTBYTES] = input[..SALTBYTES].try_into().unwrap();
+        let personal: [u8; PERSONALBYTES] = input[16..32].try_into().unwrap();
+        for keylen in 1..=KEYBYTES {
+            for outlen in [1usize, 16, 32, 64] {
+                let key = &input[..keylen];
+                let mut fast = vec![0u8; outlen];
+                hash_key_only(&mut fast, key, &salt, &personal).expect("keyed");
+                let state = State::init(outlen as u8, Some(key), Some(&salt), Some(&personal))
+                    .expect("init");
+                let mut slow = vec![0u8; outlen];
+                state.finalize(&mut slow).expect("finalize");
+                assert_eq!(fast, slow, "keylen {keylen} outlen {outlen}");
+            }
+        }
+        assert!(hash_key_only(&mut [0u8; 32], &[], &salt, &personal).is_err());
+        assert!(hash_key_only(&mut [0u8; 32], &[0u8; 65], &salt, &personal).is_err());
+        assert!(hash_key_only(&mut [], &input[..32], &salt, &personal).is_err());
+    }
+
     #[test]
     fn rejects_key_lengths_that_do_not_fit_in_u8() {
         let key = [0u8; 256];
@@ -450,10 +581,11 @@ mod tests {
 
         b.iter(|| {
             let mut state = State::init(64, None, None, None).expect("init");
-            state.update(&input);
+            state.update(test::black_box(&input));
 
             let mut output = [0u8; 64];
-            state.finalize(&mut output).ok();
+            state.finalize(&mut output).expect("finalize");
+            test::black_box(&output);
         });
     }
 
@@ -613,6 +745,37 @@ mod tests {
 
                 assert_eq!(output, so_output);
             }
+        }
+
+        /// libsodium's `crypto_generichash_blake2b` on the same 694,200-byte
+        /// input as `blake2b_bench`, so the two rows are directly comparable.
+        #[cfg(feature = "nightly")]
+        #[bench]
+        fn libsodium_blake2b_bench(b: &mut test::Bencher) {
+            use crate::rng::copy_randombytes;
+
+            sodiumoxide::init().expect("sodiumoxide init");
+
+            let mut input = vec![0u8; 694200];
+            copy_randombytes(&mut input);
+            let mut output = [0u8; 64];
+
+            b.iter(|| {
+                // SAFETY: `output` and `input` are valid for the lengths passed
+                // and the key pointer is null with a zero length.
+                let rc = unsafe {
+                    libsodium_sys::crypto_generichash_blake2b(
+                        output.as_mut_ptr(),
+                        output.len(),
+                        test::black_box(input.as_ptr()),
+                        input.len() as u64,
+                        std::ptr::null(),
+                        0,
+                    )
+                };
+                assert_eq!(rc, 0);
+                test::black_box(&output);
+            });
         }
     }
 }

@@ -2,49 +2,12 @@ use std::simd::{Simd, simd_swizzle};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use super::{
+    BLOCKBYTES, HALFOUTBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES,
+    blake2b_longhash, increment_counter,
+};
 use crate::error::Error;
 use crate::utils::load_u64_le;
-
-const BLOCKBYTES: usize = 128;
-const OUTBYTES: usize = 64;
-const HALFOUTBYTES: usize = OUTBYTES / 2;
-const KEYBYTES: usize = 64;
-const SALTBYTES: usize = 16;
-const PERSONALBYTES: usize = 16;
-
-#[repr(C, packed)]
-#[allow(dead_code)]
-struct Params {
-    digest_length: u8,
-    key_length: u8,
-    fanout: u8,
-    depth: u8,
-    leaf_length: [u8; 4],
-    node_offset: [u8; 8],
-    node_depth: u8,
-    inner_length: u8,
-    reserved: [u8; 14],
-    salt: [u8; SALTBYTES],
-    personal: [u8; PERSONALBYTES],
-}
-
-impl Default for Params {
-    fn default() -> Self {
-        Self {
-            digest_length: 0,
-            key_length: 0,
-            fanout: 1,
-            depth: 1,
-            leaf_length: [0u8; 4],
-            node_offset: [0u8; 8],
-            node_depth: 0,
-            inner_length: 0,
-            reserved: [0u8; 14],
-            salt: [0u8; SALTBYTES],
-            personal: [0u8; PERSONALBYTES],
-        }
-    }
-}
 
 #[derive(Zeroize, ZeroizeOnDrop, Debug)]
 pub struct State {
@@ -73,17 +36,6 @@ impl Default for State {
         }
     }
 }
-
-const IV: [u64; 8] = [
-    0x6a09e667f3bcc908,
-    0xbb67ae8584caa73b,
-    0x3c6ef372fe94f82b,
-    0xa54ff53a5f1d36f1,
-    0x510e527fade682d1,
-    0x9b05688c2b3e6c1f,
-    0x1f83d9abfb41bd6b,
-    0x5be0cd19137e2179,
-];
 
 #[inline(always)]
 fn loadm(block: &[u8; BLOCKBYTES]) -> [Simd<u64, 4>; 8] {
@@ -435,27 +387,12 @@ fn compress(
     *b = simd_b.to_array();
 }
 
-fn increment_counter(t: &mut [u64; 2], inc: usize) {
-    let inc = inc as u64;
-    let (lo, carry) = t[0].overflowing_add(inc);
-    t[0] = lo;
-    t[1] = t[1].wrapping_add(carry as u64);
-}
-
 impl State {
     fn init_param(params: &Params) -> Self {
         let mut state = Self::default();
         state.init0();
 
-        // SAFETY: `Params` is `repr(C, packed)` and consists only of `u8`
-        // fields and byte arrays, so every byte in its object representation is
-        // initialized parameter data with alignment 1.
-        let pslice = unsafe {
-            std::slice::from_raw_parts(
-                (params as *const Params) as *const u8,
-                std::mem::size_of::<Params>(),
-            )
-        };
+        let pslice = params.as_bytes();
 
         let param_a = [
             load_u64_le(&pslice[0..8]),
@@ -629,53 +566,26 @@ pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), E
     state.finalize(output)
 }
 
-pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
-    // long variant of blake2b, used by argon2
-    // fills output with bytes from blake2b based on input
-
-    assert!(output.len() > 4);
-    assert!(output.len() < u32::MAX as usize);
-
-    let outlen = output.len() as u32;
-    let outlen_bytes = outlen.to_le_bytes();
-
-    let mut state = State::init(
-        std::cmp::min(outlen, OUTBYTES as u32) as u8,
-        None,
-        None,
-        None,
-    )?;
-    state.update(&outlen_bytes);
-    state.update(input);
-
-    if outlen as usize <= OUTBYTES {
-        state.finalize(output)
-    } else {
-        let mut in_buffer = [0u8; OUTBYTES];
-
-        state.finalize(&mut output[..OUTBYTES])?;
-        in_buffer.copy_from_slice(&output[..OUTBYTES]);
-
-        let outlen = output.len() - HALFOUTBYTES;
-        let chunk_count = if outlen.is_multiple_of(HALFOUTBYTES) {
-            outlen / HALFOUTBYTES - 2
-        } else {
-            outlen / HALFOUTBYTES - 1
-        };
-        let end = chunk_count * HALFOUTBYTES;
-        let (start, end) = output[HALFOUTBYTES..].split_at_mut(end);
-
-        for chunk in start.as_chunks_mut::<HALFOUTBYTES>().0 {
-            let mut out_buffer = [0u8; OUTBYTES];
-
-            hash(&mut out_buffer, &in_buffer, None)?;
-
-            chunk.copy_from_slice(&out_buffer[..HALFOUTBYTES]);
-            in_buffer.copy_from_slice(&out_buffer);
-        }
-        hash(end, &in_buffer, None)
+/// Keyed BLAKE2b of the empty message with `salt` and `personal` (the
+/// `crypto_kdf` construction).
+pub(crate) fn hash_key_only(
+    output: &mut [u8],
+    key: &[u8],
+    salt: &[u8; SALTBYTES],
+    personal: &[u8; PERSONALBYTES],
+) -> Result<(), Error> {
+    if output.is_empty() || output.len() > OUTBYTES {
+        return Err(
+            length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
+        );
     }
+    if key.is_empty() || key.len() > KEYBYTES {
+        return Err(length_error!(crate::ErrorContext::Blake2bKey, key.len(), range 1, KEYBYTES));
+    }
+    State::init(output.len() as u8, Some(key), Some(salt), Some(personal))?.finalize(output)
 }
+
+blake2b_longhash!();
 
 #[cfg(test)]
 mod tests {
@@ -772,10 +682,11 @@ mod tests {
 
         b.iter(|| {
             let mut state = State::init(64, None, None, None).expect("init");
-            state.update(&input);
+            state.update(test::black_box(&input));
 
             let mut output = [0u8; 64];
-            state.finalize(&mut output).ok();
+            state.finalize(&mut output).expect("finalize");
+            test::black_box(&output);
         });
     }
 

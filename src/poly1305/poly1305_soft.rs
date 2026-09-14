@@ -9,8 +9,18 @@ pub struct Poly1305 {
     r: [u64; 3],
     h: [u64; 3],
     pad: [u64; 2],
-    buffer: Vec<u8>,
+    /// Pending partial block as little-endian bytes; only the low `buflen`
+    /// bytes are meaningful. A `u128` zeroizes in one store, where a byte
+    /// array costs one volatile store per byte on every finalize and drop.
+    buffer: u128,
+    buflen: usize,
 }
+
+/// Minimum run of full blocks worth handing to the NEON path; below this the
+/// key-power precomputation and limb conversions cost more than they save.
+/// Must be at least one `poly1305_neon::CHUNK`.
+#[cfg(target_arch = "aarch64")]
+const NEON_MIN_BYTES: usize = 480;
 
 #[inline]
 fn mul(x: u64, y: u64) -> u128 {
@@ -58,19 +68,22 @@ impl Poly1305 {
 
     pub fn update(&mut self, input: &[u8]) {
         let mut m = input;
-        if !self.buffer.is_empty() {
-            let input_block_end = std::cmp::min(BLOCK_SIZE - self.buffer.len(), input.len());
+        if self.buflen > 0 {
+            let input_block_end = std::cmp::min(BLOCK_SIZE - self.buflen, input.len());
             // copy start of incoming block into previous block
-            self.buffer.extend_from_slice(&m[..input_block_end]);
+            let mut block = self.buffer.to_le_bytes();
+            block[self.buflen..self.buflen + input_block_end]
+                .copy_from_slice(&m[..input_block_end]);
+            self.buflen += input_block_end;
 
-            if self.buffer.len() < BLOCK_SIZE {
+            if self.buflen < BLOCK_SIZE {
                 // don't have enough data yet, do nothing
+                self.buffer = u128::from_le_bytes(block);
                 return;
             }
 
-            let mut block = [0u8; BLOCK_SIZE];
-            block.copy_from_slice(&self.buffer);
-            self.buffer.clear();
+            self.buffer = 0;
+            self.buflen = 0;
             self.blocks(&block, false);
 
             m = &m[input_block_end..];
@@ -78,12 +91,33 @@ impl Poly1305 {
 
         // process all full blocks
         let full_blocks_end = m.len() - (m.len() % BLOCK_SIZE);
-        self.blocks(&m[..full_blocks_end], false);
+        self.full_blocks(&m[..full_blocks_end]);
 
         if full_blocks_end < m.len() {
             // copy leftover into buffer
-            self.buffer.extend_from_slice(&m[full_blocks_end..]);
+            let rest = &m[full_blocks_end..];
+            let mut block = [0u8; BLOCK_SIZE];
+            block[..rest.len()].copy_from_slice(rest);
+            self.buffer = u128::from_le_bytes(block);
+            self.buflen = rest.len();
         }
+    }
+
+    /// Processes a whole number of full blocks, using the NEON or x86-64
+    /// bulk paths for long runs when available.
+    fn full_blocks(&mut self, input: &[u8]) {
+        #[cfg(target_arch = "aarch64")]
+        if input.len() >= NEON_MIN_BYTES && std::arch::is_aarch64_feature_detected!("neon") {
+            let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
+            // SAFETY: `poly1305_neon::blocks` requires the `neon` target
+            // feature, which the runtime check above confirmed is present.
+            unsafe { super::poly1305_neon::blocks(&mut self.h, &self.r, &input[..bulk]) };
+            self.blocks(&input[bulk..], false);
+            return;
+        }
+        #[cfg(target_arch = "x86_64")]
+        let input = &input[super::poly1305_x86_64::full_blocks(&mut self.h, &self.r, input)..];
+        self.blocks(input, false);
     }
 
     fn blocks(&mut self, input: &[u8], partial: bool) {
@@ -134,10 +168,6 @@ impl Poly1305 {
             c = h0 >> 44;
             h0 &= 0xfffffffffff;
             h1 += c;
-
-            self.h[0] = h0;
-            self.h[1] = h1;
-            self.h[2] = h2;
         }
 
         self.h[0] = h0;
@@ -155,8 +185,9 @@ impl Poly1305 {
 
     pub fn finalize(&mut self, output: &mut [u8]) {
         // process any remaining block
-        if !self.buffer.is_empty() {
-            self.blocks(&pad_partial_block(&self.buffer), true);
+        if self.buflen > 0 {
+            let block = self.buffer.to_le_bytes();
+            self.blocks(&pad_partial_block(&block[..self.buflen]), true);
         }
 
         // fully carry h
@@ -360,6 +391,263 @@ mod tests {
         );
     }
 
+    /// Deterministic keys stressing the limb carries: all clamped bits set,
+    /// a tiny `r`, and a patterned one.
+    fn carry_keys() -> [Key; 3] {
+        let mut tiny = [0u8; 32];
+        tiny[0] = 1;
+        tiny[3] = 0x40;
+        let patterned: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(37) ^ 0x5a);
+        [
+            Key::from(&[0xffu8; 32]),
+            Key::from(&tiny),
+            Key::from(&patterned),
+        ]
+    }
+
+    /// `len` patterned bytes with a run of all-ones bytes in the second
+    /// 160-byte chunk.
+    fn carry_message(len: usize) -> Vec<u8> {
+        let mut data: Vec<u8> = (0..len)
+            .map(|i| (i as u8).wrapping_mul(7).wrapping_add((i >> 8) as u8))
+            .collect();
+        if data.len() >= 320 {
+            data[160..320].fill(0xff);
+        }
+        data
+    }
+
+    /// The authenticator of `message` computed with the scalar block loop
+    /// only: whole blocks, then the padded partial block.
+    fn scalar_mac(key: &Key, message: &[u8]) -> [u8; 16] {
+        let mut mac = Poly1305::new(key);
+        let (blocks, rest) = message.split_at(message.len() - message.len() % BLOCK_SIZE);
+        mac.blocks(blocks, false);
+        if !rest.is_empty() {
+            mac.blocks(&pad_partial_block(rest), true);
+        }
+        mac.finalize_to_array()
+    }
+
+    /// A bulk kernel with `chunk`-byte chunks must leave the same state as
+    /// the scalar block loop, starting from a non-zero state and followed by
+    /// more scalar blocks, for every whole number of chunks in
+    /// `chunk_counts`.
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+    fn check_bulk_matches_scalar(
+        name: &str,
+        chunk: usize,
+        chunk_counts: &[usize],
+        bulk: impl Fn(&mut [u64; 3], &[u64; 3], &[u8]),
+    ) {
+        let data = carry_message(chunk_counts.iter().max().unwrap() * chunk + 64);
+        for key in &carry_keys() {
+            for len in chunk_counts.iter().map(|chunks| chunks * chunk) {
+                let mut scalar = Poly1305::new(key);
+                let mut vector = Poly1305::new(key);
+                scalar.blocks(&data[..16], false);
+                vector.blocks(&data[..16], false);
+
+                scalar.blocks(&data[16..16 + len], false);
+                bulk(&mut vector.h, &vector.r, &data[16..16 + len]);
+                scalar.blocks(&data[16 + len..16 + len + 48], false);
+                vector.blocks(&data[16 + len..16 + len + 48], false);
+                assert_eq!(
+                    scalar.finalize_to_array(),
+                    vector.finalize_to_array(),
+                    "{name} len={len}"
+                );
+            }
+        }
+    }
+
+    /// The NEON bulk kernel, for 1 to 4 of its 160-byte chunks and for 8,
+    /// 16 and 25 chunks (up to 4 KiB).
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn neon_blocks_match_scalar() {
+        use super::super::poly1305_neon::{CHUNK, blocks};
+
+        if !std::arch::is_aarch64_feature_detected!("neon") {
+            return;
+        }
+        check_bulk_matches_scalar("neon", CHUNK, &[1, 2, 3, 4, 8, 16, 25], |h, r, input| {
+            // SAFETY: `neon` was detected above.
+            unsafe { blocks(h, r, input) }
+        });
+    }
+
+    /// The AVX2 bulk kernel, for 1 to 4 of its 128-byte chunks and for 8,
+    /// 16, 25 and 32 chunks (up to 4 KiB).
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn avx2_blocks_match_scalar() {
+        use super::super::poly1305_x86_64::{CHUNK, blocks};
+
+        if !std::arch::is_x86_feature_detected!("avx2") {
+            return;
+        }
+        check_bulk_matches_scalar(
+            "avx2",
+            CHUNK,
+            &[1, 2, 3, 4, 8, 16, 25, 32],
+            |h, r, input| {
+                // SAFETY: `avx2` was detected above.
+                unsafe { blocks(h, r, input) }
+            },
+        );
+    }
+
+    /// The AVX-512 bulk kernel, for 1 to 4 of its 256-byte chunks and for
+    /// 8, 16, 25 and 32 chunks (up to 8 KiB).
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn avx512_blocks_match_scalar() {
+        use super::super::poly1305_x86_64::{CHUNK512, blocks_avx512};
+
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        check_bulk_matches_scalar(
+            "avx512",
+            CHUNK512,
+            &[1, 2, 3, 4, 8, 16, 25, 32],
+            |h, r, input| {
+                // SAFETY: `avx512f` was detected above.
+                unsafe { blocks_avx512(h, r, input) }
+            },
+        );
+    }
+
+    /// The AVX-512 IFMA bulk kernel, for 1 to 4 of its 128-byte chunks and
+    /// for 8, 16, 25, 32, 63 and 64 chunks (up to 8 KiB).
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn ifma_blocks_match_scalar() {
+        use super::super::poly1305_x86_64::{CHUNK_IFMA, blocks_ifma};
+
+        if !std::arch::is_x86_feature_detected!("avx512f")
+            || !std::arch::is_x86_feature_detected!("avx512ifma")
+        {
+            return;
+        }
+        check_bulk_matches_scalar(
+            "ifma",
+            CHUNK_IFMA,
+            &[1, 2, 3, 4, 8, 16, 25, 32, 63, 64],
+            |h, r, input| {
+                // SAFETY: `avx512f` and `avx512ifma` were detected above.
+                unsafe { blocks_ifma(h, r, input) }
+            },
+        );
+    }
+
+    /// The two-chain AVX-512 IFMA bulk kernel, for 1 to 4 of its 256-byte
+    /// chunks and for 8, 16, 25 and 32 chunks (up to 8 KiB).
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn ifma2_blocks_match_scalar() {
+        use super::super::poly1305_x86_64::{CHUNK_IFMA2, blocks_ifma2};
+
+        if !std::arch::is_x86_feature_detected!("avx512f")
+            || !std::arch::is_x86_feature_detected!("avx512ifma")
+        {
+            return;
+        }
+        check_bulk_matches_scalar(
+            "ifma2",
+            CHUNK_IFMA2,
+            &[1, 2, 3, 4, 8, 16, 25, 32],
+            |h, r, input| {
+                // SAFETY: `avx512f` and `avx512ifma` were detected above.
+                unsafe { blocks_ifma2(h, r, input) }
+            },
+        );
+    }
+
+    /// The production driver must match the scalar block loop at every
+    /// length around the bulk-path thresholds (480 bytes on AArch64; 256,
+    /// 512, 1024 and 2048 on x86-64) and their 160-, 128- and 256-byte chunk
+    /// residues (including a 128-byte chunk left over from the two-chain
+    /// run), one-shot and split so a partial block is pending before and
+    /// after the bulk run.
+    #[test]
+    fn update_matches_scalar_blocks_at_bulk_boundaries() {
+        let data = carry_message(4608 + 200);
+        let lens = (240..=272)
+            .chain(368..=400)
+            .chain(464..=529)
+            .chain([
+                639, 640, 641, 767, 768, 769, 799, 800, 801, 959, 960, 961, 1023, 1024, 1025, 1151,
+                1152, 1153, 1279, 1280, 1281, 1407, 1408, 1409, 2047, 2048, 2049, 2063, 2064, 2065,
+                2175, 2176, 2177, 2303, 2304, 2305, 2559, 2560, 2561,
+            ])
+            .chain([4095, 4096, 4097, 4096 + 200])
+            .chain(4336..=4368)
+            .chain([4479, 4480, 4481, 4607, 4608, 4609, 4608 + 200]);
+        for key in &carry_keys() {
+            for len in lens.clone() {
+                let message = &data[..len];
+                let expected = scalar_mac(key, message);
+
+                let mut mac = Poly1305::new(key);
+                mac.update(message);
+                assert_eq!(mac.finalize_to_array(), expected, "one-shot len={len}");
+
+                for split in [
+                    1usize, 15, 16, 17, 127, 128, 129, 159, 160, 161, 479, 480, 481, 512,
+                ] {
+                    if split >= len {
+                        continue;
+                    }
+                    let mut mac = Poly1305::new(key);
+                    mac.update(&message[..split]);
+                    mac.update(&message[split..]);
+                    assert_eq!(mac.finalize_to_array(), expected, "split={split} len={len}");
+                }
+            }
+        }
+    }
+
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    mod property_tests {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(128))]
+
+            /// The production driver (buffering, and the NEON bulk path for
+            /// long full-block runs on AArch64) must match the scalar block
+            /// loop for any key, message and chunking.
+            #[test]
+            fn proptest_update_matches_scalar_blocks(
+                key in any::<[u8; 32]>(),
+                message in prop::collection::vec(any::<u8>(), 0..4096),
+                cuts in prop::collection::vec(0usize..4096, 0..6),
+            ) {
+                let key = Key::from(&key);
+                let expected = scalar_mac(&key, &message);
+
+                let mut mac = Poly1305::new(&key);
+                mac.update(&message);
+                prop_assert_eq!(mac.finalize_to_array(), expected);
+
+                let mut cuts: Vec<usize> = cuts.into_iter().map(|cut| cut.min(message.len())).collect();
+                cuts.push(0);
+                cuts.push(message.len());
+                cuts.sort_unstable();
+                cuts.dedup();
+                let mut mac = Poly1305::new(&key);
+                for window in cuts.windows(2) {
+                    mac.update(&message[window[0]..window[1]]);
+                }
+                prop_assert_eq!(mac.finalize_to_array(), expected);
+            }
+        }
+    }
+
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     fn bench_poly1305(b: &mut test::Bencher, len: usize) {
         use crate::rng::copy_randombytes;
@@ -428,6 +716,62 @@ mod tests {
                 let so_mac = authenticate(&data, &so_key);
 
                 assert_eq!(mac, so_mac.as_ref());
+            }
+        }
+
+        /// Exercises the NEON bulk path (runs of >= `NEON_MIN_BYTES` full-block
+        /// bytes) with every residue of the 160-byte chunking, mixed chunk
+        /// boundaries, and worst-case key/message limbs, against libsodium.
+        #[test]
+        fn test_libsodium_long_and_chunked() {
+            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
+
+            use crate::rng::copy_randombytes;
+
+            let mut keys = vec![Key::generate(), Key::generate()];
+            // All-ones key (maximal clamped r and pad) and all-ones message
+            // stress every carry in the 5x26 representation.
+            keys.push(Key::from(&[0xffu8; 32]));
+
+            for key in &keys {
+                let so_key = SOKey::from_slice(key).unwrap();
+                for len in (464..=1300).chain([4096, 4097, 65536 + 17]) {
+                    let mut data = vec![0u8; len];
+                    copy_randombytes(&mut data);
+                    if len % 3 == 0 {
+                        data.fill(0xff);
+                    }
+                    let so_mac = authenticate(&data, &so_key);
+
+                    let mut mac = Poly1305::new(key);
+                    mac.update(&data);
+                    assert_eq!(
+                        mac.finalize_to_array(),
+                        so_mac.as_ref(),
+                        "one-shot len={len}"
+                    );
+
+                    // Split so the NEON path runs in the middle of a stream
+                    // with a pending partial block before and after it, and
+                    // so that the split lands inside the first, second or
+                    // third chunk (chunks are 160 bytes, threshold 480).
+                    for split in [
+                        1usize, 15, 16, 17, 63, 64, 65, 127, 128, 129, 159, 160, 161, 319, 320,
+                        321, 479, 480, 481,
+                    ] {
+                        if split >= len {
+                            continue;
+                        }
+                        let mut mac = Poly1305::new(key);
+                        mac.update(&data[..split]);
+                        mac.update(&data[split..]);
+                        assert_eq!(
+                            mac.finalize_to_array(),
+                            so_mac.as_ref(),
+                            "split={split} len={len}"
+                        );
+                    }
+                }
             }
         }
 

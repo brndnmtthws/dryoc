@@ -89,7 +89,8 @@
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::classic::crypto_core::{HChaCha20Key, crypto_core_hchacha20};
+use crate::chacha20::ChaCha20;
+use crate::classic::crypto_core::crypto_core_hchacha20;
 use crate::constants::{
     CRYPTO_CORE_HCHACHA20_INPUTBYTES, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES,
@@ -101,6 +102,7 @@ use crate::constants::{
     CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
 };
 use crate::error::*;
+use crate::poly1305::Poly1305;
 use crate::rng::copy_randombytes;
 use crate::types::*;
 use crate::utils::{increment_bytes, pad16, xor_buf};
@@ -148,6 +150,57 @@ fn secretstream_length_block(associated_data_len: usize, message_len: usize) -> 
     lengths
 }
 
+/// Runs keystream blocks 0 and 1 for the current `state`: block 0 keys the
+/// Poly1305 MAC (and is zeroized here), block 1 is XORed into `block`, whose
+/// first byte the caller has set to the tag byte to encrypt or decrypt. The
+/// returned MAC has absorbed `associated_data` and its padding. The cipher is
+/// left positioned at block 2, where the message starts. Nothing in `state` is
+/// touched.
+#[inline]
+fn secretstream_init_mac(
+    state: &State,
+    block: &mut [u8; 64],
+    associated_data: &[u8],
+) -> (ChaCha20, Zeroizing<Poly1305>) {
+    let mut cipher = ChaCha20::ietf(&state.k, &state.nonce, 0);
+
+    // Blocks 0 and 1 come out of one keystream run.
+    let mut block0 = Zeroizing::new([0u8; 64]);
+    cipher.apply_keystream_with_head(&mut block0, block);
+    let mut mac_key = crate::poly1305::Key::new();
+    mac_key.copy_from_slice(&block0[..mac_key.len()]);
+    let mut mac = Zeroizing::new(Poly1305::new(&mac_key));
+    mac_key.zeroize();
+    drop(block0);
+
+    mac.update(associated_data);
+    mac.update(&[0u8; 16][..pad16(associated_data.len())]);
+
+    (cipher, mac)
+}
+
+/// Advances `state` past an authenticated message: XORs `mac` into the
+/// implicit nonce, increments the counter, and rekeys when `tag` requests it
+/// or the counter wrapped to zero.
+#[inline]
+fn secretstream_advance(state: &mut State, mac: &[u8], tag: u8) {
+    let inonce = state_inonce(&mut state.nonce);
+    xor_buf(inonce, mac);
+
+    let counter = state_counter(&mut state.nonce);
+    increment_bytes(counter);
+
+    if tag & CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
+        == CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
+        || state_counter(&mut state.nonce)
+            .ct_eq(&[0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES])
+            .unwrap_u8()
+            == 1
+    {
+        crypto_secretstream_xchacha20poly1305_rekey(state);
+    }
+}
+
 fn _crypto_secretstream_xchacha20poly1305_counter_reset(state: &mut State) {
     let counter = state_counter(&mut state.nonce);
     counter.fill(0);
@@ -169,15 +222,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
 ) {
     copy_randombytes(header);
 
-    let mut k = Zeroizing::new(HChaCha20Key::default());
-    crypto_core_hchacha20(
-        k.as_mut_array(),
-        ByteArray::as_array(&header[..16]),
-        key,
-        None,
-    );
-    // Copy key into state
-    state.k.copy_from_slice(&*k);
+    crypto_core_hchacha20(&mut state.k, ByteArray::as_array(&header[..16]), key, None);
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
 
     let inonce = state_inonce(&mut state.nonce);
@@ -200,14 +245,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
     header: &Header,
     key: &Key,
 ) {
-    let mut k = Zeroizing::new(HChaCha20Key::default());
-    crypto_core_hchacha20(
-        k.as_mut_array(),
-        ByteArray::as_array(&header[0..16]),
-        key,
-        None,
-    );
-    state.k.copy_from_slice(&*k);
+    crypto_core_hchacha20(&mut state.k, ByteArray::as_array(&header[0..16]), key, None);
 
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
 
@@ -224,9 +262,6 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
 /// Compatible with libsodium's
 /// `crypto_secretstream_xchacha20poly1305_rekey`.
 pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
-    use chacha20::ChaCha20;
-    use chacha20::cipher::{KeyIvInit, StreamCipher};
-
     let mut new_state = Zeroizing::new(
         [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES
             + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES],
@@ -236,8 +271,7 @@ pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
     new_state[CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES..]
         .copy_from_slice(state_inonce(&mut state.nonce));
 
-    let mut cipher = ChaCha20::new((&state.k).into(), (&state.nonce).into());
-    cipher.apply_keystream(&mut *new_state);
+    ChaCha20::ietf(&state.k, &state.nonce, 0).apply_keystream(&mut *new_state);
 
     state
         .k
@@ -269,11 +303,6 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     associated_data: Option<&[u8]>,
     tag: u8,
 ) -> Result<(), Error> {
-    use chacha20::ChaCha20;
-    use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-
-    use crate::poly1305::Poly1305;
-
     if message.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
         return Err(length_error!(
             crate::ErrorContext::Message,
@@ -292,31 +321,18 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     }
 
     let associated_data = associated_data.unwrap_or(&[]);
-
-    let mut mac_key = crate::poly1305::Key::new();
     let _pad0 = [0u8; 16];
 
-    let mut cipher = ChaCha20::new((&state.k).into(), (&state.nonce).into());
-
-    cipher.apply_keystream(&mut mac_key);
-    let mut mac = Zeroizing::new(Poly1305::new(&mac_key));
-    mac_key.zeroize();
-
-    mac.update(associated_data);
-    mac.update(&_pad0[..pad16(associated_data.len())]);
-
+    // Block 0 keys the MAC, block 1 carries the tag, the message starts at
+    // block 2; each call below consumes whole blocks.
     let mut block = Zeroizing::new([0u8; 64]);
     block[0] = tag;
-    cipher.seek(64);
-    cipher.apply_keystream(&mut *block);
+    let (mut cipher, mut mac) = secretstream_init_mac(state, &mut block, associated_data);
     mac.update(&*block);
 
     let mlen = message.len();
     ciphertext[0] = block[0];
-    ciphertext[1..(1 + mlen)].copy_from_slice(message);
-
-    cipher.seek(128);
-    cipher.apply_keystream(&mut ciphertext[1..(1 + mlen)]);
+    cipher.apply_keystream_b2b(message, &mut ciphertext[1..(1 + mlen)]);
 
     let size_data = secretstream_length_block(associated_data.len(), mlen);
 
@@ -330,21 +346,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
 
     mac.finalize(&mut ciphertext[1 + mlen..]);
 
-    let inonce = state_inonce(&mut state.nonce);
-    xor_buf(inonce, &ciphertext[1 + mlen..]);
-
-    let counter = state_counter(&mut state.nonce);
-    increment_bytes(counter);
-
-    if tag & CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
-        == CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
-        || state_counter(&mut state.nonce)
-            .ct_eq(&[0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES])
-            .unwrap_u8()
-            == 1
-    {
-        crypto_secretstream_xchacha20poly1305_rekey(state);
-    }
+    secretstream_advance(state, &ciphertext[1 + mlen..], tag);
 
     Ok(())
 }
@@ -374,11 +376,6 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     ciphertext: &[u8],
     associated_data: Option<&[u8]>,
 ) -> Result<usize, Error> {
-    use chacha20::ChaCha20;
-    use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-
-    use crate::poly1305::Poly1305;
-
     let _pad0 = [0u8; 16];
 
     if ciphertext.len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
@@ -410,22 +407,11 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     let associated_data = associated_data.unwrap_or(&[]);
 
-    let mut mac_key = crate::poly1305::Key::new();
-
-    let mut cipher = ChaCha20::new((&state.k).into(), (&state.nonce).into());
-
-    cipher.apply_keystream(&mut mac_key);
-    let mut mac = Zeroizing::new(Poly1305::new(&mac_key));
-    mac_key.zeroize();
-
-    mac.update(associated_data);
-    mac.update(&_pad0[..pad16(associated_data.len())]);
-
+    // Block 0 keys the MAC, block 1 carries the tag, the message starts at
+    // block 2; each call below consumes whole blocks.
     let mut block = Zeroizing::new([0u8; 64]);
     block[0] = ciphertext[0];
-
-    cipher.seek(64);
-    cipher.apply_keystream(&mut *block);
+    let (mut cipher, mut mac) = secretstream_init_mac(state, &mut block, associated_data);
 
     let decrypted_tag = block[0];
     block[0] = ciphertext[0];
@@ -447,26 +433,10 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
         return Err(Error::AuthenticationFailed);
     }
 
-    message[..mlen].copy_from_slice(&ciphertext[1..1 + mlen]);
-    cipher.seek(128);
-    cipher.apply_keystream(&mut message[..mlen]);
+    cipher.apply_keystream_b2b(&ciphertext[1..1 + mlen], &mut message[..mlen]);
     *tag = decrypted_tag;
 
-    let inonce = state_inonce(&mut state.nonce);
-    xor_buf(inonce, &*mac);
-
-    let counter = state_counter(&mut state.nonce);
-    increment_bytes(counter);
-
-    if decrypted_tag & CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
-        == CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
-        || state_counter(&mut state.nonce)
-            .ct_eq(&[0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES])
-            .unwrap_u8()
-            == 1
-    {
-        crypto_secretstream_xchacha20poly1305_rekey(state);
-    }
+    secretstream_advance(state, &*mac, decrypted_tag);
 
     Ok(mlen)
 }

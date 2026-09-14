@@ -1467,11 +1467,13 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
     fn resize(&mut self, new_len: usize, value: u8) {
         match &mut self.i {
             Some(d) => {
-                // because it's locked, we'll do a swaparoo here instead of a plain resize
+                // because it's locked, we'll do a swaparoo here instead of a
+                // plain resize
                 let mut new = A::new_bytes();
                 // resize the new array
                 new.resize(new_len, value);
-                // need to actually lock the memory now, because it was previously locked
+                // need to actually lock the memory now, because it was
+                // previously locked
                 let mut locked = new.mlock().expect("unable to lock on resize");
                 let len_to_copy = std::cmp::min(new_len, d.a.as_slice().len());
                 locked.i.as_mut().unwrap().a.as_mut_slice()[..len_to_copy]

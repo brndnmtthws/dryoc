@@ -72,8 +72,6 @@
 //! crypto_kdf_hkdf_sha512_expand(&mut output, b"authentication key", &prk).expect("expand failed");
 //! ```
 
-use zeroize::Zeroize;
-
 use crate::blake2b;
 use crate::classic::crypto_auth_hmac_impl::{
     HmacHash, HmacState, hmac_final, hmac_init, hmac_keygen, hmac_update,
@@ -89,6 +87,7 @@ use crate::error::Error;
 use crate::rng::copy_randombytes;
 use crate::sha256::Sha256;
 use crate::sha512::Sha512;
+use crate::utils::zeroize_bytes;
 
 /// Key type for the main key used for deriving subkeys.
 pub type Key = [u8; CRYPTO_KDF_KEYBYTES];
@@ -144,13 +143,7 @@ pub fn crypto_kdf_derive_from_key(
     ctx_padded[..CRYPTO_KDF_CONTEXTBYTES].copy_from_slice(context);
     salt[..8].copy_from_slice(&subkey_id.to_le_bytes());
 
-    let state = blake2b::State::init(
-        subkey.len() as u8,
-        Some(main_key),
-        Some(&salt),
-        Some(&ctx_padded),
-    )?;
-    state.finalize(subkey)
+    blake2b::hash_key_only(subkey, main_key, &salt, &ctx_padded)
 }
 
 pub(crate) fn validate_subkey_length(length: usize) -> Result<(), Error> {
@@ -278,6 +271,9 @@ where
 {
     validate_hkdf_output_len(output.len(), min_len, max_len)?;
 
+    // The keyed inner/outer states are the same for every block, so derive
+    // them once and clone per block instead of rehashing the pads.
+    let keyed = hmac_init::<H, BLOCK_BYTES, OUT_BYTES>(prk);
     let mut previous = [0u8; OUT_BYTES];
     let mut offset = 0usize;
     for counter in 1..=255u8 {
@@ -285,7 +281,7 @@ where
             break;
         }
 
-        let mut state = hmac_init::<H, BLOCK_BYTES, OUT_BYTES>(prk);
+        let mut state = keyed.clone();
         if counter > 1 {
             hmac_update(&mut state, &previous);
         }
@@ -298,7 +294,7 @@ where
         offset += chunk_len;
     }
 
-    previous.zeroize();
+    zeroize_bytes(&mut previous);
 
     Ok(())
 }

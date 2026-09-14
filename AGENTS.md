@@ -124,12 +124,29 @@ cargo fuzz run fuzz_target_1
 - `src/rng.rs`: random byte generation.
 - `src/protected.rs`: protected memory allocation, locking, guard pages, and
   locked bytes; nightly-only allocator APIs are additionally gated by `nightly`.
+- `src/stream.rs`: keystream sinks shared by the ChaCha20 and Salsa20 drivers
+  (`Sink`, `InPlace`, `BufferToBuffer`, `Dest`).
+- `src/neon.rs`: AArch64 NEON load/store/transpose/XOR helpers shared by the
+  `*_neon.rs` kernels.
+- `src/x86_64.rs`: AVX2/AVX-512 load/store/transpose/XOR helpers shared by the
+  `*_x86_64.rs` kernels.
+- `src/sha2_impl.rs`: the `sha2_hasher!` macro that generates the SHA-256 and
+  SHA-512 hasher types; each `sha*/mod.rs` supplies its IV and `compress`.
+- `src/classic/crypto_*_impl.rs`: shared bodies behind pairs of classic
+  modules (HMAC, secretbox/box, ChaCha20-Poly1305 and XChaCha20-Poly1305).
 - `src/classic/`: libsodium-compatible API modules.
-- `src/blake2b/`, `src/poly1305/`, `src/argon2.rs`,
-  `src/scalarmult_curve25519.rs`: primitive implementations and backend
-  selection.
-- `src/classic/salsa20_simd.rs`: nightly-only portable SIMD Salsa20 backend
-  used internally by `crypto_secretbox` when `simd_backend` is enabled.
+- `src/blake2b/`, `src/poly1305/`, `src/argon2/`, `src/salsa20/`,
+  `src/chacha20/`, `src/sha256/`, `src/sha512/`, `src/fe25519/`,
+  `src/edwards25519/`, `src/scalarmult_curve25519.rs`: primitive
+  implementations and backend selection. An algorithm directory holds a
+  `mod.rs` that selects the backend, plus one file per backend it has, named
+  `<algo>_soft.rs` (portable Rust), `<algo>_simd.rs` (nightly portable SIMD),
+  `<algo>_neon.rs` (runtime-detected AArch64 NEON/SVE2 intrinsics),
+  `<algo>_x86_64.rs` (runtime-detected AVX2/AVX-512 intrinsics), or
+  `<algo>_aarch64.rs` (AArch64 `asm!` blocks: base integer instructions or
+  the runtime-detected `sha2`/`sha3` extensions).
+- `BENCHMARKS.md` and `benchmarks/`: libsodium comparison results per machine
+  (`results-<arch>.dat`) and the gnuplot script that renders the charts.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
 

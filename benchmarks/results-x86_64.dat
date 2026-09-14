@@ -1,0 +1,19 @@
+# dryoc vs libsodium 1.0.18 on an Intel Xeon 6975P-C, single thread,
+# RUSTFLAGS=-Ctarget-cpu=native. ns/iter as reported by `cargo +nightly bench
+# --features nightly` (BLAKE2b portable SIMD: `--features simd_backend,nightly`).
+# `bytes` is the per-iteration input size; throughput is bytes / ns.
+# Same row order as results-aarch64.dat; charts.gp plots the two side by side.
+#
+# label             group      bytes      dryoc_ns      libsodium_ns
+"64 B"              Poly1305        64         35.24            54.97
+"1 KiB"             Poly1305      1024        115.52           356.93
+"16 KiB"            Poly1305     16384        941.39          5265.10
+"1 MiB"             Poly1305   1048576      56300.84        329632.25
+"64 B"              Secretbox       64        279.44           376.71
+"1 KiB"             Secretbox     1024        421.82          1332.88
+"16 KiB"            Secretbox    16384       3776.17         11833.44
+"1 MiB"             Secretbox  1048576     232893.15        715590.00
+"64 KiB"            Argon2id    131072      30617.08         35967.61
+"1 MiB"             Argon2id   2097152     325536.75        358176.60
+"default"           BLAKE2b     694200     527129.50        629177.30
+"SIMD"              BLAKE2b     694200     486813.25        627231.90

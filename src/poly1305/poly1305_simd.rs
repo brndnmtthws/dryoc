@@ -21,7 +21,11 @@ pub struct Poly1305 {
     r4: Fe,
     h: Fe,
     pad: [u64; 2],
-    buffer: Vec<u8>,
+    /// Pending partial block as little-endian bytes; only the low `buflen`
+    /// bytes are meaningful. A `u128` zeroizes in one store, where a byte
+    /// array costs one volatile store per byte on every finalize and drop.
+    buffer: u128,
+    buflen: usize,
 }
 
 pub type Key = StackByteArray<32>;
@@ -224,23 +228,27 @@ impl Poly1305 {
             r4,
             h: [0; 5],
             pad: [load_u64_le(&key[16..24]), load_u64_le(&key[24..32])],
-            buffer: Vec::new(),
+            buffer: 0,
+            buflen: 0,
         }
     }
 
     pub fn update(&mut self, input: &[u8]) {
         let mut m = input;
-        if !self.buffer.is_empty() {
-            let input_block_end = std::cmp::min(BLOCK_SIZE - self.buffer.len(), input.len());
-            self.buffer.extend_from_slice(&m[..input_block_end]);
+        if self.buflen > 0 {
+            let input_block_end = std::cmp::min(BLOCK_SIZE - self.buflen, input.len());
+            let mut block = self.buffer.to_le_bytes();
+            block[self.buflen..self.buflen + input_block_end]
+                .copy_from_slice(&m[..input_block_end]);
+            self.buflen += input_block_end;
 
-            if self.buffer.len() < BLOCK_SIZE {
+            if self.buflen < BLOCK_SIZE {
+                self.buffer = u128::from_le_bytes(block);
                 return;
             }
 
-            let mut block = [0u8; BLOCK_SIZE];
-            block.copy_from_slice(&self.buffer);
-            self.buffer.clear();
+            self.buffer = 0;
+            self.buflen = 0;
             self.blocks(&block, false);
 
             m = &m[input_block_end..];
@@ -250,7 +258,11 @@ impl Poly1305 {
         self.blocks(&m[..full_blocks_end], false);
 
         if full_blocks_end < m.len() {
-            self.buffer.extend_from_slice(&m[full_blocks_end..]);
+            let rest = &m[full_blocks_end..];
+            let mut block = [0u8; BLOCK_SIZE];
+            block[..rest.len()].copy_from_slice(rest);
+            self.buffer = u128::from_le_bytes(block);
+            self.buflen = rest.len();
         }
     }
 
@@ -304,8 +316,9 @@ impl Poly1305 {
     }
 
     pub fn finalize(&mut self, output: &mut [u8]) {
-        if !self.buffer.is_empty() {
-            self.blocks(&pad_partial_block(&self.buffer), true);
+        if self.buflen > 0 {
+            let block = self.buffer.to_le_bytes();
+            self.blocks(&pad_partial_block(&block[..self.buflen]), true);
         }
 
         let mut h = fe_carry(self.h);
