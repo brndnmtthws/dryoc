@@ -17,23 +17,35 @@ pub(crate) mod poly1305_simd;
 ))]
 pub(crate) mod poly1305_soft;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
 pub(crate) mod poly1305_neon;
 
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod poly1305_x86_64;
 
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 const M26: u64 = (1 << 26) - 1;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 const M44: u64 = (1 << 44) - 1;
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 const M42: u64 = (1 << 42) - 1;
 
 /// Multiplies two 3x44-bit limb values modulo `2^130 - 5`, returning a
 /// partially reduced result (limbs `< 2^44`, `< 2^44 + small`, `< 2^42 +
 /// small`). Mirrors the scalar block multiplication in `poly1305_soft.rs`.
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 fn mul_mod_p(a: &[u64; 3], b: &[u64; 3]) -> [u64; 3] {
     let mul = |x: u64, y: u64| u128::from(x) * u128::from(y);
     let s1 = b[1] * (5 << 2);
@@ -61,7 +73,10 @@ fn mul_mod_p(a: &[u64; 3], b: &[u64; 3]) -> [u64; 3] {
 
 /// Fully reduces a partially reduced 3x44-bit value to its canonical
 /// representative below `2^130 - 5` (limbs exactly 44/44/42 bits).
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 fn canonical(h: &[u64; 3]) -> [u64; 3] {
     let (mut h0, mut h1, mut h2) = (h[0], h[1], h[2]);
 
@@ -102,7 +117,10 @@ fn canonical(h: &[u64; 3]) -> [u64; 3] {
 }
 
 /// Splits canonical 44/44/42-bit limbs into 5x26-bit limbs.
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 fn limbs26(h: [u64; 3]) -> [u32; 5] {
     let [h0, h1, h2] = h;
     [
@@ -118,7 +136,10 @@ fn limbs26(h: [u64; 3]) -> [u32; 5] {
 /// backend's partially reduced 3x44-bit form: carries so `l1..l4 < 2^26` and
 /// `l0 < 2^26 + 2^5`, repacks the 130-bit value (the low four limbs fit a
 /// `u128`; the top limb is added to `h2` separately) and carries once more.
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 fn pack_limbs26(mut l: [u64; 5]) -> [u64; 3] {
     let mut c = l[0] >> 26;
     l[0] &= M26;
@@ -149,7 +170,10 @@ fn pack_limbs26(mut l: [u64; 5]) -> [u64; 3] {
 
 /// One more carry pass over 3x44-bit limbs whose sums may exceed the limb
 /// widths, returning the scalar backend's partially reduced form.
-#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little"),
+    target_arch = "x86_64"
+))]
 fn carry44(h: [u64; 3]) -> [u64; 3] {
     let [mut h0, mut h1, mut h2] = h;
     let mut c = h0 >> 44;

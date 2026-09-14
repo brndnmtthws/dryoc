@@ -336,6 +336,21 @@ mod tests {
         assert_eq!(block, [0u8; 64]);
     }
 
+    #[test]
+    fn test_final_counter_block_is_available_ff_nonce() {
+        // The first nonce word is the high half of the packed 64-bit counter,
+        // so with 0xffffffff there the final block's counter is u64::MAX;
+        // advancing past it must wrap the discarded position rather than
+        // overflow. The final block itself must stay usable for every nonce.
+        let nonce = [0xffu8; 12];
+        let mut block = [0u8; 64];
+        ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut block);
+        assert_ne!(block, [0u8; 64]);
+
+        ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut block);
+        assert_eq!(block, [0u8; 64]);
+    }
+
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_final_counter_block_matches_libsodium() {
@@ -354,6 +369,33 @@ mod tests {
                 message.as_ptr(),
                 message.len() as u64,
                 NONCE.as_ptr(),
+                u32::MAX,
+                KEY.as_ptr(),
+            )
+        };
+        assert_eq!(result, 0);
+        assert_eq!(actual, expected);
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_final_counter_block_ff_nonce_matches_libsodium() {
+        use libsodium_sys::crypto_stream_chacha20_ietf_xor_ic;
+
+        let nonce = [0xffu8; 12];
+        let message = [0xa5u8; 64];
+        let mut actual = message;
+        ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut actual);
+
+        let mut expected = [0u8; 64];
+        // SAFETY: All pointers reference initialized, correctly sized arrays
+        // that remain valid and non-overlapping for the duration of the call.
+        let result = unsafe {
+            crypto_stream_chacha20_ietf_xor_ic(
+                expected.as_mut_ptr(),
+                message.as_ptr(),
+                message.len() as u64,
+                nonce.as_ptr(),
                 u32::MAX,
                 KEY.as_ptr(),
             )

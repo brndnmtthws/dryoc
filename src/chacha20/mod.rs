@@ -166,9 +166,10 @@ fn xor_scalar_block(state: &[u32; 16], counter: u64, extra: &mut [u8; 64]) {
 pub(crate) struct ChaCha20 {
     /// ChaCha20 input words; words 12 and 13 hold the current 64-bit block
     /// counter (low word first). In the IETF layout word 13 is the first
-    /// nonce word, which a counter carry would alter exactly as libsodium's
-    /// reference implementation does; callers bound message lengths so the
-    /// 32-bit counter never wraps and the carry is unobservable there.
+    /// nonce word, which a counter carry alters exactly as libsodium's
+    /// reference implementation does. Callers bound message lengths, so the
+    /// counter is only ever advanced past the final block onto a position
+    /// that is discarded, never read back.
     state: [u32; 16],
 }
 
@@ -478,10 +479,13 @@ impl ChaCha20 {
 
     #[inline]
     fn advance_counter(&mut self, blocks: u64) {
-        let counter = self
-            .counter()
-            .checked_add(blocks)
-            .expect("ChaCha20 block counter overflow");
+        // Wraps like the lane counters of the vector kernels. In the IETF
+        // layout a carry out of word 12 alters the first nonce word exactly
+        // as libsodium's reference implementation does; wrapping past the
+        // final block (`u64::MAX`, reachable only with an all-`ff` nonce
+        // prefix) lands on a discarded position that the bounded callers
+        // never read, so no keystream can be reused.
+        let counter = self.counter().wrapping_add(blocks);
         self.state[12] = counter as u32;
         self.state[13] = (counter >> 32) as u32;
     }

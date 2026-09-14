@@ -4,6 +4,8 @@
 //! compile-time constant and the 16 words stay in registers. On AArch64 the
 //! rounds come from the `asm!` block in `chacha20_aarch64`.
 
+use zeroize::Zeroize;
+
 /// One ChaCha20 quarter round over the four words `$a, $b, $c, $d` of `$x`.
 #[cfg(any(not(target_arch = "aarch64"), test))]
 macro_rules! quarter_round {
@@ -50,14 +52,16 @@ pub(super) fn block_input(state: &[u32; 16], counter: u64) -> [u32; 16] {
 
 /// Computes the ChaCha20 keystream block for `state` with words 12 and 13
 /// replaced by the little-endian halves of `counter`, serialising the result
-/// into `out`.
+/// into `out`. The key-bearing working copies are zeroized before returning.
 pub(super) fn block(state: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
-    let initial = block_input(state, counter);
+    let mut initial = block_input(state, counter);
     let mut x = initial;
     rounds(&mut x);
     for ((chunk, word), init) in out.as_chunks_mut::<4>().0.iter_mut().zip(x).zip(initial) {
         *chunk = word.wrapping_add(init).to_le_bytes();
     }
+    x.zeroize();
+    initial.zeroize();
 }
 
 #[cfg(test)]

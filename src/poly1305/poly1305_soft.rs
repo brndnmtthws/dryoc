@@ -19,7 +19,7 @@ pub struct Poly1305 {
 /// Minimum run of full blocks worth handing to the NEON path; below this the
 /// key-power precomputation and limb conversions cost more than they save.
 /// Must be at least one `poly1305_neon::CHUNK`.
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
 const NEON_MIN_BYTES: usize = 480;
 
 #[inline]
@@ -106,7 +106,7 @@ impl Poly1305 {
     /// Processes a whole number of full blocks, using the NEON or x86-64
     /// bulk paths for long runs when available.
     fn full_blocks(&mut self, input: &[u8]) {
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
         if input.len() >= NEON_MIN_BYTES && std::arch::is_aarch64_feature_detected!("neon") {
             let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
             // SAFETY: `poly1305_neon::blocks` requires the `neon` target
@@ -433,7 +433,10 @@ mod tests {
     /// the scalar block loop, starting from a non-zero state and followed by
     /// more scalar blocks, for every whole number of chunks in
     /// `chunk_counts`.
-    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+    #[cfg(any(
+        all(target_arch = "aarch64", target_endian = "little"),
+        target_arch = "x86_64"
+    ))]
     fn check_bulk_matches_scalar(
         name: &str,
         chunk: usize,
@@ -463,7 +466,7 @@ mod tests {
 
     /// The NEON bulk kernel, for 1 to 4 of its 160-byte chunks and for 8,
     /// 16 and 25 chunks (up to 4 KiB).
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
     #[test]
     fn neon_blocks_match_scalar() {
         use super::super::poly1305_neon::{CHUNK, blocks};

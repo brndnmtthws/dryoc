@@ -47,10 +47,10 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
   * Poly1305 (used by one-time authentication and secret boxes), except on
     AArch64 and x86-64 where dryoc keeps the soft backend with its
     runtime-detected bulk path because the portable-SIMD path is slower
-* Runtime-detected AArch64 backends on stable Rust, always built in on that
-  architecture: NEON and SVE2 keystream kernels for Salsa20 and ChaCha20, a
-  NEON Poly1305, `sha2`/`sha3` instruction SHA-256 and SHA-512 compression,
-  and a NEON Ed25519 basepoint table lookup
+* Runtime-detected AArch64 backends on stable Rust: NEON and SVE2 keystream
+  kernels for Salsa20 and ChaCha20, a NEON Poly1305, and `sha2`/`sha3`
+  instruction SHA-256 and SHA-512 compression on little-endian AArch64, and
+  a NEON Ed25519 basepoint table lookup on every AArch64 target
 * AArch64 `asm!` on stable Rust, built in on that architecture: the
   Curve25519 field multiply and square, register-scheduled scalar ChaCha20
   rounds, and (little-endian, default BLAKE2b backend) register-scheduled
