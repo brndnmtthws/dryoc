@@ -61,9 +61,7 @@ pub fn crypto_hash(output: &mut Digest, input: &[u8]) {
 
 /// Computes a SHA-256 hash from `input`.
 pub fn crypto_hash_sha256(output: &mut Sha256Digest, input: &[u8]) {
-    let mut state = crypto_hash_sha256_init();
-    crypto_hash_sha256_update(&mut state, input);
-    crypto_hash_sha256_final(state, output);
+    Sha256::compute_into_bytes(output, input);
 }
 
 /// Internal state for SHA-256 functions.
@@ -90,9 +88,7 @@ pub fn crypto_hash_sha256_final(state: Sha256State, output: &mut Sha256Digest) {
 
 /// Computes a SHA-512 hash from `input`.
 pub fn crypto_hash_sha512(output: &mut Digest, input: &[u8]) {
-    let mut state = crypto_hash_sha512_init();
-    crypto_hash_sha512_update(&mut state, input);
-    crypto_hash_sha512_final(state, output);
+    Sha512::compute_into_bytes(output, input);
 }
 
 /// Internal state for SHA-512 functions.

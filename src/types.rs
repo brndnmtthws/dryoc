@@ -5,11 +5,26 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::rng::copy_randombytes;
+use crate::utils::zeroize_bytes;
 
 /// A stack-allocated fixed-length byte array for working with data, with
 /// optional [Serde](https://serde.rs) features.
-#[derive(Zeroize, ZeroizeOnDrop, Clone)]
+#[derive(Clone)]
 pub struct StackByteArray<const LENGTH: usize>([u8; LENGTH]);
+
+impl<const LENGTH: usize> Zeroize for StackByteArray<LENGTH> {
+    fn zeroize(&mut self) {
+        zeroize_bytes(&mut self.0);
+    }
+}
+
+impl<const LENGTH: usize> Drop for StackByteArray<LENGTH> {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl<const LENGTH: usize> ZeroizeOnDrop for StackByteArray<LENGTH> {}
 
 impl<const LENGTH: usize> fmt::Debug for StackByteArray<LENGTH> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

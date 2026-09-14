@@ -12,13 +12,9 @@ use dryoc::dryocstream::{DryocStream, Header, Key, Pull};
 use dryoc::types::ByteArray;
 use libfuzzer_sys::fuzz_target;
 
-fn fill<const N: usize>(data: &mut &[u8]) -> [u8; N] {
-    let mut out = [0u8; N];
-    let n = out.len().min(data.len());
-    out[..n].copy_from_slice(&data[..n]);
-    *data = &data[n..];
-    out
-}
+#[path = "common.rs"]
+mod common;
+use common::fill;
 
 fuzz_target!(|data: &[u8]| {
     let mut data = data;

@@ -2,7 +2,6 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::blake2b;
 use crate::error::Error;
-use crate::utils::load_u64_le;
 
 // Version of the algorithm
 pub(crate) const ARGON2_VERSION_NUMBER: u32 = 0x13;
@@ -68,11 +67,31 @@ pub(crate) enum Argon2Type {
     Argon2id = 2,
 }
 
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone)]
 #[repr(align(64))]
 struct Block {
     v: [u64; ARGON2_QWORDS_IN_BLOCK],
 }
+
+impl Zeroize for Block {
+    fn zeroize(&mut self) {
+        // The derived implementation issues one volatile 8-byte store per
+        // word. `zeroize_u64s` covers the same words with volatile stores of
+        // the 16-byte aligned middle (`stp xzr, xzr` on AArch64) plus per-word
+        // stores for any unaligned ends, which makes freeing the memory region
+        // several times cheaper while every byte is still written by a
+        // volatile store that the compiler cannot elide.
+        crate::utils::zeroize_u64s(&mut self.v);
+    }
+}
+
+impl Drop for Block {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Block {}
 
 #[cfg_attr(feature = "nightly", allow(clippy::derivable_impls))]
 impl Default for Block {
@@ -135,11 +154,34 @@ macro_rules! apply_block_rounds {
 mod argon2_simd;
 #[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
 mod argon2_soft;
+#[cfg(target_arch = "x86_64")]
+mod argon2_x86_64;
 
 #[cfg(all(feature = "simd_backend", feature = "nightly"))]
-use argon2_simd::fill_block;
+use argon2_simd::fill_block as fill_block_portable;
 #[cfg(not(all(feature = "simd_backend", feature = "nightly")))]
-use argon2_soft::fill_block;
+use argon2_soft::fill_block as fill_block_portable;
+
+/// Overwrites `dst` with the compression of `prev_block` and `ref_block`,
+/// `P(R) ^ R` for `R = prev_block ^ ref_block`, XORing the previous contents
+/// of `dst` in as well when `xor_old` (the second and later passes). Uses the
+/// runtime-detected x86-64 kernel when there is one, else the portable
+/// backend.
+#[inline]
+fn fill_block(
+    dst: &mut Block,
+    prev_block: &Block,
+    ref_block: &Block,
+    xor_old: bool,
+    scratch: &mut Block,
+) {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(kernel) = argon2_x86_64::detect() {
+        kernel.fill_block(dst, prev_block, ref_block, xor_old, scratch);
+        return;
+    }
+    fill_block_portable(dst, prev_block, ref_block, xor_old, scratch);
+}
 
 #[derive(Default)]
 struct BlockRegion {
@@ -482,6 +524,8 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
         curr_offset - 1
     };
 
+    let mut scratch = Block::default();
+
     for (curr_offset, i) in (curr_offset..).zip(starting_index..instance.segment_length) {
         if curr_offset % instance.lane_length == 1 {
             prev_offset = curr_offset - 1;
@@ -507,21 +551,22 @@ fn fill_segment(instance: &mut Argon2Instance, position: &mut Argon2Position) {
             ref_lane == position.lane as u64,
         );
 
-        let next_block = {
-            let memory = &instance.region.memory;
-            let prev_block = &memory[prev_offset as usize];
-            let ref_block =
-                &memory[(instance.lane_length as u64 * ref_lane + ref_index as u64) as usize];
-            let curr_block = if position.pass == 0 {
-                None
-            } else {
-                Some(&memory[curr_offset as usize])
-            };
-
-            fill_block(prev_block, ref_block, curr_block)
-        };
-
-        instance.region.memory[curr_offset as usize] = next_block;
+        let ref_offset = (instance.lane_length as u64 * ref_lane + ref_index as u64) as usize;
+        // The reference block is never the current or the previous one
+        // (`index_alpha` excludes them), and the previous block is a
+        // different slot by construction, so the three are disjoint.
+        let [curr_block, prev_block, ref_block] = instance
+            .region
+            .memory
+            .get_disjoint_mut([curr_offset as usize, prev_offset as usize, ref_offset])
+            .expect("argon2 current, previous and reference blocks are distinct");
+        fill_block(
+            curr_block,
+            prev_block,
+            ref_block,
+            position.pass != 0,
+            &mut scratch,
+        );
         prev_offset += 1;
     }
 }
@@ -534,12 +579,12 @@ fn index_alpha(
 ) -> u32 {
     /*
      * Pass 0:
-     *      This lane : all already finished segments plus already constructed
-     * blocks in this segment
+     *      This lane : all already finished segments plus already
+     * constructed blocks in this segment
      *      Other lanes : all already finished segments
      * Pass 1+:
-     *      This lane : (SYNC_POINTS - 1) last segments plus already constructed
-     * blocks in this segment
+     *      This lane : (SYNC_POINTS - 1) last segments plus already
+     * constructed blocks in this segment
      *      Other lanes : (SYNC_POINTS - 1) last segments
      */
     let reference_area_size = if position.pass == 0 {
@@ -591,7 +636,9 @@ fn index_alpha(
 fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) {
     let mut input_block = Block::default();
     let zero_block = Block::default();
+    let mut tmp_block = Block::default();
     let mut address_block = Block::default();
+    let mut scratch = Block::default();
 
     input_block.v[0] = position.pass as u64;
     input_block.v[1] = position.lane as u64;
@@ -603,8 +650,20 @@ fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) 
     for i in 0..instance.segment_length {
         if i.is_multiple_of(ARGON2_ADDRESSES_IN_BLOCK) {
             input_block.v[6] += 1;
-            let tmp_block = fill_block(&zero_block, &input_block, None);
-            address_block = fill_block(&zero_block, &tmp_block, None);
+            fill_block(
+                &mut tmp_block,
+                &zero_block,
+                &input_block,
+                false,
+                &mut scratch,
+            );
+            fill_block(
+                &mut address_block,
+                &zero_block,
+                &tmp_block,
+                false,
+                &mut scratch,
+            );
         }
 
         instance.pseudo_rands[i as usize] =
@@ -612,27 +671,50 @@ fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) 
     }
 }
 
+/// Sets `dst` up as the permutation input `R = prev_block ^ ref_block`. When
+/// `xor_old`, `scratch` receives `R ^ old dst`, everything the finished
+/// permutation has to be XORed with; otherwise `R` is recomputed from its
+/// unchanged inputs by [`finish_in_place`] and `scratch` is untouched.
 #[inline]
-fn prepare_block(
+fn prepare_in_place(
+    dst: &mut Block,
     prev_block: &Block,
     ref_block: &Block,
-    next_block: Option<&Block>,
-) -> (Block, Block) {
-    let mut block_r = ref_block.clone();
-    xor_block(&mut block_r, prev_block);
-
-    let mut block_tmp = block_r.clone();
-    if let Some(next_block) = next_block {
-        xor_block(&mut block_tmp, next_block);
+    xor_old: bool,
+    scratch: &mut Block,
+) {
+    if xor_old {
+        for i in 0..ARGON2_QWORDS_IN_BLOCK {
+            let r = prev_block.v[i] ^ ref_block.v[i];
+            scratch.v[i] = dst.v[i] ^ r;
+            dst.v[i] = r;
+        }
+    } else {
+        for i in 0..ARGON2_QWORDS_IN_BLOCK {
+            dst.v[i] = prev_block.v[i] ^ ref_block.v[i];
+        }
     }
-
-    (block_r, block_tmp)
 }
 
+/// Turns the permuted `dst = P(R)` into the new block `P(R) ^ R [^ old]`,
+/// with `scratch` as left by [`prepare_in_place`] for the same `xor_old`.
 #[inline]
-fn finalize_block(mut block_tmp: Block, block_r: &Block) -> Block {
-    xor_block(&mut block_tmp, block_r);
-    block_tmp
+fn finish_in_place(
+    dst: &mut Block,
+    prev_block: &Block,
+    ref_block: &Block,
+    xor_old: bool,
+    scratch: &Block,
+) {
+    if xor_old {
+        for i in 0..ARGON2_QWORDS_IN_BLOCK {
+            dst.v[i] ^= scratch.v[i];
+        }
+    } else {
+        for i in 0..ARGON2_QWORDS_IN_BLOCK {
+            dst.v[i] ^= prev_block.v[i] ^ ref_block.v[i];
+        }
+    }
 }
 
 fn copy_block(dst: &mut Block, src: &Block) {
@@ -677,18 +759,16 @@ fn argon2_fill_first_blocks(
 }
 
 fn load_block(block: &mut Block, input: &[u8]) {
-    for i in 0..ARGON2_QWORDS_IN_BLOCK {
-        let start = i * 8;
-        let end = start + 8;
-        block.v[i] = load_u64_le(&input[start..end]);
+    let (words, _) = input.as_chunks::<8>();
+    for (word, bytes) in block.v.iter_mut().zip(words) {
+        *word = u64::from_le_bytes(*bytes);
     }
 }
 
 fn store_block(output: &mut [u8], block: &Block) {
-    for i in 0..ARGON2_QWORDS_IN_BLOCK {
-        let start = i * 8;
-        let end = start + 8;
-        output[start..end].copy_from_slice(&block.v[i].to_le_bytes());
+    let (words, _) = output.as_chunks_mut::<8>();
+    for (bytes, word) in words.iter_mut().zip(block.v.iter()) {
+        *bytes = word.to_le_bytes();
     }
 }
 
@@ -829,7 +909,10 @@ mod tests {
         });
     }
 
-    #[cfg(all(feature = "simd_backend", feature = "nightly"))]
+    #[cfg(any(
+        all(feature = "simd_backend", feature = "nightly"),
+        target_arch = "x86_64"
+    ))]
     fn test_block(seed: u64) -> Block {
         let mut block = Block::default();
         for (i, word) in block.v.iter_mut().enumerate() {
@@ -841,10 +924,15 @@ mod tests {
         block
     }
 
-    #[cfg(all(feature = "simd_backend", feature = "nightly"))]
-    #[test]
-    fn test_fill_block_simd_matches_soft() {
-        let cases = [
+    /// Zero blocks, structured blocks and random blocks, both overwriting
+    /// the destination (first pass, `None`) and XORing into it (later
+    /// passes, `Some(old)`).
+    #[cfg(any(
+        all(feature = "simd_backend", feature = "nightly"),
+        target_arch = "x86_64"
+    ))]
+    fn fill_block_cases() -> Vec<(Block, Block, Option<Block>)> {
+        let mut cases = vec![
             (Block::default(), Block::default(), None),
             (test_block(0), test_block(1), None),
             (
@@ -858,13 +946,75 @@ mod tests {
                 Some(test_block(0x9999_aaaa_bbbb_cccc)),
             ),
         ];
-
-        for (prev_block, ref_block, next_block) in cases {
-            let soft = argon2_soft::fill_block(&prev_block, &ref_block, next_block.as_ref());
-            let simd = argon2_simd::fill_block(&prev_block, &ref_block, next_block.as_ref());
-
-            assert_eq!(soft.v, simd.v);
+        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let mut random_block = || {
+            let mut block = Block::default();
+            for word in block.v.iter_mut() {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                *word = s;
+            }
+            block
+        };
+        for i in 0..256 {
+            let xor_old = (i % 2 == 1).then(&mut random_block);
+            cases.push((random_block(), random_block(), xor_old));
         }
+        cases
+    }
+
+    /// Every case of [`fill_block_cases`] through `candidate` must match the
+    /// scalar block compression.
+    #[cfg(any(
+        all(feature = "simd_backend", feature = "nightly"),
+        target_arch = "x86_64"
+    ))]
+    fn check_fill_block_matches_soft(
+        name: &str,
+        mut candidate: impl FnMut(&mut Block, &Block, &Block, bool, &mut Block),
+    ) {
+        for (i, (prev_block, ref_block, next_block)) in fill_block_cases().into_iter().enumerate() {
+            let mut soft = next_block.clone().unwrap_or_default();
+            let mut soft_scratch = Block::default();
+            argon2_soft::fill_block(
+                &mut soft,
+                &prev_block,
+                &ref_block,
+                next_block.is_some(),
+                &mut soft_scratch,
+            );
+            let mut actual = next_block.clone().unwrap_or_default();
+            let mut scratch = Block::default();
+            candidate(
+                &mut actual,
+                &prev_block,
+                &ref_block,
+                next_block.is_some(),
+                &mut scratch,
+            );
+            assert_eq!(soft.v, actual.v, "{name} case {i}");
+        }
+    }
+
+    /// The portable-SIMD block compression matches the scalar one.
+    #[cfg(all(feature = "simd_backend", feature = "nightly"))]
+    #[test]
+    fn test_fill_block_simd_matches_soft() {
+        check_fill_block_matches_soft("portable simd", argon2_simd::fill_block);
+    }
+
+    /// Every x86-64 kernel the CPU supports matches the scalar block
+    /// compression, and the production dispatch agrees with the scalar one.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_fill_block_x86_64_matches_soft() {
+        for kernel in argon2_x86_64::Kernel::all() {
+            check_fill_block_matches_soft(&format!("{kernel:?}"), |d, p, r, x, s| {
+                kernel.fill_block(d, p, r, x, s)
+            });
+        }
+        check_fill_block_matches_soft("dispatch", fill_block);
     }
 
     #[test]
@@ -1011,6 +1161,53 @@ mod tests {
                     132, 187, 20, 129, 150, 215, 60, 29, 241, 172, 175, 109, 12, 46
                 ]
             );
+        }
+
+        /// libsodium's `argon2_hash` with the same parameters as
+        /// `bench_argon2id`, so the two rows are directly comparable.
+        #[cfg(feature = "nightly")]
+        fn bench_libsodium_argon2id(b: &mut test::Bencher, t_cost: u32, m_cost: u32) {
+            sodiumoxide::init().expect("sodiumoxide init");
+
+            let password = [1u8; 32];
+            let salt = [2u8; 16];
+            let mut hash = [0u8; 32];
+
+            b.bytes = t_cost as u64 * m_cost as u64 * 1024;
+            b.iter(|| {
+                // SAFETY: `password`, `salt` and `hash` are valid for the
+                // lengths passed; the encoded output is null with zero length.
+                let rc = unsafe {
+                    argon2_hash(
+                        test::black_box(t_cost),
+                        test::black_box(m_cost),
+                        1,
+                        password.as_ptr(),
+                        password.len(),
+                        salt.as_ptr(),
+                        salt.len(),
+                        hash.as_mut_ptr(),
+                        hash.len(),
+                        std::ptr::null_mut(),
+                        0,
+                        Argon2Type::Argon2id as i32,
+                    )
+                };
+                assert_eq!(rc, 0);
+                test::black_box(&hash);
+            });
+        }
+
+        #[cfg(feature = "nightly")]
+        #[bench]
+        fn libsodium_argon2id_64kib_bench(b: &mut test::Bencher) {
+            bench_libsodium_argon2id(b, 2, 64);
+        }
+
+        #[cfg(feature = "nightly")]
+        #[bench]
+        fn libsodium_argon2id_1mib_bench(b: &mut test::Bencher) {
+            bench_libsodium_argon2id(b, 2, 1024);
         }
     }
 }

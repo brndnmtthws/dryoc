@@ -41,22 +41,17 @@
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
 
-use chacha20::ChaCha20Legacy;
-use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
+use crate::chacha20::ChaCha20;
+use crate::classic::crypto_aead_chacha20poly1305_impl::impl_chacha20poly1305_aead;
 use crate::classic::crypto_core::{HChaCha20Key, crypto_core_hchacha20};
 use crate::constants::{
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES, CRYPTO_CORE_HCHACHA20_INPUTBYTES,
 };
-use crate::error::Error;
-use crate::poly1305::{Key as Poly1305Key, Poly1305};
-use crate::rng::copy_randombytes;
 use crate::types::*;
-use crate::utils::pad16;
 
 /// Authentication tag for XChaCha20-Poly1305-IETF AEAD.
 pub type Mac = [u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
@@ -65,56 +60,9 @@ pub type Nonce = [u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES];
 /// Secret key for XChaCha20-Poly1305-IETF AEAD.
 pub type Key = [u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES];
 
-const PAD0: [u8; 16] = [0u8; 16];
-
-/// In-place variant of [`crypto_aead_xchacha20poly1305_ietf_keygen`].
-pub fn crypto_aead_xchacha20poly1305_ietf_keygen_inplace(key: &mut Key) {
-    copy_randombytes(key)
-}
-
-/// Generates a random key using [`copy_randombytes`].
-pub fn crypto_aead_xchacha20poly1305_ietf_keygen() -> Key {
-    Key::generate()
-}
-
-fn validate_message_len(message_len: usize) -> Result<(), Error> {
-    if message_len > CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX {
-        Err(length_error!(
-            crate::ErrorContext::Message,
-            message_len,
-            max CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-fn validate_output_len(
-    output_len: usize,
-    expected_len: usize,
-    context: crate::ErrorContext,
-) -> Result<(), Error> {
-    if output_len != expected_len {
-        Err(length_error!(context, output_len, exact expected_len))
-    } else {
-        Ok(())
-    }
-}
-
-fn message_len_from_combined_len(
-    combined_len: usize,
-    context: crate::ErrorContext,
-) -> Result<usize, Error> {
-    if combined_len < CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES {
-        Err(length_error!(context, combined_len, min CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES))
-    } else {
-        let message_len = combined_len - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
-        validate_message_len(message_len)?;
-        Ok(message_len)
-    }
-}
-
-fn chacha20_xietf_ext(nonce: &Nonce, key: &Key) -> ChaCha20Legacy {
+/// libsodium's `chacha20_ietf_ext` stream for `nonce` and `key`, positioned
+/// at block `counter`.
+fn xchacha20_stream(nonce: &Nonce, key: &Key, counter: u64) -> ChaCha20 {
     let mut subkey = HChaCha20Key::default();
     crypto_core_hchacha20(
         &mut subkey,
@@ -127,300 +75,145 @@ fn chacha20_xietf_ext(nonce: &Nonce, key: &Key) -> ChaCha20Legacy {
     // 32-bit block counter to overflow into the leading zero nonce word. With
     // XChaCha's `0 || nonce_tail` derived nonce, that is equivalent to the
     // original 64-bit-counter ChaCha20 layout with `nonce_tail`.
-    let mut legacy_nonce =
-        [0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES - CRYPTO_CORE_HCHACHA20_INPUTBYTES];
-    legacy_nonce.copy_from_slice(&nonce[CRYPTO_CORE_HCHACHA20_INPUTBYTES..]);
-
-    let mut chacha_key = subkey.into();
-    let chacha_nonce = legacy_nonce.into();
-    let cipher = ChaCha20Legacy::new(&chacha_key, &chacha_nonce);
-
+    let nonce_tail = ByteArray::as_array(&nonce[CRYPTO_CORE_HCHACHA20_INPUTBYTES..]);
+    let cipher = ChaCha20::legacy(&subkey, nonce_tail, counter);
     subkey.zeroize();
-    chacha_key.zeroize();
-
     cipher
 }
 
-fn poly1305_key(cipher: &mut ChaCha20Legacy) -> Poly1305Key {
-    let mut mac_key = Poly1305Key::new();
-    cipher.apply_keystream(&mut mac_key);
-    mac_key
-}
+impl_chacha20poly1305_aead! {
+    abytes: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
+    // libsodium's XChaCha bound: the extended-counter stream never wraps
+    // within an addressable message.
+    messagebytes_max: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX,
+    stream: |nonce: &Nonce, key: &Key| xchacha20_stream(nonce, key, 0),
+    key: Key,
+    nonce: Nonce,
+    mac: Mac,
 
-fn compute_mac(mac: &mut Mac, mac_key: &mut Poly1305Key, ciphertext: &[u8], ad: &[u8]) {
-    let mut state = Poly1305::new(mac_key);
-    mac_key.zeroize();
+    /// In-place variant of [`crypto_aead_xchacha20poly1305_ietf_keygen`].
+    keygen_inplace: crypto_aead_xchacha20poly1305_ietf_keygen_inplace,
 
-    state.update(ad);
-    state.update(&PAD0[..pad16(ad.len())]);
-    state.update(ciphertext);
-    state.update(&PAD0[..pad16(ciphertext.len())]);
-    state.update(&(ad.len() as u64).to_le_bytes());
-    state.update(&(ciphertext.len() as u64).to_le_bytes());
-    state.finalize(mac);
-}
+    /// Generates a random key using [`copy_randombytes`](crate::rng::copy_randombytes).
+    keygen: crypto_aead_xchacha20poly1305_ietf_keygen,
 
-fn compute_mac_to_array(mac_key: &mut Poly1305Key, ciphertext: &[u8], ad: &[u8]) -> Mac {
-    let mut mac = Mac::default();
-    compute_mac(&mut mac, mac_key, ciphertext, ad);
-    mac
-}
+    /// Detached version of [`crypto_aead_xchacha20poly1305_ietf_encrypt`].
+    ///
+    /// Compatible with libsodium's
+    /// `crypto_aead_xchacha20poly1305_ietf_encrypt_detached`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `message` exceeds the maximum supported length or
+    /// `ciphertext.len()` does not equal `message.len()`.
+    encrypt_detached: crypto_aead_xchacha20poly1305_ietf_encrypt_detached,
 
-fn verify_mac(mac: &Mac, computed_mac: &Mac) -> Result<(), Error> {
-    if mac.ct_eq(computed_mac).unwrap_u8() == 1 {
-        Ok(())
-    } else {
-        Err(Error::AuthenticationFailed)
-    }
-}
+    /// In-place detached variant of
+    /// [`crypto_aead_xchacha20poly1305_ietf_encrypt_detached`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `data` exceeds the maximum supported message length.
+    encrypt_detached_inplace: crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace,
 
-/// Detached version of [`crypto_aead_xchacha20poly1305_ietf_encrypt`].
-///
-/// Compatible with libsodium's
-/// `crypto_aead_xchacha20poly1305_ietf_encrypt_detached`.
-///
-/// # Errors
-///
-/// Returns an error if `message` exceeds the maximum supported length or
-/// `ciphertext.len()` does not equal `message.len()`.
-pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
-    ciphertext: &mut [u8],
-    mac: &mut Mac,
-    message: &[u8],
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    validate_message_len(message.len())?;
-    validate_output_len(
-        ciphertext.len(),
-        message.len(),
-        crate::ErrorContext::Ciphertext,
-    )?;
+    /// Detached version of [`crypto_aead_xchacha20poly1305_ietf_decrypt`].
+    ///
+    /// Compatible with libsodium's
+    /// `crypto_aead_xchacha20poly1305_ietf_decrypt_detached`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `ciphertext` is too long, `message.len()` does not equal
+    /// `ciphertext.len()`, or authentication fails.
+    decrypt_detached: crypto_aead_xchacha20poly1305_ietf_decrypt_detached,
 
-    let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf_ext(nonce, key);
-    let mut mac_key = poly1305_key(&mut cipher);
+    /// In-place detached variant of
+    /// [`crypto_aead_xchacha20poly1305_ietf_decrypt_detached`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `data` exceeds the maximum supported message length or
+    /// authentication fails.
+    decrypt_detached_inplace: crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace,
 
-    ciphertext.copy_from_slice(message);
-    cipher.seek(64);
-    cipher.apply_keystream(ciphertext);
+    /// Encrypts `message` with `nonce`, `key`, and optional associated data.
+    ///
+    /// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_encrypt`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `message` exceeds the maximum supported length or
+    /// `ciphertext` is not exactly one authentication tag longer than `message`.
+    encrypt: crypto_aead_xchacha20poly1305_ietf_encrypt,
 
-    compute_mac(mac, &mut mac_key, ciphertext, associated_data);
-    Ok(())
-}
+    /// Decrypts `ciphertext` with `nonce`, `key`, and optional associated data.
+    ///
+    /// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_decrypt`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `ciphertext` is shorter than an authentication tag,
+    /// `message` has the wrong length, or authentication fails.
+    decrypt: crypto_aead_xchacha20poly1305_ietf_decrypt,
 
-/// In-place detached variant of
-/// [`crypto_aead_xchacha20poly1305_ietf_encrypt_detached`].
-///
-/// # Errors
-///
-/// Returns an error if `data` exceeds the maximum supported message length.
-pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
-    data: &mut [u8],
-    mac: &mut Mac,
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    validate_message_len(data.len())?;
+    /// Encrypts `data` in place and appends the authentication tag.
+    ///
+    /// The last [`CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES`] bytes are reserved
+    /// for the tag and are ignored as plaintext input.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `data` is shorter than an authentication tag or its
+    /// plaintext portion exceeds the maximum supported message length.
+    encrypt_inplace: crypto_aead_xchacha20poly1305_ietf_encrypt_inplace,
 
-    let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf_ext(nonce, key);
-    let mut mac_key = poly1305_key(&mut cipher);
-
-    cipher.seek(64);
-    cipher.apply_keystream(data);
-
-    compute_mac(mac, &mut mac_key, data, associated_data);
-    Ok(())
-}
-
-/// Detached version of [`crypto_aead_xchacha20poly1305_ietf_decrypt`].
-///
-/// Compatible with libsodium's
-/// `crypto_aead_xchacha20poly1305_ietf_decrypt_detached`.
-///
-/// # Errors
-///
-/// Returns an error if `ciphertext` is too long, `message.len()` does not equal
-/// `ciphertext.len()`, or authentication fails.
-pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
-    message: &mut [u8],
-    ciphertext: &[u8],
-    mac: &Mac,
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    validate_message_len(ciphertext.len())?;
-    validate_output_len(
-        message.len(),
-        ciphertext.len(),
-        crate::ErrorContext::Message,
-    )?;
-
-    let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf_ext(nonce, key);
-    let mut mac_key = poly1305_key(&mut cipher);
-    let computed_mac = compute_mac_to_array(&mut mac_key, ciphertext, associated_data);
-
-    verify_mac(mac, &computed_mac)?;
-    message.copy_from_slice(ciphertext);
-    cipher.seek(64);
-    cipher.apply_keystream(message);
-    Ok(())
-}
-
-/// In-place detached variant of
-/// [`crypto_aead_xchacha20poly1305_ietf_decrypt_detached`].
-///
-/// # Errors
-///
-/// Returns an error if `data` exceeds the maximum supported message length or
-/// authentication fails.
-pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(
-    data: &mut [u8],
-    mac: &Mac,
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    validate_message_len(data.len())?;
-
-    let associated_data = associated_data.unwrap_or(&[]);
-    let mut cipher = chacha20_xietf_ext(nonce, key);
-    let mut mac_key = poly1305_key(&mut cipher);
-    let computed_mac = compute_mac_to_array(&mut mac_key, data, associated_data);
-
-    verify_mac(mac, &computed_mac)?;
-    cipher.seek(64);
-    cipher.apply_keystream(data);
-    Ok(())
-}
-
-/// Encrypts `message` with `nonce`, `key`, and optional associated data.
-///
-/// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_encrypt`.
-///
-/// # Errors
-///
-/// Returns an error if `message` exceeds the maximum supported length or
-/// `ciphertext` is not exactly one authentication tag longer than `message`.
-pub fn crypto_aead_xchacha20poly1305_ietf_encrypt(
-    ciphertext: &mut [u8],
-    message: &[u8],
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    validate_message_len(message.len())?;
-    validate_output_len(
-        ciphertext.len(),
-        message.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
-        crate::ErrorContext::Ciphertext,
-    )?;
-
-    let (ciphertext, mac) = ciphertext.split_at_mut(message.len());
-    let mac = MutByteArray::as_mut_array(mac);
-    crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
-        ciphertext,
-        mac,
-        message,
-        associated_data,
-        nonce,
-        key,
-    )
-}
-
-/// Decrypts `ciphertext` with `nonce`, `key`, and optional associated data.
-///
-/// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_decrypt`.
-///
-/// # Errors
-///
-/// Returns an error if `ciphertext` is shorter than an authentication tag,
-/// `message` has the wrong length, or authentication fails.
-pub fn crypto_aead_xchacha20poly1305_ietf_decrypt(
-    message: &mut [u8],
-    ciphertext: &[u8],
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    let message_len =
-        message_len_from_combined_len(ciphertext.len(), crate::ErrorContext::Ciphertext)?;
-    validate_output_len(message.len(), message_len, crate::ErrorContext::Message)?;
-
-    let (ciphertext, mac) = ciphertext.split_at(message_len);
-    let mac = ByteArray::as_array(mac);
-    crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
-        message,
-        ciphertext,
-        mac,
-        associated_data,
-        nonce,
-        key,
-    )
-}
-
-/// Encrypts `data` in place and appends the authentication tag.
-///
-/// The last [`CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES`] bytes are reserved
-/// for the tag and are ignored as plaintext input.
-///
-/// # Errors
-///
-/// Returns an error if `data` is shorter than an authentication tag or its
-/// plaintext portion exceeds the maximum supported message length.
-pub fn crypto_aead_xchacha20poly1305_ietf_encrypt_inplace(
-    data: &mut [u8],
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    let message_len = message_len_from_combined_len(data.len(), crate::ErrorContext::Data)?;
-    let (data, mac) = data.split_at_mut(message_len);
-    let mac = MutByteArray::as_mut_array(mac);
-    crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
-        data,
-        mac,
-        associated_data,
-        nonce,
-        key,
-    )
-}
-
-/// Decrypts `data` in place after verifying the appended authentication tag.
-///
-/// After success, the first `data.len() -
-/// CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES` bytes contain the plaintext.
-///
-/// # Errors
-///
-/// Returns an error if `data` is shorter than an authentication tag or
-/// authentication fails.
-pub fn crypto_aead_xchacha20poly1305_ietf_decrypt_inplace(
-    data: &mut [u8],
-    associated_data: Option<&[u8]>,
-    nonce: &Nonce,
-    key: &Key,
-) -> Result<(), Error> {
-    let message_len = message_len_from_combined_len(data.len(), crate::ErrorContext::Data)?;
-    let (data, mac) = data.split_at_mut(message_len);
-    let mac = ByteArray::as_array(mac);
-    crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(
-        data,
-        mac,
-        associated_data,
-        nonce,
-        key,
-    )
+    /// Decrypts `data` in place after verifying the appended authentication tag.
+    ///
+    /// After success, the first `data.len() -
+    /// CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES` bytes contain the plaintext.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `data` is shorter than an authentication tag or
+    /// authentication fails.
+    decrypt_inplace: crypto_aead_xchacha20poly1305_ietf_decrypt_inplace,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{Error, LengthConstraint};
+
+    #[test]
+    fn test_message_len_bound_is_xchacha_max() {
+        const MAX: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX;
+        const ABYTES: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
+
+        assert!(validate_message_len(MAX).is_ok());
+        assert!(matches!(
+            validate_message_len(MAX + 1),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                actual,
+                constraint: LengthConstraint::AtMost(max),
+            }) if actual == MAX + 1 && max == MAX
+        ));
+
+        // libsodium's bound leaves exactly one tag below the address space, so
+        // every combined length at or above `ABYTES` is a valid message length.
+        assert!(matches!(
+            message_len_from_combined_len(MAX + ABYTES, crate::ErrorContext::Ciphertext),
+            Ok(len) if len == MAX
+        ));
+        assert!(matches!(
+            message_len_from_combined_len(ABYTES - 1, crate::ErrorContext::Ciphertext),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                constraint: LengthConstraint::AtLeast(ABYTES),
+                ..
+            })
+        ));
+    }
 
     const MESSAGE: &[u8] =
         b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
@@ -644,8 +437,7 @@ mod tests {
 
     #[test]
     fn test_xietf_ext_stream_crosses_ietf_counter_boundary() {
-        let mut cipher = chacha20_xietf_ext(&NONCE, &KEY);
-        cipher.seek(64u64 * u64::from(u32::MAX));
+        let mut cipher = xchacha20_stream(&NONCE, &KEY, u64::from(u32::MAX));
 
         let mut stream = [0u8; 128];
         cipher.apply_keystream(&mut stream);
@@ -757,8 +549,7 @@ mod tests {
             }
 
             let mut actual = [0u8; 128];
-            let mut cipher = chacha20_xietf_ext(&NONCE, &KEY);
-            cipher.seek(64 * initial_counter);
+            let mut cipher = xchacha20_stream(&NONCE, &KEY, initial_counter);
             cipher.apply_keystream(&mut actual);
 
             assert_eq!(actual, expected);

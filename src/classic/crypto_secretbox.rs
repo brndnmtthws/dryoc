@@ -506,4 +506,61 @@ mod tests {
     fn crypto_secretbox_detached_1mib_bench(b: &mut test::Bencher) {
         bench_crypto_secretbox_detached(b, 1024 * 1024);
     }
+
+    /// libsodium's `crypto_secretbox_detached` with the same buffers as
+    /// `bench_crypto_secretbox_detached`, so the two rows are directly
+    /// comparable.
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
+    fn bench_libsodium_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
+        sodiumoxide::init().expect("sodiumoxide init");
+
+        let key: Key = crypto_secretbox_keygen();
+        let nonce = Nonce::generate();
+        let mut message = vec![0u8; message_len];
+        crate::rng::copy_randombytes(&mut message);
+        let mut ciphertext = vec![0u8; message_len];
+        let mut mac = Mac::default();
+
+        b.bytes = message_len as u64;
+        b.iter(|| {
+            // SAFETY: `ciphertext` and `message` are both `message_len` bytes,
+            // and `mac`, `nonce` and `key` are exact-size arrays.
+            let rc = unsafe {
+                libsodium_sys::crypto_secretbox_detached(
+                    ciphertext.as_mut_ptr(),
+                    mac.as_mut_ptr(),
+                    test::black_box(message.as_ptr()),
+                    message_len as u64,
+                    nonce.as_ptr(),
+                    key.as_ptr(),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box((&ciphertext, &mac));
+        });
+    }
+
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
+    #[bench]
+    fn libsodium_secretbox_detached_64b_bench(b: &mut test::Bencher) {
+        bench_libsodium_secretbox_detached(b, 64);
+    }
+
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
+    #[bench]
+    fn libsodium_secretbox_detached_1kib_bench(b: &mut test::Bencher) {
+        bench_libsodium_secretbox_detached(b, 1024);
+    }
+
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
+    #[bench]
+    fn libsodium_secretbox_detached_16kib_bench(b: &mut test::Bencher) {
+        bench_libsodium_secretbox_detached(b, 16 * 1024);
+    }
+
+    #[cfg(all(feature = "nightly", dryoc_native_tests))]
+    #[bench]
+    fn libsodium_secretbox_detached_1mib_bench(b: &mut test::Bencher) {
+        bench_libsodium_secretbox_detached(b, 1024 * 1024);
+    }
 }

@@ -29,19 +29,21 @@
 //! assert_eq!(extracted_public_key, public_key);
 //! ```
 
-use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
-use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
 use zeroize::Zeroize;
 
-use super::crypto_core::decompress_canonical_ed25519_point;
+use super::crypto_core::{
+    decompress_canonical_ed25519_point, decompress_prime_order_ed25519_point,
+};
 use crate::constants::{
     CRYPTO_HASH_SHA512_BYTES, CRYPTO_SCALARMULT_CURVE25519_BYTES,
     CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES, CRYPTO_SIGN_ED25519_BYTES,
     CRYPTO_SIGN_ED25519_PUBLICKEYBYTES, CRYPTO_SIGN_ED25519_SECRETKEYBYTES,
     CRYPTO_SIGN_ED25519_SEEDBYTES,
 };
+use crate::edwards25519::mul_base;
 use crate::error::Error;
+use crate::scalarmult_curve25519::clamp_scalar;
 use crate::sha512::Sha512;
 
 /// Type alias for an Ed25519 public key.
@@ -63,16 +65,13 @@ pub(crate) fn crypto_sign_ed25519_seed_keypair_inplace(
     let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
 
     let mut clamped = clamp_hash(&mut hash);
-    let mut sk = Scalar::from_bytes_mod_order(clamped);
+    let pk = mul_base(&clamped).compress();
     clamped.zeroize();
 
-    let pk = (ED25519_BASEPOINT_TABLE * &sk).compress();
     secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
-    secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..].copy_from_slice(pk.as_bytes());
+    secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..].copy_from_slice(&pk);
 
-    public_key.copy_from_slice(pk.as_bytes());
-
-    sk.zeroize();
+    public_key.copy_from_slice(&pk);
 }
 
 /// Generates an Ed25519 keypair from `seed` which can be used for signing
@@ -117,9 +116,7 @@ fn clamp_hash(
     let mut scalar = [0u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES];
     scalar.copy_from_slice(&hash[..CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]);
     hash.zeroize();
-    scalar[0] &= 248;
-    scalar[31] &= 127;
-    scalar[31] |= 64;
+    clamp_scalar(&mut scalar);
     scalar
 }
 
@@ -136,10 +133,9 @@ pub fn crypto_sign_ed25519_pk_to_curve25519(
     x25519_public_key: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     ed25519_public_key: &PublicKey,
 ) -> Result<(), Error> {
-    let ep = decompress_canonical_ed25519_point(ed25519_public_key)
-        .filter(|point| !point.is_small_order() && point.is_torsion_free())
+    let ep = decompress_prime_order_ed25519_point(ed25519_public_key)
         .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
-    x25519_public_key.copy_from_slice(ep.to_montgomery().as_bytes());
+    *x25519_public_key = ep.to_montgomery();
 
     Ok(())
 }
@@ -233,9 +229,11 @@ fn crypto_sign_ed25519_detached_impl(
         signature[32..].copy_from_slice(&secret_key[32..]);
 
         let mut r = Scalar::from_bytes_mod_order_wide(&nonce);
-        let big_r = (ED25519_BASEPOINT_TABLE * &r).compress();
+        let mut r_bytes = r.to_bytes();
+        let big_r = mul_base(&r_bytes).compress();
+        r_bytes.zeroize();
 
-        signature[..32].copy_from_slice(big_r.as_bytes());
+        signature[..32].copy_from_slice(&big_r);
 
         let mut hasher = Sha512::new();
         if prehashed {
@@ -306,9 +304,12 @@ fn crypto_sign_ed25519_verify_detached_impl(
 
     let k = Scalar::from_bytes_mod_order_wide(&h);
 
-    let sig_r = EdwardsPoint::vartime_double_scalar_mul_basepoint(&k, &(-pk), &s);
+    // R' = [k](-A) + [s]B must equal R; both sides are public.
+    let sig_r = pk
+        .neg()
+        .double_scalar_mul_basepoint_vartime(&k.to_bytes(), &s.to_bytes());
 
-    if sig_r == big_r {
+    if sig_r.eq_vartime(&big_r) {
         Ok(())
     } else {
         Err(Error::AuthenticationFailed)
@@ -381,6 +382,7 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
 #[cfg(test)]
 mod regression_tests {
     use super::*;
+    use crate::classic::crypto_core::ed25519_is_torsion_free;
 
     const ED25519_GROUP_ORDER: [u8; 32] = [
         0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
@@ -456,7 +458,7 @@ mod regression_tests {
             .to_bytes();
         let mixed_point = decompress_canonical_ed25519_point(&mixed_order).unwrap();
         assert!(!mixed_point.is_small_order());
-        assert!(!mixed_point.is_torsion_free());
+        assert!(!ed25519_is_torsion_free(&mixed_point));
 
         for invalid_key in [identity, noncanonical_identity, mixed_order] {
             let mut output = [0xa5; CRYPTO_SCALARMULT_CURVE25519_BYTES];

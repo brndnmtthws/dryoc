@@ -1,0 +1,966 @@
+//! Group arithmetic on edwards25519 for Ed25519 and `crypto_core`.
+//!
+//! Points use extended twisted Edwards coordinates over
+//! [`crate::fe25519::Fe`]. Two scalar multiplications are provided:
+//!
+//! - [`mul_base`]: `[s]B` for a *secret* scalar `s`, through a precomputed
+//!   table of basepoint multiples in affine Niels form (the layout of
+//!   libsodium's `ge25519_scalarmult_base` and dalek's basepoint table). The
+//!   scalar is consumed as 64 signed radix-16 digits; every digit selects a
+//!   table entry with constant-time compares and conditional moves, so the
+//!   sequence of operations and memory accesses does not depend on the scalar.
+//! - [`Point::double_scalar_mul_basepoint_vartime`]: `[a]A + [b]B` for *public*
+//!   scalars (signature verification, subgroup checks) by Straus's method over
+//!   width-5 / width-8 non-adjacent forms, with branches on the digits.
+//!
+//! Both tables are built once on first use (`LazyLock`).
+
+use std::sync::LazyLock;
+
+use subtle::{ConditionallySelectable, ConstantTimeEq};
+use zeroize::Zeroize;
+
+use crate::fe25519::{EDWARDS_D, Fe};
+
+#[cfg(target_arch = "aarch64")]
+mod edwards25519_neon;
+#[cfg(target_arch = "x86_64")]
+mod edwards25519_x86_64;
+
+/// `2 * d`, where `d = -121665 / 121666` is the curve constant.
+const EDWARDS_D2: Fe = Fe([
+    0x0006_9b94_26b2_f159,
+    0x0003_5050_762a_dd7a,
+    0x0003_cf44_c003_8052,
+    0x0006_738c_c740_7977,
+    0x0002_406d_9dc5_6dff,
+]);
+
+/// The basepoint order `L = 2^252 + 27742317777372353535851937790883648493`.
+const GROUP_ORDER: [u8; 32] = [
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+];
+
+/// Basepoint x coordinate (RFC 8032 section 5.1).
+const BASE_X: [u8; 32] = [
+    0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9, 0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
+    0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0, 0xfe, 0x53, 0x6e, 0xcd, 0xd3, 0x36, 0x69, 0x21,
+];
+
+/// Basepoint y coordinate, `4 / 5`.
+const BASE_Y: [u8; 32] = [
+    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+];
+
+/// Point in extended coordinates: `x = X / Z`, `y = Y / Z`, `x * y = T / Z`.
+///
+/// Coordinates are always weakly reduced multiply outputs.
+#[derive(Clone, Copy, Zeroize)]
+pub(crate) struct Point {
+    x: Fe,
+    y: Fe,
+    z: Fe,
+    t: Fe,
+}
+
+/// Affine point cached for mixed addition: `(y + x, y - x, 2 d x y)`, each
+/// canonically reduced.
+#[derive(Clone, Copy, Zeroize)]
+struct Niels {
+    y_plus_x: Fe,
+    y_minus_x: Fe,
+    xy2d: Fe,
+}
+
+/// Point in projective coordinates `(X : Y : Z)`, an extended point with its
+/// `T` dropped. Used between consecutive doublings in the variable-time
+/// double-scalar multiplication, where `T` is only needed by an addition.
+#[derive(Clone, Copy)]
+struct Projective {
+    x: Fe,
+    y: Fe,
+    z: Fe,
+}
+
+/// Extended point cached for repeated variable-base mixed addition:
+/// `(Y + X, Y - X, 2 Z, 2 d T)` (dalek's `ProjectiveNielsPoint` with `Z`
+/// pre-doubled). The sums are add/sub outputs (below 2^53), `t2d` a weakly
+/// reduced multiply output (below 2^51 + 2^13); every field is a valid
+/// `mul` operand (below 2^54) but not canonical.
+#[derive(Clone, Copy)]
+struct ProjectiveNiels {
+    y_plus_x: Fe,
+    y_minus_x: Fe,
+    z2: Fe,
+    t2d: Fe,
+}
+
+impl ProjectiveNiels {
+    /// `-self`: swap the sums and negate `2 d T`.
+    fn neg(&self) -> ProjectiveNiels {
+        ProjectiveNiels {
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            z2: self.z2,
+            t2d: self.t2d.neg(),
+        }
+    }
+}
+
+impl Projective {
+    const IDENTITY: Projective = Projective {
+        x: Fe::ZERO,
+        y: Fe::ONE,
+        z: Fe::ONE,
+    };
+
+    /// `E, F, G, H` of dbl-2008-hwcd with `a = -1`, all negated (the same
+    /// projective point): `X3 = E F`, `Y3 = G H`, `Z3 = F G`, `T3 = E H`.
+    /// Subtrahends are reduced squares and every multiply input is below
+    /// 2^54 per limb.
+    #[inline(always)]
+    fn double_parts(&self) -> (Fe, Fe, Fe, Fe) {
+        let a = self.x.square();
+        let b = self.y.square();
+        let zz = self.z.square();
+        let c = zz.add(&zz);
+        let s = self.x.add(&self.y).square();
+        let h = a.add(&b);
+        let e = h.sub(&s);
+        let g = a.sub(&b);
+        let f = c.add(&g);
+        (e, f, g, h)
+    }
+
+    /// `2 * self` without `T` (3M + 4S).
+    #[inline(always)]
+    fn double(&self) -> Projective {
+        let (e, f, g, h) = self.double_parts();
+        Projective {
+            x: e.mul(&f),
+            y: g.mul(&h),
+            z: f.mul(&g),
+        }
+    }
+
+    /// `2 * self` in extended coordinates (4M + 4S).
+    #[inline(always)]
+    fn double_extended(&self) -> Point {
+        let (e, f, g, h) = self.double_parts();
+        Point {
+            x: e.mul(&f),
+            y: g.mul(&h),
+            z: f.mul(&g),
+            t: e.mul(&h),
+        }
+    }
+}
+
+impl ConditionallySelectable for Niels {
+    fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
+        let mask = 0u64.wrapping_sub(u64::from(choice.unwrap_u8()));
+        let mut out = *a;
+        out.y_plus_x.conditional_assign(&b.y_plus_x, mask);
+        out.y_minus_x.conditional_assign(&b.y_minus_x, mask);
+        out.xy2d.conditional_assign(&b.xy2d, mask);
+        out
+    }
+}
+
+impl Niels {
+    const IDENTITY: Niels = Niels {
+        y_plus_x: Fe::ONE,
+        y_minus_x: Fe::ONE,
+        xy2d: Fe::ZERO,
+    };
+
+    /// Negates in place when `mask` is all ones.
+    fn conditional_negate(&mut self, mask: u64) {
+        let swapped = Niels {
+            y_plus_x: self.y_minus_x,
+            y_minus_x: self.y_plus_x,
+            xy2d: self.xy2d.neg(),
+        };
+        self.y_plus_x.conditional_assign(&swapped.y_plus_x, mask);
+        self.y_minus_x.conditional_assign(&swapped.y_minus_x, mask);
+        self.xy2d.conditional_assign(&swapped.xy2d, mask);
+    }
+}
+
+impl Point {
+    const IDENTITY: Point = Point {
+        x: Fe::ZERO,
+        y: Fe::ONE,
+        z: Fe::ONE,
+        t: Fe::ZERO,
+    };
+
+    /// `self + n` (add-2008-hwcd-3 with the cached Niels operand). Every
+    /// subtrahend is reduced and every multiply input is below 2^54 per limb.
+    #[inline(always)]
+    fn add_niels(&self, n: &Niels) -> Point {
+        let pp = self.y.add(&self.x).mul(&n.y_plus_x);
+        let mm = self.y.sub(&self.x).mul(&n.y_minus_x);
+        let tt = self.t.mul(&n.xy2d);
+        let zz = self.z.add(&self.z);
+        let e = pp.sub(&mm);
+        let h = pp.add(&mm);
+        let f = zz.sub(&tt);
+        let g = zz.add(&tt);
+        Point {
+            x: e.mul(&f),
+            y: g.mul(&h),
+            z: f.mul(&g),
+            t: e.mul(&h),
+        }
+    }
+
+    /// `self + n` for a cached extended operand (add-2008-hwcd-3, 8M): the
+    /// `2 d T` and `2 Z` of the operand are precomputed. Subtrahends are
+    /// reduced multiply outputs and every multiply input is below 2^54.
+    #[inline(always)]
+    fn add_projective_niels(&self, n: &ProjectiveNiels) -> Point {
+        let pp = self.y.add(&self.x).mul(&n.y_plus_x);
+        let mm = self.y.sub(&self.x).mul(&n.y_minus_x);
+        let tt = self.t.mul(&n.t2d);
+        let zz = self.z.mul(&n.z2);
+        let e = pp.sub(&mm);
+        let h = pp.add(&mm);
+        let f = zz.sub(&tt);
+        let g = zz.add(&tt);
+        Point {
+            x: e.mul(&f),
+            y: g.mul(&h),
+            z: f.mul(&g),
+            t: e.mul(&h),
+        }
+    }
+
+    /// `2 * self` (dbl-2008-hwcd with `a = -1`, 4M + 4S).
+    #[inline(always)]
+    fn double(&self) -> Point {
+        self.to_projective().double_extended()
+    }
+
+    /// Drops `T`.
+    #[inline(always)]
+    fn to_projective(self) -> Projective {
+        Projective {
+            x: self.x,
+            y: self.y,
+            z: self.z,
+        }
+    }
+
+    /// `-self`.
+    pub(crate) fn neg(&self) -> Point {
+        Point {
+            x: self.x.neg(),
+            y: self.y,
+            z: self.z,
+            t: self.t.neg(),
+        }
+    }
+
+    /// Cached form for repeated mixed additions of this point.
+    #[inline(always)]
+    fn to_projective_niels(self) -> ProjectiveNiels {
+        ProjectiveNiels {
+            y_plus_x: self.y.add(&self.x),
+            y_minus_x: self.y.sub(&self.x),
+            z2: self.z.add(&self.z),
+            t2d: self.t.mul(&EDWARDS_D2),
+        }
+    }
+
+    /// Whether two points are equal, by cross-multiplying the projective
+    /// coordinates (no inversion). Not constant time; for public points.
+    pub(crate) fn eq_vartime(&self, other: &Point) -> bool {
+        self.x.mul(&other.z).to_bytes() == other.x.mul(&self.z).to_bytes()
+            && self.y.mul(&other.z).to_bytes() == other.y.mul(&self.z).to_bytes()
+    }
+
+    /// Whether this is the neutral element: `x = 0` and `y = z`. Not constant
+    /// time; used on public points only.
+    pub(crate) fn is_identity(&self) -> bool {
+        self.x.to_bytes() == Fe::ZERO.to_bytes() && self.y.to_bytes() == self.z.to_bytes()
+    }
+
+    /// Whether the point has order dividing 8 (`[8]P` is the identity).
+    pub(crate) fn is_small_order(&self) -> bool {
+        self.double().double().double().is_identity()
+    }
+
+    /// Whether the point lies in the prime-order subgroup: `[L]P` is the
+    /// identity for the basepoint order `L`. Variable time: `L` is public.
+    pub(crate) fn is_torsion_free_vartime(&self) -> bool {
+        self.double_scalar_mul_basepoint_vartime(&GROUP_ORDER, &[0u8; 32])
+            .is_identity()
+    }
+
+    /// Decodes an Ed25519 point encoding (RFC 8032 section 5.1.3): `y` from
+    /// the low 255 bits, `x = sqrt((y^2 - 1) / (d y^2 + 1))` with the sign
+    /// bit choosing the root. Returns `None` when there is no such `x`. The
+    /// encoding is not required to be canonical here; callers check that.
+    /// Not constant time in the sign handling; used on public encodings.
+    pub(crate) fn decompress(bytes: &[u8; 32]) -> Option<Point> {
+        let y = Fe::from_bytes(bytes);
+        let yy = y.square();
+        let u = yy.sub(&Fe::ONE);
+        let v = yy.mul(&EDWARDS_D).add(&Fe::ONE);
+        let (is_square, root) = Fe::sqrt_ratio_i(&u, &v);
+        if !is_square {
+            return None;
+        }
+        // The root is nonnegative; negate it when the sign bit is set.
+        let x = if bytes[31] >> 7 == 1 {
+            root.neg()
+        } else {
+            root
+        };
+        Some(Point {
+            x,
+            y,
+            z: Fe::ONE,
+            t: x.mul(&y),
+        })
+    }
+
+    /// `[a]self + [b]B` for public little-endian scalars below 2^255, by
+    /// Straus's method over width-5 (for `self`) and width-8 (for `B`)
+    /// non-adjacent forms. Variable time in the scalars and the point.
+    ///
+    /// Between additions the accumulator is kept projective (`T` dropped) so
+    /// a doubling that is followed only by another doubling costs 3M + 4S
+    /// instead of 4M + 4S; `T` is produced only by the doubling ahead of a
+    /// nonzero digit.
+    ///
+    /// On x86-64 with BMI2 the loop runs in a copy compiled for `mulx` (see
+    /// [`crate::x86_64::has_bmi2`]); the arithmetic is the same code.
+    pub(crate) fn double_scalar_mul_basepoint_vartime(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
+        #[cfg(target_arch = "x86_64")]
+        if crate::x86_64::has_bmi2() {
+            // SAFETY: `double_scalar_mul_basepoint_vartime_bmi2` requires the
+            // `bmi2` target feature, which the runtime check above confirmed
+            // is present.
+            return unsafe { self.double_scalar_mul_basepoint_vartime_bmi2(a, b) };
+        }
+        self.double_scalar_mul_basepoint_vartime_impl(a, b)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "bmi2")]
+    fn double_scalar_mul_basepoint_vartime_bmi2(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
+        self.double_scalar_mul_basepoint_vartime_impl(a, b)
+    }
+
+    /// Odd multiples `self, 3 self, ..., 15 self`, cached for mixed addition.
+    ///
+    /// Not `#[inline(always)]` in unoptimized builds: always-inlining these
+    /// point operations into the caller merges them into one wasm function
+    /// with more than the 50,000 locals that wasm engines allow. In a debug
+    /// build (`debug_assertions`) this is a real call boundary; release
+    /// builds force the inline as before.
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn odd_multiples_niels(self) -> [ProjectiveNiels; 8] {
+        let double = self.double().to_projective_niels();
+        let mut odd = [self.to_projective_niels(); 8];
+        let mut multiple = self;
+        for entry in odd.iter_mut().skip(1) {
+            multiple = multiple.add_projective_niels(&double);
+            *entry = multiple.to_projective_niels();
+        }
+        odd
+    }
+
+    #[inline(always)]
+    fn double_scalar_mul_basepoint_vartime_impl(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
+        let a_naf = naf::<5>(a);
+        let b_naf = naf::<8>(b);
+
+        let odd = self.odd_multiples_niels();
+        let top = (0..256).rev().find(|&i| a_naf[i] != 0 || b_naf[i] != 0);
+        let Some(top) = top else {
+            return Point::IDENTITY;
+        };
+        let mut r = Projective::IDENTITY;
+        for i in (1..=top).rev() {
+            let da = a_naf[i];
+            let db = b_naf[i];
+            if da == 0 && db == 0 {
+                r = r.double();
+                continue;
+            }
+            r = Self::add_digits(r.double_extended(), &odd, da, db).to_projective();
+        }
+        // The final doubling always yields the extended result. When `top`
+        // is 0 this is `double(identity) + digits[0]`, which is also correct.
+        Self::add_digits(r.double_extended(), &odd, a_naf[0], b_naf[0])
+    }
+
+    /// `p + da * A + db * B` for NAF digits `da`, `db` (odd or zero) and the
+    /// odd multiples `odd[j] = (2 j + 1) A`.
+    ///
+    /// Not `#[inline(always)]` in unoptimized builds, like
+    /// [`Point::odd_multiples_niels`]: the debug build must not merge its
+    /// point operations into the ladder function (wasm caps functions at
+    /// 50,000 locals). Release builds force the inline so the BMI2 copy of
+    /// the ladder keeps `mulx` codegen for these additions.
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn add_digits(mut p: Point, odd: &[ProjectiveNiels; 8], da: i8, db: i8) -> Point {
+        if da > 0 {
+            p = p.add_projective_niels(&odd[da as usize / 2]);
+        } else if da < 0 {
+            p = p.add_projective_niels(&odd[(-da) as usize / 2].neg());
+        }
+        let basepoint_odd = &TABLES.odd;
+        if db > 0 {
+            p = p.add_niels(&basepoint_odd[db as usize / 2]);
+        } else if db < 0 {
+            let mut n = basepoint_odd[(-db) as usize / 2];
+            n.conditional_negate(u64::MAX);
+            p = p.add_niels(&n);
+        }
+        p
+    }
+
+    /// Affine Niels form, canonically reduced.
+    fn to_niels(self) -> Niels {
+        let zinv = self.z.invert();
+        let x = self.x.mul(&zinv);
+        let y = self.y.mul(&zinv);
+        let canonical = |v: Fe| Fe::from_bytes(&v.to_bytes());
+        Niels {
+            y_plus_x: canonical(y.add(&x)),
+            y_minus_x: canonical(y.sub(&x)),
+            xy2d: canonical(x.mul(&y).mul(&EDWARDS_D2)),
+        }
+    }
+
+    /// Ed25519 encoding: the y coordinate with the sign of x in the top bit.
+    pub(crate) fn compress(&self) -> [u8; 32] {
+        let zinv = self.z.invert();
+        let x = self.x.mul(&zinv);
+        let y = self.y.mul(&zinv);
+        let mut out = y.to_bytes();
+        out[31] |= u8::from(x.is_negative()) << 7;
+        out
+    }
+
+    /// The Montgomery u coordinate `(1 + y) / (1 - y) = (Z + Y) / (Z - Y)`;
+    /// zero for the identity, as `0^-1 = 0`.
+    pub(crate) fn to_montgomery(self) -> [u8; 32] {
+        let u = self.z.add(&self.y);
+        let w = self.z.sub(&self.y);
+        u.mul(&w.invert()).to_bytes()
+    }
+}
+
+/// `base[k][j - 1] = [j * 256^k] B` for `k` in `0..32`, `j` in `1..=8`, and
+/// `odd[j] = [2 j + 1] B` for `j` in `0..64`.
+struct Tables {
+    base: [[Niels; 8]; 32],
+    odd: [Niels; 64],
+}
+
+static TABLES: LazyLock<Box<Tables>> = LazyLock::new(|| {
+    let base = {
+        let x = Fe::from_bytes(&BASE_X);
+        let y = Fe::from_bytes(&BASE_Y);
+        Point {
+            x,
+            y,
+            z: Fe::ONE,
+            t: x.mul(&y),
+        }
+    };
+    let mut tables = Box::new(Tables {
+        base: [[Niels::IDENTITY; 8]; 32],
+        odd: [Niels::IDENTITY; 64],
+    });
+    let mut window = base;
+    for row in tables.base.iter_mut() {
+        let step = window.to_niels();
+        let mut multiple = window;
+        for entry in row.iter_mut() {
+            *entry = multiple.to_niels();
+            multiple = multiple.add_niels(&step);
+        }
+        // 256 * window = 8 doublings.
+        for _ in 0..8 {
+            window = window.double();
+        }
+    }
+    let two_b = base.double().to_niels();
+    let mut multiple = base;
+    for entry in tables.odd.iter_mut() {
+        *entry = multiple.to_niels();
+        multiple = multiple.add_niels(&two_b);
+    }
+    tables
+});
+
+/// Constant-time table row lookup: entry `magnitude - 1` for `magnitude` in
+/// `1..=8`, the identity for `0` (the only values [`select`] passes). Every
+/// entry is read and merged under a mask that is all ones only for the
+/// matching one.
+fn select_row(row: &[Niels; 8], magnitude: u8) -> Niels {
+    #[cfg(target_arch = "aarch64")]
+    if std::arch::is_aarch64_feature_detected!("neon") {
+        // SAFETY: the runtime check above confirmed the `neon` feature the
+        // function requires; it uses only safe intrinsics on values.
+        return unsafe { edwards25519_neon::select_row(row, magnitude) };
+    }
+    #[cfg(target_arch = "x86_64")]
+    if std::arch::is_x86_feature_detected!("avx512f") {
+        // SAFETY: the runtime check above confirmed the `avx512f` feature
+        // the function requires; it uses safe value intrinsics and the
+        // `x86_64::store_words512` helper.
+        return unsafe { edwards25519_x86_64::select_row(row, magnitude) };
+    }
+    select_row_scalar(row, magnitude)
+}
+
+/// [`select_row`] with scalar masking, one limb at a time.
+fn select_row_scalar(row: &[Niels; 8], magnitude: u8) -> Niels {
+    let mut out = Niels::IDENTITY;
+    for (j, entry) in row.iter().enumerate() {
+        out = Niels::conditional_select(&out, entry, magnitude.ct_eq(&(j as u8 + 1)));
+    }
+    out
+}
+
+/// Selects `[digit * 256^k] B` for `digit` in `-8..=8` without revealing
+/// the digit through timing or memory access.
+#[inline(always)]
+fn select(row: &[Niels; 8], digit: i8) -> Niels {
+    let negative = ((digit as i16) >> 8) as u8 & 1;
+    // |digit| via the two's complement identity (d ^ m) - m for m in {0, -1}.
+    let sign_mask = 0u8.wrapping_sub(negative);
+    let magnitude = ((digit as u8) ^ sign_mask).wrapping_sub(sign_mask);
+
+    let mut out = select_row(row, magnitude);
+    out.conditional_negate(0u64.wrapping_sub(u64::from(negative)));
+    out
+}
+
+/// Signed radix-16 digits of a little-endian scalar below 2^255, each in
+/// `-8..=8`, with `sum(d[i] * 16^i)` equal to the scalar.
+fn radix16(scalar: &[u8; 32]) -> [i8; 64] {
+    let mut digits = [0i8; 64];
+    for (i, byte) in scalar.iter().enumerate() {
+        digits[2 * i] = (byte & 15) as i8;
+        digits[2 * i + 1] = (byte >> 4) as i8;
+    }
+    for i in 0..63 {
+        let carry = (digits[i] + 8) >> 4;
+        digits[i] -= carry << 4;
+        digits[i + 1] += carry;
+    }
+    digits
+}
+
+/// Width-`W` non-adjacent form of a little-endian scalar below 2^255: digits
+/// are odd and in `-2^(W-1)..2^(W-1)`, with at least `W - 1` zeros after each
+/// nonzero digit. Variable time; for public scalars.
+fn naf<const W: usize>(scalar: &[u8; 32]) -> [i8; 256] {
+    let mut words = [0u64; 5];
+    for (word, chunk) in words.iter_mut().zip(scalar.as_chunks::<8>().0) {
+        *word = u64::from_le_bytes(*chunk);
+    }
+    let width = 1u64 << W;
+    let window_mask = width - 1;
+
+    let mut digits = [0i8; 256];
+    let mut pos = 0;
+    let mut carry = 0u64;
+    while pos < 256 {
+        let idx = pos / 64;
+        let bit = pos % 64;
+        let bits = if bit < 64 - W {
+            words[idx] >> bit
+        } else {
+            (words[idx] >> bit) | (words[idx + 1] << (64 - bit))
+        };
+        let window = carry + (bits & window_mask);
+        if window & 1 == 0 {
+            pos += 1;
+            continue;
+        }
+        if window < width / 2 {
+            carry = 0;
+            digits[pos] = window as i8;
+        } else {
+            carry = 1;
+            digits[pos] = (window as i8).wrapping_sub(width as i8);
+        }
+        pos += W;
+    }
+    digits
+}
+
+/// `[scalar] B` for a little-endian `scalar` below 2^255: either a value
+/// reduced modulo the group order or a clamped X25519/Ed25519 secret scalar.
+///
+/// On x86-64 with BMI2 the loop runs in a copy compiled for `mulx` (see
+/// [`crate::x86_64::has_bmi2`]); the arithmetic is the same code.
+pub(crate) fn mul_base(scalar: &[u8; 32]) -> Point {
+    #[cfg(target_arch = "x86_64")]
+    if crate::x86_64::has_bmi2() {
+        // SAFETY: `mul_base_bmi2` requires the `bmi2` target feature, which
+        // the runtime check above confirmed is present.
+        return unsafe { mul_base_bmi2(scalar) };
+    }
+    mul_base_impl(scalar)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+fn mul_base_bmi2(scalar: &[u8; 32]) -> Point {
+    mul_base_impl(scalar)
+}
+
+#[inline(always)]
+fn mul_base_impl(scalar: &[u8; 32]) -> Point {
+    let mut digits = radix16(scalar);
+    let table = &TABLES.base;
+
+    // sum over odd digits, times 16, plus the sum over even digits. Each
+    // lookup is issued one addition ahead of its use: the lookup runs on the
+    // vector unit and the addition on the scalar multipliers, and the
+    // addition's ~800 instructions would otherwise keep the next lookup
+    // outside the out-of-order window. The digit sequence is fixed, so this
+    // changes no data-dependent behaviour.
+    let mut p = Point::IDENTITY;
+    let mut next = select(&table[0], digits[1]);
+    for k in 0..32 {
+        let entry = next;
+        if k + 1 < 32 {
+            next = select(&table[k + 1], digits[2 * (k + 1) + 1]);
+        } else {
+            next = select(&table[0], digits[0]);
+        }
+        p = p.add_niels(&entry);
+    }
+    p = p.double().double().double().double();
+    for k in 0..32 {
+        let entry = next;
+        if k + 1 < 32 {
+            next = select(&table[k + 1], digits[2 * (k + 1)]);
+        }
+        p = p.add_niels(&entry);
+    }
+
+    digits.zeroize();
+    p
+}
+
+#[cfg(test)]
+mod tests {
+    use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
+    use curve25519_dalek::scalar::Scalar;
+
+    use super::*;
+    use crate::utils::test_util::{XorShift64, hex32 as hex};
+
+    /// `2d` really is twice `-121665 / 121666`.
+    #[test]
+    fn test_curve_constant() {
+        // d * 121666 = -121665.
+        let d = EDWARDS_D2.mul(&Fe::from_bytes(&{
+            // 2^-1 = (p + 1) / 2.
+            let mut half = [0u8; 32];
+            half[0] = 0xf7;
+            half[1..31].fill(0xff);
+            half[31] = 0x3f;
+            half
+        }));
+        let m121666 = Fe([121666, 0, 0, 0, 0]);
+        let m121665 = Fe([121665, 0, 0, 0, 0]);
+        assert_eq!(d.mul(&m121666).to_bytes(), m121665.neg().to_bytes());
+    }
+
+    /// Every table entry is the basepoint multiple it claims to be.
+    #[test]
+    fn test_table_matches_dalek() {
+        let mut scale = Scalar::ONE;
+        for row in TABLES.base.iter() {
+            for (j, entry) in row.iter().enumerate() {
+                let expected = (ED25519_BASEPOINT_TABLE * &(scale * Scalar::from(j as u64 + 1)))
+                    .compress()
+                    .to_bytes();
+                // Recover (x, y) from the Niels form: y = (P + M) / 2, x = (P -
+                // M) / 2.
+                let two_inv = Fe::from_bytes(&{
+                    let mut half = [0u8; 32];
+                    half[0] = 0xf7;
+                    half[1..31].fill(0xff);
+                    half[31] = 0x3f;
+                    half
+                });
+                let y = entry.y_plus_x.add(&entry.y_minus_x).mul(&two_inv);
+                let x = entry.y_plus_x.sub(&entry.y_minus_x).mul(&two_inv);
+                let point = Point {
+                    x,
+                    y,
+                    z: Fe::ONE,
+                    t: x.mul(&y),
+                };
+                assert_eq!(point.compress(), expected);
+                assert_eq!(
+                    entry.xy2d.to_bytes(),
+                    x.mul(&y).mul(&EDWARDS_D2).to_bytes(),
+                    "xy2d"
+                );
+            }
+            scale *= Scalar::from(256u64);
+        }
+    }
+
+    /// `[s]B` agrees with dalek for random reduced scalars, clamped-style
+    /// scalars and the edges of the scalar range, in both encodings.
+    #[test]
+    fn test_mul_base_matches_dalek() {
+        let mut rng = XorShift64::new(0x1234_5678_9abc_def1);
+        let mut scalars: Vec<[u8; 32]> = vec![
+            [0; 32],
+            {
+                let mut one = [0u8; 32];
+                one[0] = 1;
+                one
+            },
+            (Scalar::ZERO - Scalar::ONE).to_bytes(),
+            hex("0000000000000000000000000000000000000000000000000000000000000010"),
+        ];
+        for i in 0..1000 {
+            let mut k = rng.next_bytes32();
+            if i % 2 == 0 {
+                // Clamped secret scalars are passed unreduced (2^254 <= k <
+                // 2^255).
+                k[0] &= 248;
+                k[31] &= 127;
+                k[31] |= 64;
+                scalars.push(k);
+            } else {
+                scalars.push(Scalar::from_bytes_mod_order(k).to_bytes());
+            }
+        }
+        for k in scalars {
+            let expected = ED25519_BASEPOINT_TABLE * &Scalar::from_bytes_mod_order(k);
+            let p = mul_base(&k);
+            assert_eq!(p.compress(), expected.compress().to_bytes(), "{k:02x?}");
+            assert_eq!(
+                p.to_montgomery(),
+                expected.to_montgomery().to_bytes(),
+                "{k:02x?}"
+            );
+        }
+    }
+
+    /// RFC 8032 section 7.1 test 1: the public key of the all-zero-ish seed.
+    #[test]
+    fn test_rfc8032_public_key() {
+        // Secret scalar a for seed 9d61b19d...; a = clamp(SHA-512(seed)[..32]).
+        let seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+        let mut h = crate::sha512::Sha512::compute_to_vec(&seed);
+        h[0] &= 248;
+        h[31] &= 127;
+        h[31] |= 64;
+        let a = Scalar::from_bytes_mod_order(h[..32].try_into().unwrap()).to_bytes();
+        assert_eq!(
+            mul_base(&a).compress(),
+            hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+        );
+    }
+
+    /// Decompression, negation, full addition and the double-base
+    /// multiplication agree with dalek on random points and scalars, and the
+    /// subgroup check classifies prime-order, small-order and mixed-order
+    /// points like dalek's `is_torsion_free`.
+    #[test]
+    fn test_vartime_operations_match_dalek() {
+        use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+        use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
+        use curve25519_dalek::traits::IsIdentity;
+
+        let mut rng = XorShift64::new(0x0f1e_2d3c_4b5a_6978);
+        let mut rnd_scalar = || Scalar::from_bytes_mod_order(rng.next_bytes32());
+
+        for i in 0..200 {
+            let a = rnd_scalar();
+            let b = rnd_scalar();
+            let point_scalar = rnd_scalar();
+            let dalek_point: EdwardsPoint = ED25519_BASEPOINT_TABLE * &point_scalar;
+            let encoded = dalek_point.compress().to_bytes();
+            let point = Point::decompress(&encoded).expect("valid point");
+            assert_eq!(point.compress(), encoded, "decompress {i}");
+
+            let expected = EdwardsPoint::vartime_double_scalar_mul_basepoint(&a, &dalek_point, &b);
+            let actual = point.double_scalar_mul_basepoint_vartime(&a.to_bytes(), &b.to_bytes());
+            assert_eq!(
+                actual.compress(),
+                expected.compress().to_bytes(),
+                "straus {i}"
+            );
+
+            let negated = point.add_projective_niels(&point.neg().to_projective_niels());
+            assert!(negated.is_identity(), "neg/add {i}");
+            assert!(
+                point
+                    .add_projective_niels(&point.to_projective_niels().neg())
+                    .is_identity(),
+                "cached neg {i}"
+            );
+            assert_eq!(
+                point
+                    .add_projective_niels(&point.to_projective_niels())
+                    .compress(),
+                (dalek_point + dalek_point).compress().to_bytes(),
+                "cached add {i}"
+            );
+            assert_eq!(
+                point.to_projective().double().double_extended().compress(),
+                (dalek_point + dalek_point + dalek_point + dalek_point)
+                    .compress()
+                    .to_bytes(),
+                "projective double {i}"
+            );
+            // Scalars whose only nonzero NAF digit is at index 0 (the loop
+            // body never runs; the final step alone produces the result).
+            for (sa, sb) in [(1u64, 0u64), (0, 1), (1, 1)] {
+                let sa = Scalar::from(sa);
+                let sb = Scalar::from(sb);
+                assert_eq!(
+                    point
+                        .double_scalar_mul_basepoint_vartime(&sa.to_bytes(), &sb.to_bytes())
+                        .compress(),
+                    EdwardsPoint::vartime_double_scalar_mul_basepoint(&sa, &dalek_point, &sb)
+                        .compress()
+                        .to_bytes(),
+                    "digit-0-only {i}"
+                );
+            }
+            // Only the basepoint part.
+            assert_eq!(
+                Point::IDENTITY
+                    .double_scalar_mul_basepoint_vartime(&[0; 32], &b.to_bytes())
+                    .compress(),
+                (ED25519_BASEPOINT_TABLE * &b).compress().to_bytes(),
+                "basepoint only {i}"
+            );
+        }
+
+        // Subgroup membership on prime-order, torsion and mixed points.
+        let mut cases: Vec<EdwardsPoint> = vec![ED25519_BASEPOINT_POINT];
+        for _ in 0..16 {
+            cases.push(ED25519_BASEPOINT_TABLE * &rnd_scalar());
+        }
+        let prime_order = cases.clone();
+        for torsion in EIGHT_TORSION {
+            cases.push(torsion);
+            for p in &prime_order {
+                cases.push(p + torsion);
+            }
+        }
+        for dalek_point in cases {
+            let encoded = dalek_point.compress().to_bytes();
+            let point = Point::decompress(&encoded).expect("valid point");
+            assert_eq!(
+                point.is_identity(),
+                dalek_point.is_identity(),
+                "{encoded:02x?}"
+            );
+            assert_eq!(
+                point.is_small_order(),
+                dalek_point.is_small_order(),
+                "{encoded:02x?}"
+            );
+            assert_eq!(
+                point.is_torsion_free_vartime(),
+                dalek_point.is_torsion_free(),
+                "{encoded:02x?}"
+            );
+        }
+
+        // Non-square encodings are rejected exactly when dalek rejects them.
+        let mut rejected = 0;
+        for _ in 0..200 {
+            let bytes = rng.next_bytes32();
+            let ours = Point::decompress(&bytes);
+            let theirs = CompressedEdwardsY(bytes).decompress();
+            assert_eq!(ours.is_some(), theirs.is_some(), "{bytes:02x?}");
+            if let (Some(p), Some(d)) = (ours, theirs) {
+                assert_eq!(p.compress(), d.compress().to_bytes());
+            } else {
+                rejected += 1;
+            }
+        }
+        assert!(
+            rejected > 50,
+            "about half of random encodings are off-curve"
+        );
+    }
+
+    /// The NEON row lookup returns exactly the limbs the scalar one does
+    /// for every table row and every digit magnitude `0..=8`, including the
+    /// identity for 0, and the production dispatch agrees with both.
+    /// The AVX-512 lookup equals the scalar one for every table row and
+    /// every digit magnitude `0..=8`, including the identity for 0, and the
+    /// production dispatch agrees with both.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_avx512_select_row_matches_scalar() {
+        if !std::arch::is_x86_feature_detected!("avx512f") {
+            return;
+        }
+        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
+        for (k, row) in TABLES.base.iter().enumerate() {
+            for magnitude in 0..=8u8 {
+                let expected = limbs(&select_row_scalar(row, magnitude));
+                // SAFETY: `avx512f` was detected above.
+                let avx512 = unsafe { edwards25519_x86_64::select_row(row, magnitude) };
+                assert_eq!(limbs(&avx512), expected, "row {k}, magnitude {magnitude}");
+                assert_eq!(
+                    limbs(&select_row(row, magnitude)),
+                    expected,
+                    "row {k}, magnitude {magnitude}"
+                );
+                if magnitude == 0 {
+                    assert_eq!(expected, limbs(&Niels::IDENTITY));
+                } else {
+                    assert_eq!(expected, limbs(&row[usize::from(magnitude) - 1]));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_neon_select_row_matches_scalar() {
+        assert!(
+            std::arch::is_aarch64_feature_detected!("neon"),
+            "NEON path must run on this machine"
+        );
+        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
+        for (k, row) in TABLES.base.iter().enumerate() {
+            for magnitude in 0..=8u8 {
+                let expected = limbs(&select_row_scalar(row, magnitude));
+                // SAFETY: `neon` was detected above.
+                let neon = unsafe { edwards25519_neon::select_row(row, magnitude) };
+                assert_eq!(limbs(&neon), expected, "row {k}, magnitude {magnitude}");
+                assert_eq!(
+                    limbs(&select_row(row, magnitude)),
+                    expected,
+                    "row {k}, magnitude {magnitude}"
+                );
+                if magnitude == 0 {
+                    assert_eq!(expected, limbs(&Niels::IDENTITY));
+                } else {
+                    assert_eq!(expected, limbs(&row[usize::from(magnitude) - 1]));
+                }
+            }
+        }
+    }
+}
