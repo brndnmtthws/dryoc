@@ -356,19 +356,31 @@ impl Point {
         self.double_scalar_mul_basepoint_vartime_impl(a, b)
     }
 
+    /// Odd multiples `self, 3 self, ..., 15 self`, cached for mixed addition.
+    ///
+    /// Not `#[inline(always)]` in unoptimized builds: always-inlining these
+    /// point operations into the caller merges them into one wasm function
+    /// with more than the 50,000 locals that wasm engines allow. In a debug
+    /// build (`debug_assertions`) this is a real call boundary; release
+    /// builds force the inline as before.
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn odd_multiples_niels(self) -> [ProjectiveNiels; 8] {
+        let double = self.double().to_projective_niels();
+        let mut odd = [self.to_projective_niels(); 8];
+        let mut multiple = self;
+        for entry in odd.iter_mut().skip(1) {
+            multiple = multiple.add_projective_niels(&double);
+            *entry = multiple.to_projective_niels();
+        }
+        odd
+    }
+
     #[inline(always)]
     fn double_scalar_mul_basepoint_vartime_impl(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
         let a_naf = naf::<5>(a);
         let b_naf = naf::<8>(b);
 
-        // Odd multiples self, 3 self, ..., 15 self, cached for mixed addition.
-        let double = self.double().to_projective_niels();
-        let mut odd = [self.to_projective_niels(); 8];
-        let mut multiple = *self;
-        for entry in odd.iter_mut().skip(1) {
-            multiple = multiple.add_projective_niels(&double);
-            *entry = multiple.to_projective_niels();
-        }
+        let odd = self.odd_multiples_niels();
         let top = (0..256).rev().find(|&i| a_naf[i] != 0 || b_naf[i] != 0);
         let Some(top) = top else {
             return Point::IDENTITY;
@@ -390,7 +402,13 @@ impl Point {
 
     /// `p + da * A + db * B` for NAF digits `da`, `db` (odd or zero) and the
     /// odd multiples `odd[j] = (2 j + 1) A`.
-    #[inline(always)]
+    ///
+    /// Not `#[inline(always)]` in unoptimized builds, like
+    /// [`Point::odd_multiples_niels`]: the debug build must not merge its
+    /// point operations into the ladder function (wasm caps functions at
+    /// 50,000 locals). Release builds force the inline so the BMI2 copy of
+    /// the ladder keeps `mulx` codegen for these additions.
+    #[cfg_attr(not(debug_assertions), inline(always))]
     fn add_digits(mut p: Point, odd: &[ProjectiveNiels; 8], da: i8, db: i8) -> Point {
         if da > 0 {
             p = p.add_projective_niels(&odd[da as usize / 2]);
