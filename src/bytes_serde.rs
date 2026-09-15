@@ -93,6 +93,8 @@ macro_rules! impl_deserialize_fixed {
 /// Implements [`Deserialize`] for a variable-length byte container, accepting
 /// a byte string or a sequence of bytes. Takes the same three arguments as
 /// [`impl_deserialize_fixed`], minus the length checks.
+// Only the `protected` module below uses this macro.
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 macro_rules! impl_deserialize_bytes {
     ($ty:ty, $new:expr, $from_slice:expr) => {
         impl<'de> Deserialize<'de> for $ty {
