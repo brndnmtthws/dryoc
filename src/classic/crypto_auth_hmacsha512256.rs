@@ -41,8 +41,6 @@
 //! assert_eq!(one_shot, streaming);
 //! ```
 
-use subtle::ConstantTimeEq;
-
 use crate::classic::crypto_auth_hmac_impl::hmac_keygen;
 use crate::classic::crypto_auth_hmacsha512::{
     HmacSha512State, crypto_auth_hmacsha512_final, crypto_auth_hmacsha512_init,
@@ -52,7 +50,7 @@ use crate::constants::{
     CRYPTO_AUTH_HMACSHA512_BYTES, CRYPTO_AUTH_HMACSHA512256_BYTES,
     CRYPTO_AUTH_HMACSHA512256_KEYBYTES,
 };
-use crate::error::Error;
+use crate::error::{Error, verify_ct};
 use crate::utils::zeroize_bytes;
 
 /// Key for HMAC-SHA-512-256 message authentication.
@@ -77,13 +75,9 @@ pub fn crypto_auth_hmacsha512256(mac: &mut Mac, message: &[u8], key: &Key) {
 pub fn crypto_auth_hmacsha512256_verify(mac: &Mac, input: &[u8], key: &Key) -> Result<(), Error> {
     let mut computed_mac = Mac::default();
     crypto_auth_hmacsha512256(&mut computed_mac, input, key);
-    let valid = mac.ct_eq(&computed_mac).unwrap_u8();
+    let result = verify_ct(mac, &computed_mac);
     zeroize_bytes(&mut computed_mac);
-    if valid == 1 {
-        Ok(())
-    } else {
-        Err(Error::AuthenticationFailed)
-    }
+    result
 }
 
 /// Generates a random key for HMAC-SHA-512-256.

@@ -387,6 +387,55 @@ macro_rules! validate_length {
     };
 }
 
+/// Splits `bytes` into a fixed-length prefix and the remainder.
+///
+/// Returns [`Error::InvalidLength`] with `context` when `bytes` is shorter
+/// than `len`. Shared by the Rustaceous `from_bytes` constructors, which all
+/// parse an authentication tag, signature, or nonce off one end of a slice.
+pub(crate) fn split_prefix(
+    bytes: &[u8],
+    len: usize,
+    context: ErrorContext,
+) -> Result<(&[u8], &[u8]), Error> {
+    if bytes.len() < len {
+        Err(length_error!(context, bytes.len(), min len))
+    } else {
+        Ok(bytes.split_at(len))
+    }
+}
+
+/// Splits `bytes` into the leading remainder and a fixed-length suffix.
+///
+/// Returns [`Error::InvalidLength`] with `context` when `bytes` is shorter
+/// than `len`. See [`split_prefix`].
+pub(crate) fn split_suffix(
+    bytes: &[u8],
+    len: usize,
+    context: ErrorContext,
+) -> Result<(&[u8], &[u8]), Error> {
+    if bytes.len() < len {
+        Err(length_error!(context, bytes.len(), min len))
+    } else {
+        Ok(bytes.split_at(bytes.len() - len))
+    }
+}
+
+/// Compares `expected` against `computed` in constant time, returning
+/// [`Error::AuthenticationFailed`] on mismatch.
+///
+/// Shared by the Classic verify paths, which all performed this exact
+/// [`subtle::ConstantTimeEq`] comparison inline. Both slices must have the
+/// same length; every caller compares fixed-size tags or hashes.
+pub(crate) fn verify_ct(expected: &[u8], computed: &[u8]) -> Result<(), Error> {
+    use subtle::ConstantTimeEq;
+
+    if expected.ct_eq(computed).unwrap_u8() == 1 {
+        Ok(())
+    } else {
+        Err(Error::AuthenticationFailed)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

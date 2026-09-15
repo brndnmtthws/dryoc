@@ -292,56 +292,34 @@ impl ResizableBytes for Vec<u8> {
     }
 }
 
-impl Bytes for [u8] {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self
-    }
+/// Implements [`Bytes`] for a slice-like type by delegating to `[u8]`.
+///
+/// Shared by `[u8]`, `&[u8]`, and `&mut [u8]`, whose bodies are identical:
+/// each derefs to a byte slice for every method.
+macro_rules! impl_bytes_for_slice {
+    ($($t:ty),*) => {
+        $(
+            impl Bytes for $t {
+                #[inline]
+                fn as_slice(&self) -> &[u8] {
+                    self
+                }
 
-    #[inline]
-    fn len(&self) -> usize {
-        <[u8]>::len(self)
-    }
+                #[inline]
+                fn len(&self) -> usize {
+                    <[u8]>::len(self)
+                }
 
-    #[inline]
-    fn is_empty(&self) -> bool {
-        <[u8]>::is_empty(self)
-    }
+                #[inline]
+                fn is_empty(&self) -> bool {
+                    <[u8]>::is_empty(self)
+                }
+            }
+        )*
+    };
 }
 
-impl Bytes for &[u8] {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        <[u8]>::len(self)
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        <[u8]>::is_empty(self)
-    }
-}
-
-impl Bytes for &mut [u8] {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        <[u8]>::len(self)
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        <[u8]>::is_empty(self)
-    }
-}
+impl_bytes_for_slice!([u8], &[u8], &mut [u8]);
 
 impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
     #[inline]

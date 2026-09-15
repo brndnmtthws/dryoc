@@ -438,17 +438,13 @@ impl<
     /// Returns an error if `bytes` is shorter than one authentication tag or
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_BOX_MACBYTES {
-            Err(length_error!(crate::ErrorContext::Box, bytes.len(), min CRYPTO_BOX_MACBYTES))
-        } else {
-            let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
-            Ok(Self {
-                ephemeral_pk: None,
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (tag, data) = split_prefix(bytes, CRYPTO_BOX_MACBYTES, ErrorContext::Box)?;
+        Ok(Self {
+            ephemeral_pk: None,
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 
     /// Initializes a sealed [`DryocBox`] from a slice. Expects the first

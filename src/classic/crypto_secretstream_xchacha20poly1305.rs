@@ -429,9 +429,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
     mac.update(&size_data);
     let mac = Zeroizing::new(mac.finalize_to_array());
 
-    if ciphertext[1 + mlen..].ct_eq(mac.as_slice()).unwrap_u8() == 0 {
-        return Err(Error::AuthenticationFailed);
-    }
+    verify_ct(&ciphertext[1 + mlen..], mac.as_slice())?;
 
     cipher.apply_keystream_b2b(&ciphertext[1..1 + mlen], &mut message[..mlen]);
     *tag = decrypted_tag;

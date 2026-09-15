@@ -1,8 +1,7 @@
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::classic::crypto_secretbox::{Key, Mac, Nonce};
-use crate::error::Error;
+use crate::error::{Error, verify_ct};
 use crate::poly1305::{Key as Poly1305Key, Poly1305};
 use crate::salsa20::XSalsa20;
 use crate::utils::zeroize_bytes;
@@ -72,15 +71,12 @@ fn open(
     computed_mac.update(input.unwrap_or(output));
     let computed_mac = computed_mac.finalize_to_array();
 
-    if mac.ct_eq(&computed_mac).unwrap_u8() == 1 {
-        match input {
-            Some(input) => cipher.apply_keystream_b2b(input, output),
-            None => cipher.apply_keystream(output),
-        }
-        Ok(())
-    } else {
-        Err(Error::AuthenticationFailed)
+    verify_ct(mac, &computed_mac)?;
+    match input {
+        Some(input) => cipher.apply_keystream_b2b(input, output),
+        None => cipher.apply_keystream(output),
     }
+    Ok(())
 }
 
 pub(crate) fn crypto_secretbox_detached_b2b(

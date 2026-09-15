@@ -43,14 +43,13 @@
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
 
 #[cfg(feature = "base64")]
 use crate::argon2::ARGON2_VERSION_NUMBER;
 use crate::argon2::{self, argon2_hash};
 use crate::constants::*;
-use crate::error::Error;
+use crate::error::{Error, verify_ct};
 
 pub(crate) const STR_HASHBYTES: usize = 32;
 
@@ -697,11 +696,7 @@ pub(crate) fn verify_pwhash_parts(
         algorithm.into(),
     )?;
 
-    if hash.as_slice().ct_eq(expected_hash).unwrap_u8() == 1 {
-        Ok(())
-    } else {
-        Err(Error::AuthenticationFailed)
-    }
+    verify_ct(hash.as_slice(), expected_hash)
 }
 
 /// Checks if the parameters for `hashed_password` match those passed to the

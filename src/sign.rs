@@ -110,7 +110,7 @@ use crate::constants::{
     CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES, CRYPTO_SIGN_SECRETKEYBYTES,
     CRYPTO_SIGN_SEEDBYTES,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorContext, split_prefix};
 use crate::types::*;
 
 /// Stack-allocated public key for message signing.
@@ -655,18 +655,13 @@ impl<
     /// Returns an error if `bytes` is shorter than a signature or the
     /// signature cannot be converted to the requested output type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_SIGN_BYTES {
-            Err(
-                length_error!(crate::ErrorContext::SignedMessage, bytes.len(), min CRYPTO_SIGN_BYTES),
-            )
-        } else {
-            let (signature, message) = bytes.split_at(CRYPTO_SIGN_BYTES);
-            Ok(Self {
-                signature: Signature::try_from(signature)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Signature))?,
-                message: Message::from(message),
-            })
-        }
+        let (signature, message) =
+            split_prefix(bytes, CRYPTO_SIGN_BYTES, ErrorContext::SignedMessage)?;
+        Ok(Self {
+            signature: Signature::try_from(signature)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::Signature))?,
+            message: Message::from(message),
+        })
     }
 }
 

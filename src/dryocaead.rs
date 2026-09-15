@@ -74,7 +74,7 @@ use crate::constants::{
     CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorContext, split_prefix, split_suffix};
 pub use crate::types::*;
 
 mod sealed {
@@ -616,22 +616,17 @@ impl<
     /// Returns an error if `bytes` is shorter than one authentication tag or
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES {
-            Err(length_error!(
-                crate::ErrorContext::AeadCiphertext,
-                bytes.len(),
-                min CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
-            ))
-        } else {
-            let (data, tag) =
-                bytes.split_at(bytes.len() - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES);
-            Ok(Self {
-                algorithm: PhantomData,
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (data, tag) = split_suffix(
+            bytes,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
+            ErrorContext::AeadCiphertext,
+        )?;
+        Ok(Self {
+            algorithm: PhantomData,
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 
@@ -654,22 +649,24 @@ impl<
     /// authentication tag, or if either field cannot be converted to its
     /// target type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        let minimum_len = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
-            + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
-        if bytes.len() < minimum_len {
-            Err(length_error!(crate::ErrorContext::AeadEnvelope, bytes.len(), min minimum_len))
-        } else {
-            let (nonce, rest) = bytes.split_at(CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES);
-            let (data, tag) = rest.split_at(rest.len() - CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES);
-            Ok(Self {
-                algorithm: PhantomData,
-                nonce: Nonce::try_from(nonce)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Nonce))?,
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (nonce, rest) = split_prefix(
+            bytes,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
+            ErrorContext::AeadEnvelope,
+        )?;
+        let (data, tag) = split_suffix(
+            rest,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
+            ErrorContext::AeadEnvelope,
+        )?;
+        Ok(Self {
+            algorithm: PhantomData,
+            nonce: Nonce::try_from(nonce)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::Nonce))?,
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 
@@ -729,22 +726,17 @@ impl<
     /// Returns an error if `bytes` is shorter than one authentication tag or
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES {
-            Err(length_error!(
-                crate::ErrorContext::AeadCiphertext,
-                bytes.len(),
-                min CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES
-            ))
-        } else {
-            let (data, tag) =
-                bytes.split_at(bytes.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES);
-            Ok(Self {
-                algorithm: PhantomData,
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (data, tag) = split_suffix(
+            bytes,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES,
+            ErrorContext::AeadCiphertext,
+        )?;
+        Ok(Self {
+            algorithm: PhantomData,
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 
@@ -765,22 +757,24 @@ impl<
     /// authentication tag, or if either field cannot be converted to its
     /// target type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        let minimum_len =
-            CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
-        if bytes.len() < minimum_len {
-            Err(length_error!(crate::ErrorContext::AeadEnvelope, bytes.len(), min minimum_len))
-        } else {
-            let (nonce, rest) = bytes.split_at(CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES);
-            let (data, tag) = rest.split_at(rest.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES);
-            Ok(Self {
-                algorithm: PhantomData,
-                nonce: Nonce::try_from(nonce)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Nonce))?,
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (nonce, rest) = split_prefix(
+            bytes,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
+            ErrorContext::AeadEnvelope,
+        )?;
+        let (data, tag) = split_suffix(
+            rest,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES,
+            ErrorContext::AeadEnvelope,
+        )?;
+        Ok(Self {
+            algorithm: PhantomData,
+            nonce: Nonce::try_from(nonce)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::Nonce))?,
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 

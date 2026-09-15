@@ -394,21 +394,30 @@ pub mod ptypes {
     pub type LockedBytes = Locked<super::HeapBytes>;
 }
 
+/// Copies `src` into a fresh locked allocation. Shared by the [`Clone`]
+/// impls for `Locked` and `LockedRO`; the latter read-only-protects the copy
+/// afterwards.
+fn clone_into_locked<
+    S: Bytes,
+    T: Zeroize + NewBytes + ResizableBytes + Lockable<T> + NewLocked<T>,
+>(
+    src: &S,
+) -> Protected<T, traits::ReadWrite, traits::Locked> {
+    let mut cloned = T::new_locked().expect("unable to create new locked instance");
+    cloned.resize(src.len(), 0);
+    cloned.as_mut_slice().copy_from_slice(src.as_slice());
+    cloned
+}
+
 impl<T: Zeroize + NewBytes + ResizableBytes + Lockable<T> + NewLocked<T>> Clone for Locked<T> {
     fn clone(&self) -> Self {
-        let mut cloned = T::new_locked().expect("unable to create new locked instance");
-        cloned.resize(self.len(), 0);
-        cloned.as_mut_slice().copy_from_slice(self.as_slice());
-        cloned
+        clone_into_locked(self)
     }
 }
 
 impl<T: Zeroize + NewBytes + ResizableBytes + Lockable<T> + NewLocked<T>> Clone for LockedRO<T> {
     fn clone(&self) -> Self {
-        let mut cloned = T::new_locked().expect("unable to create new locked instance");
-        cloned.resize(self.len(), 0);
-        cloned.as_mut_slice().copy_from_slice(self.as_slice());
-        cloned
+        clone_into_locked(self)
             .mprotect_readonly()
             .expect("unable to protect readonly")
     }

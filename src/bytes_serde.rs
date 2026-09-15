@@ -27,60 +27,135 @@ macro_rules! impl_serialize_bytes {
     };
 }
 
-impl_serialize_bytes!([const LENGTH: usize] StackByteArray<LENGTH>);
-
-impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct ByteArrayVisitor<const LENGTH: usize>;
-
-        impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
-            type Value = StackByteArray<LENGTH>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "exactly {LENGTH} bytes")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+/// Implements [`Deserialize`] for a fixed-size byte container, accepting a
+/// byte string or a sequence of exactly `LENGTH` bytes.
+///
+/// * `$ty`: the container type, mentioning `LENGTH`.
+/// * `$new`: builds an empty `$ty` in `visit_seq`; may fail with `A::Error` for
+///   locked allocation.
+/// * `$from_slice`: converts the length-checked `v: &[u8]` into `$ty` in
+///   `visit_bytes`; may fail with `E`.
+macro_rules! impl_deserialize_fixed {
+    ($ty:ty, $new:expr, $from_slice:expr) => {
+        impl<'de, const LENGTH: usize> Deserialize<'de> for $ty {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
-                A: SeqAccess<'de>,
+                D: Deserializer<'de>,
             {
-                let mut arr = StackByteArray::<LENGTH>::new();
-                let mut idx: usize = 0;
+                struct ByteArrayVisitor<const LENGTH: usize>;
 
-                while let Some(elem) = seq.next_element()? {
-                    if idx >= LENGTH {
-                        return Err(Error::invalid_length(idx + 1, &self));
+                impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
+                    type Value = $ty;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        write!(formatter, "exactly {LENGTH} bytes")
                     }
-                    arr[idx] = elem;
-                    idx += 1;
+
+                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                    where
+                        A: SeqAccess<'de>,
+                    {
+                        let mut arr = $new;
+                        let mut idx: usize = 0;
+
+                        while let Some(elem) = seq.next_element()? {
+                            if idx >= LENGTH {
+                                return Err(Error::invalid_length(idx + 1, &self));
+                            }
+                            arr[idx] = elem;
+                            idx += 1;
+                        }
+
+                        if idx != LENGTH {
+                            return Err(Error::invalid_length(idx, &self));
+                        }
+
+                        Ok(arr)
+                    }
+
+                    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                    where
+                        E: Error,
+                    {
+                        if v.len() != LENGTH {
+                            return Err(Error::invalid_length(v.len(), &self));
+                        }
+                        $from_slice(v)
+                    }
                 }
 
-                if idx != LENGTH {
-                    return Err(Error::invalid_length(idx, &self));
-                }
-
-                Ok(arr)
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: Error,
-            {
-                if v.len() != LENGTH {
-                    return Err(Error::invalid_length(v.len(), &self));
-                }
-                let mut arr = StackByteArray::<LENGTH>::new();
-                arr.copy_from_slice(v);
-                Ok(arr)
+                deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
             }
         }
-
-        deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
-    }
+    };
 }
+
+/// Implements [`Deserialize`] for a variable-length byte container, accepting
+/// a byte string or a sequence of bytes. Takes the same three arguments as
+/// [`impl_deserialize_fixed`], minus the length checks.
+macro_rules! impl_deserialize_bytes {
+    ($ty:ty, $new:expr, $from_slice:expr) => {
+        impl<'de> Deserialize<'de> for $ty {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct BytesVisitor;
+
+                impl<'de> Visitor<'de> for BytesVisitor {
+                    type Value = $ty;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        write!(formatter, "bytes")
+                    }
+
+                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                    where
+                        A: SeqAccess<'de>,
+                    {
+                        let mut arr = $new;
+                        let mut idx: usize = 0;
+                        let size_hint = seq.size_hint().unwrap_or(1);
+                        arr.resize(size_hint, 0);
+
+                        while let Some(elem) = seq.next_element()? {
+                            if idx >= arr.len() {
+                                arr.resize(idx + 1, 0);
+                            }
+                            arr[idx] = elem;
+                            idx += 1;
+                        }
+
+                        arr.resize(idx, 0);
+
+                        Ok(arr)
+                    }
+
+                    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                    where
+                        E: Error,
+                    {
+                        $from_slice(v)
+                    }
+                }
+
+                deserializer.deserialize_bytes(BytesVisitor)
+            }
+        }
+    };
+}
+
+impl_serialize_bytes!([const LENGTH: usize] StackByteArray<LENGTH>);
+
+impl_deserialize_fixed!(
+    StackByteArray<LENGTH>,
+    StackByteArray::<LENGTH>::new(),
+    |v| {
+        let mut arr = StackByteArray::<LENGTH>::new();
+        arr.copy_from_slice(v);
+        Ok(arr)
+    }
+);
 
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 mod protected {
@@ -91,56 +166,11 @@ mod protected {
 
     impl_serialize_bytes!([const LENGTH: usize] Locked<HeapByteArray<LENGTH>>);
 
-    impl<'de, const LENGTH: usize> Deserialize<'de> for HeapByteArray<LENGTH> {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            struct ByteArrayVisitor<const LENGTH: usize>;
-
-            impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
-                type Value = HeapByteArray<LENGTH>;
-
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    write!(formatter, "exactly {LENGTH} bytes")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut arr = HeapByteArray::<LENGTH>::default();
-                    let mut idx = 0;
-
-                    while let Some(elem) = seq.next_element()? {
-                        if idx >= LENGTH {
-                            return Err(Error::invalid_length(idx + 1, &self));
-                        }
-                        arr[idx] = elem;
-                        idx += 1;
-                    }
-
-                    if idx != LENGTH {
-                        return Err(Error::invalid_length(idx, &self));
-                    }
-
-                    Ok(arr)
-                }
-
-                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-                where
-                    E: Error,
-                {
-                    if v.len() != LENGTH {
-                        return Err(Error::invalid_length(v.len(), &self));
-                    }
-                    HeapByteArray::<LENGTH>::try_from(v).map_err(E::custom)
-                }
-            }
-
-            deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
-        }
-    }
+    impl_deserialize_fixed!(
+        HeapByteArray<LENGTH>,
+        HeapByteArray::<LENGTH>::default(),
+        |v| HeapByteArray::<LENGTH>::try_from(v).map_err(E::custom)
+    );
 
     impl_serialize_bytes!(HeapBytes);
 
@@ -148,151 +178,17 @@ mod protected {
 
     impl_serialize_bytes!(LockedRO<HeapBytes>);
 
-    impl<'de> Deserialize<'de> for HeapBytes {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            struct BytesVisitor;
+    impl_deserialize_bytes!(HeapBytes, HeapBytes::default(), |v| Ok(HeapBytes::from(v)));
 
-            impl<'de> Visitor<'de> for BytesVisitor {
-                type Value = HeapBytes;
+    impl_deserialize_bytes!(
+        LockedBytes,
+        HeapBytes::new_locked().map_err(A::Error::custom)?,
+        |v| HeapBytes::from_slice_into_locked(v).map_err(E::custom)
+    );
 
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    write!(formatter, "bytes")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut arr = HeapBytes::default();
-                    let mut idx: usize = 0;
-                    let size_hint = seq.size_hint().unwrap_or(1);
-                    arr.resize(size_hint, 0);
-
-                    while let Some(elem) = seq.next_element()? {
-                        if idx >= arr.len() {
-                            arr.resize(idx + 1, 0);
-                        }
-                        arr[idx] = elem;
-                        idx += 1;
-                    }
-
-                    arr.resize(idx, 0);
-
-                    Ok(arr)
-                }
-
-                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-                where
-                    E: Error,
-                {
-                    Ok(HeapBytes::from(v))
-                }
-            }
-
-            deserializer.deserialize_bytes(BytesVisitor)
-        }
-    }
-
-    impl<'de> Deserialize<'de> for LockedBytes {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            struct BytesVisitor;
-
-            impl<'de> Visitor<'de> for BytesVisitor {
-                type Value = LockedBytes;
-
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    write!(formatter, "bytes")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut arr = HeapBytes::new_locked().map_err(A::Error::custom)?;
-                    let mut idx: usize = 0;
-                    let size_hint = seq.size_hint().unwrap_or(1);
-                    arr.resize(size_hint, 0);
-
-                    while let Some(elem) = seq.next_element()? {
-                        if idx >= arr.len() {
-                            arr.resize(idx + 1, 0);
-                        }
-                        arr[idx] = elem;
-                        idx += 1;
-                    }
-
-                    arr.resize(idx, 0);
-
-                    Ok(arr)
-                }
-
-                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-                where
-                    E: Error,
-                {
-                    HeapBytes::from_slice_into_locked(v).map_err(E::custom)
-                }
-            }
-
-            deserializer.deserialize_bytes(BytesVisitor)
-        }
-    }
-
-    impl<'de, const LENGTH: usize> Deserialize<'de> for Locked<HeapByteArray<LENGTH>> {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            struct BytesVisitor<const LENGTH: usize>;
-
-            impl<'de, const LENGTH: usize> Visitor<'de> for BytesVisitor<LENGTH> {
-                type Value = Locked<HeapByteArray<LENGTH>>;
-
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    write!(formatter, "exactly {LENGTH} bytes")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut arr =
-                        HeapByteArray::<LENGTH>::new_locked().map_err(A::Error::custom)?;
-                    let mut idx: usize = 0;
-                    while let Some(elem) = seq.next_element()? {
-                        if idx >= LENGTH {
-                            return Err(Error::invalid_length(idx + 1, &self));
-                        }
-                        arr[idx] = elem;
-                        idx += 1;
-                    }
-
-                    if idx != LENGTH {
-                        return Err(Error::invalid_length(idx, &self));
-                    }
-
-                    Ok(arr)
-                }
-
-                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-                where
-                    E: Error,
-                {
-                    if v.len() != LENGTH {
-                        Err(Error::invalid_length(v.len(), &self))
-                    } else {
-                        HeapByteArray::<LENGTH>::from_slice_into_locked(v).map_err(E::custom)
-                    }
-                }
-            }
-
-            deserializer.deserialize_bytes(BytesVisitor)
-        }
-    }
+    impl_deserialize_fixed!(
+        Locked<HeapByteArray<LENGTH>>,
+        HeapByteArray::<LENGTH>::new_locked().map_err(A::Error::custom)?,
+        |v| HeapByteArray::<LENGTH>::from_slice_into_locked(v).map_err(E::custom)
+    );
 }

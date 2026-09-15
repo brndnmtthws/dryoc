@@ -74,7 +74,7 @@ use zeroize::Zeroize;
 use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorContext, split_prefix};
 pub use crate::types::*;
 
 /// Stack-allocated secret for authenticated secret box.
@@ -260,18 +260,12 @@ impl<
     /// Returns an error if `bytes` is shorter than one authentication tag or
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
-            Err(
-                length_error!(crate::ErrorContext::SecretBox, bytes.len(), min CRYPTO_SECRETBOX_MACBYTES),
-            )
-        } else {
-            let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
-            Ok(Self {
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (tag, data) = split_prefix(bytes, CRYPTO_SECRETBOX_MACBYTES, ErrorContext::SecretBox)?;
+        Ok(Self {
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 
