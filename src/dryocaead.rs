@@ -75,7 +75,7 @@ use crate::constants::{
 };
 use crate::error::{Error, ErrorContext};
 pub use crate::types::*;
-use crate::utils::{ct_eq_bytes, split_prefix, split_suffix};
+use crate::utils::{ct_eq_bytes, split_suffix};
 
 mod sealed {
     pub trait Sealed {}
@@ -518,8 +518,9 @@ macro_rules! impl_aead_algorithm {
             /// authentication tag, or if either field cannot be converted to its
             /// target type.
             pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-                let (nonce, rest) = split_prefix(bytes, $npubbytes, ErrorContext::AeadEnvelope)?;
-                let (data, tag) = split_suffix(rest, $abytes, ErrorContext::AeadEnvelope)?;
+                validate_length!(min $npubbytes + $abytes, bytes.len(), ErrorContext::AeadEnvelope);
+                let (nonce, rest) = bytes.split_at($npubbytes);
+                let (data, tag) = rest.split_at(rest.len() - $abytes);
                 Ok(Self {
                     algorithm: PhantomData,
                     nonce: Nonce::try_from(nonce)
@@ -1058,7 +1059,20 @@ mod tests {
         let short_envelope_bytes = [0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
             + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
             - 1];
-        assert!(VecEnvelope::from_bytes(&short_envelope_bytes).is_err());
+        const ENVELOPE_MIN: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
+            + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
+        // Truncated envelopes report the whole input against the whole minimum,
+        // whether the truncation lands inside the nonce or inside the tag.
+        for short in [&short_envelope_bytes[..], &short_envelope_bytes[..1]] {
+            assert!(matches!(
+                VecEnvelope::from_bytes(short),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::AeadEnvelope,
+                    actual,
+                    constraint: crate::error::LengthConstraint::AtLeast(ENVELOPE_MIN),
+                }) if actual == short.len()
+            ));
+        }
 
         let empty_envelope_bytes = [0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
             + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
