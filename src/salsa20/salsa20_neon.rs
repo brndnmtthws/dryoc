@@ -6,12 +6,11 @@
 //! Control flow and memory access are independent of the key and nonce.
 
 use std::arch::aarch64::{
-    uint32x4_t, vaddq_u32, vcltq_u32, vcombine_u64, vcreate_u64, vdupq_n_u32, veor3q_u32,
-    veorq_u32, vreinterpretq_u32_u64, vshlq_n_u32, vshrq_n_u32, vsliq_n_u32, vsubq_u32,
+    uint32x4_t, vaddq_u32, veor3q_u32, veorq_u32, vshlq_n_u32, vshrq_n_u32, vsliq_n_u32,
 };
 
 use super::salsa20_soft as soft;
-use crate::neon::{Dest, transpose, xor_block};
+use crate::neon::{Dest, input_lanes as shared_input_lanes, transpose, xor_block};
 
 /// Blocks per 4-lane vector set.
 const SET_BLOCKS: u64 = 4;
@@ -143,30 +142,12 @@ macro_rules! step_sha3 {
     };
 }
 
-/// The Salsa20 input for blocks `counter .. counter + 4`, one block per lane.
+/// The Salsa20 input for blocks `counter .. counter + 4`, one block per lane;
+/// the 64-bit block counter lives in words 8 and 9.
 #[inline]
 #[target_feature(enable = "neon")]
 fn input_lanes(state: &[u32; 16], counter: u64) -> [uint32x4_t; 16] {
-    // A plain loop: `array::map` with a NEON closure is not inlined here and
-    // round-trips the 16 vectors through the stack on every chunk.
-    let mut x = [vdupq_n_u32(0); 16];
-    for (lane, &word) in x.iter_mut().zip(state) {
-        *lane = vdupq_n_u32(word);
-    }
-    let lo = vdupq_n_u32(counter as u32);
-    let lo_lanes = vaddq_u32(
-        lo,
-        vreinterpretq_u32_u64(vcombine_u64(
-            vcreate_u64(1 << 32),
-            vcreate_u64(2 | (3 << 32)),
-        )),
-    );
-    // A lane whose low word wrapped compares below the base; `vcltq` yields
-    // all-ones there, so subtracting it carries into the high word.
-    let carry = vcltq_u32(lo_lanes, lo);
-    x[8] = lo_lanes;
-    x[9] = vsubq_u32(vdupq_n_u32((counter >> 32) as u32), carry);
-    x
+    shared_input_lanes::<8, 9>(state, counter)
 }
 
 /// Finalises a 4-block vector set: adds the input back, transposes into block

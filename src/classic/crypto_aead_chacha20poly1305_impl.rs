@@ -7,12 +7,10 @@
 //! to [`impl_chacha20poly1305_aead!`]; everything that is independent of the
 //! stream lives here as ordinary functions.
 
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::chacha20::ChaCha20;
 use crate::constants::{CRYPTO_ONETIMEAUTH_POLY1305_BYTES, CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES};
-use crate::error::Error;
 use crate::poly1305::{Key as Poly1305Key, Poly1305};
 use crate::utils::{pad16, zeroize_bytes};
 
@@ -20,18 +18,6 @@ use crate::utils::{pad16, zeroize_bytes};
 pub(crate) type Tag = [u8; CRYPTO_ONETIMEAUTH_POLY1305_BYTES];
 
 const PAD0: [u8; 16] = [0u8; 16];
-
-pub(crate) fn validate_output_len(
-    output_len: usize,
-    expected_len: usize,
-    context: crate::ErrorContext,
-) -> Result<(), Error> {
-    if output_len != expected_len {
-        Err(length_error!(context, output_len, exact expected_len))
-    } else {
-        Ok(())
-    }
-}
 
 /// Takes the Poly1305 key from block 0 of `cipher`, which must be positioned
 /// at block 0; the returned cipher is positioned at block 1 for the message.
@@ -78,14 +64,6 @@ pub(crate) fn compute_mac_to_array(mac_key: &mut Poly1305Key, ciphertext: &[u8],
     let mut mac = Tag::default();
     compute_mac(&mut mac, mac_key, ciphertext, ad);
     mac
-}
-
-pub(crate) fn verify_mac(mac: &Tag, computed_mac: &Tag) -> Result<(), Error> {
-    if mac.ct_eq(computed_mac).unwrap_u8() == 1 {
-        Ok(())
-    } else {
-        Err(Error::AuthenticationFailed)
-    }
 }
 
 /// Generates the libsodium-shaped API of one ChaCha20-Poly1305-IETF
@@ -135,8 +113,8 @@ macro_rules! impl_chacha20poly1305_aead {
     ) => {
         use $crate::classic::crypto_aead_chacha20poly1305_impl::{
             compute_mac, compute_mac_to_array, encrypt_with_poly1305_key, poly1305_key,
-            validate_output_len, verify_mac,
         };
+        use $crate::utils::verify_ct;
 
         $(#[$keygen_inplace_meta])*
         pub fn $keygen_inplace(key: &mut $key) {
@@ -148,29 +126,14 @@ macro_rules! impl_chacha20poly1305_aead {
             <$key>::generate()
         }
 
-        pub(super) fn validate_message_len(message_len: usize) -> Result<(), $crate::error::Error> {
-            if message_len > $messagebytes_max {
-                Err(length_error!(
-                    $crate::ErrorContext::Message,
-                    message_len,
-                    max $messagebytes_max
-                ))
-            } else {
-                Ok(())
-            }
-        }
-
         pub(super) fn message_len_from_combined_len(
             combined_len: usize,
             context: $crate::ErrorContext,
         ) -> Result<usize, $crate::error::Error> {
-            if combined_len < $abytes {
-                Err(length_error!(context, combined_len, min $abytes))
-            } else {
-                let message_len = combined_len - $abytes;
-                validate_message_len(message_len)?;
-                Ok(message_len)
-            }
+            validate_length!(min $abytes, combined_len, context);
+            let message_len = combined_len - $abytes;
+            validate_length!(max $messagebytes_max, message_len, $crate::ErrorContext::Message);
+            Ok(message_len)
         }
 
         $(#[$encrypt_detached_meta])*
@@ -182,12 +145,8 @@ macro_rules! impl_chacha20poly1305_aead {
             nonce: &$nonce,
             key: &$key,
         ) -> Result<(), $crate::error::Error> {
-            validate_message_len(message.len())?;
-            validate_output_len(
-                ciphertext.len(),
-                message.len(),
-                $crate::ErrorContext::Ciphertext,
-            )?;
+            validate_length!(max $messagebytes_max, message.len(), $crate::ErrorContext::Message);
+            validate_length!(exact message.len(), ciphertext.len(), $crate::ErrorContext::Ciphertext);
 
             let associated_data = associated_data.unwrap_or(&[]);
             let mut mac_key =
@@ -205,7 +164,7 @@ macro_rules! impl_chacha20poly1305_aead {
             nonce: &$nonce,
             key: &$key,
         ) -> Result<(), $crate::error::Error> {
-            validate_message_len(data.len())?;
+            validate_length!(max $messagebytes_max, data.len(), $crate::ErrorContext::Message);
 
             let associated_data = associated_data.unwrap_or(&[]);
             let mut mac_key = encrypt_with_poly1305_key(($stream)(nonce, key), None, data);
@@ -223,18 +182,14 @@ macro_rules! impl_chacha20poly1305_aead {
             nonce: &$nonce,
             key: &$key,
         ) -> Result<(), $crate::error::Error> {
-            validate_message_len(ciphertext.len())?;
-            validate_output_len(
-                message.len(),
-                ciphertext.len(),
-                $crate::ErrorContext::Message,
-            )?;
+            validate_length!(max $messagebytes_max, ciphertext.len(), $crate::ErrorContext::Message);
+            validate_length!(exact ciphertext.len(), message.len(), $crate::ErrorContext::Message);
 
             let associated_data = associated_data.unwrap_or(&[]);
             let (mut cipher, mut mac_key) = poly1305_key(($stream)(nonce, key));
             let computed_mac = compute_mac_to_array(&mut mac_key, ciphertext, associated_data);
 
-            verify_mac(mac, &computed_mac)?;
+            verify_ct(mac, &computed_mac)?;
             cipher.apply_keystream_b2b(ciphertext, message);
             Ok(())
         }
@@ -247,13 +202,13 @@ macro_rules! impl_chacha20poly1305_aead {
             nonce: &$nonce,
             key: &$key,
         ) -> Result<(), $crate::error::Error> {
-            validate_message_len(data.len())?;
+            validate_length!(max $messagebytes_max, data.len(), $crate::ErrorContext::Message);
 
             let associated_data = associated_data.unwrap_or(&[]);
             let (mut cipher, mut mac_key) = poly1305_key(($stream)(nonce, key));
             let computed_mac = compute_mac_to_array(&mut mac_key, data, associated_data);
 
-            verify_mac(mac, &computed_mac)?;
+            verify_ct(mac, &computed_mac)?;
             cipher.apply_keystream(data);
             Ok(())
         }
@@ -266,12 +221,12 @@ macro_rules! impl_chacha20poly1305_aead {
             nonce: &$nonce,
             key: &$key,
         ) -> Result<(), $crate::error::Error> {
-            validate_message_len(message.len())?;
-            validate_output_len(
+            validate_length!(max $messagebytes_max, message.len(), $crate::ErrorContext::Message);
+            validate_length!(
+                exact message.len() + $abytes,
                 ciphertext.len(),
-                message.len() + $abytes,
-                $crate::ErrorContext::Ciphertext,
-            )?;
+                $crate::ErrorContext::Ciphertext
+            );
 
             let (ciphertext, mac) = ciphertext.split_at_mut(message.len());
             let mac = $crate::types::MutByteArray::as_mut_array(mac);
@@ -288,7 +243,7 @@ macro_rules! impl_chacha20poly1305_aead {
         ) -> Result<(), $crate::error::Error> {
             let message_len =
                 message_len_from_combined_len(ciphertext.len(), $crate::ErrorContext::Ciphertext)?;
-            validate_output_len(message.len(), message_len, $crate::ErrorContext::Message)?;
+            validate_length!(exact message_len, message.len(), $crate::ErrorContext::Message);
 
             let (ciphertext, mac) = ciphertext.split_at(message_len);
             let mac = $crate::types::ByteArray::as_array(mac);

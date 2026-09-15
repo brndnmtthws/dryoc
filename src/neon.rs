@@ -1,14 +1,48 @@
 //! NEON helpers shared by the AArch64 stream-cipher kernels (`chacha20`,
-//! `salsa20`): 16-byte loads and stores, the lane-set transpose and the
-//! keystream XOR into a [`Dest`].
+//! `salsa20`): 16-byte loads and stores, word-vector construction, the
+//! per-lane counter input, the lane-set transpose and the keystream XOR into
+//! a [`Dest`].
 
 use std::arch::aarch64::{
-    uint8x16_t, uint32x4_t, vcombine_u64, vcreate_u64, veorq_u8, vgetq_lane_u64,
-    vreinterpretq_u8_u64, vreinterpretq_u64_u8, vreinterpretq_u64_u32, vtrn1q_u32, vtrn1q_u64,
-    vtrn2q_u32, vtrn2q_u64,
+    uint8x16_t, uint32x4_t, vaddq_u32, vcltq_u32, vcombine_u64, vcreate_u64, vdupq_n_u32, veorq_u8,
+    vgetq_lane_u64, vreinterpretq_u8_u64, vreinterpretq_u32_u64, vreinterpretq_u64_u8,
+    vreinterpretq_u64_u32, vsubq_u32, vtrn1q_u32, vtrn1q_u64, vtrn2q_u32, vtrn2q_u64,
 };
 
 pub(crate) use crate::stream::Dest;
+
+/// Four words as a vector, word 0 in lane 0.
+#[inline]
+#[target_feature(enable = "neon")]
+pub(crate) fn words(w: [u32; 4]) -> uint32x4_t {
+    let lo = vcreate_u64(u64::from(w[0]) | (u64::from(w[1]) << 32));
+    let hi = vcreate_u64(u64::from(w[2]) | (u64::from(w[3]) << 32));
+    vreinterpretq_u32_u64(vcombine_u64(lo, hi))
+}
+
+/// The stream-cipher input for blocks `counter .. counter + 4`, one block per
+/// lane, with the 64-bit block counter in words `LO` (low) and `HI` (high).
+#[inline]
+#[target_feature(enable = "neon")]
+pub(crate) fn input_lanes<const LO: usize, const HI: usize>(
+    state: &[u32; 16],
+    counter: u64,
+) -> [uint32x4_t; 16] {
+    // A plain loop: `array::map` with a NEON closure is not inlined here and
+    // round-trips the 16 vectors through the stack on every chunk.
+    let mut x = [vdupq_n_u32(0); 16];
+    for (lane, &word) in x.iter_mut().zip(state) {
+        *lane = vdupq_n_u32(word);
+    }
+    let lo = vdupq_n_u32(counter as u32);
+    let lo_lanes = vaddq_u32(lo, words([0, 1, 2, 3]));
+    // A lane whose low word wrapped compares below the base; `vcltq` yields
+    // all-ones there, so subtracting it carries into the high word.
+    let carry = vcltq_u32(lo_lanes, lo);
+    x[LO] = lo_lanes;
+    x[HI] = vsubq_u32(vdupq_n_u32((counter >> 32) as u32), carry);
+    x
+}
 
 /// Loads 16 bytes as a vector (a single `ldr q` once inlined).
 #[inline]

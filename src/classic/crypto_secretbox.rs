@@ -48,15 +48,8 @@ pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
 pub type Key = [u8; CRYPTO_SECRETBOX_KEYBYTES];
 
 fn validate_message_len(message_len: usize, context: crate::ErrorContext) -> Result<(), Error> {
-    if message_len > CRYPTO_SECRETBOX_MESSAGEBYTES_MAX {
-        Err(length_error!(
-            context,
-            message_len,
-            max CRYPTO_SECRETBOX_MESSAGEBYTES_MAX
-        ))
-    } else {
-        Ok(())
-    }
+    validate_length!(max CRYPTO_SECRETBOX_MESSAGEBYTES_MAX, message_len, context);
+    Ok(())
 }
 
 /// In-place variant of [`crypto_secretbox_keygen`]
@@ -86,12 +79,7 @@ pub fn crypto_secretbox_detached(
     key: &Key,
 ) -> Result<(), Error> {
     validate_message_len(message.len(), crate::ErrorContext::Message)?;
-
-    if ciphertext.len() < message.len() {
-        return Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min message.len()),
-        );
-    }
+    validate_length!(min message.len(), ciphertext.len(), crate::ErrorContext::Ciphertext);
 
     crypto_secretbox_detached_b2b(&mut ciphertext[..message.len()], mac, message, nonce, key);
     Ok(())
@@ -114,10 +102,7 @@ pub fn crypto_secretbox_open_detached(
 ) -> Result<(), Error> {
     let c_len = ciphertext.len();
     validate_message_len(c_len, crate::ErrorContext::Ciphertext)?;
-
-    if message.len() < c_len {
-        return Err(length_error!(crate::ErrorContext::Message, message.len(), min c_len));
-    }
+    validate_length!(min c_len, message.len(), crate::ErrorContext::Message);
 
     crypto_secretbox_open_detached_b2b(&mut message[..c_len], mac, ciphertext, nonce, key)
 }
@@ -139,11 +124,7 @@ pub fn crypto_secretbox_easy(
     validate_message_len(message.len(), crate::ErrorContext::Message)?;
 
     let expected_len = message.len() + CRYPTO_SECRETBOX_MACBYTES;
-    if ciphertext.len() != expected_len {
-        return Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), exact expected_len),
-        );
-    }
+    validate_length!(exact expected_len, ciphertext.len(), crate::ErrorContext::Ciphertext);
 
     let mut mac = Mac::default();
     crypto_secretbox_detached(
@@ -173,21 +154,20 @@ pub fn crypto_secretbox_open_easy(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    if ciphertext.len() < CRYPTO_SECRETBOX_MACBYTES {
-        Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_SECRETBOX_MACBYTES),
-        )
-    } else if message.len() != ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES {
-        Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            exact ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES
-        ))
-    } else {
-        let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
-        let mac = ByteArray::as_array(mac);
-        crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
-    }
+    validate_length!(
+        min CRYPTO_SECRETBOX_MACBYTES,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
+    validate_length!(
+        exact ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES,
+        message.len(),
+        crate::ErrorContext::Message
+    );
+
+    let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
+    let mac = ByteArray::as_array(mac);
+    crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
 }
 
 /// Encrypts `message` with `nonce` and `key` in-place, without allocating
@@ -201,11 +181,7 @@ pub fn crypto_secretbox_easy_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    if data.len() < CRYPTO_SECRETBOX_MACBYTES {
-        return Err(
-            length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_SECRETBOX_MACBYTES),
-        );
-    }
+    validate_length!(min CRYPTO_SECRETBOX_MACBYTES, data.len(), crate::ErrorContext::Data);
     data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
     let (mac, data) = data.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
     let mac = MutByteArray::as_mut_array(mac);
@@ -227,20 +203,20 @@ pub fn crypto_secretbox_open_easy_inplace(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    if ciphertext.len() < CRYPTO_SECRETBOX_MACBYTES {
-        Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_SECRETBOX_MACBYTES),
-        )
-    } else {
-        let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
-        let mac = ByteArray::as_array(mac);
+    validate_length!(
+        min CRYPTO_SECRETBOX_MACBYTES,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
-        crypto_secretbox_open_detached_inplace(data, mac, nonce, key)?;
+    let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
+    let mac = ByteArray::as_array(mac);
 
-        ciphertext.rotate_left(CRYPTO_SECRETBOX_MACBYTES);
+    crypto_secretbox_open_detached_inplace(data, mac, nonce, key)?;
 
-        Ok(())
-    }
+    ciphertext.rotate_left(CRYPTO_SECRETBOX_MACBYTES);
+
+    Ok(())
 }
 
 #[cfg(test)]

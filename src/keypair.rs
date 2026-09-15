@@ -9,7 +9,6 @@ use std::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
@@ -21,6 +20,7 @@ use crate::error::Error;
 use crate::kx;
 use crate::precalc::PrecalcSecretKey;
 use crate::types::*;
+use crate::utils::ct_eq_bytes;
 
 /// Stack-allocated public key type alias.
 pub type PublicKey = StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
@@ -491,17 +491,8 @@ impl<
 > PartialEq<KeyPair<PublicKey, SecretKey>> for KeyPair<PublicKey, SecretKey>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.public_key
-            .as_slice()
-            .ct_eq(other.public_key.as_slice())
-            .unwrap_u8()
-            == 1
-            && self
-                .secret_key
-                .as_slice()
-                .ct_eq(other.secret_key.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.public_key.as_slice(), other.public_key.as_slice())
+            && ct_eq_bytes(self.secret_key.as_slice(), other.secret_key.as_slice())
     }
 }
 

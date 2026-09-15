@@ -8,14 +8,13 @@
 //! independent of the key and nonce.
 
 use std::arch::aarch64::{
-    uint8x16_t, uint32x4_t, vaddq_u32, vcltq_u32, vcombine_u64, vcreate_u64, vdupq_n_u32,
-    veorq_u32, vextq_u32, vqtbl1q_u8, vreinterpretq_u8_u32, vreinterpretq_u16_u32,
-    vreinterpretq_u32_u8, vreinterpretq_u32_u16, vreinterpretq_u32_u64, vrev32q_u16, vshrq_n_u32,
-    vsliq_n_u32, vsubq_u32,
+    uint8x16_t, uint32x4_t, vaddq_u32, veorq_u32, vextq_u32, vqtbl1q_u8, vreinterpretq_u8_u32,
+    vreinterpretq_u16_u32, vreinterpretq_u32_u8, vreinterpretq_u32_u16, vrev32q_u16, vshrq_n_u32,
+    vsliq_n_u32,
 };
 
 use super::chacha20_soft as soft;
-use crate::neon::{Dest, load, transpose, xor_block};
+use crate::neon::{Dest, input_lanes as shared_input_lanes, load, transpose, words, xor_block};
 
 /// Blocks per 4-lane vector set.
 const SET_BLOCKS: u64 = 4;
@@ -225,34 +224,12 @@ macro_rules! scalar_quarter_round {
     };
 }
 
-/// Four words as a vector, word 0 in lane 0.
-#[inline]
-#[target_feature(enable = "neon")]
-fn words(w: [u32; 4]) -> uint32x4_t {
-    let lo = vcreate_u64(u64::from(w[0]) | (u64::from(w[1]) << 32));
-    let hi = vcreate_u64(u64::from(w[2]) | (u64::from(w[3]) << 32));
-    vreinterpretq_u32_u64(vcombine_u64(lo, hi))
-}
-
 /// The ChaCha20 input for blocks `counter .. counter + 4`, one block per
-/// lane.
+/// lane; the 64-bit block counter lives in words 12 and 13.
 #[inline]
 #[target_feature(enable = "neon")]
 fn input_lanes(state: &[u32; 16], counter: u64) -> [uint32x4_t; 16] {
-    // A plain loop: `array::map` with a NEON closure is not inlined here and
-    // round-trips the 16 vectors through the stack on every chunk.
-    let mut x = [vdupq_n_u32(0); 16];
-    for (lane, &word) in x.iter_mut().zip(state) {
-        *lane = vdupq_n_u32(word);
-    }
-    let lo = vdupq_n_u32(counter as u32);
-    let lo_lanes = vaddq_u32(lo, words([0, 1, 2, 3]));
-    // A lane whose low word wrapped compares below the base; `vcltq` yields
-    // all-ones there, so subtracting it carries into the high word.
-    let carry = vcltq_u32(lo_lanes, lo);
-    x[12] = lo_lanes;
-    x[13] = vsubq_u32(vdupq_n_u32((counter >> 32) as u32), carry);
-    x
+    shared_input_lanes::<12, 13>(state, counter)
 }
 
 /// The ChaCha20 input for block `counter`, one row per vector.

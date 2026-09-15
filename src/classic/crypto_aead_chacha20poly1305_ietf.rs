@@ -156,16 +156,6 @@ mod tests {
         const MAX: usize = CRYPTO_AEAD_CHACHA20POLY1305_IETF_MESSAGEBYTES_MAX;
         const ABYTES: usize = CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
 
-        assert!(validate_message_len(MAX).is_ok());
-        assert!(matches!(
-            validate_message_len(MAX + 1),
-            Err(Error::InvalidLength {
-                context: crate::ErrorContext::Message,
-                actual,
-                constraint: LengthConstraint::AtMost(max),
-            }) if actual == MAX + 1 && max == MAX
-        ));
-
         assert!(matches!(
             message_len_from_combined_len(MAX + ABYTES, crate::ErrorContext::Ciphertext),
             Ok(len) if len == MAX
@@ -175,8 +165,9 @@ mod tests {
                 message_len_from_combined_len(combined_len, crate::ErrorContext::Ciphertext),
                 Err(Error::InvalidLength {
                     context: crate::ErrorContext::Message,
-                    ..
-                })
+                    actual,
+                    constraint: LengthConstraint::AtMost(max),
+                }) if actual == MAX + 1 && max == MAX
             ));
         }
     }

@@ -107,6 +107,26 @@ pub trait ResizableBytes {
     fn resize(&mut self, new_len: usize, value: u8);
 }
 
+/// Returns a new byte buffer filled with random data.
+pub(crate) fn gen_bytes<B: NewBytes + MutBytes>() -> B {
+    let mut res = B::new_bytes();
+    copy_randombytes(res.as_mut_slice());
+    res
+}
+
+/// Returns a new `Output` holding `prefix || data`.
+pub(crate) fn concat_bytes<Output: NewBytes + ResizableBytes>(
+    prefix: &[u8],
+    data: &[u8],
+) -> Output {
+    let mut out = Output::new_bytes();
+    out.resize(prefix.len() + data.len(), 0);
+    let s = out.as_mut_slice();
+    s[..prefix.len()].copy_from_slice(prefix);
+    s[prefix.len()..].copy_from_slice(data);
+    out
+}
+
 impl<const LENGTH: usize> ByteArray<LENGTH> for StackByteArray<LENGTH> {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
@@ -144,9 +164,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
 
     /// Returns a new byte array filled with random data.
     fn r#gen() -> Self {
-        let mut res = Self::default();
-        copy_randombytes(&mut res.0);
-        res
+        gen_bytes()
     }
 }
 
@@ -175,43 +193,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
 
     /// Returns a new byte array filled with random data.
     fn r#gen() -> Self {
-        let mut res = vec![0u8; LENGTH];
-        copy_randombytes(&mut res);
-        res
-    }
-}
-
-impl<const LENGTH: usize> MutByteArray<LENGTH> for Vec<u8> {
-    #[inline]
-    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        assert!(
-            self.len() >= LENGTH,
-            "invalid vec length {}, expecting at least {}",
-            self.len(),
-            LENGTH
-        );
-        let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
-        // SAFETY: The assertion above guarantees the vector has at least
-        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, and the
-        // exclusive `&mut self` borrow prevents aliasing the returned prefix.
-        unsafe { &mut *arr }
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH> for Vec<u8> {
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        assert!(
-            self.len() >= LENGTH,
-            "invalid vec length {}, expecting at least {}",
-            self.len(),
-            LENGTH
-        );
-        let arr = self.as_ptr() as *const [u8; LENGTH];
-        // SAFETY: The assertion above guarantees the vector has at least
-        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, so the
-        // first `LENGTH` bytes can be viewed as a fixed-size byte array.
-        unsafe { &*arr }
+        gen_bytes()
     }
 }
 
@@ -228,9 +210,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for [u8; LENGTH] {
 
     /// Returns a new byte array filled with random data.
     fn r#gen() -> Self {
-        let mut res = Self::new_byte_array();
-        copy_randombytes(&mut res);
-        res
+        gen_bytes()
     }
 }
 
@@ -321,97 +301,99 @@ macro_rules! impl_bytes_for_slice {
 
 impl_bytes_for_slice!([u8], &[u8], &mut [u8]);
 
-impl<const LENGTH: usize> Bytes for [u8; LENGTH] {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self
-    }
+/// Implements [`Bytes`] for a fixed-size byte array (or reference to one),
+/// delegating to `$this` (e.g. `a` or `a.deref()`).
+macro_rules! impl_bytes_for_array {
+    ($($(#[$meta:meta])* $t:ty, |$a:ident| $this:expr;)*) => {$(
+        $(#[$meta])*
+        impl<const LENGTH: usize> Bytes for $t {
+            #[inline]
+            fn as_slice(&self) -> &[u8] {
+                let $a = self;
+                $this
+            }
 
-    #[inline]
-    fn len(&self) -> usize {
-        <[u8]>::len(self)
-    }
+            #[inline]
+            fn len(&self) -> usize {
+                let $a = self;
+                <[u8]>::len($this)
+            }
 
-    #[inline]
-    fn is_empty(&self) -> bool {
-        <[u8]>::is_empty(self)
-    }
+            #[inline]
+            fn is_empty(&self) -> bool {
+                let $a = self;
+                <[u8]>::is_empty($this)
+            }
+        }
+    )*};
 }
 
-#[allow(suspicious_double_ref_op)]
-impl<const LENGTH: usize> Bytes for &[u8; LENGTH] {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self.deref()
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        <[u8]>::len(self.deref())
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        <[u8]>::is_empty(self.deref())
-    }
+impl_bytes_for_array! {
+    [u8; LENGTH], |a| a;
+    #[allow(suspicious_double_ref_op)] &[u8; LENGTH], |a| a.deref();
 }
+
+/// Implements the checked fixed-size array view of a runtime-sized byte
+/// buffer, panicking with an "invalid `$noun` length" message when the buffer
+/// is shorter than `LENGTH`.
+macro_rules! impl_checked_bytearray {
+    (immutable: $($(#[$meta:meta])* $t:ty, $noun:literal;)*) => {$(
+        $(#[$meta])*
+        impl<const LENGTH: usize> ByteArray<LENGTH> for $t {
+            #[inline]
+            fn as_array(&self) -> &[u8; LENGTH] {
+                assert!(
+                    self.len() >= LENGTH,
+                    concat!("invalid ", $noun, " length {}, expecting at least {}"),
+                    self.len(),
+                    LENGTH
+                );
+                let arr = self.as_ptr() as *const [u8; LENGTH];
+                // SAFETY: The assertion above guarantees the buffer has at
+                // least `LENGTH` initialized bytes. `[u8; LENGTH]` has
+                // alignment 1, so the first `LENGTH` bytes can be viewed as a
+                // fixed-size byte array.
+                unsafe { &*arr }
+            }
+        }
+    )*};
+    (mutable: $($t:ty, $noun:literal;)*) => {$(
+        impl<const LENGTH: usize> MutByteArray<LENGTH> for $t {
+            #[inline]
+            fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+                assert!(
+                    self.len() >= LENGTH,
+                    concat!("invalid ", $noun, " length {}, expecting at least {}"),
+                    self.len(),
+                    LENGTH
+                );
+                let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
+                // SAFETY: The assertion above guarantees the buffer has at
+                // least `LENGTH` initialized bytes. `[u8; LENGTH]` has
+                // alignment 1, and the exclusive `&mut self` borrow prevents
+                // aliasing the returned prefix.
+                unsafe { &mut *arr }
+            }
+        }
+    )*};
+}
+
+impl_checked_bytearray!(immutable:
+    /// Provided for convenience. Panics if the input array size doesn't match
+    /// `LENGTH`.
+    &[u8], "slice";
+    [u8], "slice";
+    Vec<u8>, "vec";
+);
+impl_checked_bytearray!(mutable:
+    Vec<u8>, "vec";
+    [u8], "slice";
+);
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
     #[inline]
     fn as_array(&self) -> &[u8; LENGTH] {
         self
-    }
-}
-
-/// Provided for convenience. Panics if the input array size doesn't match
-/// `LENGTH`.
-impl<const LENGTH: usize> ByteArray<LENGTH> for &[u8] {
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        assert!(
-            self.len() >= LENGTH,
-            "invalid slice length {}, expecting at least {}",
-            self.len(),
-            LENGTH
-        );
-        let arr = self.as_ptr() as *const [u8; LENGTH];
-        // SAFETY: The assertion above guarantees the slice has at least
-        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, so the
-        // first `LENGTH` bytes can be viewed as a fixed-size byte array.
-        unsafe { &*arr }
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH> for [u8] {
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        assert!(
-            self.len() >= LENGTH,
-            "invalid slice length {}, expecting at least {}",
-            self.len(),
-            LENGTH
-        );
-        let arr = self.as_ptr() as *const [u8; LENGTH];
-        // SAFETY: The assertion above guarantees the slice has at least
-        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, so the
-        // first `LENGTH` bytes can be viewed as a fixed-size byte array.
-        unsafe { &*arr }
-    }
-}
-
-impl<const LENGTH: usize> MutByteArray<LENGTH> for [u8] {
-    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        assert!(
-            self.len() >= LENGTH,
-            "invalid slice length {}, expecting at least {}",
-            self.len(),
-            LENGTH
-        );
-        let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
-        // SAFETY: The assertion above guarantees the slice has at least
-        // `LENGTH` initialized bytes. `[u8; LENGTH]` has alignment 1, and
-        // `&mut self` provides exclusive access to the returned prefix.
-        unsafe { &mut *arr }
     }
 }
 
@@ -477,46 +459,64 @@ impl<const LENGTH: usize> DerefMut for StackByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> std::ops::Index<usize> for StackByteArray<LENGTH> {
-    type Output = u8;
+/// Implements `Index`/`IndexMut` for a byte container: the `usize` impls
+/// yielding `u8` and the six range impls yielding `[u8]`, delegating to the
+/// `$get`/`$get_mut` expressions for the backing bytes (e.g. `s.0` or
+/// `s.as_slice()`).
+macro_rules! impl_slice_index {
+    (impl[$($generics:tt)*] $ty:ty, |$s:ident| $get:expr, |$sm:ident| $get_mut:expr) => {
+        impl<$($generics)*> std::ops::Index<usize> for $ty {
+            type Output = u8;
 
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-impl<const LENGTH: usize> std::ops::IndexMut<usize> for StackByteArray<LENGTH> {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
-    }
-}
-
-macro_rules! impl_index {
-    ($range:ty) => {
-        impl<const LENGTH: usize> std::ops::Index<$range> for StackByteArray<LENGTH> {
+            #[inline]
+            fn index(&self, index: usize) -> &Self::Output {
+                let $s = self;
+                &$get[index]
+            }
+        }
+        impl<$($generics)*> std::ops::IndexMut<usize> for $ty {
+            #[inline]
+            fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+                let $sm = self;
+                &mut $get_mut[index]
+            }
+        }
+        impl_slice_index!(@ranges impl[$($generics)*] $ty, |$s| $get, |$sm| $get_mut);
+    };
+    (@ranges impl[$($generics:tt)*] $ty:ty, |$s:ident| $get:expr, |$sm:ident| $get_mut:expr) => {
+        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::Range<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeFull, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeFrom<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeInclusive<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeTo<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeToInclusive<usize>, |$s| $get, |$sm| $get_mut);
+    };
+    (@range impl[$($generics:tt)*] $ty:ty, $range:ty, |$s:ident| $get:expr, |$sm:ident| $get_mut:expr) => {
+        impl<$($generics)*> std::ops::Index<$range> for $ty {
             type Output = [u8];
 
             #[inline]
             fn index(&self, index: $range) -> &Self::Output {
-                &self.0[index]
+                let $s = self;
+                &$get[index]
             }
         }
-        impl<const LENGTH: usize> std::ops::IndexMut<$range> for StackByteArray<LENGTH> {
+        impl<$($generics)*> std::ops::IndexMut<$range> for $ty {
             #[inline]
             fn index_mut(&mut self, index: $range) -> &mut Self::Output {
-                &mut self.0[index]
+                let $sm = self;
+                &mut $get_mut[index]
             }
         }
     };
 }
 
-impl_index!(std::ops::Range<usize>);
-impl_index!(std::ops::RangeFull);
-impl_index!(std::ops::RangeFrom<usize>);
-impl_index!(std::ops::RangeInclusive<usize>);
-impl_index!(std::ops::RangeTo<usize>);
-impl_index!(std::ops::RangeToInclusive<usize>);
+// Only `protected.rs` imports this macro; it is compiled out on targets
+// without the protected feature.
+#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+pub(crate) use impl_slice_index;
+
+impl_slice_index!(impl[const LENGTH: usize] StackByteArray<LENGTH>, |s| s.0, |s| s.0);
 
 impl<const LENGTH: usize> Default for StackByteArray<LENGTH> {
     fn default() -> Self {
@@ -542,13 +542,10 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
     type Error = crate::error::Error;
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
-        if src.len() != LENGTH {
-            Err(length_error!(crate::ErrorContext::Slice, src.len(), exact LENGTH))
-        } else {
-            let mut arr = Self::default();
-            arr.0.copy_from_slice(src);
-            Ok(arr)
-        }
+        validate_length!(exact LENGTH, src.len(), crate::ErrorContext::Slice);
+        let mut arr = Self::default();
+        arr.0.copy_from_slice(src);
+        Ok(arr)
     }
 }
 

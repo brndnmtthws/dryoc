@@ -59,31 +59,58 @@ pub fn crypto_hash(output: &mut Digest, input: &[u8]) {
     crypto_hash_sha512(output, input);
 }
 
+/// Generates the `*State` struct and `init`/`update`/`final` triple for one
+/// hash function. Attributes on an entry, including doc comments, are applied
+/// to the generated item.
+macro_rules! crypto_hash_state {
+    (
+        $(#[$state_meta:meta])*
+        state: $state:ident($hasher:ty),
+        $(#[$init_meta:meta])*
+        init: $init:ident,
+        $(#[$update_meta:meta])*
+        update: $update:ident,
+        $(#[$final_meta:meta])*
+        final: $final:ident($digest:ty)
+    ) => {
+        $(#[$state_meta])*
+        #[derive(Default)]
+        pub struct $state {
+            pub(super) hasher: $hasher,
+        }
+
+        $(#[$init_meta])*
+        pub fn $init() -> $state {
+            <$state>::default()
+        }
+
+        $(#[$update_meta])*
+        pub fn $update(state: &mut $state, input: &[u8]) {
+            state.hasher.update(input);
+        }
+
+        $(#[$final_meta])*
+        pub fn $final(state: $state, output: &mut $digest) {
+            state.hasher.finalize_into_bytes(output)
+        }
+    };
+}
+
 /// Computes a SHA-256 hash from `input`.
 pub fn crypto_hash_sha256(output: &mut Sha256Digest, input: &[u8]) {
     Sha256::compute_into_bytes(output, input);
 }
 
-/// Internal state for SHA-256 functions.
-#[derive(Default)]
-pub struct Sha256State {
-    pub(super) hasher: Sha256,
-}
-
-/// Initializes a SHA-256 hasher.
-pub fn crypto_hash_sha256_init() -> Sha256State {
-    Sha256State::default()
-}
-
-/// Updates `state` of SHA-256 hasher with `input`.
-pub fn crypto_hash_sha256_update(state: &mut Sha256State, input: &[u8]) {
-    state.hasher.update(input);
-}
-
-/// Finalizes `state` of SHA-256, and writes the digest to `output` consuming
-/// `state`.
-pub fn crypto_hash_sha256_final(state: Sha256State, output: &mut Sha256Digest) {
-    state.hasher.finalize_into_bytes(output)
+crypto_hash_state! {
+    /// Internal state for SHA-256 functions.
+    state: Sha256State(Sha256),
+    /// Initializes a SHA-256 hasher.
+    init: crypto_hash_sha256_init,
+    /// Updates `state` of SHA-256 hasher with `input`.
+    update: crypto_hash_sha256_update,
+    /// Finalizes `state` of SHA-256, and writes the digest to `output`
+    /// consuming `state`.
+    final: crypto_hash_sha256_final(Sha256Digest)
 }
 
 /// Computes a SHA-512 hash from `input`.
@@ -91,26 +118,16 @@ pub fn crypto_hash_sha512(output: &mut Digest, input: &[u8]) {
     Sha512::compute_into_bytes(output, input);
 }
 
-/// Internal state for SHA-512 functions.
-#[derive(Default)]
-pub struct Sha512State {
-    pub(super) hasher: Sha512,
-}
-
-/// Initializes a SHA-512 hasher.
-pub fn crypto_hash_sha512_init() -> Sha512State {
-    Sha512State::default()
-}
-
-/// Updates `state` of SHA-512 hasher with `input`.
-pub fn crypto_hash_sha512_update(state: &mut Sha512State, input: &[u8]) {
-    state.hasher.update(input);
-}
-
-/// Finalizes `state` of SHA-512, and writes the digest to `output` consuming
-/// `state`.
-pub fn crypto_hash_sha512_final(state: Sha512State, output: &mut Digest) {
-    state.hasher.finalize_into_bytes(output)
+crypto_hash_state! {
+    /// Internal state for SHA-512 functions.
+    state: Sha512State(Sha512),
+    /// Initializes a SHA-512 hasher.
+    init: crypto_hash_sha512_init,
+    /// Updates `state` of SHA-512 hasher with `input`.
+    update: crypto_hash_sha512_update,
+    /// Finalizes `state` of SHA-512, and writes the digest to `output`
+    /// consuming `state`.
+    final: crypto_hash_sha512_final(Digest)
 }
 
 /// Computes a SHA3-256 hash from `input`.
@@ -120,26 +137,16 @@ pub fn crypto_hash_sha3256(output: &mut Sha3256Digest, input: &[u8]) {
     crypto_hash_sha3256_final(state, output);
 }
 
-/// Internal state for SHA3-256 functions.
-#[derive(Default)]
-pub struct Sha3256State {
-    pub(super) hasher: Sha3256,
-}
-
-/// Initializes a SHA3-256 hasher.
-pub fn crypto_hash_sha3256_init() -> Sha3256State {
-    Sha3256State::default()
-}
-
-/// Updates `state` of SHA3-256 hasher with `input`.
-pub fn crypto_hash_sha3256_update(state: &mut Sha3256State, input: &[u8]) {
-    state.hasher.update(input);
-}
-
-/// Finalizes `state` of SHA3-256, and writes the digest to `output` consuming
-/// `state`.
-pub fn crypto_hash_sha3256_final(state: Sha3256State, output: &mut Sha3256Digest) {
-    state.hasher.finalize_into_bytes(output)
+crypto_hash_state! {
+    /// Internal state for SHA3-256 functions.
+    state: Sha3256State(Sha3256),
+    /// Initializes a SHA3-256 hasher.
+    init: crypto_hash_sha3256_init,
+    /// Updates `state` of SHA3-256 hasher with `input`.
+    update: crypto_hash_sha3256_update,
+    /// Finalizes `state` of SHA3-256, and writes the digest to `output`
+    /// consuming `state`.
+    final: crypto_hash_sha3256_final(Sha3256Digest)
 }
 
 /// Computes a SHA3-512 hash from `input`.
@@ -149,26 +156,16 @@ pub fn crypto_hash_sha3512(output: &mut Sha3512Digest, input: &[u8]) {
     crypto_hash_sha3512_final(state, output);
 }
 
-/// Internal state for SHA3-512 functions.
-#[derive(Default)]
-pub struct Sha3512State {
-    pub(super) hasher: Sha3512,
-}
-
-/// Initializes a SHA3-512 hasher.
-pub fn crypto_hash_sha3512_init() -> Sha3512State {
-    Sha3512State::default()
-}
-
-/// Updates `state` of SHA3-512 hasher with `input`.
-pub fn crypto_hash_sha3512_update(state: &mut Sha3512State, input: &[u8]) {
-    state.hasher.update(input);
-}
-
-/// Finalizes `state` of SHA3-512, and writes the digest to `output` consuming
-/// `state`.
-pub fn crypto_hash_sha3512_final(state: Sha3512State, output: &mut Sha3512Digest) {
-    state.hasher.finalize_into_bytes(output)
+crypto_hash_state! {
+    /// Internal state for SHA3-512 functions.
+    state: Sha3512State(Sha3512),
+    /// Initializes a SHA3-512 hasher.
+    init: crypto_hash_sha3512_init,
+    /// Updates `state` of SHA3-512 hasher with `input`.
+    update: crypto_hash_sha3512_update,
+    /// Finalizes `state` of SHA3-512, and writes the digest to `output`
+    /// consuming `state`.
+    final: crypto_hash_sha3512_final(Sha3512Digest)
 }
 
 #[cfg(test)]

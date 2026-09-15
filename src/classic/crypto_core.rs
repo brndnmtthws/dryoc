@@ -12,7 +12,7 @@ use crate::scalarmult_curve25519::{
     crypto_scalarmult_curve25519, crypto_scalarmult_curve25519_base,
 };
 use crate::types::*;
-use crate::utils::load_u32_le;
+use crate::utils::{SIGMA, load_u32_le};
 
 /// Stack-allocated HChaCha20 input.
 pub type HChaCha20Input = [u8; CRYPTO_CORE_HCHACHA20_INPUTBYTES];
@@ -73,7 +73,7 @@ pub fn crypto_core_hchacha20(
 ) {
     let input = input.as_array();
     let key = key.as_array();
-    let (c0, c1, c2, c3) = constants.unwrap_or((0x61707865, 0x3320646e, 0x79622d32, 0x6b206574));
+    let (c0, c1, c2, c3) = constants.unwrap_or((SIGMA[0], SIGMA[1], SIGMA[2], SIGMA[3]));
     let mut x = [c0, c1, c2, c3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     for (word, bytes) in x[4..12].iter_mut().zip(key.as_chunks::<4>().0) {
         *word = u32::from_le_bytes(*bytes);
@@ -188,7 +188,7 @@ pub fn crypto_core_hsalsa20(
     constants: Option<(u32, u32, u32, u32)>,
 ) {
     let (mut x0, mut x5, mut x10, mut x15) =
-        constants.unwrap_or((0x61707865, 0x3320646e, 0x79622d32, 0x6b206574));
+        constants.unwrap_or((SIGMA[0], SIGMA[1], SIGMA[2], SIGMA[3]));
     let (
         mut x1,
         mut x2,

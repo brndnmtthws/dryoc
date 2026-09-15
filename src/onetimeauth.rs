@@ -60,8 +60,6 @@
 //!     .expect_err("verify should have failed");
 //! ```
 
-use subtle::ConstantTimeEq;
-
 use crate::classic::crypto_onetimeauth::{
     OnetimeauthState, crypto_onetimeauth, crypto_onetimeauth_final, crypto_onetimeauth_init,
     crypto_onetimeauth_update, crypto_onetimeauth_verify,
@@ -69,6 +67,7 @@ use crate::classic::crypto_onetimeauth::{
 use crate::constants::{CRYPTO_ONETIMEAUTH_BYTES, CRYPTO_ONETIMEAUTH_KEYBYTES};
 use crate::error::Error;
 use crate::types::*;
+use crate::utils::verify_ct;
 
 /// Stack-allocated key for one-time authentication.
 pub type Key = StackByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>;
@@ -201,16 +200,7 @@ impl OnetimeAuth {
     ) -> Result<(), Error> {
         let computed_mac: Mac = self.finalize();
 
-        if other_mac
-            .as_array()
-            .ct_eq(computed_mac.as_array())
-            .unwrap_u8()
-            == 1
-        {
-            Ok(())
-        } else {
-            Err(Error::AuthenticationFailed)
-        }
+        verify_ct(other_mac.as_slice(), computed_mac.as_slice())
     }
 }
 

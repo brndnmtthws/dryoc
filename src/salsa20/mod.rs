@@ -11,7 +11,7 @@ use zeroize::Zeroize;
 
 use crate::classic::crypto_core::crypto_core_hsalsa20;
 use crate::stream::{BufferToBuffer, InPlace, Sink};
-use crate::utils::{load_u32_le, zeroize_bytes};
+use crate::utils::{SIGMA, load_u32_le, zeroize_bytes};
 
 mod salsa20_soft;
 
@@ -139,25 +139,9 @@ trait Kernel: Copy + std::fmt::Debug {
         (extra_counter, extra): (u64, &mut [u8; 64]),
     ) {
         self.xor_chunk(state, counter, input, output, partial);
-        xor_scalar_block(state, extra_counter, extra);
+        crate::stream::xor_scalar_block(state, extra_counter, extra, salsa20_soft::block);
     }
 }
-
-/// XORs the raw keystream of the scalar block `counter` into `extra`.
-#[cfg(any(
-    dryoc_stream_kernel,
-    all(feature = "simd_backend", feature = "nightly")
-))]
-fn xor_scalar_block(state: &[u32; 16], counter: u64, extra: &mut [u8; 64]) {
-    let mut block = [0u8; 64];
-    salsa20_soft::block(state, counter, &mut block);
-    for (byte, ks) in extra.iter_mut().zip(block) {
-        *byte ^= ks;
-    }
-    zeroize_bytes(&mut block);
-}
-
-const SIGMA: [u32; 4] = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
 
 /// XSalsa20 keystream generator with byte-granular continuity across calls.
 pub(crate) struct XSalsa20 {

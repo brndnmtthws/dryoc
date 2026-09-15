@@ -70,6 +70,46 @@ impl Default for Params {
 }
 
 impl Params {
+    /// Builds the parameter block for an `outlen`-byte digest with optional
+    /// `key`, `salt`, and `personal`, validating lengths per the libsodium
+    /// API.
+    pub(crate) fn new(
+        outlen: u8,
+        key: Option<&[u8]>,
+        salt: Option<&[u8; SALTBYTES]>,
+        personal: Option<&[u8; PERSONALBYTES]>,
+    ) -> Result<Self, crate::error::Error> {
+        validate_length!(
+            1,
+            OUTBYTES,
+            outlen as usize,
+            crate::ErrorContext::Blake2bOutput
+        );
+
+        let key_length = key.map_or(0, <[u8]>::len);
+
+        validate_length!(max KEYBYTES, key_length, crate::ErrorContext::Blake2bKey);
+        let key_length = key_length as u8;
+
+        let salt = match salt {
+            Some(salt) => *salt,
+            None => [0u8; SALTBYTES],
+        };
+
+        let personal = match personal {
+            Some(personal) => *personal,
+            None => [0u8; PERSONALBYTES],
+        };
+
+        Ok(Params {
+            digest_length: outlen,
+            key_length,
+            salt,
+            personal,
+            ..Default::default()
+        })
+    }
+
     /// The parameter block's object representation, little-endian words of
     /// which are XORed into the IV.
     #[inline]

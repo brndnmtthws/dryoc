@@ -50,8 +50,8 @@ use crate::constants::{
     CRYPTO_AUTH_HMACSHA512_BYTES, CRYPTO_AUTH_HMACSHA512256_BYTES,
     CRYPTO_AUTH_HMACSHA512256_KEYBYTES,
 };
-use crate::error::{Error, verify_ct};
-use crate::utils::zeroize_bytes;
+use crate::error::Error;
+use crate::utils::{verify_ct, zeroize_bytes};
 
 /// Key for HMAC-SHA-512-256 message authentication.
 pub type Key = [u8; CRYPTO_AUTH_HMACSHA512256_KEYBYTES];

@@ -49,7 +49,8 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::argon2::ARGON2_VERSION_NUMBER;
 use crate::argon2::{self, argon2_hash};
 use crate::constants::*;
-use crate::error::{Error, verify_ct};
+use crate::error::Error;
+use crate::utils::verify_ct;
 
 pub(crate) const STR_HASHBYTES: usize = 32;
 
@@ -494,13 +495,11 @@ pub(crate) struct Pwhash {
 #[cfg(feature = "base64")]
 impl Pwhash {
     pub(crate) fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
-        if hashed_password.len() >= CRYPTO_PWHASH_STRBYTES {
-            return Err(length_error!(
-                crate::ErrorContext::PasswordHash,
-                hashed_password.len(),
-                max CRYPTO_PWHASH_STRBYTES - 1
-            ));
-        }
+        validate_length!(
+            max CRYPTO_PWHASH_STRBYTES - 1,
+            hashed_password.len(),
+            crate::ErrorContext::PasswordHash
+        );
 
         let encoded = hashed_password
             .strip_prefix('$')

@@ -193,37 +193,7 @@ impl State {
         salt: Option<&[u8; SALTBYTES]>,
         personal: Option<&[u8; PERSONALBYTES]>,
     ) -> Result<State, Error> {
-        if outlen == 0 || outlen as usize > OUTBYTES {
-            return Err(
-                length_error!(crate::ErrorContext::Blake2bOutput, outlen as usize, range 1, OUTBYTES),
-            );
-        }
-
-        let key_length = key.map_or(0, <[u8]>::len);
-
-        if key_length > KEYBYTES {
-            return Err(length_error!(crate::ErrorContext::Blake2bKey, key_length, max KEYBYTES));
-        }
-        let key_length = key_length as u8;
-
-        let salt = match salt {
-            Some(salt) => *salt,
-            None => [0u8; SALTBYTES],
-        };
-
-        let personal = match personal {
-            Some(personal) => *personal,
-            None => [0u8; PERSONALBYTES],
-        };
-
-        let params = Params {
-            digest_length: outlen,
-            key_length,
-            salt,
-            personal,
-            ..Default::default()
-        };
-
+        let params = Params::new(outlen, key, salt, personal)?;
         let mut state = Self::init_param(&params);
 
         if let Some(key) = key {
@@ -271,11 +241,12 @@ impl State {
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
-        if output.is_empty() || output.len() > OUTBYTES {
-            return Err(
-                length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
-            );
-        }
+        validate_length!(
+            1,
+            OUTBYTES,
+            output.len(),
+            crate::ErrorContext::Blake2bOutput
+        );
 
         if self.is_lastblock() {
             return Err(Error::invalid_state(crate::ErrorContext::Blake2b));
@@ -346,9 +317,7 @@ fn hash_single_block(
 }
 
 pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
-    if output.len() > OUTBYTES {
-        return Err(length_error!(crate::ErrorContext::Blake2bOutput, output.len(), max OUTBYTES));
-    }
+    validate_length!(max OUTBYTES, output.len(), crate::ErrorContext::Blake2bOutput);
 
     if key.is_none() && !output.is_empty() && input.len() <= BLOCKBYTES {
         // Unkeyed message of at most one block. The parameter block is
@@ -377,14 +346,13 @@ pub(crate) fn hash_key_only(
     salt: &[u8; SALTBYTES],
     personal: &[u8; PERSONALBYTES],
 ) -> Result<(), Error> {
-    if output.is_empty() || output.len() > OUTBYTES {
-        return Err(
-            length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
-        );
-    }
-    if key.is_empty() || key.len() > KEYBYTES {
-        return Err(length_error!(crate::ErrorContext::Blake2bKey, key.len(), range 1, KEYBYTES));
-    }
+    validate_length!(
+        1,
+        OUTBYTES,
+        output.len(),
+        crate::ErrorContext::Blake2bOutput
+    );
+    validate_length!(1, KEYBYTES, key.len(), crate::ErrorContext::Blake2bKey);
     // Parameter block words: digest_length | key_length << 8 | fanout << 16 |
     // depth << 24, then leaf_length/node_offset/node_depth/inner_length/
     // reserved (all zero), then salt (words 4, 5) and personal (words 6, 7).

@@ -179,19 +179,17 @@ pub(crate) fn crypto_sign_ed25519(
     message: &[u8],
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if signed_message.len() != message.len() + CRYPTO_SIGN_ED25519_BYTES {
-        Err(length_error!(
-            crate::ErrorContext::SignedMessage,
-            signed_message.len(),
-            exact message.len() + CRYPTO_SIGN_ED25519_BYTES
-        ))
-    } else {
-        let (sig, sm) = signed_message.split_at_mut(CRYPTO_SIGN_ED25519_BYTES);
-        let sig: &mut [u8; CRYPTO_SIGN_ED25519_BYTES] =
-            <&mut [u8; CRYPTO_SIGN_ED25519_BYTES]>::try_from(sig).unwrap();
-        sm.copy_from_slice(message);
-        crypto_sign_ed25519_detached(sig, message, secret_key)
-    }
+    validate_length!(
+        exact message.len() + CRYPTO_SIGN_ED25519_BYTES,
+        signed_message.len(),
+        crate::ErrorContext::SignedMessage
+    );
+
+    let (sig, sm) = signed_message.split_at_mut(CRYPTO_SIGN_ED25519_BYTES);
+    let sig: &mut [u8; CRYPTO_SIGN_ED25519_BYTES] =
+        <&mut [u8; CRYPTO_SIGN_ED25519_BYTES]>::try_from(sig).unwrap();
+    sm.copy_from_slice(message);
+    crypto_sign_ed25519_detached(sig, message, secret_key)
 }
 
 pub(crate) fn crypto_sign_ed25519_detached(
@@ -209,58 +207,56 @@ fn crypto_sign_ed25519_detached_impl(
     secret_key: &SecretKey,
     prehashed: bool,
 ) -> Result<(), Error> {
-    if signature.len() != CRYPTO_SIGN_ED25519_BYTES {
-        Err(length_error!(
-            crate::ErrorContext::Signature,
-            signature.len(),
-            exact CRYPTO_SIGN_ED25519_BYTES
-        ))
-    } else {
-        let mut az: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&secret_key[..32]);
+    validate_length!(
+        exact CRYPTO_SIGN_ED25519_BYTES,
+        signature.len(),
+        crate::ErrorContext::Signature
+    );
 
-        let mut hasher = Sha512::new();
-        if prehashed {
-            hasher.update(DOM2PREFIX);
-        }
-        hasher.update(&az[32..]);
-        hasher.update(message);
-        let mut nonce: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
+    let mut az: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&secret_key[..32]);
 
-        signature[32..].copy_from_slice(&secret_key[32..]);
-
-        let mut r = Scalar::from_bytes_mod_order_wide(&nonce);
-        let mut r_bytes = r.to_bytes();
-        let big_r = mul_base(&r_bytes).compress();
-        r_bytes.zeroize();
-
-        signature[..32].copy_from_slice(&big_r);
-
-        let mut hasher = Sha512::new();
-        if prehashed {
-            hasher.update(DOM2PREFIX);
-        }
-        hasher.update(signature);
-        hasher.update(message);
-        let mut hram: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
-
-        let mut k = Scalar::from_bytes_mod_order_wide(&hram);
-        let mut clamped = clamp_hash(&mut az);
-        let mut signing_scalar = Scalar::from_bytes_mod_order(clamped);
-        clamped.zeroize();
-        let mut sig = (k * signing_scalar) + r;
-
-        signature[32..].copy_from_slice(sig.as_bytes());
-
-        az.zeroize();
-        nonce.zeroize();
-        hram.zeroize();
-        r.zeroize();
-        k.zeroize();
-        signing_scalar.zeroize();
-        sig.zeroize();
-
-        Ok(())
+    let mut hasher = Sha512::new();
+    if prehashed {
+        hasher.update(DOM2PREFIX);
     }
+    hasher.update(&az[32..]);
+    hasher.update(message);
+    let mut nonce: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
+
+    signature[32..].copy_from_slice(&secret_key[32..]);
+
+    let mut r = Scalar::from_bytes_mod_order_wide(&nonce);
+    let mut r_bytes = r.to_bytes();
+    let big_r = mul_base(&r_bytes).compress();
+    r_bytes.zeroize();
+
+    signature[..32].copy_from_slice(&big_r);
+
+    let mut hasher = Sha512::new();
+    if prehashed {
+        hasher.update(DOM2PREFIX);
+    }
+    hasher.update(signature);
+    hasher.update(message);
+    let mut hram: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
+
+    let mut k = Scalar::from_bytes_mod_order_wide(&hram);
+    let mut clamped = clamp_hash(&mut az);
+    let mut signing_scalar = Scalar::from_bytes_mod_order(clamped);
+    clamped.zeroize();
+    let mut sig = (k * signing_scalar) + r;
+
+    signature[32..].copy_from_slice(sig.as_bytes());
+
+    az.zeroize();
+    nonce.zeroize();
+    hram.zeroize();
+    r.zeroize();
+    k.zeroize();
+    signing_scalar.zeroize();
+    sig.zeroize();
+
+    Ok(())
 }
 
 pub(crate) fn crypto_sign_ed25519_verify_detached(
@@ -321,26 +317,23 @@ pub(crate) fn crypto_sign_ed25519_open(
     signed_message: &[u8],
     public_key: &PublicKey,
 ) -> Result<(), Error> {
-    if signed_message.len() < CRYPTO_SIGN_ED25519_BYTES {
-        Err(length_error!(
-            crate::ErrorContext::SignedMessage,
-            signed_message.len(),
-            min CRYPTO_SIGN_ED25519_BYTES
-        ))
-    } else if message.len() != signed_message.len() - CRYPTO_SIGN_ED25519_BYTES {
-        Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            exact signed_message.len() - CRYPTO_SIGN_ED25519_BYTES
-        ))
-    } else {
-        let (sig, sm) = signed_message.split_at(CRYPTO_SIGN_ED25519_BYTES);
-        let sig: &[u8; CRYPTO_SIGN_ED25519_BYTES] =
-            <&[u8; CRYPTO_SIGN_ED25519_BYTES]>::try_from(sig).unwrap();
-        crypto_sign_ed25519_verify_detached(sig, sm, public_key)?;
-        message.copy_from_slice(sm);
-        Ok(())
-    }
+    validate_length!(
+        min CRYPTO_SIGN_ED25519_BYTES,
+        signed_message.len(),
+        crate::ErrorContext::SignedMessage
+    );
+    validate_length!(
+        exact signed_message.len() - CRYPTO_SIGN_ED25519_BYTES,
+        message.len(),
+        crate::ErrorContext::Message
+    );
+
+    let (sig, sm) = signed_message.split_at(CRYPTO_SIGN_ED25519_BYTES);
+    let sig: &[u8; CRYPTO_SIGN_ED25519_BYTES] =
+        <&[u8; CRYPTO_SIGN_ED25519_BYTES]>::try_from(sig).unwrap();
+    crypto_sign_ed25519_verify_detached(sig, sm, public_key)?;
+    message.copy_from_slice(sm);
+    Ok(())
 }
 
 pub(crate) struct Ed25519SignerState {

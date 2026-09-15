@@ -97,7 +97,6 @@ use std::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::classic::crypto_sign::{
@@ -110,8 +109,9 @@ use crate::constants::{
     CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES, CRYPTO_SIGN_SECRETKEYBYTES,
     CRYPTO_SIGN_SEEDBYTES,
 };
-use crate::error::{Error, ErrorContext, split_prefix};
+use crate::error::{Error, ErrorContext};
 use crate::types::*;
+use crate::utils::{ct_eq_bytes, split_prefix};
 
 /// Stack-allocated public key for message signing.
 pub type PublicKey = StackByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>;
@@ -687,14 +687,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
-        let mut data = Bytes::new_bytes();
-
-        data.resize(self.signature.len() + self.message.len(), 0);
-        let s = data.as_mut_slice();
-        s[..CRYPTO_SIGN_BYTES].copy_from_slice(self.signature.as_slice());
-        s[CRYPTO_SIGN_BYTES..].copy_from_slice(self.message.as_slice());
-
-        data
+        concat_bytes(self.signature.as_slice(), self.message.as_slice())
     }
 }
 
@@ -704,17 +697,8 @@ impl<
 > PartialEq<SigningKeyPair<PublicKey, SecretKey>> for SigningKeyPair<PublicKey, SecretKey>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.public_key
-            .as_slice()
-            .ct_eq(other.public_key.as_slice())
-            .unwrap_u8()
-            == 1
-            && self
-                .secret_key
-                .as_slice()
-                .ct_eq(other.secret_key.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.public_key.as_slice(), other.public_key.as_slice())
+            && ct_eq_bytes(self.secret_key.as_slice(), other.secret_key.as_slice())
     }
 }
 
@@ -722,17 +706,8 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
     PartialEq<SignedMessage<Signature, Message>> for SignedMessage<Signature, Message>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.signature
-            .as_slice()
-            .ct_eq(other.signature.as_slice())
-            .unwrap_u8()
-            == 1
-            && self
-                .message
-                .as_slice()
-                .ct_eq(other.message.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.signature.as_slice(), other.signature.as_slice())
+            && ct_eq_bytes(self.message.as_slice(), other.message.as_slice())
     }
 }
 

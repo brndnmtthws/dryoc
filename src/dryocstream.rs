@@ -323,24 +323,19 @@ impl DryocStream<Pull> {
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
         };
-        if ciphertext.as_slice().len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-            return Err(length_error!(
-                crate::ErrorContext::Ciphertext,
-                ciphertext.as_slice().len(),
-                min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-            ));
-        }
+        validate_length!(
+            min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            ciphertext.as_slice().len(),
+            crate::ErrorContext::Ciphertext
+        );
 
         let message_len =
             ciphertext.as_slice().len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-        if message_len > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-            return Err(length_error!(
-                crate::ErrorContext::Ciphertext,
-                ciphertext.as_slice().len(),
-                max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-                    + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-            ));
-        }
+        validate_length!(
+            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            ciphertext.as_slice().len(),
+            crate::ErrorContext::Ciphertext
+        );
 
         let mut message = Output::default();
         message.resize(message_len, 0);

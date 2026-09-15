@@ -105,7 +105,7 @@ use crate::error::*;
 use crate::poly1305::Poly1305;
 use crate::rng::copy_randombytes;
 use crate::types::*;
-use crate::utils::{increment_bytes, pad16, xor_buf};
+use crate::utils::{increment_bytes, pad16, verify_ct, xor_buf};
 
 /// A secret for authenticated secret streams.
 pub type Key = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES];
@@ -221,16 +221,7 @@ pub fn crypto_secretstream_xchacha20poly1305_init_push(
     key: &Key,
 ) {
     copy_randombytes(header);
-
-    crypto_core_hchacha20(&mut state.k, ByteArray::as_array(&header[..16]), key, None);
-    _crypto_secretstream_xchacha20poly1305_counter_reset(state);
-
-    let inonce = state_inonce(&mut state.nonce);
-    inonce.copy_from_slice(
-        &header[CRYPTO_CORE_HCHACHA20_INPUTBYTES
-            ..(CRYPTO_CORE_HCHACHA20_INPUTBYTES
-                + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES)],
-    );
+    secretstream_init(state, header, key);
 }
 
 /// Initializes a pull stream for streaming decryption.
@@ -245,8 +236,11 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
     header: &Header,
     key: &Key,
 ) {
-    crypto_core_hchacha20(&mut state.k, ByteArray::as_array(&header[0..16]), key, None);
+    secretstream_init(state, header, key);
+}
 
+fn secretstream_init(state: &mut State, header: &Header, key: &Key) {
+    crypto_core_hchacha20(&mut state.k, ByteArray::as_array(&header[..16]), key, None);
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
 
     let inonce = state_inonce(&mut state.nonce);
@@ -303,22 +297,18 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     associated_data: Option<&[u8]>,
     tag: u8,
 ) -> Result<(), Error> {
-    if message.len() > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-        return Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-        ));
-    }
+    validate_length!(
+        max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
+        message.len(),
+        crate::ErrorContext::Message
+    );
 
     let expected_ciphertext_len = message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-    if ciphertext.len() != expected_ciphertext_len {
-        return Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            exact expected_ciphertext_len
-        ));
-    }
+    validate_length!(
+        exact expected_ciphertext_len,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
     let associated_data = associated_data.unwrap_or(&[]);
     let _pad0 = [0u8; 16];
@@ -378,32 +368,22 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 ) -> Result<usize, Error> {
     let _pad0 = [0u8; 16];
 
-    if ciphertext.len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-        return Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        ));
-    }
+    validate_length!(
+        min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
     let mlen = ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
 
-    if mlen > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-        return Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-                + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-        ));
-    }
+    validate_length!(
+        max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+            + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
-    if message.len() < mlen {
-        return Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            min mlen
-        ));
-    }
+    validate_length!(min mlen, message.len(), crate::ErrorContext::Message);
 
     let associated_data = associated_data.unwrap_or(&[]);
 

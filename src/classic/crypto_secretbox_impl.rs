@@ -1,10 +1,10 @@
 use zeroize::Zeroize;
 
 use crate::classic::crypto_secretbox::{Key, Mac, Nonce};
-use crate::error::{Error, verify_ct};
+use crate::error::Error;
 use crate::poly1305::{Key as Poly1305Key, Poly1305};
 use crate::salsa20::XSalsa20;
-use crate::utils::zeroize_bytes;
+use crate::utils::{verify_ct, zeroize_bytes};
 
 /// Bytes of the first keystream block that key the MAC; the message's
 /// keystream starts at the block's remaining bytes.

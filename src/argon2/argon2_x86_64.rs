@@ -13,16 +13,17 @@
 //! the data.
 
 use std::arch::x86_64::{
-    __m256i, __m512i, _mm256_add_epi64, _mm256_mul_epu32, _mm256_or_si256,
-    _mm256_permute2x128_si256, _mm256_permute4x64_epi64, _mm256_setr_epi8, _mm256_setzero_si256,
-    _mm256_shuffle_epi8, _mm256_shuffle_epi32, _mm256_srli_epi64, _mm256_xor_si256,
+    __m256i, __m512i, _mm256_add_epi64, _mm256_mul_epu32, _mm256_permute2x128_si256,
+    _mm256_permute4x64_epi64, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_xor_si256,
     _mm512_add_epi64, _mm512_mul_epu32, _mm512_permutex_epi64, _mm512_permutex2var_epi64,
     _mm512_ror_epi64, _mm512_setr_epi64, _mm512_setzero_si512, _mm512_shuffle_i64x2,
     _mm512_xor_si512,
 };
 
 use super::{Block, finish_in_place, prepare_in_place};
-use crate::x86_64::{load_words, load_words512, store_words, store_words512};
+use crate::x86_64::{
+    load_words, load_words512, ror16_table, ror24_table, ror32, ror63, store_words, store_words512,
+};
 
 /// A vector kernel the running CPU has been verified to support.
 ///
@@ -87,28 +88,6 @@ impl Kernel {
     }
 }
 
-/// Byte permutation (per 128-bit half) rotating every 64-bit lane right by
-/// 24 bits.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror24_table() -> __m256i {
-    _mm256_setr_epi8(
-        3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10, 3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13,
-        14, 15, 8, 9, 10,
-    )
-}
-
-/// Byte permutation (per 128-bit half) rotating every 64-bit lane right by
-/// 16 bits.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror16_table() -> __m256i {
-    _mm256_setr_epi8(
-        2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9, 2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12,
-        13, 14, 15, 8, 9,
-    )
-}
-
 /// `x + y + 2 * lo32(x) * lo32(y)` per lane, the Argon2 fBlaMka mixing
 /// function; `vpmuludq` multiplies exactly the low 32 bits of each lane.
 #[inline]
@@ -116,20 +95,6 @@ fn ror16_table() -> __m256i {
 fn fblamka(x: __m256i, y: __m256i) -> __m256i {
     let xy = _mm256_mul_epu32(x, y);
     _mm256_add_epi64(_mm256_add_epi64(x, y), _mm256_add_epi64(xy, xy))
-}
-
-/// Rotates every 64-bit lane right by 32 bits (a dword swap).
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror32(v: __m256i) -> __m256i {
-    _mm256_shuffle_epi32::<0xB1>(v)
-}
-
-/// Rotates every 64-bit lane right by 63 bits (left by one).
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror63(v: __m256i) -> __m256i {
-    _mm256_or_si256(_mm256_add_epi64(v, v), _mm256_srli_epi64::<63>(v))
 }
 
 /// The four lane-wise `G` mixings of one step (column or diagonal) over the

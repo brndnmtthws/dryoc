@@ -189,18 +189,10 @@ mod tests {
         const MAX: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX;
         const ABYTES: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
 
-        assert!(validate_message_len(MAX).is_ok());
-        assert!(matches!(
-            validate_message_len(MAX + 1),
-            Err(Error::InvalidLength {
-                context: crate::ErrorContext::Message,
-                actual,
-                constraint: LengthConstraint::AtMost(max),
-            }) if actual == MAX + 1 && max == MAX
-        ));
-
         // libsodium's bound leaves exactly one tag below the address space, so
         // every combined length at or above `ABYTES` is a valid message length.
+        // The MESSAGEBYTES_MAX check itself is unreachable here: a combined
+        // length of `MAX + ABYTES + 1` does not fit in `usize`.
         assert!(matches!(
             message_len_from_combined_len(MAX + ABYTES, crate::ErrorContext::Ciphertext),
             Ok(len) if len == MAX

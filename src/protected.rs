@@ -663,6 +663,23 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
             )),
         }
     }
+
+    /// Returns the inner buffer. The `None` case is unreachable: `self.i` is
+    /// `Some` in every state until `Drop` takes it.
+    fn inner(&self) -> &A {
+        match &self.i {
+            Some(d) => &d.a,
+            None => panic!("invalid array"),
+        }
+    }
+
+    /// Returns the inner buffer mutably. See [`Protected::inner`].
+    fn inner_mut(&mut self) -> &mut A {
+        match &mut self.i {
+            Some(d) => &mut d.a,
+            None => panic!("invalid array"),
+        }
+    }
 }
 
 impl<A: Zeroize + Bytes, PM: traits::ProtectMode> Unlock<A, PM>
@@ -732,61 +749,55 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode> ProtectNoAccess<A, PM>
     }
 }
 
-impl<A: Zeroize + Bytes + AsRef<[u8]>, LM: traits::LockMode> AsRef<[u8]>
-    for Protected<A, traits::ReadOnly, LM>
-{
-    fn as_ref(&self) -> &[u8] {
-        self.i.as_ref().unwrap().a.as_ref()
-    }
+/// Implements the read-only byte views (`AsRef<[u8]>`, [`Bytes`], and
+/// [`Deref`](std::ops::Deref)) of a readable [`Protected`] value; the bodies
+/// are identical for both readable protect modes.
+macro_rules! impl_protected_read_views {
+    ($($pm:ident),*) => {$(
+        impl<A: Zeroize + Bytes + AsRef<[u8]>, LM: traits::LockMode> AsRef<[u8]>
+            for Protected<A, traits::$pm, LM>
+        {
+            fn as_ref(&self) -> &[u8] {
+                self.inner().as_ref()
+            }
+        }
+
+        impl<A: Zeroize + Bytes, LM: traits::LockMode> Bytes for Protected<A, traits::$pm, LM> {
+            #[inline]
+            fn as_slice(&self) -> &[u8] {
+                self.inner().as_slice()
+            }
+
+            #[inline]
+            fn len(&self) -> usize {
+                self.inner().len()
+            }
+
+            #[inline]
+            fn is_empty(&self) -> bool {
+                self.inner().is_empty()
+            }
+        }
+
+        impl<A: Bytes + Zeroize, LM: traits::LockMode> std::ops::Deref
+            for Protected<A, traits::$pm, LM>
+        {
+            type Target = [u8];
+
+            fn deref(&self) -> &Self::Target {
+                self.inner().as_slice()
+            }
+        }
+    )*};
 }
 
-impl<A: Zeroize + Bytes + AsRef<[u8]>, LM: traits::LockMode> AsRef<[u8]>
-    for Protected<A, traits::ReadWrite, LM>
-{
-    fn as_ref(&self) -> &[u8] {
-        self.i.as_ref().unwrap().a.as_ref()
-    }
-}
+impl_protected_read_views!(ReadOnly, ReadWrite);
 
 impl<A: Zeroize + MutBytes + AsMut<[u8]>, LM: traits::LockMode> AsMut<[u8]>
     for Protected<A, traits::ReadWrite, LM>
 {
     fn as_mut(&mut self) -> &mut [u8] {
-        self.i.as_mut().unwrap().a.as_mut()
-    }
-}
-
-impl<A: Zeroize + Bytes, LM: traits::LockMode> Bytes for Protected<A, traits::ReadOnly, LM> {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self.i.as_ref().unwrap().a.as_slice()
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.i.as_ref().unwrap().a.len()
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.i.as_ref().unwrap().a.is_empty()
-    }
-}
-
-impl<A: Zeroize + Bytes, LM: traits::LockMode> Bytes for Protected<A, traits::ReadWrite, LM> {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        self.i.as_ref().unwrap().a.as_slice()
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.i.as_ref().unwrap().a.len()
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.i.as_ref().unwrap().a.is_empty()
+        self.inner_mut().as_mut()
     }
 }
 
@@ -1230,47 +1241,7 @@ impl std::ops::DerefMut for ProtectedBuffer {
     }
 }
 
-impl std::ops::Index<usize> for ProtectedBuffer {
-    type Output = u8;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.as_slice()[index]
-    }
-}
-
-impl std::ops::IndexMut<usize> for ProtectedBuffer {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.as_mut_slice()[index]
-    }
-}
-
-macro_rules! impl_index_protected_buffer {
-    ($range:ty) => {
-        impl std::ops::Index<$range> for ProtectedBuffer {
-            type Output = [u8];
-
-            #[inline]
-            fn index(&self, index: $range) -> &Self::Output {
-                &self.as_slice()[index]
-            }
-        }
-        impl std::ops::IndexMut<$range> for ProtectedBuffer {
-            #[inline]
-            fn index_mut(&mut self, index: $range) -> &mut Self::Output {
-                &mut self.as_mut_slice()[index]
-            }
-        }
-    };
-}
-
-impl_index_protected_buffer!(std::ops::Range<usize>);
-impl_index_protected_buffer!(std::ops::RangeFull);
-impl_index_protected_buffer!(std::ops::RangeFrom<usize>);
-impl_index_protected_buffer!(std::ops::RangeInclusive<usize>);
-impl_index_protected_buffer!(std::ops::RangeTo<usize>);
-impl_index_protected_buffer!(std::ops::RangeToInclusive<usize>);
+impl_slice_index!(impl[] ProtectedBuffer, |s| s.as_slice(), |s| s.as_mut_slice());
 
 #[cfg(feature = "nightly")]
 // SAFETY: `allocate` returns the user slice inside an owned allocation preceded
@@ -1338,6 +1309,23 @@ pub struct HeapByteArray<const LENGTH: usize>(ProtectedBuffer);
 #[derive(Zeroize, ZeroizeOnDrop, Debug, PartialEq, Eq, Clone, Default)]
 pub struct HeapBytes(ProtectedBuffer);
 
+/// Unwraps a locked-allocation `result`, panicking with the standard message
+/// when allocation or locking fails.
+fn expect_locked<T>(result: Result<T, error::Error>) -> T {
+    match result {
+        Ok(r) => r,
+        Err(err) => panic!("Error creating locked bytes: {:?}", err),
+    }
+}
+
+/// Applies [`ProtectReadOnly::mprotect_readonly`] to a locked-allocation
+/// result; the shared tail of the `*_readonly_locked` constructors.
+fn into_readonly_locked<A: Zeroize + Bytes>(
+    result: Result<Protected<A, traits::ReadWrite, traits::Locked>, error::Error>,
+) -> Result<Protected<A, traits::ReadOnly, traits::Locked>, error::Error> {
+    result.and_then(|p| p.mprotect_readonly())
+}
+
 impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
     fn new_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, error::Error> {
         Self::new_bytes().mlock()
@@ -1345,9 +1333,7 @@ impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
 
     fn new_readonly_locked()
     -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, error::Error> {
-        Self::new_bytes()
-            .mlock()
-            .and_then(|p| p.mprotect_readonly())
+        into_readonly_locked(Self::new_bytes().mlock())
     }
 
     fn generate_locked() -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, error::Error>
@@ -1359,7 +1345,7 @@ impl<A: Zeroize + NewBytes + Lockable<A>> NewLocked<A> for A {
 
     fn generate_readonly_locked()
     -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, error::Error> {
-        Self::generate_locked().and_then(|s| s.mprotect_readonly())
+        into_readonly_locked(Self::generate_locked())
     }
 }
 
@@ -1378,7 +1364,7 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> NewLockedFromSlice<A>
     fn from_slice_into_readonly_locked(
         src: &[u8],
     ) -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, crate::error::Error> {
-        Self::from_slice_into_locked(src).and_then(|s| s.mprotect_readonly())
+        into_readonly_locked(Self::from_slice_into_locked(src))
     }
 }
 
@@ -1387,9 +1373,7 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
     fn from_slice_into_locked(
         other: &[u8],
     ) -> Result<Protected<Self, traits::ReadWrite, traits::Locked>, crate::error::Error> {
-        if other.len() != LENGTH {
-            return Err(length_error!(crate::ErrorContext::Slice, other.len(), exact LENGTH));
-        }
+        validate_length!(exact LENGTH, other.len(), crate::ErrorContext::Slice);
         let mut res = Self::new_bytes().mlock()?;
         res.as_mut_slice().copy_from_slice(other);
         Ok(res)
@@ -1398,69 +1382,76 @@ impl<const LENGTH: usize> NewLockedFromSlice<HeapByteArray<LENGTH>> for HeapByte
     fn from_slice_into_readonly_locked(
         other: &[u8],
     ) -> Result<Protected<Self, traits::ReadOnly, traits::Locked>, crate::error::Error> {
-        Self::from_slice_into_locked(other).and_then(|s| s.mprotect_readonly())
+        into_readonly_locked(Self::from_slice_into_locked(other))
     }
 }
 
-impl<const LENGTH: usize> Bytes for HeapByteArray<LENGTH> {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
+/// Implements the byte-container views (`Bytes`, `MutBytes`, `AsRef<[u8]>`,
+/// `AsMut<[u8]>`, `Deref`, `DerefMut`) of the heap buffer newtypes by
+/// delegating to the wrapped [`ProtectedBuffer`].
+macro_rules! impl_heap_buffer_views {
+    ($($t:ident $(<$length:ident: usize>)?;)*) => {$(
+        impl$(<const $length: usize>)? Bytes for $t$(<$length>)? {
+            #[inline]
+            fn as_slice(&self) -> &[u8] {
+                &self.0
+            }
 
-    #[inline]
-    fn len(&self) -> usize {
-        self.0.len()
-    }
+            #[inline]
+            fn len(&self) -> usize {
+                self.0.len()
+            }
 
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
+            #[inline]
+            fn is_empty(&self) -> bool {
+                self.0.is_empty()
+            }
+        }
+
+        impl$(<const $length: usize>)? MutBytes for $t$(<$length>)? {
+            #[inline]
+            fn as_mut_slice(&mut self) -> &mut [u8] {
+                self.0.as_mut_slice()
+            }
+
+            fn copy_from_slice(&mut self, other: &[u8]) {
+                self.0.copy_from_slice(other)
+            }
+        }
+
+        impl$(<const $length: usize>)? std::convert::AsRef<[u8]> for $t$(<$length>)? {
+            fn as_ref(&self) -> &[u8] {
+                self.0.as_ref()
+            }
+        }
+
+        impl$(<const $length: usize>)? std::convert::AsMut<[u8]> for $t$(<$length>)? {
+            fn as_mut(&mut self) -> &mut [u8] {
+                self.0.as_mut()
+            }
+        }
+
+        impl$(<const $length: usize>)? std::ops::Deref for $t$(<$length>)? {
+            type Target = [u8];
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl$(<const $length: usize>)? std::ops::DerefMut for $t$(<$length>)? {
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
+        }
+    )*};
 }
 
-impl Bytes for HeapBytes {
-    #[inline]
-    fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl<const LENGTH: usize> MutBytes for HeapByteArray<LENGTH> {
-    #[inline]
-    fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.0.as_mut_slice()
-    }
-
-    fn copy_from_slice(&mut self, other: &[u8]) {
-        self.0.copy_from_slice(other)
-    }
-}
+impl_heap_buffer_views!(HeapByteArray<LENGTH: usize>; HeapBytes;);
 
 impl NewBytes for HeapBytes {
     fn new_bytes() -> Self {
         Self::default()
-    }
-}
-
-impl MutBytes for HeapBytes {
-    #[inline]
-    fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.0.as_mut_slice()
-    }
-
-    fn copy_from_slice(&mut self, other: &[u8]) {
-        self.0.copy_from_slice(other)
     }
 }
 
@@ -1500,27 +1491,18 @@ impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
     for Protected<A, traits::ReadWrite, traits::Unlocked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
-        match &mut self.i {
-            Some(d) => d.a.resize(new_len, value),
-            None => panic!("invalid array"),
-        }
+        self.inner_mut().resize(new_len, value)
     }
 }
 
 impl<A: Zeroize + MutBytes, LM: traits::LockMode> MutBytes for Protected<A, traits::ReadWrite, LM> {
     #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
-        match &mut self.i {
-            Some(d) => d.a.as_mut_slice(),
-            None => panic!("invalid array"),
-        }
+        self.inner_mut().as_mut_slice()
     }
 
     fn copy_from_slice(&mut self, other: &[u8]) {
-        match &mut self.i {
-            Some(d) => d.a.copy_from_slice(other),
-            None => panic!("invalid array"),
-        }
+        self.inner_mut().copy_from_slice(other)
     }
 }
 
@@ -1542,126 +1524,15 @@ impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for HeapByteArray<LE
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsRef<[u8]> for HeapByteArray<LENGTH> {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl std::convert::AsRef<[u8]> for HeapBytes {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl<const LENGTH: usize> std::convert::AsMut<[u8]> for HeapByteArray<LENGTH> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut()
-    }
-}
-
-impl std::convert::AsMut<[u8]> for HeapBytes {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.0.as_mut()
-    }
-}
-
-impl<const LENGTH: usize> std::ops::Deref for HeapByteArray<LENGTH> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<const LENGTH: usize> std::ops::DerefMut for HeapByteArray<LENGTH> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl std::ops::Deref for HeapBytes {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for HeapBytes {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<A: Bytes + Zeroize, LM: traits::LockMode> std::ops::Deref
-    for Protected<A, traits::ReadOnly, LM>
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.i.as_ref().unwrap().a.as_slice()
-    }
-}
-
-impl<A: Bytes + Zeroize, LM: traits::LockMode> std::ops::Deref
-    for Protected<A, traits::ReadWrite, LM>
-{
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.i.as_ref().unwrap().a.as_slice()
-    }
-}
-
 impl<A: MutBytes + Zeroize, LM: traits::LockMode> std::ops::DerefMut
     for Protected<A, traits::ReadWrite, LM>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.i.as_mut().unwrap().a.as_mut_slice()
+        self.inner_mut().as_mut_slice()
     }
 }
 
-impl<const LENGTH: usize> std::ops::Index<usize> for HeapByteArray<LENGTH> {
-    type Output = u8;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-impl<const LENGTH: usize> std::ops::IndexMut<usize> for HeapByteArray<LENGTH> {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
-    }
-}
-
-macro_rules! impl_index_heapbytearray {
-    ($range:ty) => {
-        impl<const LENGTH: usize> std::ops::Index<$range> for HeapByteArray<LENGTH> {
-            type Output = [u8];
-
-            #[inline]
-            fn index(&self, index: $range) -> &Self::Output {
-                &self.0[index]
-            }
-        }
-        impl<const LENGTH: usize> std::ops::IndexMut<$range> for HeapByteArray<LENGTH> {
-            #[inline]
-            fn index_mut(&mut self, index: $range) -> &mut Self::Output {
-                &mut self.0[index]
-            }
-        }
-    };
-}
-
-impl_index_heapbytearray!(std::ops::Range<usize>);
-impl_index_heapbytearray!(std::ops::RangeFull);
-impl_index_heapbytearray!(std::ops::RangeFrom<usize>);
-impl_index_heapbytearray!(std::ops::RangeInclusive<usize>);
-impl_index_heapbytearray!(std::ops::RangeTo<usize>);
-impl_index_heapbytearray!(std::ops::RangeToInclusive<usize>);
+impl_slice_index!(impl[const LENGTH: usize] HeapByteArray<LENGTH>, |s| s.0, |s| s.0);
 
 impl<const LENGTH: usize> Default for HeapByteArray<LENGTH> {
     fn default() -> Self {
@@ -1677,46 +1548,7 @@ impl<A: Zeroize + NewBytes + Lockable<A> + NewLocked<A>> Default
     }
 }
 
-impl std::ops::Index<usize> for HeapBytes {
-    type Output = u8;
-
-    #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-impl std::ops::IndexMut<usize> for HeapBytes {
-    #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
-    }
-}
-
-macro_rules! impl_index_heapbytes {
-    ($range:ty) => {
-        impl std::ops::Index<$range> for HeapBytes {
-            type Output = [u8];
-
-            #[inline]
-            fn index(&self, index: $range) -> &Self::Output {
-                &self.0[index]
-            }
-        }
-        impl std::ops::IndexMut<$range> for HeapBytes {
-            #[inline]
-            fn index_mut(&mut self, index: $range) -> &mut Self::Output {
-                &mut self.0[index]
-            }
-        }
-    };
-}
-
-impl_index_heapbytes!(std::ops::Range<usize>);
-impl_index_heapbytes!(std::ops::RangeFull);
-impl_index_heapbytes!(std::ops::RangeFrom<usize>);
-impl_index_heapbytes!(std::ops::RangeInclusive<usize>);
-impl_index_heapbytes!(std::ops::RangeTo<usize>);
-impl_index_heapbytes!(std::ops::RangeToInclusive<usize>);
+impl_slice_index!(impl[] HeapBytes, |s| s.0, |s| s.0);
 
 impl<const LENGTH: usize> From<&[u8; LENGTH]> for HeapByteArray<LENGTH> {
     fn from(src: &[u8; LENGTH]) -> Self {
@@ -1739,13 +1571,10 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for HeapByteArray<LENGTH> {
     type Error = error::Error;
 
     fn try_from(src: &[u8]) -> Result<Self, Self::Error> {
-        if src.len() != LENGTH {
-            Err(length_error!(crate::ErrorContext::Slice, src.len(), exact LENGTH))
-        } else {
-            let mut arr = Self::default();
-            arr.0.copy_from_slice(src);
-            Ok(arr)
-        }
+        validate_length!(exact LENGTH, src.len(), crate::ErrorContext::Slice);
+        let mut arr = Self::default();
+        arr.0.copy_from_slice(src);
+        Ok(arr)
     }
 }
 
@@ -1773,10 +1602,7 @@ impl<const LENGTH: usize> NewBytes for HeapByteArray<LENGTH> {
 
 impl NewBytes for Protected<HeapBytes, traits::ReadWrite, traits::Locked> {
     fn new_bytes() -> Self {
-        match HeapBytes::new_locked() {
-            Ok(r) => r,
-            Err(err) => panic!("Error creating locked bytes: {:?}", err),
-        }
+        expect_locked(HeapBytes::new_locked())
     }
 }
 
@@ -1784,10 +1610,7 @@ impl<const LENGTH: usize> NewBytes
     for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
 {
     fn new_bytes() -> Self {
-        match HeapByteArray::<LENGTH>::new_locked() {
-            Ok(r) => r,
-            Err(err) => panic!("Error creating locked bytes: {:?}", err),
-        }
+        expect_locked(HeapByteArray::<LENGTH>::new_locked())
     }
 }
 
@@ -1795,20 +1618,13 @@ impl<const LENGTH: usize> NewByteArray<LENGTH>
     for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
 {
     fn new_byte_array() -> Self {
-        match HeapByteArray::<LENGTH>::new_locked() {
-            Ok(r) => r,
-            Err(err) => panic!("Error creating locked bytes: {:?}", err),
-        }
+        expect_locked(HeapByteArray::<LENGTH>::new_locked())
     }
 
     fn r#gen() -> Self {
-        match HeapByteArray::<LENGTH>::new_locked() {
-            Ok(mut r) => {
-                copy_randombytes(r.as_mut_slice());
-                r
-            }
-            Err(err) => panic!("Error creating locked bytes: {:?}", err),
-        }
+        let mut res = expect_locked(HeapByteArray::<LENGTH>::new_locked());
+        copy_randombytes(res.as_mut_slice());
+        res
     }
 }
 
@@ -1819,9 +1635,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
 
     /// Returns a new byte array filled with random data.
     fn r#gen() -> Self {
-        let mut res = Self::default();
-        copy_randombytes(res.as_mut_slice());
-        res
+        gen_bytes()
     }
 }
 
@@ -1834,99 +1648,50 @@ impl<const LENGTH: usize> MutByteArray<LENGTH> for HeapByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Unlocked>
-{
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        match &self.i {
-            Some(d) => d.a.as_array(),
-            None => panic!("invalid array"),
+/// Implements [`ByteArray`] for a [`Protected`] heap byte array in each
+/// readable typestate, and [`MutByteArray`]/`AsMut<[u8; LENGTH]>` in each
+/// writable one.
+macro_rules! impl_protected_array_views {
+    (readable: $($pm:ident, $lm:ident;)*) => {$(
+        impl<const LENGTH: usize> ByteArray<LENGTH>
+            for Protected<HeapByteArray<LENGTH>, traits::$pm, traits::$lm>
+        {
+            #[inline]
+            fn as_array(&self) -> &[u8; LENGTH] {
+                self.inner().as_array()
+            }
         }
-    }
+    )*};
+    (writable: $($lm:ident;)*) => {$(
+        impl<const LENGTH: usize> MutByteArray<LENGTH>
+            for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::$lm>
+        {
+            #[inline]
+            fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
+                self.inner_mut().as_mut_array()
+            }
+        }
+
+        impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
+            for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::$lm>
+        {
+            fn as_mut(&mut self) -> &mut [u8; LENGTH] {
+                self.inner_mut().as_mut()
+            }
+        }
+    )*};
 }
 
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadOnly, traits::Locked>
-{
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        match &self.i {
-            Some(d) => d.a.as_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>
-{
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        match &self.i {
-            Some(d) => d.a.as_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> ByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
-{
-    #[inline]
-    fn as_array(&self) -> &[u8; LENGTH] {
-        match &self.i {
-            Some(d) => d.a.as_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> MutByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
-{
-    #[inline]
-    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        match &mut self.i {
-            Some(d) => d.a.as_mut_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> MutByteArray<LENGTH>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>
-{
-    #[inline]
-    fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-        match &mut self.i {
-            Some(d) => d.a.as_mut_array(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Locked>
-{
-    fn as_mut(&mut self) -> &mut [u8; LENGTH] {
-        match &mut self.i {
-            Some(d) => d.a.as_mut(),
-            None => panic!("invalid array"),
-        }
-    }
-}
-
-impl<const LENGTH: usize> AsMut<[u8; LENGTH]>
-    for Protected<HeapByteArray<LENGTH>, traits::ReadWrite, traits::Unlocked>
-{
-    fn as_mut(&mut self) -> &mut [u8; LENGTH] {
-        match &mut self.i {
-            Some(d) => d.a.as_mut(),
-            None => panic!("invalid array"),
-        }
-    }
-}
+impl_protected_array_views!(readable:
+    ReadOnly, Unlocked;
+    ReadOnly, Locked;
+    ReadWrite, Unlocked;
+    ReadWrite, Locked;
+);
+impl_protected_array_views!(writable:
+    Locked;
+    Unlocked;
+);
 
 impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
     for Protected<A, PM, LM>

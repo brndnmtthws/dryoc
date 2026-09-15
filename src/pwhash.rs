@@ -200,26 +200,20 @@ impl Config {
     /// This is the default preset for online operations where users wait for
     /// the result.
     pub fn interactive() -> Self {
-        Self {
-            algorithm: PasswordHashAlgorithm::Argon2id13,
-            opslimit: CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
-            memlimit: CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
-            parallelism: 1,
-            hash_length: crypto_pwhash::STR_HASHBYTES,
-        }
+        Self::preset(
+            CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
+            CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
+        )
     }
 
     /// Returns libsodium's moderate password hashing configuration.
     ///
     /// This preset uses more time and memory than [`Config::interactive`].
     pub fn moderate() -> Self {
-        Self {
-            algorithm: PasswordHashAlgorithm::Argon2id13,
-            opslimit: CRYPTO_PWHASH_OPSLIMIT_MODERATE,
-            memlimit: CRYPTO_PWHASH_MEMLIMIT_MODERATE,
-            parallelism: 1,
-            hash_length: crypto_pwhash::STR_HASHBYTES,
-        }
+        Self::preset(
+            CRYPTO_PWHASH_OPSLIMIT_MODERATE,
+            CRYPTO_PWHASH_MEMLIMIT_MODERATE,
+        )
     }
 
     /// Returns libsodium's sensitive password hashing configuration.
@@ -227,10 +221,19 @@ impl Config {
     /// This preset has the highest resource requirements. Use it only when the
     /// deployment can tolerate its latency and memory use.
     pub fn sensitive() -> Self {
+        Self::preset(
+            CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
+            CRYPTO_PWHASH_MEMLIMIT_SENSITIVE,
+        )
+    }
+
+    /// Returns the Argon2id13 configuration with the given resource limits,
+    /// shared by the three libsodium presets.
+    const fn preset(opslimit: u64, memlimit: usize) -> Self {
         Self {
             algorithm: PasswordHashAlgorithm::Argon2id13,
-            opslimit: CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
-            memlimit: CRYPTO_PWHASH_MEMLIMIT_SENSITIVE,
+            opslimit,
+            memlimit,
             parallelism: 1,
             hash_length: crypto_pwhash::STR_HASHBYTES,
         }
@@ -260,6 +263,23 @@ fn validate_direct_config(
         output_len,
         password_len,
         salt_len,
+        config.opslimit,
+        config.memlimit,
+        config.algorithm,
+    )
+}
+
+/// Runs Argon2 over `password` and `salt` into `output` per `config`.
+fn argon2_into(
+    output: &mut [u8],
+    password: &[u8],
+    salt: &[u8],
+    config: &Config,
+) -> Result<(), Error> {
+    crypto_pwhash::crypto_pwhash(
+        output,
+        password,
+        salt,
         config.opslimit,
         config.memlimit,
         config.algorithm,
@@ -349,13 +369,11 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
         salt.resize(CRYPTO_PWHASH_SALTBYTES, 0);
         copy_randombytes(salt.as_mut_slice());
 
-        crypto_pwhash::crypto_pwhash(
+        argon2_into(
             hash.as_mut_slice(),
             password.as_slice(),
             salt.as_slice(),
-            config.opslimit,
-            config.memlimit,
-            config.algorithm,
+            &config,
         )?;
 
         Ok(Self { hash, salt, config })
@@ -418,13 +436,11 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Ha
 
         hash.resize(config.hash_length, 0);
 
-        crypto_pwhash::crypto_pwhash(
+        argon2_into(
             hash.as_mut_slice(),
             password.as_slice(),
             salt.as_slice(),
-            config.opslimit,
-            config.memlimit,
-            config.algorithm,
+            &config,
         )?;
 
         Ok(Self { hash, salt, config })
@@ -633,13 +649,11 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
         )?;
         let mut secret_key = SecretKey::new_byte_array();
 
-        crypto_pwhash::crypto_pwhash(
+        argon2_into(
             secret_key.as_mut_slice(),
             password.as_slice(),
             salt.as_slice(),
-            config.opslimit,
-            config.memlimit,
-            config.algorithm,
+            &config,
         )?;
 
         Ok(keypair::KeyPair::<PublicKey, SecretKey>::from_secret_key(

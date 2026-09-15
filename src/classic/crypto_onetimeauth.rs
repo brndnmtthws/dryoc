@@ -52,9 +52,10 @@ use crate::constants::{
     CRYPTO_ONETIMEAUTH_BYTES, CRYPTO_ONETIMEAUTH_KEYBYTES, CRYPTO_ONETIMEAUTH_POLY1305_BYTES,
     CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES,
 };
-use crate::error::{Error, verify_ct};
+use crate::error::Error;
 use crate::poly1305::Poly1305;
 use crate::types::*;
+use crate::utils::verify_ct;
 struct OnetimeauthPoly1305State {
     mac: Poly1305,
 }

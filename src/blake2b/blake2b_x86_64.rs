@@ -20,9 +20,8 @@
 //! Control flow and memory access are independent of the data.
 
 use std::arch::x86_64::{
-    __m256i, _mm256_add_epi64, _mm256_alignr_epi8, _mm256_blend_epi32, _mm256_or_si256,
-    _mm256_permute4x64_epi64, _mm256_ror_epi64, _mm256_setr_epi8, _mm256_setr_epi64x,
-    _mm256_shuffle_epi8, _mm256_shuffle_epi32, _mm256_srli_epi64, _mm256_unpackhi_epi64,
+    __m256i, _mm256_add_epi64, _mm256_alignr_epi8, _mm256_blend_epi32, _mm256_permute4x64_epi64,
+    _mm256_ror_epi64, _mm256_setr_epi64x, _mm256_shuffle_epi32, _mm256_unpackhi_epi64,
     _mm256_unpacklo_epi64, _mm256_xor_si256,
 };
 
@@ -97,56 +96,6 @@ impl Kernel {
 
 const IV_LO: [u64; 4] = [IV[0], IV[1], IV[2], IV[3]];
 const IV_HI: [u64; 4] = [IV[4], IV[5], IV[6], IV[7]];
-
-/// Byte permutation (per 128-bit half) rotating every 64-bit lane right by
-/// 24 bits.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror24_table() -> __m256i {
-    _mm256_setr_epi8(
-        3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10, 3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13,
-        14, 15, 8, 9, 10,
-    )
-}
-
-/// Byte permutation (per 128-bit half) rotating every 64-bit lane right by
-/// 16 bits.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror16_table() -> __m256i {
-    _mm256_setr_epi8(
-        2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9, 2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12,
-        13, 14, 15, 8, 9,
-    )
-}
-
-/// Rotates every 64-bit lane right by 32 bits (a dword swap).
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror32_avx2(v: __m256i) -> __m256i {
-    _mm256_shuffle_epi32::<0xB1>(v)
-}
-
-/// Rotates every 64-bit lane right by 24 bits.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror24_avx2(v: __m256i) -> __m256i {
-    _mm256_shuffle_epi8(v, ror24_table())
-}
-
-/// Rotates every 64-bit lane right by 16 bits.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror16_avx2(v: __m256i) -> __m256i {
-    _mm256_shuffle_epi8(v, ror16_table())
-}
-
-/// Rotates every 64-bit lane right by 63 bits (left by one).
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ror63_avx2(v: __m256i) -> __m256i {
-    _mm256_or_si256(_mm256_add_epi64(v, v), _mm256_srli_epi64::<63>(v))
-}
 
 /// Rotates every 64-bit lane right by `N` bits with one `vprorq`.
 #[inline]
@@ -447,7 +396,14 @@ macro_rules! kernel {
     };
 }
 
-kernel!(avx2, "avx2", ror32_avx2, ror24_avx2, ror16_avx2, ror63_avx2);
+kernel!(
+    avx2,
+    "avx2",
+    crate::x86_64::ror32,
+    crate::x86_64::ror24,
+    crate::x86_64::ror16,
+    crate::x86_64::ror63
+);
 kernel!(
     avx512vl,
     "avx2,avx512f,avx512vl",

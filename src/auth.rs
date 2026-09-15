@@ -59,8 +59,6 @@
 //!     .expect_err("verify should have failed");
 //! ```
 
-use subtle::ConstantTimeEq;
-
 use crate::classic::crypto_auth::{
     AuthState, crypto_auth, crypto_auth_final, crypto_auth_init, crypto_auth_update,
     crypto_auth_verify,
@@ -68,6 +66,7 @@ use crate::classic::crypto_auth::{
 use crate::constants::{CRYPTO_AUTH_BYTES, CRYPTO_AUTH_KEYBYTES};
 use crate::error::Error;
 use crate::types::*;
+use crate::utils::verify_ct;
 
 /// Stack-allocated key for secret-key authentication.
 pub type Key = StackByteArray<CRYPTO_AUTH_KEYBYTES>;
@@ -200,16 +199,7 @@ impl Auth {
     ) -> Result<(), Error> {
         let computed_mac: Mac = self.finalize();
 
-        if other_mac
-            .as_array()
-            .ct_eq(computed_mac.as_array())
-            .unwrap_u8()
-            == 1
-        {
-            Ok(())
-        } else {
-            Err(Error::AuthenticationFailed)
-        }
+        verify_ct(other_mac.as_slice(), computed_mac.as_slice())
     }
 }
 
