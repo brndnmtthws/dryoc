@@ -308,32 +308,6 @@ pub trait NewLocked<A: Zeroize + NewBytes + Lockable<A>> {
     /// page permissions cannot be changed to read-only.
     fn generate_readonly_locked()
     -> Result<Protected<A, traits::ReadOnly, traits::Locked>, error::Error>;
-    /// Returns a new locked byte array, filled with random data.
-    ///
-    /// Prefer [`generate_locked`](Self::generate_locked). This method is
-    /// retained for compatibility.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`generate_locked`](Self::generate_locked).
-    #[deprecated(note = "use generate_locked() instead")]
-    fn gen_locked() -> Result<Protected<A, traits::ReadWrite, traits::Locked>, error::Error> {
-        Self::generate_locked()
-    }
-    /// Returns a new read-only, locked byte array, filled with random data.
-    ///
-    /// Prefer [`generate_readonly_locked`](Self::generate_readonly_locked).
-    /// This method is retained for compatibility.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as
-    /// [`generate_readonly_locked`](Self::generate_readonly_locked).
-    #[deprecated(note = "use generate_readonly_locked() instead")]
-    fn gen_readonly_locked() -> Result<Protected<A, traits::ReadOnly, traits::Locked>, error::Error>
-    {
-        Self::generate_readonly_locked()
-    }
 }
 
 /// Create a new region of protected memory from a slice.
@@ -1621,7 +1595,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH>
         expect_locked(HeapByteArray::<LENGTH>::new_locked())
     }
 
-    fn r#gen() -> Self {
+    fn generate() -> Self {
         let mut res = expect_locked(HeapByteArray::<LENGTH>::new_locked());
         copy_randombytes(res.as_mut_slice());
         res
@@ -1634,7 +1608,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for HeapByteArray<LENGTH> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn r#gen() -> Self {
+    fn generate() -> Self {
         gen_bytes()
     }
 }

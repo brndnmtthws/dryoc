@@ -70,19 +70,7 @@ pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> + NewBytes {
     /// Returns a new fixed-length byte array, initialized with zeroes.
     fn new_byte_array() -> Self;
     /// Returns a new fixed-length byte array, filled with random values.
-    #[allow(deprecated)]
-    fn generate() -> Self
-    where
-        Self: Sized,
-    {
-        Self::r#gen()
-    }
-    /// Returns a new fixed-length byte array, filled with random values.
-    ///
-    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// with older Rust editions.
-    #[deprecated(note = "use generate() instead")]
-    fn r#gen() -> Self;
+    fn generate() -> Self;
 }
 
 /// Arbitrary-length array of mutable bytes.
@@ -163,7 +151,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for StackByteArray<LENGTH> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn r#gen() -> Self {
+    fn generate() -> Self {
         gen_bytes()
     }
 }
@@ -192,8 +180,10 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
     }
 
     /// Returns a new byte array filled with random data.
-    fn r#gen() -> Self {
-        gen_bytes()
+    fn generate() -> Self {
+        let mut res = <Self as NewByteArray<LENGTH>>::new_byte_array();
+        copy_randombytes(&mut res);
+        res
     }
 }
 
@@ -209,7 +199,7 @@ impl<const LENGTH: usize> NewByteArray<LENGTH> for [u8; LENGTH] {
     }
 
     /// Returns a new byte array filled with random data.
-    fn r#gen() -> Self {
+    fn generate() -> Self {
         gen_bytes()
     }
 }
@@ -577,6 +567,12 @@ mod tests {
     fn test_vec_as_mut_array_out_of_bounds_ok() {
         let mut vec = vec![1, 2];
         let _ = <Vec<u8> as MutByteArray<2>>::as_mut_array(&mut vec)[1];
+    }
+
+    #[test]
+    fn vec_generate_preserves_fixed_length() {
+        let vec = <Vec<u8> as NewByteArray<32>>::generate();
+        assert_eq!(vec.len(), 32);
     }
 
     #[test]

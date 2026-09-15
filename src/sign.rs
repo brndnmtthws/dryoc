@@ -201,15 +201,6 @@ impl<
         }
     }
 
-    /// Generates a random signing keypair.
-    ///
-    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// with older Rust editions.
-    #[deprecated(note = "use generate() instead")]
-    pub fn r#gen() -> Self {
-        Self::generate()
-    }
-
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
     /// a new keypair.
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
@@ -266,16 +257,6 @@ impl
     /// (stack-allocated byte arrays). Provided for convenience.
     pub fn generate_with_defaults() -> Self {
         Self::generate()
-    }
-
-    /// Randomly generates a new signing keypair, using default types
-    /// (stack-allocated byte arrays). Provided for convenience.
-    ///
-    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
-    /// method is retained for compatibility.
-    #[deprecated(note = "use generate_with_defaults() instead")]
-    pub fn gen_with_defaults() -> Self {
-        Self::generate_with_defaults()
     }
 }
 
@@ -408,25 +389,6 @@ pub mod protected {
 
             Ok(res)
         }
-
-        /// Returns a new randomly generated locked signing keypair.
-        ///
-        /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
-        /// This method is retained for compatibility.
-        ///
-        /// # Errors
-        ///
-        /// Returns the same errors as
-        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
-        ///
-        /// # Panics
-        ///
-        /// Panics under the same conditions as
-        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
-        #[deprecated(note = "use generate_locked_keypair() instead")]
-        pub fn gen_locked_keypair() -> Result<Self, Error> {
-            Self::generate_locked_keypair()
-        }
     }
 
     impl
@@ -460,26 +422,6 @@ pub mod protected {
                 public_key,
                 secret_key,
             })
-        }
-
-        /// Returns a new randomly generated locked, read-only signing keypair.
-        ///
-        /// Prefer
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        /// This method is retained for compatibility.
-        ///
-        /// # Errors
-        ///
-        /// Returns the same errors as
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        ///
-        /// # Panics
-        ///
-        /// Panics under the same conditions as
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
-        pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
-            Self::generate_readonly_locked_keypair()
         }
     }
 }

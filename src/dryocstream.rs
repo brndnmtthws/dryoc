@@ -91,10 +91,16 @@ pub use crate::types::*;
 mod tag;
 pub use tag::{Tag, TagIter, TagIterNames};
 
+/// Stream mode marker trait.
+pub trait Mode {}
+
 /// Indicates a push stream
 pub struct Push;
 /// Indicates a pull stream
 pub struct Pull;
+
+impl Mode for Push {}
+impl Mode for Pull {}
 
 /// Stack-allocated secret for authenticated secret streams.
 pub type Key = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;

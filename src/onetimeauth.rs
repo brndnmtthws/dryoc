@@ -200,7 +200,7 @@ impl OnetimeAuth {
     ) -> Result<(), Error> {
         let computed_mac: Mac = self.finalize();
 
-        verify_ct(other_mac.as_slice(), computed_mac.as_slice())
+        verify_ct(other_mac.as_array(), computed_mac.as_array())
     }
 }
 
@@ -236,5 +236,16 @@ mod tests {
         verify_mac
             .verify(&mac)
             .expect_err("verify should have failed");
+    }
+
+    #[test]
+    fn incremental_verify_accepts_fixed_prefix_buffer() {
+        let key = Key::generate();
+        let mut mac = OnetimeAuth::compute_to_vec(key.clone(), b"message");
+        mac.extend_from_slice(b"trailing storage");
+
+        let mut verifier = OnetimeAuth::new(key);
+        verifier.update(b"message");
+        verifier.verify(&mac).expect("valid MAC prefix rejected");
     }
 }
