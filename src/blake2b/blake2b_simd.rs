@@ -642,7 +642,6 @@ mod tests {
     #[test]
     fn test_vectors() {
         for vector in TEST_VECTORS.iter() {
-            println!("input {:?}, key {:?}", vector.in_, vector.key);
             let key = if vector.key.is_empty() {
                 None
             } else {

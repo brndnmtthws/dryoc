@@ -91,15 +91,10 @@ pub use crate::types::*;
 mod tag;
 pub use tag::{Tag, TagIter, TagIterNames};
 
-/// Stream mode marker trait
-pub trait Mode {}
 /// Indicates a push stream
 pub struct Push;
 /// Indicates a pull stream
 pub struct Pull;
-
-impl Mode for Push {}
-impl Mode for Pull {}
 
 /// Stack-allocated secret for authenticated secret streams.
 pub type Key = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
@@ -177,12 +172,12 @@ pub mod protected {
 
 /// Secret-key authenticated encrypted streams
 #[derive(PartialEq, Eq, Clone, Zeroize)]
-pub struct DryocStream<Mode> {
+pub struct DryocStream<M> {
     state: State,
-    phantom: std::marker::PhantomData<Mode>,
+    phantom: std::marker::PhantomData<M>,
 }
 
-impl<Mode> Drop for DryocStream<Mode> {
+impl<M> Drop for DryocStream<M> {
     fn drop(&mut self) {
         self.state.zeroize()
     }

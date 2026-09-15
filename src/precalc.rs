@@ -134,6 +134,26 @@ pub mod protected {
 
     type InnerKey = HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
 
+    /// Shared `crypto_box_beforenm` computation placed into a locked buffer.
+    fn beforenm_into_locked<
+        ThirdPartyPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    >(
+        third_party_public_key: &ThirdPartyPublicKey,
+        secret_key: &SecretKey,
+    ) -> Result<Locked<HeapByteArray<CRYPTO_BOX_BEFORENMBYTES>>, Error> {
+        use crate::classic::crypto_box::crypto_box_beforenm;
+
+        let mut precalc = HeapByteArray::<CRYPTO_BOX_BEFORENMBYTES>::new_locked()?;
+        let mut key =
+            crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array())?;
+
+        precalc.copy_from_slice(&key);
+        key.zeroize();
+
+        Ok(precalc)
+    }
+
     impl PrecalcSecretKey<Locked<InnerKey>> {
         /// Computes a heap-allocated, page-aligned, locked shared secret key
         /// for the given `third_party_public_key` and `secret_key`.
@@ -156,16 +176,10 @@ pub mod protected {
             third_party_public_key: &ThirdPartyPublicKey,
             secret_key: &SecretKey,
         ) -> Result<Self, Error> {
-            use crate::classic::crypto_box::crypto_box_beforenm;
-
-            let mut precalc = HeapByteArray::<CRYPTO_BOX_BEFORENMBYTES>::new_locked()?;
-            let mut key =
-                crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array())?;
-
-            precalc.copy_from_slice(&key);
-            key.zeroize();
-
-            Ok(PrecalcSecretKey(precalc))
+            Ok(PrecalcSecretKey(beforenm_into_locked(
+                third_party_public_key,
+                secret_key,
+            )?))
         }
     }
 
@@ -193,16 +207,9 @@ pub mod protected {
             third_party_public_key: &ThirdPartyPublicKey,
             secret_key: &SecretKey,
         ) -> Result<Self, Error> {
-            use crate::classic::crypto_box::crypto_box_beforenm;
-
-            let mut precalc = HeapByteArray::<CRYPTO_BOX_BEFORENMBYTES>::new_locked()?;
-            let mut key =
-                crypto_box_beforenm(third_party_public_key.as_array(), secret_key.as_array())?;
-
-            precalc.copy_from_slice(&key);
-            key.zeroize();
-
-            Ok(PrecalcSecretKey(precalc.mprotect_readonly()?))
+            Ok(PrecalcSecretKey(
+                beforenm_into_locked(third_party_public_key, secret_key)?.mprotect_readonly()?,
+            ))
         }
     }
 }

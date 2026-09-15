@@ -4,13 +4,8 @@
 ///
 /// Panics if the operating system's random number generator fails.
 pub fn randombytes_buf(len: usize) -> Vec<u8> {
-    use rand::TryRng;
-    use rand::rngs::SysRng;
-
     let mut r: Vec<u8> = vec![0; len];
-    SysRng
-        .try_fill_bytes(r.as_mut_slice())
-        .expect("failed to fill random bytes");
+    copy_randombytes(r.as_mut_slice());
 
     r
 }

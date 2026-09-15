@@ -3,14 +3,31 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::types::*;
 
-impl<const LENGTH: usize> Serialize for StackByteArray<LENGTH> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(self.as_slice())
-    }
+/// Serializes a byte container with [`Serializer::serialize_bytes`].
+macro_rules! impl_serialize_bytes {
+    ([$($generics:tt)*] $ty:ty) => {
+        impl<$($generics)*> Serialize for $ty {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                serializer.serialize_bytes(self.as_slice())
+            }
+        }
+    };
+    ($ty:ty) => {
+        impl Serialize for $ty {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                serializer.serialize_bytes(self.as_slice())
+            }
+        }
+    };
 }
+
+impl_serialize_bytes!([const LENGTH: usize] StackByteArray<LENGTH>);
 
 impl<'de, const LENGTH: usize> Deserialize<'de> for StackByteArray<LENGTH> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -70,23 +87,9 @@ mod protected {
     use super::*;
     use crate::protected::*;
 
-    impl<const LENGTH: usize> Serialize for HeapByteArray<LENGTH> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serializer.serialize_bytes(self.as_slice())
-        }
-    }
+    impl_serialize_bytes!([const LENGTH: usize] HeapByteArray<LENGTH>);
 
-    impl<const LENGTH: usize> Serialize for Locked<HeapByteArray<LENGTH>> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serializer.serialize_bytes(self.as_slice())
-        }
-    }
+    impl_serialize_bytes!([const LENGTH: usize] Locked<HeapByteArray<LENGTH>>);
 
     impl<'de, const LENGTH: usize> Deserialize<'de> for HeapByteArray<LENGTH> {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -139,32 +142,11 @@ mod protected {
         }
     }
 
-    impl Serialize for HeapBytes {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serializer.serialize_bytes(self.as_slice())
-        }
-    }
+    impl_serialize_bytes!(HeapBytes);
 
-    impl Serialize for LockedBytes {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serializer.serialize_bytes(self.as_slice())
-        }
-    }
+    impl_serialize_bytes!(LockedBytes);
 
-    impl Serialize for LockedRO<HeapBytes> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            serializer.serialize_bytes(self.as_slice())
-        }
-    }
+    impl_serialize_bytes!(LockedRO<HeapBytes>);
 
     impl<'de> Deserialize<'de> for HeapBytes {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

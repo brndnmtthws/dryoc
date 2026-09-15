@@ -28,154 +28,118 @@ pub type Sha3256Digest = StackByteArray<CRYPTO_HASH_SHA3256_BYTES>;
 /// Type alias for SHA3-512 digest, provided for convenience.
 pub type Sha3512Digest = StackByteArray<CRYPTO_HASH_SHA3512_BYTES>;
 
-/// SHA3-256 wrapper, provided for convenience.
-pub struct Sha3256 {
-    hasher: Sha3256Impl,
-}
-
-impl Sha3256 {
-    /// Returns a new SHA3-256 hasher instance.
-    pub fn new() -> Self {
-        Self {
-            hasher: Sha3256Impl::new(),
+/// Defines a SHA-3 hasher wrapping a `sha3_impl` digest.
+///
+/// - `$name`: the wrapper type; leading attributes (docs) are applied to it.
+/// - `$algo`: the algorithm name for the generated method docs.
+/// - `$inner`: the `sha3_impl` hasher.
+/// - `$digest_bytes`: the digest size constant.
+macro_rules! sha3_hasher {
+    (
+        $(#[$meta:meta])*
+        $name:ident,
+        $algo:literal,
+        $inner:ty,
+        $digest_bytes:expr,
+    ) => {
+        $(#[$meta])*
+        pub struct $name {
+            hasher: $inner,
         }
-    }
 
-    /// One-time interface to compute SHA3-256 digest for `input`, copying
-    /// result into `output`.
-    pub fn compute_into_bytes<
-        Input: Bytes + ?Sized,
-        Output: MutByteArray<CRYPTO_HASH_SHA3256_BYTES>,
-    >(
-        output: &mut Output,
-        input: &Input,
-    ) {
-        let mut hasher = Self::new();
-        hasher.update(input);
-        hasher.finalize_into_bytes(output)
-    }
+        impl $name {
+            #[doc = concat!("Returns a new ", $algo, " hasher instance.")]
+            pub fn new() -> Self {
+                Self {
+                    hasher: <$inner>::new(),
+                }
+            }
 
-    /// One-time interface to compute SHA3-256 digest for `input`.
-    pub fn compute<Input: Bytes + ?Sized, Output: NewByteArray<CRYPTO_HASH_SHA3256_BYTES>>(
-        input: &Input,
-    ) -> Output {
-        let mut hasher = Self::new();
-        hasher.update(input);
-        hasher.finalize()
-    }
+            #[doc = concat!(
+                "One-time interface to compute ",
+                $algo,
+                " digest for `input`, copying\nresult into `output`."
+            )]
+            pub fn compute_into_bytes<Input: Bytes + ?Sized, Output: MutByteArray<$digest_bytes>>(
+                output: &mut Output,
+                input: &Input,
+            ) {
+                let mut hasher = Self::new();
+                hasher.update(input);
+                hasher.finalize_into_bytes(output)
+            }
 
-    /// Wrapper around [`Sha3256::compute`], returning a [`Vec`]. Provided for
-    /// convenience.
-    pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
-        Self::compute(input)
-    }
+            #[doc = concat!(
+                "One-time interface to compute ",
+                $algo,
+                " digest for `input`."
+            )]
+            pub fn compute<Input: Bytes + ?Sized, Output: NewByteArray<$digest_bytes>>(
+                input: &Input,
+            ) -> Output {
+                let mut hasher = Self::new();
+                hasher.update(input);
+                hasher.finalize()
+            }
 
-    /// Updates SHA3-256 hash state with `input`.
-    pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
-        self.hasher.update(input.as_slice())
-    }
+            #[doc = concat!(
+                "Wrapper around [`",
+                stringify!($name),
+                "::compute`], returning a [`Vec`]. Provided for\nconvenience."
+            )]
+            pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
+                Self::compute(input)
+            }
 
-    /// Consumes hasher and return final computed hash.
-    pub fn finalize<Output: NewByteArray<CRYPTO_HASH_SHA3256_BYTES>>(self) -> Output {
-        let mut hash = Output::new_byte_array();
-        self.finalize_into_bytes(&mut hash);
-        hash
-    }
+            #[doc = concat!("Updates ", $algo, " hash state with `input`.")]
+            pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
+                self.hasher.update(input.as_slice())
+            }
 
-    /// Consumes hasher and writes final computed hash into `output`.
-    pub fn finalize_into_bytes<Output: MutByteArray<CRYPTO_HASH_SHA3256_BYTES>>(
-        self,
-        output: &mut Output,
-    ) {
-        let digest = self.hasher.finalize();
-        output.as_mut_slice().copy_from_slice(&digest);
-    }
+            /// Consumes hasher and return final computed hash.
+            pub fn finalize<Output: NewByteArray<$digest_bytes>>(self) -> Output {
+                let mut hash = Output::new_byte_array();
+                self.finalize_into_bytes(&mut hash);
+                hash
+            }
 
-    /// Consumes hasher and returns final computed hash as a [`Vec`].
-    pub fn finalize_to_vec(self) -> Vec<u8> {
-        self.finalize()
-    }
-}
+            /// Consumes hasher and writes final computed hash into `output`.
+            pub fn finalize_into_bytes<Output: MutByteArray<$digest_bytes>>(
+                self,
+                output: &mut Output,
+            ) {
+                let digest = self.hasher.finalize();
+                output.as_mut_slice().copy_from_slice(&digest);
+            }
 
-impl Default for Sha3256 {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// SHA3-512 wrapper, provided for convenience.
-pub struct Sha3512 {
-    hasher: Sha3512Impl,
-}
-
-impl Sha3512 {
-    /// Returns a new SHA3-512 hasher instance.
-    pub fn new() -> Self {
-        Self {
-            hasher: Sha3512Impl::new(),
+            /// Consumes hasher and returns final computed hash as a [`Vec`].
+            pub fn finalize_to_vec(self) -> Vec<u8> {
+                self.finalize()
+            }
         }
-    }
 
-    /// One-time interface to compute SHA3-512 digest for `input`, copying
-    /// result into `output`.
-    pub fn compute_into_bytes<
-        Input: Bytes + ?Sized,
-        Output: MutByteArray<CRYPTO_HASH_SHA3512_BYTES>,
-    >(
-        output: &mut Output,
-        input: &Input,
-    ) {
-        let mut hasher = Self::new();
-        hasher.update(input);
-        hasher.finalize_into_bytes(output)
-    }
-
-    /// One-time interface to compute SHA3-512 digest for `input`.
-    pub fn compute<Input: Bytes + ?Sized, Output: NewByteArray<CRYPTO_HASH_SHA3512_BYTES>>(
-        input: &Input,
-    ) -> Output {
-        let mut hasher = Self::new();
-        hasher.update(input);
-        hasher.finalize()
-    }
-
-    /// Wrapper around [`Sha3512::compute`], returning a [`Vec`]. Provided for
-    /// convenience.
-    pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
-        Self::compute(input)
-    }
-
-    /// Updates SHA3-512 hash state with `input`.
-    pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
-        self.hasher.update(input.as_slice())
-    }
-
-    /// Consumes hasher and return final computed hash.
-    pub fn finalize<Output: NewByteArray<CRYPTO_HASH_SHA3512_BYTES>>(self) -> Output {
-        let mut hash = Output::new_byte_array();
-        self.finalize_into_bytes(&mut hash);
-        hash
-    }
-
-    /// Consumes hasher and writes final computed hash into `output`.
-    pub fn finalize_into_bytes<Output: MutByteArray<CRYPTO_HASH_SHA3512_BYTES>>(
-        self,
-        output: &mut Output,
-    ) {
-        let digest = self.hasher.finalize();
-        output.as_mut_slice().copy_from_slice(&digest);
-    }
-
-    /// Consumes hasher and returns final computed hash as a [`Vec`].
-    pub fn finalize_to_vec(self) -> Vec<u8> {
-        self.finalize()
-    }
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
 }
 
-impl Default for Sha3512 {
-    fn default() -> Self {
-        Self::new()
-    }
+sha3_hasher! {
+    /// SHA3-256 wrapper, provided for convenience.
+    Sha3256,
+    "SHA3-256",
+    Sha3256Impl,
+    CRYPTO_HASH_SHA3256_BYTES,
+}
+
+sha3_hasher! {
+    /// SHA3-512 wrapper, provided for convenience.
+    Sha3512,
+    "SHA3-512",
+    Sha3512Impl,
+    CRYPTO_HASH_SHA3512_BYTES,
 }
 
 #[cfg(test)]
