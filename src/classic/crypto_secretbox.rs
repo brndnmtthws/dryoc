@@ -437,6 +437,198 @@ mod tests {
         assert_eq!(inplace, ciphertext);
     }
 
+    /// A deterministic key, nonce and message of `len` bytes.
+    fn fixture(len: usize) -> (Key, Nonce, Vec<u8>) {
+        let mut rng = crate::utils::test_util::XorShift64::new(0x5ec2_e7b0_1d3a_9f41);
+        let key = rng.next_bytes32();
+        let nonce: Nonce = rng.next_bytes32()[..CRYPTO_SECRETBOX_NONCEBYTES]
+            .try_into()
+            .unwrap();
+        let message = (0..len)
+            .map(|i| (i as u8).wrapping_mul(31) ^ 0x3c)
+            .collect();
+        (key, nonce, message)
+    }
+
+    /// Every failing `crypto_secretbox_open_easy_inplace` (and `open_easy`)
+    /// must leave its whole buffer as it found it: a flipped bit in the
+    /// first and last tag byte, in the first and last ciphertext byte, and
+    /// a buffer one byte short of a tag.
+    #[test]
+    fn test_open_easy_inplace_failures_leave_buffer_untouched() {
+        let (key, nonce, message) = fixture(100);
+        let mut sealed = message.clone();
+        sealed.resize(message.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
+        crypto_secretbox_easy_inplace(&mut sealed, &nonce, &key).expect("encrypt failed");
+
+        let mut cases = Vec::new();
+        for (name, index) in [
+            ("first tag byte", 0),
+            ("last tag byte", CRYPTO_SECRETBOX_MACBYTES - 1),
+            ("first ciphertext byte", CRYPTO_SECRETBOX_MACBYTES),
+            ("last ciphertext byte", sealed.len() - 1),
+        ] {
+            let mut tampered = sealed.clone();
+            tampered[index] ^= 1;
+            cases.push((name, tampered));
+        }
+        for (name, tampered) in cases {
+            let mut buffer = tampered.clone();
+            assert!(
+                matches!(
+                    crypto_secretbox_open_easy_inplace(&mut buffer, &nonce, &key),
+                    Err(Error::AuthenticationFailed)
+                ),
+                "{name}: in place"
+            );
+            assert_eq!(buffer, tampered, "{name}: in place buffer");
+
+            let mut output = vec![0xa5u8; message.len()];
+            assert!(
+                matches!(
+                    crypto_secretbox_open_easy(&mut output, &tampered, &nonce, &key),
+                    Err(Error::AuthenticationFailed)
+                ),
+                "{name}: b2b"
+            );
+            assert_eq!(output, vec![0xa5u8; message.len()], "{name}: b2b output");
+        }
+
+        let mut short = sealed[..CRYPTO_SECRETBOX_MACBYTES - 1].to_vec();
+        let original = short.clone();
+        assert!(matches!(
+            crypto_secretbox_open_easy_inplace(&mut short, &nonce, &key),
+            Err(Error::InvalidLength { .. })
+        ));
+        assert_eq!(short, original);
+        let mut output = [0xa5u8];
+        assert!(matches!(
+            crypto_secretbox_open_easy(&mut output, &original, &nonce, &key),
+            Err(Error::InvalidLength { .. })
+        ));
+        assert_eq!(output, [0xa5]);
+
+        let mut buffer = sealed.clone();
+        crypto_secretbox_open_easy_inplace(&mut buffer, &nonce, &key).expect("decrypt failed");
+        assert_eq!(&buffer[..message.len()], message);
+    }
+
+    /// Message lengths around the Poly1305 and Salsa20 blocks, and around
+    /// the XSalsa20 kernel chunks (5, 8 and 16 blocks): the message's
+    /// keystream starts 32 bytes into block 0, so a chunk boundary falls 32
+    /// bytes before a multiple of the chunk.
+    #[cfg(dryoc_native_tests)]
+    fn boundary_lens() -> Vec<usize> {
+        let mut lens = vec![0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65];
+        for chunk in [5 * 64, 8 * 64, 16 * 64] {
+            lens.extend([
+                chunk - 33,
+                chunk - 32,
+                chunk - 31,
+                chunk - 1,
+                chunk,
+                chunk + 1,
+                2 * chunk - 33,
+                2 * chunk - 32,
+                2 * chunk - 31,
+            ]);
+        }
+        lens.sort_unstable();
+        lens.dedup();
+        lens
+    }
+
+    /// Every seal function must produce libsodium's `crypto_secretbox_easy`
+    /// and `crypto_secretbox_detached` output, and every open function must
+    /// recover the message from it, at every length in [`boundary_lens`].
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_matches_libsodium_at_boundary_lengths() {
+        use libc::c_ulonglong;
+
+        for len in boundary_lens() {
+            let (key, nonce, message) = fixture(len);
+            let mut expected = vec![0u8; len];
+            let mut expected_mac = Mac::default();
+            let mut expected_easy = vec![0u8; len + CRYPTO_SECRETBOX_MACBYTES];
+            // SAFETY: every buffer is valid for the length passed beside it;
+            // `mac`, `nonce` and `key` are exact-size arrays.
+            unsafe {
+                assert_eq!(
+                    libsodium_sys::crypto_secretbox_detached(
+                        expected.as_mut_ptr(),
+                        expected_mac.as_mut_ptr(),
+                        message.as_ptr(),
+                        len as c_ulonglong,
+                        nonce.as_ptr(),
+                        key.as_ptr(),
+                    ),
+                    0
+                );
+                assert_eq!(
+                    libsodium_sys::crypto_secretbox_easy(
+                        expected_easy.as_mut_ptr(),
+                        message.as_ptr(),
+                        len as c_ulonglong,
+                        nonce.as_ptr(),
+                        key.as_ptr(),
+                    ),
+                    0
+                );
+            }
+            assert_eq!(expected_easy[..CRYPTO_SECRETBOX_MACBYTES], expected_mac);
+            assert_eq!(expected_easy[CRYPTO_SECRETBOX_MACBYTES..], expected);
+
+            let mut ciphertext = vec![0u8; len];
+            let mut mac = Mac::default();
+            crypto_secretbox_detached(&mut ciphertext, &mut mac, &message, &nonce, &key)
+                .expect("detached");
+            assert_eq!(
+                (&ciphertext, mac),
+                (&expected, expected_mac),
+                "len {len}: detached"
+            );
+
+            let mut data = message.clone();
+            let mut mac = Mac::default();
+            crypto_secretbox_detached_inplace(&mut data, &mut mac, &nonce, &key);
+            assert_eq!(
+                (&data, mac),
+                (&expected, expected_mac),
+                "len {len}: detached in place"
+            );
+
+            let mut easy = vec![0u8; len + CRYPTO_SECRETBOX_MACBYTES];
+            crypto_secretbox_easy(&mut easy, &message, &nonce, &key).expect("easy");
+            assert_eq!(easy, expected_easy, "len {len}: easy");
+
+            let mut data = message.clone();
+            data.resize(len + CRYPTO_SECRETBOX_MACBYTES, 0);
+            crypto_secretbox_easy_inplace(&mut data, &nonce, &key).expect("easy in place");
+            assert_eq!(data, expected_easy, "len {len}: easy in place");
+
+            let mut output = vec![0u8; len];
+            crypto_secretbox_open_detached(&mut output, &expected_mac, &expected, &nonce, &key)
+                .expect("open detached");
+            assert_eq!(output, message, "len {len}: open detached");
+
+            let mut data = expected.clone();
+            crypto_secretbox_open_detached_inplace(&mut data, &expected_mac, &nonce, &key)
+                .expect("open detached in place");
+            assert_eq!(data, message, "len {len}: open detached in place");
+
+            let mut output = vec![0u8; len];
+            crypto_secretbox_open_easy(&mut output, &expected_easy, &nonce, &key)
+                .expect("open easy");
+            assert_eq!(output, message, "len {len}: open easy");
+
+            let mut data = expected_easy.clone();
+            crypto_secretbox_open_easy_inplace(&mut data, &nonce, &key)
+                .expect("open easy in place");
+            assert_eq!(&data[..len], message, "len {len}: open easy in place");
+        }
+    }
+
     #[cfg(all(feature = "nightly", dryoc_native_tests))]
     fn bench_crypto_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
         let key: Key = crypto_secretbox_keygen();

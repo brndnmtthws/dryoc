@@ -696,16 +696,352 @@ impl PwHash<Hash, Salt> {
 mod tests {
     use super::*;
 
+    /// libsodium `crypto_pwhash` outputs for password `"password"`, salt
+    /// `"0123456789abcdef"`, 32 output bytes, and the minimum cost of each
+    /// algorithm (Argon2id: opslimit 1; Argon2i: opslimit 3; both 8 KiB).
+    const PASSWORD: &[u8; 8] = b"password";
+    const SALT: &[u8; CRYPTO_PWHASH_SALTBYTES] = b"0123456789abcdef";
+    const ARGON2ID_MIN_HASH: &str =
+        "771338d819573c67116b39e1788ae8e04b0eb0cf9dfbbfe2e6d746cf3e464fc7";
+    /// `crypto_scalarmult_base` of `ARGON2ID_MIN_HASH`.
+    const ARGON2ID_MIN_PUBLIC_KEY: &str =
+        "4a4673d64ae26efee17c8432ffd40f6358ef58f533bc318a5968555d19d1d66f";
+    const ARGON2I_MIN_HASH: &str =
+        "edb3a9e12a39f7528d38ddcc001fd6dfa0c2858bdf8f7910c8c2c74889ab902b";
+    /// libsodium `test/default/pwhash_argon2id.c` string vector for
+    /// `"password"`.
+    #[cfg(feature = "base64")]
+    const LIBSODIUM_ARGON2ID_STR: &str = concat!(
+        "$argon2id$v=19$m=256,t=3,p=1$MDEyMzQ1Njc$",
+        "G5ajKFCoUzaXRLdz7UJb5wGkb2Xt+X5/GQjUYtS2+TE",
+    );
+
+    fn argon2id_min() -> Config {
+        Config::interactive()
+            .with_opslimit(CRYPTO_PWHASH_OPSLIMIT_MIN)
+            .with_memlimit(CRYPTO_PWHASH_MEMLIMIT_MIN)
+    }
+
+    fn argon2i_min() -> Config {
+        Config::interactive()
+            .with_algorithm(PasswordHashAlgorithm::Argon2i13)
+            .with_opslimit(CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MIN)
+            .with_memlimit(CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MIN)
+    }
+
+    fn classic_hash(config: &Config) -> Vec<u8> {
+        let mut output = vec![0u8; config.hash_length];
+        crypto_pwhash::crypto_pwhash(
+            &mut output,
+            PASSWORD,
+            SALT,
+            config.opslimit,
+            config.memlimit,
+            config.algorithm,
+        )
+        .expect("classic pwhash");
+        output
+    }
+
     #[test]
-    fn test_pwhash() {
-        let password = b"super secrit password";
+    fn hash_with_salt_matches_libsodium_argon2id_and_classic() {
+        let expected = hex::decode(ARGON2ID_MIN_HASH).expect("hex");
+        let pwhash: VecPwHash =
+            PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), argon2id_min()).expect("hash");
+        assert_eq!(pwhash.hash, expected);
+        assert_eq!(pwhash.salt, SALT);
+        assert_eq!(classic_hash(&argon2id_min()), expected);
 
-        let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+        pwhash.verify(PASSWORD).expect("verify failed");
+        assert!(pwhash.verify(b"Password").is_err());
+        assert!(pwhash.verify(b"").is_err());
 
-        pwhash.verify(password).expect("verification failed");
-        pwhash
-            .verify(b"invalid password")
-            .expect_err("verification should have failed");
+        let (hash, salt, config) = pwhash.into_parts();
+        assert_eq!(hash, expected);
+        let rebuilt = VecPwHash::from_parts(hash, salt, config);
+        rebuilt.verify(PASSWORD).expect("verify failed");
+
+        // A different salt or cost is a different hash.
+        let mut other_salt = *SALT;
+        other_salt[0] ^= 1;
+        let other: VecPwHash =
+            PwHash::hash_with_salt(PASSWORD, other_salt.to_vec(), argon2id_min()).expect("hash");
+        assert_ne!(other.hash, expected);
+        let costlier: VecPwHash = PwHash::hash_with_salt(
+            PASSWORD,
+            SALT.to_vec(),
+            argon2id_min().with_opslimit(CRYPTO_PWHASH_OPSLIMIT_MIN + 1),
+        )
+        .expect("hash");
+        assert_ne!(costlier.hash, expected);
+        assert!(costlier.verify(PASSWORD).is_ok());
+    }
+
+    #[test]
+    fn argon2i_configuration_matches_libsodium_and_classic() {
+        let expected = hex::decode(ARGON2I_MIN_HASH).expect("hex");
+        let pwhash: VecPwHash =
+            PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), argon2i_min()).expect("hash");
+        assert_eq!(pwhash.hash, expected);
+        assert_eq!(classic_hash(&argon2i_min()), expected);
+        assert_ne!(pwhash.hash, hex::decode(ARGON2ID_MIN_HASH).expect("hex"));
+        pwhash.verify(PASSWORD).expect("verify failed");
+        assert!(pwhash.verify(b"password ").is_err());
+
+        // Argon2i has a higher minimum opslimit than Argon2id.
+        let below_min = argon2i_min().with_opslimit(CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MIN - 1);
+        assert!(matches!(
+            VecPwHash::hash_with_salt(PASSWORD, SALT.to_vec(), below_min),
+            Err(Error::InvalidValue {
+                context: crate::ErrorContext::OperationsLimit,
+                ..
+            })
+        ));
+        let derived: Result<keypair::StackKeyPair, Error> = PwHash::derive_keypair(
+            PASSWORD,
+            SALT.to_vec(),
+            argon2i_min().with_opslimit(CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MIN - 1),
+        );
+        assert!(derived.is_err());
+
+        #[cfg(feature = "base64")]
+        {
+            let encoded = pwhash.to_encoded_string().expect("encode");
+            assert!(encoded.starts_with("$argon2i$v=19$m=8,t=3,p=1$"));
+            let parsed = VecPwHash::from_string(&encoded).expect("parse");
+            assert_eq!(parsed.hash, expected);
+            assert_eq!(parsed.salt, SALT);
+            parsed.verify(PASSWORD).expect("verify failed");
+            assert_eq!(parsed.to_encoded_string().expect("encode"), encoded);
+            crypto_pwhash::crypto_pwhash_str_verify(&encoded, PASSWORD).expect("classic verify");
+        }
+    }
+
+    #[test]
+    fn derive_keypair_is_the_scalar_base_multiple_of_the_argon2_output() {
+        use crate::classic::crypto_core::crypto_scalarmult_base;
+
+        let secret_key = hex::decode(ARGON2ID_MIN_HASH).expect("hex");
+        let public_key = hex::decode(ARGON2ID_MIN_PUBLIC_KEY).expect("hex");
+
+        let keypair: keypair::StackKeyPair =
+            PwHash::derive_keypair(PASSWORD, SALT.to_vec(), argon2id_min()).expect("derive");
+        assert_eq!(keypair.secret_key.as_slice(), secret_key.as_slice());
+        assert_eq!(keypair.public_key.as_slice(), public_key.as_slice());
+
+        // The classic composition: `crypto_pwhash` into the secret key, then
+        // `crypto_scalarmult_base` (i.e. `KeyPair::from_secret_key`).
+        let mut classic_secret = [0u8; CRYPTO_BOX_SECRETKEYBYTES];
+        crypto_pwhash::crypto_pwhash(
+            &mut classic_secret,
+            PASSWORD,
+            SALT,
+            CRYPTO_PWHASH_OPSLIMIT_MIN,
+            CRYPTO_PWHASH_MEMLIMIT_MIN,
+            PasswordHashAlgorithm::Argon2id13,
+        )
+        .expect("classic pwhash");
+        let mut classic_public = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
+        crypto_scalarmult_base(&mut classic_public, &classic_secret);
+        assert_eq!(keypair.secret_key.as_array(), &classic_secret);
+        assert_eq!(keypair.public_key.as_array(), &classic_public);
+        assert_eq!(
+            keypair::StackKeyPair::from_secret_key(keypair.secret_key.clone()),
+            keypair
+        );
+
+        // Same password with a different salt derives a different keypair, and
+        // the salt length is validated.
+        let mut other_salt = *SALT;
+        other_salt[15] ^= 1;
+        let other: keypair::StackKeyPair =
+            PwHash::derive_keypair(PASSWORD, other_salt.to_vec(), argon2id_min()).expect("derive");
+        assert_ne!(other, keypair);
+        let short_salt: Result<keypair::StackKeyPair, Error> =
+            PwHash::derive_keypair(PASSWORD, SALT[..8].to_vec(), argon2id_min());
+        assert!(matches!(
+            short_salt,
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::PasswordHashSalt,
+                actual: 8,
+                ..
+            })
+        ));
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn libsodium_string_vector_parses_verifies_and_reencodes() {
+        let parsed = VecPwHash::from_string(LIBSODIUM_ARGON2ID_STR).expect("parse");
+        assert_eq!(parsed.salt, b"01234567");
+        assert_eq!(parsed.hash.len(), 32);
+        assert_eq!(parsed.config.opslimit, 3);
+        assert_eq!(parsed.config.memlimit, 256 * 1024);
+        assert_eq!(parsed.config.parallelism, 1);
+        assert_eq!(parsed.config.algorithm, PasswordHashAlgorithm::Argon2id13);
+        parsed.verify(PASSWORD).expect("verify failed");
+        assert!(parsed.verify(b"passwore").is_err());
+        assert_eq!(
+            parsed.to_encoded_string().expect("encode"),
+            LIBSODIUM_ARGON2ID_STR
+        );
+
+        // The direct hashing API requires libsodium's fixed salt length, so
+        // the parsed 8-byte salt only works through `verify`.
+        let (hash, salt, config) = parsed.into_parts();
+        assert_eq!(salt.len(), 8);
+        assert!(matches!(
+            VecPwHash::hash_with_salt(PASSWORD, salt.clone(), config.clone()),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::PasswordHashSalt,
+                actual: 8,
+                ..
+            })
+        ));
+        VecPwHash::from_parts(hash, salt, config)
+            .verify(PASSWORD)
+            .expect("verify failed");
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn from_string_rejects_malformed_encodings() {
+        let (prefix, rest) = LIBSODIUM_ARGON2ID_STR.split_at("$argon2id$v=19$".len());
+        let (params, salt_and_hash) = rest.split_at("m=256,t=3,p=1".len());
+        let (salt, hash) = salt_and_hash[1..].split_once('$').expect("salt and hash");
+
+        let malformed = [
+            String::new(),
+            "$".to_string(),
+            "$argon2id$".to_string(),
+            LIBSODIUM_ARGON2ID_STR.trim_start_matches('$').to_string(),
+            format!("{prefix}{params}${salt}"),
+            format!("{prefix}{params}$${hash}"),
+            format!("{prefix}{params}${salt}$"),
+            format!("{prefix}{params}${salt}${hash}$extra"),
+            format!("{prefix}{params}${salt}$!{}", &hash[1..]),
+            format!("{prefix}{params}$!{}${hash}", &salt[1..]),
+            format!("{prefix}t=3,p=1${salt}${hash}"),
+            format!("{prefix}m=256,p=1${salt}${hash}"),
+            format!("{prefix}m=256,t=3${salt}${hash}"),
+            format!("{prefix}m=256,t=3,p=0${salt}${hash}"),
+            format!("{prefix}m=256,t=0,p=1${salt}${hash}"),
+            format!("{prefix}m=0256,t=3,p=1${salt}${hash}"),
+            format!("$argon2id$v=18${params}${salt}${hash}"),
+            format!("$argon2id${params}${salt}${hash}"),
+            format!("$argon2d$v=19${params}${salt}${hash}"),
+            format!("$scrypt$v=19${params}${salt}${hash}"),
+        ];
+        for input in &malformed {
+            assert!(
+                VecPwHash::from_string(input).is_err(),
+                "accepted malformed string {input:?}"
+            );
+            assert!(PwHash::from_string_with_defaults(input).is_err());
+        }
+
+        // The unmodified vector still parses, so the rejections above are not
+        // an artifact of the reconstruction.
+        assert_eq!(
+            format!("{prefix}{params}${salt}${hash}"),
+            LIBSODIUM_ARGON2ID_STR
+        );
+        PwHash::from_string_with_defaults(LIBSODIUM_ARGON2ID_STR).expect("valid string");
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn encoded_string_reports_rehash_only_when_the_limits_change() {
+        use crate::classic::crypto_pwhash::crypto_pwhash_str_needs_rehash;
+
+        let config = argon2id_min();
+        let pwhash: VecPwHash =
+            PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), config.clone()).expect("hash");
+        let encoded = pwhash.to_encoded_string().expect("encode");
+
+        assert!(
+            !crypto_pwhash_str_needs_rehash(&encoded, config.opslimit, config.memlimit)
+                .expect("rehash check")
+        );
+        assert!(
+            crypto_pwhash_str_needs_rehash(&encoded, config.opslimit + 1, config.memlimit)
+                .expect("rehash check")
+        );
+        assert!(
+            crypto_pwhash_str_needs_rehash(&encoded, config.opslimit, config.memlimit * 2)
+                .expect("rehash check")
+        );
+
+        // A wider hash still fits libsodium's string format and round-trips
+        // with its length intact.
+        let wide: VecPwHash =
+            PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), config.with_hash_length(48))
+                .expect("hash");
+        assert_eq!(wide.hash.len(), 48);
+        let encoded = wide.to_encoded_string().expect("encode");
+        assert_ne!(encoded, pwhash.to_encoded_string().expect("encode"));
+        let parsed = VecPwHash::from_string(&encoded).expect("parse");
+        assert_eq!(parsed.hash, wide.hash);
+        parsed.verify(PASSWORD).expect("verify failed");
+        crypto_pwhash::crypto_pwhash_str_verify(&encoded, PASSWORD).expect("classic verify");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn config_serde_round_trip_reproduces_the_hash() {
+        let expected = hex::decode(ARGON2I_MIN_HASH).expect("hex");
+        let config = argon2i_min();
+        let json = serde_json::to_string(&config).expect("serialize");
+        let decoded: Config = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.algorithm, PasswordHashAlgorithm::Argon2i13);
+        assert_eq!(decoded.opslimit, config.opslimit);
+        assert_eq!(decoded.memlimit, config.memlimit);
+        assert_eq!(decoded.parallelism, config.parallelism);
+        assert_eq!(decoded.hash_length, config.hash_length);
+
+        let pwhash: VecPwHash =
+            PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), decoded.clone()).expect("hash");
+        assert_eq!(pwhash.hash, expected);
+        VecPwHash::from_parts(expected, SALT.to_vec(), decoded)
+            .verify(PASSWORD)
+            .expect("verify failed");
+
+        // Dropping the algorithm field changes the result: an Argon2id config
+        // with the same limits does not verify the Argon2i hash.
+        let argon2id = argon2i_min().with_algorithm(PasswordHashAlgorithm::Argon2id13);
+        assert!(
+            VecPwHash::from_parts(
+                hex::decode(ARGON2I_MIN_HASH).expect("hex"),
+                SALT.to_vec(),
+                argon2id
+            )
+            .verify(PASSWORD)
+            .is_err()
+        );
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn hash_with_salt_matches_libsodium_for_both_algorithms() {
+        for config in [argon2id_min(), argon2i_min()] {
+            let pwhash: VecPwHash =
+                PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), config.clone()).expect("hash");
+            let mut sodium = vec![0u8; config.hash_length];
+            let rc = unsafe {
+                libsodium_sys::crypto_pwhash(
+                    sodium.as_mut_ptr(),
+                    config.hash_length as u64,
+                    PASSWORD.as_ptr().cast(),
+                    PASSWORD.len() as u64,
+                    SALT.as_ptr(),
+                    config.opslimit,
+                    config.memlimit,
+                    config.algorithm as i32,
+                )
+            };
+            assert_eq!(rc, 0);
+            assert_eq!(pwhash.hash, sodium);
+        }
     }
 
     #[test]

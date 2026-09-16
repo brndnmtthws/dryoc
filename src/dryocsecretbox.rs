@@ -415,48 +415,254 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 mod tests {
     use super::*;
 
+    /// NaCl `tests/secretbox.c` vector: `firstkey`, `nonce`, the 131-byte
+    /// message, and the 147-byte `tag || ciphertext` output.
+    const NACL_KEY: &str = "1b27556473e985d462cd51197a9a46c76009549eac6474f206c4ee0844f68389";
+    const NACL_NONCE: &str = "69696ee955b62b73cd62bda875fc73d68219e0036b7a0b37";
+    const NACL_MESSAGE: &str = concat!(
+        "be075fc53c81f2d5cf141316ebeb0c7b5228c52a4c62cbd44b66849b64244ffce5ecbaaf33bd751a1ac728d4",
+        "5e6c61296cdc3c01233561f41db66cce314adb310e3be8250c46f06dceea3a7fa1348057e2f6556ad6b1318a",
+        "024a838f21af1fde048977eb48f59ffd4924ca1c60902e52f0a089bc76897040e082f937763848645e0705",
+    );
+    const NACL_BOXED: &str = concat!(
+        "f3ffc7703f9400e52a7dfb4b3d3305d98e993b9f48681273c29650ba32fc76ce48332ea7164d96a4476fb8c5",
+        "31a1186ac0dfc17c98dce87b4da7f011ec48c97271d2c20f9b928fe2270d6fb863d51738b48eeee314a7cc8a",
+        "b932164548e526ae90224368517acfeabd6bb3732bc0e9da99832b61ca01b6de56244a9e88d5f9b37973f622",
+        "a43d14a6599b1f654cb45a74e355a5",
+    );
+
+    fn nacl_vector() -> (Key, Nonce, Vec<u8>, Vec<u8>) {
+        let key = Key::try_from(hex::decode(NACL_KEY).expect("key hex").as_slice()).expect("key");
+        let nonce =
+            Nonce::try_from(hex::decode(NACL_NONCE).expect("nonce hex").as_slice()).expect("nonce");
+        (
+            key,
+            nonce,
+            hex::decode(NACL_MESSAGE).expect("message hex"),
+            hex::decode(NACL_BOXED).expect("boxed hex"),
+        )
+    }
+
     #[test]
-    fn test_copy() {
-        for _ in 0..20 {
-            use std::convert::TryFrom;
+    fn nacl_vector_encrypts_to_known_bytes_and_parses_back() {
+        let (key, nonce, message, boxed) = nacl_vector();
 
-            use crate::rng::*;
+        let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &key);
+        assert_eq!(dryocsecretbox.to_vec(), boxed);
+        assert_eq!(dryocsecretbox.clone().into_vec(), boxed);
+        assert_eq!(
+            dryocsecretbox.tag.as_slice(),
+            &boxed[..CRYPTO_SECRETBOX_MACBYTES]
+        );
+        assert_eq!(dryocsecretbox.data, boxed[CRYPTO_SECRETBOX_MACBYTES..]);
 
-            let mut data1: Vec<u8> = vec![0u8; 1024];
-            copy_randombytes(data1.as_mut_slice());
-            let data1_copy = data1.clone();
+        let parsed = VecBox::from_bytes(&boxed).expect("known-good box should parse");
+        assert_eq!(parsed, dryocsecretbox);
+        assert_eq!(
+            parsed.decrypt_to_vec(&nonce, &key).expect("decrypt failed"),
+            message
+        );
 
-            let dryocsecretbox: VecBox = DryocSecretBox::from_bytes(&data1).expect("ok");
-            assert_eq!(
-                dryocsecretbox.data.as_slice(),
-                &data1_copy[CRYPTO_SECRETBOX_MACBYTES..]
-            );
-            assert_eq!(
-                dryocsecretbox.tag.as_slice(),
-                &data1_copy[..CRYPTO_SECRETBOX_MACBYTES]
-            );
+        let (tag, data) = boxed.split_at(CRYPTO_SECRETBOX_MACBYTES);
+        let rebuilt: VecBox =
+            DryocSecretBox::with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
+        assert_eq!(rebuilt, dryocsecretbox);
+        let (rebuilt_tag, rebuilt_data) = rebuilt.into_parts();
+        assert_eq!(
+            VecBox::from_parts(rebuilt_tag, rebuilt_data).to_vec(),
+            boxed
+        );
 
-            let data1 = data1_copy.clone();
-            let dryocsecretbox: VecBox = DryocSecretBox::with_data(&data1);
-            assert_eq!(&dryocsecretbox.data, &data1_copy);
+        let mut with_data: VecBox = DryocSecretBox::with_data(data);
+        assert_eq!(with_data.tag, Mac::default());
+        with_data.tag = Mac::try_from(tag).expect("mac");
+        assert_eq!(with_data.to_vec(), boxed);
+    }
 
-            let data1 = data1_copy.clone();
-            let (tag, data) = data1.split_at(CRYPTO_SECRETBOX_MACBYTES);
-            let dryocsecretbox: VecBox =
-                DryocSecretBox::with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
-            assert_eq!(
-                dryocsecretbox.data.as_slice(),
-                &data1_copy[CRYPTO_SECRETBOX_MACBYTES..]
-            );
-            assert_eq!(
-                dryocsecretbox.tag.as_array(),
-                &data1_copy[..CRYPTO_SECRETBOX_MACBYTES]
-            );
+    #[test]
+    fn from_bytes_requires_a_full_tag() {
+        for len in 0..CRYPTO_SECRETBOX_MACBYTES {
+            assert!(matches!(
+                VecBox::from_bytes(&vec![0u8; len]),
+                Err(Error::InvalidLength {
+                    context: ErrorContext::SecretBox,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
         }
+        let empty = VecBox::from_bytes(&[0xa5u8; CRYPTO_SECRETBOX_MACBYTES])
+            .expect("a lone tag is an empty box");
+        assert!(empty.data.is_empty());
+        assert_eq!(empty.tag.as_slice(), &[0xa5u8; CRYPTO_SECRETBOX_MACBYTES]);
+    }
+
+    #[test]
+    fn tampering_is_rejected_and_the_box_stays_usable() {
+        let (key, nonce, message, boxed) = nacl_vector();
+        let dryocsecretbox = VecBox::from_bytes(&boxed).expect("parse");
+
+        let mut wrong_key = key.clone();
+        wrong_key[0] ^= 1;
+        assert!(matches!(
+            dryocsecretbox.decrypt_to_vec(&nonce, &wrong_key),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        let mut wrong_nonce = nonce.clone();
+        wrong_nonce[CRYPTO_SECRETBOX_NONCEBYTES - 1] ^= 1;
+        assert!(matches!(
+            dryocsecretbox.decrypt_to_vec(&wrong_nonce, &key),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        for index in [
+            0,
+            CRYPTO_SECRETBOX_MACBYTES - 1,
+            CRYPTO_SECRETBOX_MACBYTES,
+            boxed.len() - 1,
+        ] {
+            let mut tampered = boxed.clone();
+            tampered[index] ^= 0x80;
+            let tampered = VecBox::from_bytes(&tampered).expect("parse");
+            assert!(matches!(
+                tampered.decrypt_to_vec(&nonce, &key),
+                Err(Error::AuthenticationFailed)
+            ));
+        }
+
+        let truncated = VecBox::from_bytes(&boxed[..boxed.len() - 1]).expect("parse");
+        assert!(truncated.decrypt_to_vec(&nonce, &key).is_err());
+
+        // Rejections leave the box untouched and decryptable.
+        assert_eq!(dryocsecretbox.to_vec(), boxed);
+        assert_eq!(
+            dryocsecretbox
+                .decrypt_to_vec(&nonce, &key)
+                .expect("decrypt"),
+            message
+        );
+    }
+
+    #[test]
+    fn empty_message_produces_a_bare_tag_that_authenticates() {
+        let (key, nonce, _, _) = nacl_vector();
+        let empty = DryocSecretBox::encrypt_to_vecbox(&[], &nonce, &key);
+        let bytes = empty.to_vec();
+        assert_eq!(bytes.len(), CRYPTO_SECRETBOX_MACBYTES);
+
+        let parsed = VecBox::from_bytes(&bytes).expect("parse");
+        assert!(
+            parsed
+                .decrypt_to_vec(&nonce, &key)
+                .expect("decrypt")
+                .is_empty()
+        );
+        let mut wrong_key = key.clone();
+        wrong_key[0] ^= 1;
+        assert!(parsed.decrypt_to_vec(&nonce, &wrong_key).is_err());
+    }
+
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    #[test]
+    fn locked_box_matches_stack_box_bytes() {
+        use crate::protected::*;
+
+        let (key, nonce, message, boxed) = nacl_vector();
+        let locked_key =
+            protected::Key::from_slice_into_readonly_locked(key.as_slice()).expect("lock key");
+        let locked_nonce = protected::Nonce::from_slice_into_readonly_locked(nonce.as_slice())
+            .expect("lock nonce");
+        let locked_message =
+            HeapBytes::from_slice_into_readonly_locked(&message).expect("lock message");
+
+        let locked: protected::LockedBox =
+            DryocSecretBox::encrypt(&locked_message, &locked_nonce, &locked_key);
+        assert_eq!(locked.to_vec(), boxed);
+
+        let decrypted: LockedBytes = locked
+            .decrypt(&locked_nonce, &locked_key)
+            .expect("decrypt failed");
+        assert_eq!(decrypted.as_slice(), message.as_slice());
+
+        let parsed: protected::LockedBox = DryocSecretBox::from_parts(
+            protected::Mac::from_slice_into_locked(&boxed[..CRYPTO_SECRETBOX_MACBYTES])
+                .expect("lock tag"),
+            HeapBytes::from_slice_into_locked(&boxed[CRYPTO_SECRETBOX_MACBYTES..])
+                .expect("lock data"),
+        );
+        let decrypted: Vec<u8> = parsed.decrypt(&nonce, &key).expect("decrypt failed");
+        assert_eq!(decrypted, message);
     }
 
     #[cfg(dryoc_native_tests)]
     mod native_tests {
+        use sodiumoxide::crypto::secretbox;
+        use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+
+        use super::*;
+
+        #[test]
+        fn nacl_vector_matches_sodiumoxide() {
+            let (key, nonce, message, boxed) = nacl_vector();
+            let so_ciphertext = secretbox::seal(
+                &message,
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&key).unwrap(),
+            );
+            assert_eq!(so_ciphertext, boxed);
+        }
+
+        #[test]
+        fn sodiumoxide_ciphertext_parses_and_decrypts() {
+            let (key, nonce, message, _) = nacl_vector();
+            let so_key = SOKey::from_slice(&key).unwrap();
+            let so_nonce = SONonce::from_slice(&nonce).unwrap();
+
+            for len in [0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, message.len()] {
+                let plaintext = &message[..len];
+                let so_ciphertext = secretbox::seal(plaintext, &so_nonce, &so_key);
+
+                let dryocsecretbox =
+                    VecBox::from_bytes(&so_ciphertext).expect("sodium box should parse");
+                assert_eq!(
+                    dryocsecretbox
+                        .decrypt_to_vec(&nonce, &key)
+                        .expect("decrypt failed"),
+                    plaintext
+                );
+                assert_eq!(dryocsecretbox.to_vec(), so_ciphertext);
+
+                let mut wrong_key = key.clone();
+                wrong_key[len % CRYPTO_SECRETBOX_KEYBYTES] ^= 1;
+                assert!(dryocsecretbox.decrypt_to_vec(&nonce, &wrong_key).is_err());
+            }
+        }
+
+        #[cfg(all(feature = "protected", any(unix, windows)))]
+        #[test]
+        fn sodiumoxide_ciphertext_decrypts_into_locked_box() {
+            use crate::protected::*;
+
+            let (key, nonce, message, boxed) = nacl_vector();
+            let locked: protected::LockedBox = DryocSecretBox::from_parts(
+                protected::Mac::from_slice_into_locked(&boxed[..CRYPTO_SECRETBOX_MACBYTES])
+                    .expect("lock tag"),
+                HeapBytes::from_slice_into_locked(&boxed[CRYPTO_SECRETBOX_MACBYTES..])
+                    .expect("lock data"),
+            );
+            let decrypted: LockedBytes = locked.decrypt(&nonce, &key).expect("decrypt failed");
+            assert_eq!(decrypted.as_slice(), message.as_slice());
+
+            let so_decrypted = secretbox::open(
+                &locked.to_vec(),
+                &SONonce::from_slice(&nonce).unwrap(),
+                &SOKey::from_slice(&key).unwrap(),
+            )
+            .expect("sodium open failed");
+            assert_eq!(so_decrypted, message);
+        }
+
         #[test]
         fn test_dryocbox() {
             for i in 0..20 {

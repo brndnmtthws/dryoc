@@ -281,3 +281,341 @@ macro_rules! impl_chacha20poly1305_aead {
 }
 
 pub(crate) use impl_chacha20poly1305_aead;
+
+/// Checks shared by the tests of both constructions, each expressed over
+/// the generated ten-function API.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::Tag;
+    use crate::error::Error;
+
+    type Key = [u8; 32];
+    type Aad<'a> = Option<&'a [u8]>;
+    type Res = Result<(), Error>;
+    type EncryptDetached<N> = fn(&mut [u8], &mut Tag, &[u8], Aad<'_>, &N, &Key) -> Res;
+    type EncryptDetachedInplace<N> = fn(&mut [u8], &mut Tag, Aad<'_>, &N, &Key) -> Res;
+    type DecryptDetached<N> = fn(&mut [u8], &[u8], &Tag, Aad<'_>, &N, &Key) -> Res;
+    type DecryptDetachedInplace<N> = fn(&mut [u8], &Tag, Aad<'_>, &N, &Key) -> Res;
+    type Combined<N> = fn(&mut [u8], &[u8], Aad<'_>, &N, &Key) -> Res;
+    type CombinedInplace<N> = fn(&mut [u8], Aad<'_>, &N, &Key) -> Res;
+
+    /// One construction's encrypt/decrypt functions.
+    pub(crate) struct Aead<N> {
+        pub(crate) encrypt_detached: EncryptDetached<N>,
+        pub(crate) encrypt_detached_inplace: EncryptDetachedInplace<N>,
+        pub(crate) decrypt_detached: DecryptDetached<N>,
+        pub(crate) decrypt_detached_inplace: DecryptDetachedInplace<N>,
+        pub(crate) encrypt: Combined<N>,
+        pub(crate) decrypt: Combined<N>,
+        pub(crate) encrypt_inplace: CombinedInplace<N>,
+        pub(crate) decrypt_inplace: CombinedInplace<N>,
+    }
+
+    const ABYTES: usize = super::CRYPTO_ONETIMEAUTH_POLY1305_BYTES;
+
+    /// Message and associated-data lengths around the Poly1305 block and
+    /// the ChaCha20 block: empty, one byte, a block less/exact/more of each.
+    #[cfg(dryoc_native_tests)]
+    pub(crate) const LENS: [usize; 10] = [0, 1, 15, 16, 17, 31, 32, 63, 64, 65];
+
+    fn pattern(len: usize, seed: u8) -> Vec<u8> {
+        (0..len)
+            .map(|i| (i as u8).wrapping_mul(29).wrapping_add(seed))
+            .collect()
+    }
+
+    /// Every failing decryption, detached and combined, buffer to buffer
+    /// and in place, must return the right error and leave its output
+    /// buffer exactly as it found it: a flipped MAC bit (first and last
+    /// byte), a flipped ciphertext bit, the wrong key, the wrong nonce, the
+    /// wrong (or missing) associated data, a truncated ciphertext, and a
+    /// combined ciphertext shorter than a tag or a message buffer of the
+    /// wrong length. The ciphertext under test is sealed through all four
+    /// encrypt paths, which must agree.
+    pub(crate) fn check_failures_leave_outputs_untouched<N: Copy + AsMut<[u8]>>(
+        aead: &Aead<N>,
+        key: &Key,
+        nonce: &N,
+    ) {
+        let message = pattern(100, 3);
+        let ad = pattern(20, 5);
+        let mut ciphertext = vec![0u8; message.len()];
+        let mut mac = Tag::default();
+        (aead.encrypt_detached)(&mut ciphertext, &mut mac, &message, Some(&ad), nonce, key)
+            .expect("encrypt");
+
+        let mut inplace = message.clone();
+        let mut inplace_mac = Tag::default();
+        (aead.encrypt_detached_inplace)(&mut inplace, &mut inplace_mac, Some(&ad), nonce, key)
+            .expect("encrypt detached in place");
+        assert_eq!((&inplace, inplace_mac), (&ciphertext, mac));
+        let mut combined = vec![0u8; message.len() + ABYTES];
+        (aead.encrypt)(&mut combined, &message, Some(&ad), nonce, key).expect("encrypt combined");
+        assert_eq!(combined[..message.len()], ciphertext);
+        assert_eq!(combined[message.len()..], mac);
+        let mut inplace = message.clone();
+        inplace.resize(message.len() + ABYTES, 0);
+        (aead.encrypt_inplace)(&mut inplace, Some(&ad), nonce, key).expect("encrypt in place");
+        assert_eq!(inplace, combined);
+
+        let mut wrong_key = *key;
+        wrong_key[31] ^= 0x80;
+        let mut wrong_nonce = *nonce;
+        wrong_nonce.as_mut()[0] ^= 1;
+        let mut wrong_ad = ad.clone();
+        wrong_ad[19] ^= 1;
+        let mut mac_first = mac;
+        mac_first[0] ^= 1;
+        let mut mac_last = mac;
+        mac_last[ABYTES - 1] ^= 0x80;
+        let mut tampered = ciphertext.clone();
+        tampered[64] ^= 1;
+
+        type Case<'a, N> = (&'a str, &'a [u8], &'a Tag, Aad<'a>, &'a N, &'a Key);
+        let cases: [Case<'_, N>; 8] = [
+            (
+                "mac first byte",
+                &ciphertext,
+                &mac_first,
+                Some(&ad),
+                nonce,
+                key,
+            ),
+            (
+                "mac last byte",
+                &ciphertext,
+                &mac_last,
+                Some(&ad),
+                nonce,
+                key,
+            ),
+            (
+                "tampered ciphertext",
+                &tampered,
+                &mac,
+                Some(&ad),
+                nonce,
+                key,
+            ),
+            ("wrong key", &ciphertext, &mac, Some(&ad), nonce, &wrong_key),
+            (
+                "wrong nonce",
+                &ciphertext,
+                &mac,
+                Some(&ad),
+                &wrong_nonce,
+                key,
+            ),
+            ("wrong ad", &ciphertext, &mac, Some(&wrong_ad), nonce, key),
+            ("missing ad", &ciphertext, &mac, None, nonce, key),
+            (
+                "truncated ciphertext",
+                &ciphertext[..message.len() - 1],
+                &mac,
+                Some(&ad),
+                nonce,
+                key,
+            ),
+        ];
+        for (name, ciphertext, mac, ad, nonce, key) in cases {
+            let mut output = vec![0xa5u8; ciphertext.len()];
+            assert!(
+                matches!(
+                    (aead.decrypt_detached)(&mut output, ciphertext, mac, ad, nonce, key),
+                    Err(Error::AuthenticationFailed)
+                ),
+                "{name}: detached"
+            );
+            assert_eq!(
+                output,
+                vec![0xa5u8; ciphertext.len()],
+                "{name}: detached output"
+            );
+
+            let mut data = ciphertext.to_vec();
+            assert!(
+                matches!(
+                    (aead.decrypt_detached_inplace)(&mut data, mac, ad, nonce, key),
+                    Err(Error::AuthenticationFailed)
+                ),
+                "{name}: detached in place"
+            );
+            assert_eq!(data, ciphertext, "{name}: detached in place data");
+
+            let mut combined = ciphertext.to_vec();
+            combined.extend_from_slice(mac);
+            let mut output = vec![0xa5u8; ciphertext.len()];
+            assert!(
+                matches!(
+                    (aead.decrypt)(&mut output, &combined, ad, nonce, key),
+                    Err(Error::AuthenticationFailed)
+                ),
+                "{name}: combined"
+            );
+            assert_eq!(
+                output,
+                vec![0xa5u8; ciphertext.len()],
+                "{name}: combined output"
+            );
+
+            let mut data = combined.clone();
+            assert!(
+                matches!(
+                    (aead.decrypt_inplace)(&mut data, ad, nonce, key),
+                    Err(Error::AuthenticationFailed)
+                ),
+                "{name}: combined in place"
+            );
+            assert_eq!(data, combined, "{name}: combined in place data");
+        }
+
+        // Length errors: a combined ciphertext shorter than a tag, and
+        // message buffers of the wrong length for a valid ciphertext.
+        let mut combined = ciphertext.clone();
+        combined.extend_from_slice(&mac);
+        let short = &combined[..ABYTES - 1];
+        let mut output = vec![0xa5u8; 1];
+        assert!(matches!(
+            (aead.decrypt)(&mut output, short, Some(&ad), nonce, key),
+            Err(Error::InvalidLength { .. })
+        ));
+        assert_eq!(output, [0xa5]);
+        let mut data = short.to_vec();
+        assert!(matches!(
+            (aead.decrypt_inplace)(&mut data, Some(&ad), nonce, key),
+            Err(Error::InvalidLength { .. })
+        ));
+        assert_eq!(data, short);
+        for len in [message.len() - 1, message.len() + 1] {
+            let mut output = vec![0xa5u8; len];
+            assert!(matches!(
+                (aead.decrypt)(&mut output, &combined, Some(&ad), nonce, key),
+                Err(Error::InvalidLength { .. })
+            ));
+            assert_eq!(output, vec![0xa5u8; len], "combined into {len} bytes");
+            let mut output = vec![0xa5u8; len];
+            assert!(matches!(
+                (aead.decrypt_detached)(&mut output, &ciphertext, &mac, Some(&ad), nonce, key),
+                Err(Error::InvalidLength { .. })
+            ));
+            assert_eq!(output, vec![0xa5u8; len], "detached into {len} bytes");
+        }
+    }
+
+    /// libsodium's `crypto_aead_*_encrypt_detached`.
+    #[cfg(dryoc_native_tests)]
+    pub(crate) type SodiumEncryptDetached = unsafe extern "C" fn(
+        *mut libc::c_uchar,
+        *mut libc::c_uchar,
+        *mut libc::c_ulonglong,
+        *const libc::c_uchar,
+        libc::c_ulonglong,
+        *const libc::c_uchar,
+        libc::c_ulonglong,
+        *const libc::c_uchar,
+        *const libc::c_uchar,
+        *const libc::c_uchar,
+    ) -> libc::c_int;
+
+    /// Every encrypt function must produce libsodium's ciphertext and tag,
+    /// and every decrypt function must recover the message from them, for
+    /// every message and associated-data length in [`LENS`] (an empty
+    /// associated data both as `None` and as `Some(&[])`).
+    #[cfg(dryoc_native_tests)]
+    pub(crate) fn check_matches_libsodium<N: AsRef<[u8]>>(
+        aead: &Aead<N>,
+        sodium_encrypt_detached: SodiumEncryptDetached,
+        key: &Key,
+        nonce: &N,
+    ) {
+        for message_len in LENS {
+            for ad_len in LENS {
+                let message = pattern(message_len, 7);
+                let ad = pattern(ad_len, 11);
+                let mut expected = vec![0u8; message_len];
+                let mut expected_mac = Tag::default();
+                let mut mac_len: libc::c_ulonglong = 0;
+                // SAFETY: every pointer comes from a live buffer of the
+                // length passed beside it; `nsec` is unused and may be null.
+                let rc = unsafe {
+                    sodium_encrypt_detached(
+                        expected.as_mut_ptr(),
+                        expected_mac.as_mut_ptr(),
+                        &mut mac_len,
+                        message.as_ptr(),
+                        message_len as libc::c_ulonglong,
+                        ad.as_ptr(),
+                        ad_len as libc::c_ulonglong,
+                        std::ptr::null(),
+                        nonce.as_ref().as_ptr(),
+                        key.as_ptr(),
+                    )
+                };
+                assert_eq!((rc, mac_len as usize), (0, ABYTES));
+                let mut expected_combined = expected.clone();
+                expected_combined.extend_from_slice(&expected_mac);
+
+                let ads: &[Option<&[u8]>] = if ad_len == 0 {
+                    &[None, Some(&[])]
+                } else {
+                    &[Some(&ad)]
+                };
+                for &ad in ads {
+                    let ctx = format!("message {message_len}, ad {ad:?}");
+
+                    let mut ciphertext = vec![0u8; message_len];
+                    let mut mac = Tag::default();
+                    (aead.encrypt_detached)(&mut ciphertext, &mut mac, &message, ad, nonce, key)
+                        .expect("encrypt detached");
+                    assert_eq!(
+                        (&ciphertext, mac),
+                        (&expected, expected_mac),
+                        "{ctx}: detached"
+                    );
+
+                    let mut data = message.clone();
+                    let mut mac = Tag::default();
+                    (aead.encrypt_detached_inplace)(&mut data, &mut mac, ad, nonce, key)
+                        .expect("encrypt detached in place");
+                    assert_eq!(
+                        (&data, mac),
+                        (&expected, expected_mac),
+                        "{ctx}: detached in place"
+                    );
+
+                    let mut combined = vec![0u8; message_len + ABYTES];
+                    (aead.encrypt)(&mut combined, &message, ad, nonce, key).expect("encrypt");
+                    assert_eq!(combined, expected_combined, "{ctx}: combined");
+
+                    let mut data = message.clone();
+                    data.resize(message_len + ABYTES, 0);
+                    (aead.encrypt_inplace)(&mut data, ad, nonce, key).expect("encrypt in place");
+                    assert_eq!(data, expected_combined, "{ctx}: combined in place");
+
+                    let mut output = vec![0u8; message_len];
+                    (aead.decrypt_detached)(&mut output, &expected, &expected_mac, ad, nonce, key)
+                        .expect("decrypt detached");
+                    assert_eq!(output, message, "{ctx}: open detached");
+
+                    let mut data = expected.clone();
+                    (aead.decrypt_detached_inplace)(&mut data, &expected_mac, ad, nonce, key)
+                        .expect("decrypt detached in place");
+                    assert_eq!(data, message, "{ctx}: open detached in place");
+
+                    let mut output = vec![0u8; message_len];
+                    (aead.decrypt)(&mut output, &expected_combined, ad, nonce, key)
+                        .expect("decrypt");
+                    assert_eq!(output, message, "{ctx}: open combined");
+
+                    let mut data = expected_combined.clone();
+                    (aead.decrypt_inplace)(&mut data, ad, nonce, key).expect("decrypt in place");
+                    assert_eq!(
+                        &data[..message_len],
+                        message,
+                        "{ctx}: open combined in place"
+                    );
+                }
+            }
+        }
+    }
+}

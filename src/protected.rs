@@ -1732,10 +1732,58 @@ fn abort_protected_memory_failure(_operation: &str, _error: std::io::Error) -> !
     std::process::abort()
 }
 
+/// Helpers for tests that hold locked memory.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::*;
+
+    /// Whether this process may hold `pages` more one-page locked allocations
+    /// at once. Tests that need locked memory check this first and return
+    /// early when it is `false`, so a small `RLIMIT_MEMLOCK` (or Windows
+    /// working-set quota) skips them instead of failing them: the locked
+    /// `resize`, `Clone` and `HeapBytes::from_slice_into_locked` paths panic
+    /// rather than return `Err` when the lock of a freshly allocated page is
+    /// refused. Only a refusal for lack of quota skips; any other lock failure
+    /// on a fresh allocation is a bug and panics. The probe allocations are
+    /// released before returning.
+    pub(crate) fn can_lock_pages(pages: usize) -> bool {
+        let probes: Result<Vec<_>, _> = (0..pages)
+            .map(|_| HeapBytes::from(&[0u8][..]).mlock())
+            .collect();
+        match probes {
+            Ok(_) => true,
+            Err(error::Error::Io(err)) if is_lock_quota_error(&err) => {
+                eprintln!("skipping: this process cannot lock {pages} page(s): {err}");
+                false
+            }
+            Err(err) => panic!("locking a fresh page failed: {err}"),
+        }
+    }
+
+    /// `mlock(2)` reports an exhausted `RLIMIT_MEMLOCK` as `ENOMEM`, or
+    /// `EPERM` when the limit is zero and the process lacks `CAP_IPC_LOCK`;
+    /// `EAGAIN` is the transient "some pages could not be locked" case.
+    #[cfg(unix)]
+    fn is_lock_quota_error(err: &std::io::Error) -> bool {
+        matches!(
+            err.raw_os_error(),
+            Some(libc::ENOMEM | libc::EPERM | libc::EAGAIN)
+        )
+    }
+
+    /// `VirtualLock` fails with `ERROR_WORKING_SET_QUOTA` (1453) once the
+    /// process's minimum working set is exhausted.
+    #[cfg(windows)]
+    fn is_lock_quota_error(err: &std::io::Error) -> bool {
+        err.raw_os_error() == Some(1453)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
 
+    use super::test_util::can_lock_pages;
     use super::*;
 
     #[test]
@@ -2178,18 +2226,500 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn test_crash() {
-    //     use crate::protected::*;
+    const SRC: [u8; 6] = [10, 20, 30, 40, 50, 60];
 
-    //     // Create a read-only, locked region of memory
-    //     let readonly_locked =
-    // HeapBytes::from_slice_into_readonly_locked(b"some locked bytes")
-    //         .expect("failed to get locked bytes");
+    /// Runs `probe` in a forked child and reports whether the child was
+    /// terminated by a signal (an access fault) rather than exiting normally.
+    #[cfg(unix)]
+    fn child_faults(probe: impl FnOnce()) -> bool {
+        // SAFETY: `fork` has no pointer arguments. The child runs only
+        // `probe`, which touches memory and nothing else, and then `_exit`s
+        // without running destructors or the test harness.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            probe();
+            // SAFETY: `_exit` terminates the child immediately.
+            unsafe { libc::_exit(0) };
+        }
 
-    //     // Write to a protected region of memory, causing a crash.
-    //     unsafe {
-    //         ptr::write(readonly_locked.as_slice().as_ptr() as *mut u8, 0) //
-    // <- crash happens here     };
-    // }
+        let mut status = 0;
+        // SAFETY: `child` is the positive PID returned by `fork`, and `status`
+        // points to writable storage for the wait status.
+        let wait_ret = unsafe { libc::waitpid(child, &mut status, 0) };
+        assert_eq!(wait_ret, child);
+        libc::WIFSIGNALED(status)
+    }
+
+    #[test]
+    fn protected_allocations_are_page_aligned() {
+        let pagesize = *PAGESIZE;
+        // The longest case locks two pages.
+        let lockable = can_lock_pages(2);
+
+        for len in [1, pagesize, pagesize + 1] {
+            let mut bytes = HeapBytes::default();
+            bytes.resize(len, 0x5a);
+            assert_eq!(bytes.len(), len);
+            assert_eq!(bytes.as_slice().as_ptr().addr() % pagesize, 0, "len {len}");
+
+            if lockable {
+                let locked = HeapBytes::from_slice_into_locked(bytes.as_slice()).expect("locked");
+                assert_eq!(locked.as_slice().as_ptr().addr() % pagesize, 0, "len {len}");
+            }
+        }
+
+        let array = HeapByteArray::<32>::default();
+        assert_eq!(array.as_slice().as_ptr().addr() % pagesize, 0);
+    }
+
+    #[test]
+    fn test_checked_raw_region_layout_boundaries() {
+        let pagesize = *PAGESIZE;
+
+        let ok = |user_size: usize, rounded_size: usize| {
+            let layout = checked_raw_region_layout(user_size, pagesize).expect("layout should fit");
+            assert_eq!(layout.rounded_size, rounded_size, "user size {user_size}");
+            assert_eq!(
+                layout.total_size,
+                rounded_size + 2 * pagesize,
+                "user size {user_size}"
+            );
+        };
+
+        ok(0, 0);
+        ok(1, pagesize);
+        ok(pagesize - 1, pagesize);
+        ok(pagesize, pagesize);
+        ok(pagesize + 1, 2 * pagesize);
+
+        // The largest user size whose rounded size plus two guard pages still
+        // fits in a `usize`.
+        let largest = usize::MAX - 3 * pagesize + 1;
+        ok(largest, largest);
+
+        // One more byte rounds up to a region whose guard pages overflow.
+        assert!(checked_raw_region_layout(largest + 1, pagesize).is_err());
+        // Page-aligned sizes whose guards overflow.
+        assert!(checked_raw_region_layout(usize::MAX - 2 * pagesize + 1, pagesize).is_err());
+        assert!(checked_raw_region_layout(usize::MAX - pagesize + 1, pagesize).is_err());
+        // Rounding itself overflows.
+        assert!(checked_raw_region_layout(usize::MAX, pagesize).is_err());
+        // Two guard pages alone overflow for a page size above `usize::MAX /
+        // 2`.
+        assert!(checked_raw_region_layout(0, usize::MAX / 2 + 1).is_err());
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn locked_clone_is_a_distinct_independent_locked_copy() {
+        // The original and its clone are locked at the same time.
+        if !can_lock_pages(2) {
+            return;
+        }
+        let original = HeapBytes::from_slice_into_locked(b"clone me").expect("locked");
+        let mut cloned = original.clone();
+
+        assert_eq!(cloned.as_slice(), original.as_slice());
+        assert_ne!(cloned.as_slice().as_ptr(), original.as_slice().as_ptr());
+        let state = cloned.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Locked);
+        assert_eq!(state.pm, int::ProtectMode::ReadWrite);
+
+        cloned.as_mut_slice()[0] = b'C';
+        assert_eq!(original.as_slice(), b"clone me");
+        assert_eq!(cloned.as_slice(), b"Clone me");
+
+        let unlocked = cloned.munlock().expect("unlock failed");
+        assert_eq!(unlocked.as_slice(), b"Clone me");
+        assert_eq!(original.as_slice(), b"clone me");
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn locked_readonly_clone_is_a_distinct_readonly_copy() {
+        // The original and its clone are locked at the same time.
+        if !can_lock_pages(2) {
+            return;
+        }
+        let original =
+            HeapBytes::from_slice_into_readonly_locked(b"clone me").expect("read-only locked");
+        let cloned = original.clone();
+
+        assert_eq!(cloned.as_slice(), original.as_slice());
+        assert_ne!(cloned.as_slice().as_ptr(), original.as_slice().as_ptr());
+        let state = cloned.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Locked);
+        assert_eq!(state.pm, int::ProtectMode::ReadOnly);
+
+        #[cfg(unix)]
+        {
+            let data = cloned.as_slice().as_ptr() as *mut u8;
+            assert!(
+                child_faults(|| unsafe { ptr::write_volatile(data, 1) }),
+                "clone's pages are not read-only"
+            );
+        }
+
+        let mut writable = cloned
+            .mprotect_readwrite()
+            .expect("read-write transition failed")
+            .munlock()
+            .expect("unlock failed");
+        writable.as_mut_slice()[0] = b'C';
+        assert_eq!(writable.as_slice(), b"Clone me");
+        assert_eq!(original.as_slice(), b"clone me");
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn unlocked_clones_are_distinct_copies_preserving_protect_mode() {
+        let original = Unlocked::<HeapBytes>::new_with(HeapBytes::from(&b"clone me"[..]));
+        let mut cloned = original.clone();
+
+        assert_eq!(cloned.as_slice(), original.as_slice());
+        assert_ne!(cloned.as_slice().as_ptr(), original.as_slice().as_ptr());
+        let state = cloned.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Unlocked);
+        assert_eq!(state.pm, int::ProtectMode::ReadWrite);
+        cloned.as_mut_slice()[0] = b'C';
+        assert_eq!(original.as_slice(), b"clone me");
+
+        let readonly = original
+            .mprotect_readonly()
+            .expect("readonly mprotect failed");
+        let readonly_clone = readonly.clone();
+        assert_eq!(readonly_clone.as_slice(), b"clone me");
+        assert_ne!(
+            readonly_clone.as_slice().as_ptr(),
+            readonly.as_slice().as_ptr()
+        );
+        let state = readonly_clone.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Unlocked);
+        assert_eq!(state.pm, int::ProtectMode::ReadOnly);
+
+        let mut writable = readonly_clone
+            .mprotect_readwrite()
+            .expect("readwrite mprotect failed");
+        writable.as_mut_slice()[0] = b'C';
+        assert_eq!(writable.as_slice(), b"Clone me");
+        assert_eq!(readonly.as_slice(), b"clone me");
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn heap_bytes_move_across_threads_and_share_through_arc() {
+        use std::sync::Arc;
+
+        let bytes = HeapBytes::from(&SRC[..]);
+        let returned = std::thread::spawn(move || {
+            let mut bytes = bytes;
+            assert_eq!(bytes.as_slice(), &SRC);
+            bytes.as_mut_slice()[0] ^= 0xff;
+            bytes
+        })
+        .join()
+        .expect("thread panicked");
+        assert_eq!(returned.as_slice()[0], SRC[0] ^ 0xff);
+        assert_eq!(&returned.as_slice()[1..], &SRC[1..]);
+
+        if !can_lock_pages(1) {
+            return;
+        }
+        let shared = Arc::new(HeapBytes::from_slice_into_locked(&SRC).expect("locked"));
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let shared = Arc::clone(&shared);
+                std::thread::spawn(move || shared.as_slice().to_vec())
+            })
+            .collect();
+        for reader in readers {
+            assert_eq!(reader.join().expect("reader panicked"), SRC);
+        }
+        assert_eq!(shared.as_slice(), &SRC);
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn fixed_size_locked_constructors_require_exact_length() {
+        use crate::utils::test_util::assert_exact_slice_length_error;
+
+        const LENGTH: usize = 8;
+        let data = [7u8; LENGTH + 1];
+
+        let exact_heap = HeapByteArray::<LENGTH>::try_from(&data[..LENGTH]).expect("exact heap");
+        assert_eq!(exact_heap.as_slice(), &data[..LENGTH]);
+        // Each locked form is released before the next is created; the
+        // wrong-length rejections below fail before anything is allocated, so
+        // they run regardless.
+        if can_lock_pages(1) {
+            let exact =
+                HeapByteArray::<LENGTH>::from_slice_into_locked(&data[..LENGTH]).expect("exact");
+            assert_eq!(exact.as_slice(), &data[..LENGTH]);
+            drop(exact);
+            let exact_readonly =
+                HeapByteArray::<LENGTH>::from_slice_into_readonly_locked(&data[..LENGTH])
+                    .expect("exact read-only");
+            assert_eq!(exact_readonly.as_slice(), &data[..LENGTH]);
+        }
+
+        for actual in [LENGTH - 1, LENGTH + 1] {
+            assert_exact_slice_length_error(
+                HeapByteArray::<LENGTH>::from_slice_into_locked(&data[..actual]),
+                actual,
+                LENGTH,
+            );
+            assert_exact_slice_length_error(
+                HeapByteArray::<LENGTH>::from_slice_into_readonly_locked(&data[..actual]),
+                actual,
+                LENGTH,
+            );
+            assert_exact_slice_length_error(
+                HeapByteArray::<LENGTH>::try_from(&data[..actual]),
+                actual,
+                LENGTH,
+            );
+        }
+    }
+
+    #[test]
+    fn transitions_on_a_taken_protected_value_report_invalid_state() {
+        fn assert_invalid_state<T>(result: Result<T, error::Error>) {
+            match result {
+                Err(error::Error::InvalidState { context }) => {
+                    assert_eq!(context, crate::ErrorContext::ProtectedMemory)
+                }
+                Err(other) => panic!("unexpected error {other:?}"),
+                Ok(_) => panic!("transition succeeded without a backing buffer"),
+            }
+        }
+
+        assert_invalid_state(Unlocked::<HeapBytes>::new().mprotect_readonly());
+        assert_invalid_state(Unlocked::<HeapBytes>::new().mprotect_noaccess());
+        assert_invalid_state(Unlocked::<HeapBytes>::new().mlock());
+        assert_invalid_state(LockedBytes::new().munlock());
+        assert_invalid_state(LockedRO::<HeapBytes>::new().mprotect_readwrite());
+    }
+
+    /// Page-aligned backing store that counts `zeroize` calls, so tests can
+    /// observe the wipes performed by [`Protected`].
+    struct SpyBytes {
+        inner: HeapBytes,
+        wipes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl SpyBytes {
+        fn new(data: &[u8]) -> (Self, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+            let wipes = std::sync::Arc::default();
+            let spy = Self {
+                inner: HeapBytes::from(data),
+                wipes: std::sync::Arc::clone(&wipes),
+            };
+            (spy, wipes)
+        }
+    }
+
+    impl Default for SpyBytes {
+        fn default() -> Self {
+            Self::new(&[]).0
+        }
+    }
+
+    impl Zeroize for SpyBytes {
+        fn zeroize(&mut self) {
+            self.wipes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.inner.zeroize();
+        }
+    }
+
+    impl Bytes for SpyBytes {
+        fn as_slice(&self) -> &[u8] {
+            self.inner.as_slice()
+        }
+
+        fn len(&self) -> usize {
+            self.inner.len()
+        }
+
+        fn is_empty(&self) -> bool {
+            self.inner.is_empty()
+        }
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn drop_wipes_the_backing_store_exactly_once_in_every_state() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        let (spy, wipes) = SpyBytes::new(b"secret");
+        drop(Unlocked::<SpyBytes>::new_with(spy));
+        assert_eq!(wipes.load(SeqCst), 1, "unlocked read-write");
+
+        // Protection changes never wipe; a wipe through read-only pages would
+        // fault, so a completed wipe proves the pages were made writable.
+        let (spy, wipes) = SpyBytes::new(b"secret");
+        let readonly = Unlocked::<SpyBytes>::new_with(spy)
+            .mprotect_readonly()
+            .expect("readonly mprotect failed");
+        assert_eq!(wipes.load(SeqCst), 0);
+        drop(readonly);
+        assert_eq!(wipes.load(SeqCst), 1, "unlocked read-only");
+
+        let (spy, wipes) = SpyBytes::new(b"secret");
+        let noaccess = Unlocked::<SpyBytes>::new_with(spy)
+            .mprotect_noaccess()
+            .expect("noaccess mprotect failed");
+        assert_eq!(wipes.load(SeqCst), 0);
+        drop(noaccess);
+        assert_eq!(wipes.load(SeqCst), 1, "no-access");
+
+        if can_lock_pages(1) {
+            let (spy, wipes) = SpyBytes::new(b"secret");
+            let locked = Unlocked::<SpyBytes>::new_with(spy)
+                .mlock()
+                .expect("mlock failed");
+            assert_eq!(wipes.load(SeqCst), 0);
+            drop(locked);
+            assert_eq!(wipes.load(SeqCst), 1, "locked read-write");
+
+            let (spy, wipes) = SpyBytes::new(b"secret");
+            let locked_readonly = Unlocked::<SpyBytes>::new_with(spy)
+                .mlock()
+                .expect("mlock failed")
+                .mprotect_readonly()
+                .expect("readonly mprotect failed");
+            assert_eq!(wipes.load(SeqCst), 0);
+            drop(locked_readonly);
+            assert_eq!(wipes.load(SeqCst), 1, "locked read-only");
+        }
+
+        let (spy, wipes) = SpyBytes::new(b"");
+        drop(Unlocked::<SpyBytes>::new_with(spy));
+        assert_eq!(wipes.load(SeqCst), 1, "empty");
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn explicit_zeroize_wipes_once_and_drop_wipes_again() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        let (spy, wipes) = SpyBytes::new(b"secret");
+        let mut protected = Unlocked::<SpyBytes>::new_with(spy);
+
+        protected.zeroize();
+        assert_eq!(wipes.load(SeqCst), 1);
+        assert_eq!(protected.as_slice(), &[0; 6]);
+
+        drop(protected);
+        assert_eq!(wipes.load(SeqCst), 2);
+
+        // An empty value has nothing to wipe explicitly.
+        let (spy, wipes) = SpyBytes::new(b"");
+        let mut empty = Unlocked::<SpyBytes>::new_with(spy);
+        empty.zeroize();
+        assert_eq!(wipes.load(SeqCst), 0);
+    }
+
+    #[cfg(unix)]
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn explicit_zeroize_restores_noaccess_protection() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        let (spy, wipes) = SpyBytes::new(b"secret");
+        let readwrite = Unlocked::<SpyBytes>::new_with(spy);
+        // Taken while readable; protection changes never move the allocation.
+        let data = readwrite.as_slice().as_ptr();
+        let mut noaccess = readwrite
+            .mprotect_noaccess()
+            .expect("noaccess mprotect failed");
+
+        noaccess.zeroize();
+
+        assert_eq!(wipes.load(SeqCst), 1);
+        let state = noaccess.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Unlocked);
+        assert_eq!(state.pm, int::ProtectMode::NoAccess);
+
+        // Verify the operating-system permissions, not just the typestate.
+        assert!(
+            child_faults(|| {
+                std::hint::black_box(unsafe { ptr::read_volatile(data) });
+            }),
+            "child unexpectedly read explicitly zeroized no-access memory"
+        );
+
+        let readwrite = noaccess
+            .mprotect_readwrite()
+            .expect("readwrite mprotect failed");
+        assert_eq!(readwrite.as_slice(), &[0; 6]);
+        drop(readwrite);
+        assert_eq!(wipes.load(SeqCst), 2);
+    }
+
+    #[cfg(unix)]
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn guard_pages_fault_on_both_sides_of_the_user_region() {
+        let pagesize = *PAGESIZE;
+
+        for len in [1usize, pagesize, pagesize + 1] {
+            let mut bytes = HeapBytes::default();
+            bytes.resize(len, 0x5a);
+            let data = bytes.as_slice().as_ptr() as *mut u8;
+            let rounded = bytes.0.rounded_size;
+            assert_eq!(rounded, _page_round(len, pagesize).unwrap(), "len {len}");
+
+            // The last byte of the page-rounded user region is writable...
+            assert!(
+                !child_faults(|| unsafe { ptr::write_volatile(data.add(rounded - 1), 1) }),
+                "len {len}: last byte of the user region faulted"
+            );
+            // ...the byte after it is the rear guard page...
+            assert!(
+                child_faults(|| unsafe { ptr::write_volatile(data.add(rounded), 1) }),
+                "len {len}: rear guard page did not fault"
+            );
+            // ...and the byte before the region is the front guard page.
+            assert!(
+                child_faults(|| unsafe { ptr::write_volatile(data.sub(1), 1) }),
+                "len {len}: front guard page did not fault"
+            );
+            assert!(
+                child_faults(|| {
+                    std::hint::black_box(unsafe { ptr::read_volatile(data.sub(1)) });
+                }),
+                "len {len}: front guard page allowed a read"
+            );
+
+            assert_eq!(bytes.as_slice(), vec![0x5a; len].as_slice());
+        }
+    }
 }

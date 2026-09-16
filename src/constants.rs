@@ -258,3 +258,226 @@ pub const CRYPTO_PWHASH_SALTBYTES_MIN: usize = CRYPTO_PWHASH_ARGON2ID_SALTBYTES_
 pub const CRYPTO_PWHASH_SALTBYTES: usize = CRYPTO_PWHASH_ARGON2ID_SALTBYTES;
 pub const CRYPTO_PWHASH_STRBYTES: usize = CRYPTO_PWHASH_ARGON2ID_STRBYTES;
 pub const CRYPTO_PWHASH_STRPREFIX: &str = CRYPTO_PWHASH_ARGON2ID_STRPREFIX;
+
+#[cfg(test)]
+mod tests {
+    /// Every constant mirrored from libsodium equals the value reported by
+    /// the corresponding `libsodium_sys` getter. Constants without a getter
+    /// (`*_INONCEBYTES`, `*_COUNTERBYTES`, `*_PADBYTES`, the HKDF and SHA-3
+    /// sizes, `*_SALTBYTES_MIN/MAX`) are defined only by this crate.
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_libsodium_constants() {
+        use std::ffi::CStr;
+
+        use libsodium_sys::*;
+
+        use super::*;
+
+        // SAFETY: These parameter-free libsodium functions only return
+        // compile-time constants.
+        macro_rules! check_numeric {
+            ($($ours:ident == $theirs:ident),* $(,)?) => {$(
+                assert_eq!($ours as u64, unsafe { $theirs() } as u64, stringify!($ours));
+            )*};
+        }
+
+        // SAFETY: These parameter-free libsodium functions return pointers to
+        // static NUL-terminated strings.
+        macro_rules! check_str {
+            ($($ours:ident == $theirs:ident),* $(,)?) => {$(
+                let theirs = unsafe { CStr::from_ptr($theirs()) };
+                assert_eq!($ours.as_bytes(), theirs.to_bytes(), stringify!($ours));
+            )*};
+        }
+
+        check_numeric!(
+            CRYPTO_SCALARMULT_CURVE25519_BYTES == crypto_scalarmult_curve25519_bytes,
+            CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES == crypto_scalarmult_curve25519_scalarbytes,
+            CRYPTO_SCALARMULT_BYTES == crypto_scalarmult_bytes,
+            CRYPTO_SCALARMULT_SCALARBYTES == crypto_scalarmult_scalarbytes,
+            CRYPTO_BOX_PUBLICKEYBYTES == crypto_box_publickeybytes,
+            CRYPTO_BOX_SECRETKEYBYTES == crypto_box_secretkeybytes,
+            CRYPTO_BOX_MACBYTES == crypto_box_macbytes,
+            CRYPTO_BOX_NONCEBYTES == crypto_box_noncebytes,
+            CRYPTO_BOX_SEEDBYTES == crypto_box_seedbytes,
+            CRYPTO_BOX_BEFORENMBYTES == crypto_box_beforenmbytes,
+            CRYPTO_BOX_SEALBYTES == crypto_box_sealbytes,
+            CRYPTO_BOX_MESSAGEBYTES_MAX == crypto_box_messagebytes_max,
+            CRYPTO_SECRETBOX_XSALSA20POLY1305_KEYBYTES
+                == crypto_secretbox_xsalsa20poly1305_keybytes,
+            CRYPTO_SECRETBOX_XSALSA20POLY1305_NONCEBYTES
+                == crypto_secretbox_xsalsa20poly1305_noncebytes,
+            CRYPTO_SECRETBOX_XSALSA20POLY1305_MACBYTES
+                == crypto_secretbox_xsalsa20poly1305_macbytes,
+            CRYPTO_SECRETBOX_XSALSA20POLY1305_MESSAGEBYTES_MAX
+                == crypto_secretbox_xsalsa20poly1305_messagebytes_max,
+            CRYPTO_SECRETBOX_KEYBYTES == crypto_secretbox_keybytes,
+            CRYPTO_SECRETBOX_NONCEBYTES == crypto_secretbox_noncebytes,
+            CRYPTO_SECRETBOX_MACBYTES == crypto_secretbox_macbytes,
+            CRYPTO_SECRETBOX_MESSAGEBYTES_MAX == crypto_secretbox_messagebytes_max,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES
+                == crypto_aead_chacha20poly1305_ietf_keybytes,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_NSECBYTES
+                == crypto_aead_chacha20poly1305_ietf_nsecbytes,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES
+                == crypto_aead_chacha20poly1305_ietf_npubbytes,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES == crypto_aead_chacha20poly1305_ietf_abytes,
+            CRYPTO_AEAD_CHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
+                == crypto_aead_chacha20poly1305_ietf_messagebytes_max,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES
+                == crypto_aead_xchacha20poly1305_ietf_keybytes,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NSECBYTES
+                == crypto_aead_xchacha20poly1305_ietf_nsecbytes,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
+                == crypto_aead_xchacha20poly1305_ietf_npubbytes,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES == crypto_aead_xchacha20poly1305_ietf_abytes,
+            CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
+                == crypto_aead_xchacha20poly1305_ietf_messagebytes_max,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES
+                == crypto_secretstream_xchacha20poly1305_keybytes,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES
+                == crypto_secretstream_xchacha20poly1305_headerbytes,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
+                == crypto_secretstream_xchacha20poly1305_abytes,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+                == crypto_secretstream_xchacha20poly1305_messagebytes_max,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE
+                == crypto_secretstream_xchacha20poly1305_tag_message,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_PUSH
+                == crypto_secretstream_xchacha20poly1305_tag_push,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY
+                == crypto_secretstream_xchacha20poly1305_tag_rekey,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL
+                == crypto_secretstream_xchacha20poly1305_tag_final,
+            CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES == crypto_stream_chacha20_ietf_keybytes,
+            CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES == crypto_stream_chacha20_ietf_noncebytes,
+            CRYPTO_CORE_HCHACHA20_INPUTBYTES == crypto_core_hchacha20_inputbytes,
+            CRYPTO_CORE_HCHACHA20_OUTPUTBYTES == crypto_core_hchacha20_outputbytes,
+            CRYPTO_CORE_HCHACHA20_KEYBYTES == crypto_core_hchacha20_keybytes,
+            CRYPTO_CORE_HSALSA20_OUTPUTBYTES == crypto_core_hsalsa20_outputbytes,
+            CRYPTO_CORE_HSALSA20_INPUTBYTES == crypto_core_hsalsa20_inputbytes,
+            CRYPTO_CORE_HSALSA20_KEYBYTES == crypto_core_hsalsa20_keybytes,
+            CRYPTO_CORE_HSALSA20_CONSTBYTES == crypto_core_hsalsa20_constbytes,
+            CRYPTO_GENERICHASH_BLAKE2B_BYTES_MIN == crypto_generichash_blake2b_bytes_min,
+            CRYPTO_GENERICHASH_BLAKE2B_BYTES_MAX == crypto_generichash_blake2b_bytes_max,
+            CRYPTO_GENERICHASH_BLAKE2B_BYTES == crypto_generichash_blake2b_bytes,
+            CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MIN == crypto_generichash_blake2b_keybytes_min,
+            CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES_MAX == crypto_generichash_blake2b_keybytes_max,
+            CRYPTO_GENERICHASH_BLAKE2B_KEYBYTES == crypto_generichash_blake2b_keybytes,
+            CRYPTO_GENERICHASH_BLAKE2B_SALTBYTES == crypto_generichash_blake2b_saltbytes,
+            CRYPTO_GENERICHASH_BLAKE2B_PERSONALBYTES == crypto_generichash_blake2b_personalbytes,
+            CRYPTO_GENERICHASH_BYTES == crypto_generichash_bytes,
+            CRYPTO_GENERICHASH_KEYBYTES == crypto_generichash_keybytes,
+            CRYPTO_GENERICHASH_BYTES_MIN == crypto_generichash_bytes_min,
+            CRYPTO_GENERICHASH_BYTES_MAX == crypto_generichash_bytes_max,
+            CRYPTO_GENERICHASH_KEYBYTES_MIN == crypto_generichash_keybytes_min,
+            CRYPTO_GENERICHASH_KEYBYTES_MAX == crypto_generichash_keybytes_max,
+            CRYPTO_ONETIMEAUTH_POLY1305_BYTES == crypto_onetimeauth_poly1305_bytes,
+            CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES == crypto_onetimeauth_poly1305_keybytes,
+            CRYPTO_ONETIMEAUTH_BYTES == crypto_onetimeauth_bytes,
+            CRYPTO_ONETIMEAUTH_KEYBYTES == crypto_onetimeauth_keybytes,
+            CRYPTO_AUTH_HMACSHA512256_BYTES == crypto_auth_hmacsha512256_bytes,
+            CRYPTO_AUTH_HMACSHA512256_KEYBYTES == crypto_auth_hmacsha512256_keybytes,
+            CRYPTO_AUTH_HMACSHA256_BYTES == crypto_auth_hmacsha256_bytes,
+            CRYPTO_AUTH_HMACSHA256_KEYBYTES == crypto_auth_hmacsha256_keybytes,
+            CRYPTO_AUTH_HMACSHA512_BYTES == crypto_auth_hmacsha512_bytes,
+            CRYPTO_AUTH_HMACSHA512_KEYBYTES == crypto_auth_hmacsha512_keybytes,
+            CRYPTO_AUTH_BYTES == crypto_auth_bytes,
+            CRYPTO_AUTH_KEYBYTES == crypto_auth_keybytes,
+            CRYPTO_HASH_SHA256_BYTES == crypto_hash_sha256_bytes,
+            CRYPTO_HASH_SHA512_BYTES == crypto_hash_sha512_bytes,
+            CRYPTO_HASH_BYTES == crypto_hash_bytes,
+            CRYPTO_KDF_BLAKE2B_KEYBYTES == crypto_kdf_blake2b_keybytes,
+            CRYPTO_KDF_BLAKE2B_CONTEXTBYTES == crypto_kdf_blake2b_contextbytes,
+            CRYPTO_KDF_BLAKE2B_BYTES_MIN == crypto_kdf_blake2b_bytes_min,
+            CRYPTO_KDF_BLAKE2B_BYTES_MAX == crypto_kdf_blake2b_bytes_max,
+            CRYPTO_KDF_KEYBYTES == crypto_kdf_keybytes,
+            CRYPTO_KDF_CONTEXTBYTES == crypto_kdf_contextbytes,
+            CRYPTO_KX_PUBLICKEYBYTES == crypto_kx_publickeybytes,
+            CRYPTO_KX_SECRETKEYBYTES == crypto_kx_secretkeybytes,
+            CRYPTO_KX_SEEDBYTES == crypto_kx_seedbytes,
+            CRYPTO_KX_SESSIONKEYBYTES == crypto_kx_sessionkeybytes,
+            CRYPTO_SIGN_ED25519_PUBLICKEYBYTES == crypto_sign_ed25519_publickeybytes,
+            CRYPTO_SIGN_ED25519_SECRETKEYBYTES == crypto_sign_ed25519_secretkeybytes,
+            CRYPTO_SIGN_ED25519_BYTES == crypto_sign_ed25519_bytes,
+            CRYPTO_SIGN_ED25519_SEEDBYTES == crypto_sign_ed25519_seedbytes,
+            CRYPTO_SIGN_ED25519_MESSAGEBYTES_MAX == crypto_sign_ed25519_messagebytes_max,
+            CRYPTO_CORE_ED25519_BYTES == crypto_core_ed25519_bytes,
+            CRYPTO_SIGN_BYTES == crypto_sign_bytes,
+            CRYPTO_SIGN_SEEDBYTES == crypto_sign_seedbytes,
+            CRYPTO_SIGN_PUBLICKEYBYTES == crypto_sign_publickeybytes,
+            CRYPTO_SIGN_SECRETKEYBYTES == crypto_sign_secretkeybytes,
+            CRYPTO_SIGN_MESSAGEBYTES_MAX == crypto_sign_messagebytes_max,
+            CRYPTO_SHORTHASH_SIPHASH24_BYTES == crypto_shorthash_siphash24_bytes,
+            CRYPTO_SHORTHASH_SIPHASH24_KEYBYTES == crypto_shorthash_siphash24_keybytes,
+            CRYPTO_SHORTHASH_BYTES == crypto_shorthash_bytes,
+            CRYPTO_SHORTHASH_KEYBYTES == crypto_shorthash_keybytes,
+            CRYPTO_PWHASH_ARGON2I_ALG_ARGON2I13 == crypto_pwhash_argon2i_alg_argon2i13,
+            CRYPTO_PWHASH_ARGON2I_BYTES_MAX == crypto_pwhash_argon2i_bytes_max,
+            CRYPTO_PWHASH_ARGON2I_BYTES_MIN == crypto_pwhash_argon2i_bytes_min,
+            CRYPTO_PWHASH_ARGON2I_MEMLIMIT_INTERACTIVE
+                == crypto_pwhash_argon2i_memlimit_interactive,
+            CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MAX == crypto_pwhash_argon2i_memlimit_max,
+            CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MIN == crypto_pwhash_argon2i_memlimit_min,
+            CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MODERATE == crypto_pwhash_argon2i_memlimit_moderate,
+            CRYPTO_PWHASH_ARGON2I_MEMLIMIT_SENSITIVE == crypto_pwhash_argon2i_memlimit_sensitive,
+            CRYPTO_PWHASH_ARGON2I_OPSLIMIT_INTERACTIVE
+                == crypto_pwhash_argon2i_opslimit_interactive,
+            CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MAX == crypto_pwhash_argon2i_opslimit_max,
+            CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MIN == crypto_pwhash_argon2i_opslimit_min,
+            CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MODERATE == crypto_pwhash_argon2i_opslimit_moderate,
+            CRYPTO_PWHASH_ARGON2I_OPSLIMIT_SENSITIVE == crypto_pwhash_argon2i_opslimit_sensitive,
+            CRYPTO_PWHASH_ARGON2I_PASSWD_MAX == crypto_pwhash_argon2i_passwd_max,
+            CRYPTO_PWHASH_ARGON2I_PASSWD_MIN == crypto_pwhash_argon2i_passwd_min,
+            CRYPTO_PWHASH_ARGON2I_SALTBYTES == crypto_pwhash_argon2i_saltbytes,
+            CRYPTO_PWHASH_ARGON2I_STRBYTES == crypto_pwhash_argon2i_strbytes,
+            CRYPTO_PWHASH_ARGON2ID_ALG_ARGON2ID13 == crypto_pwhash_argon2id_alg_argon2id13,
+            CRYPTO_PWHASH_ARGON2ID_BYTES_MAX == crypto_pwhash_argon2id_bytes_max,
+            CRYPTO_PWHASH_ARGON2ID_BYTES_MIN == crypto_pwhash_argon2id_bytes_min,
+            CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_INTERACTIVE
+                == crypto_pwhash_argon2id_memlimit_interactive,
+            CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MIN == crypto_pwhash_argon2id_memlimit_min,
+            CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MAX == crypto_pwhash_argon2id_memlimit_max,
+            CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MODERATE == crypto_pwhash_argon2id_memlimit_moderate,
+            CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_SENSITIVE == crypto_pwhash_argon2id_memlimit_sensitive,
+            CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_INTERACTIVE
+                == crypto_pwhash_argon2id_opslimit_interactive,
+            CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_MAX == crypto_pwhash_argon2id_opslimit_max,
+            CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_MIN == crypto_pwhash_argon2id_opslimit_min,
+            CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_MODERATE == crypto_pwhash_argon2id_opslimit_moderate,
+            CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_SENSITIVE == crypto_pwhash_argon2id_opslimit_sensitive,
+            CRYPTO_PWHASH_ARGON2ID_PASSWD_MAX == crypto_pwhash_argon2id_passwd_max,
+            CRYPTO_PWHASH_ARGON2ID_PASSWD_MIN == crypto_pwhash_argon2id_passwd_min,
+            CRYPTO_PWHASH_ARGON2ID_SALTBYTES == crypto_pwhash_argon2id_saltbytes,
+            CRYPTO_PWHASH_ARGON2ID_STRBYTES == crypto_pwhash_argon2id_strbytes,
+            CRYPTO_PWHASH_ALG_ARGON2I13 == crypto_pwhash_alg_argon2i13,
+            CRYPTO_PWHASH_ALG_ARGON2ID13 == crypto_pwhash_alg_argon2id13,
+            CRYPTO_PWHASH_ALG_DEFAULT == crypto_pwhash_alg_default,
+            CRYPTO_PWHASH_BYTES_MAX == crypto_pwhash_bytes_max,
+            CRYPTO_PWHASH_BYTES_MIN == crypto_pwhash_bytes_min,
+            CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE == crypto_pwhash_memlimit_interactive,
+            CRYPTO_PWHASH_MEMLIMIT_MAX == crypto_pwhash_memlimit_max,
+            CRYPTO_PWHASH_MEMLIMIT_MIN == crypto_pwhash_memlimit_min,
+            CRYPTO_PWHASH_MEMLIMIT_MODERATE == crypto_pwhash_memlimit_moderate,
+            CRYPTO_PWHASH_MEMLIMIT_SENSITIVE == crypto_pwhash_memlimit_sensitive,
+            CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE == crypto_pwhash_opslimit_interactive,
+            CRYPTO_PWHASH_OPSLIMIT_MAX == crypto_pwhash_opslimit_max,
+            CRYPTO_PWHASH_OPSLIMIT_MIN == crypto_pwhash_opslimit_min,
+            CRYPTO_PWHASH_OPSLIMIT_MODERATE == crypto_pwhash_opslimit_moderate,
+            CRYPTO_PWHASH_OPSLIMIT_SENSITIVE == crypto_pwhash_opslimit_sensitive,
+            CRYPTO_PWHASH_PASSWD_MAX == crypto_pwhash_passwd_max,
+            CRYPTO_PWHASH_PASSWD_MIN == crypto_pwhash_passwd_min,
+            CRYPTO_PWHASH_SALTBYTES == crypto_pwhash_saltbytes,
+            CRYPTO_PWHASH_STRBYTES == crypto_pwhash_strbytes,
+        );
+
+        check_str!(
+            CRYPTO_SECRETBOX_PRIMITIVE == crypto_secretbox_primitive,
+            CRYPTO_HASH_PRIMITIVE == crypto_hash_primitive,
+            CRYPTO_PWHASH_ARGON2I_STRPREFIX == crypto_pwhash_argon2i_strprefix,
+            CRYPTO_PWHASH_ARGON2ID_STRPREFIX == crypto_pwhash_argon2id_strprefix,
+            CRYPTO_PWHASH_STRPREFIX == crypto_pwhash_strprefix,
+        );
+    }
+}

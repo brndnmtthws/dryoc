@@ -205,24 +205,33 @@ mod tests {
         }
     }
 
+    /// `sodium_increment` vectors: little-endian, the carry propagates
+    /// through every `0xff` byte, and the all-ones value wraps to zero.
+    const INCREMENT_VECTORS: &[(&[u8], &[u8])] = &[
+        (&[], &[]),
+        (&[0], &[1]),
+        (&[1], &[2]),
+        (&[0xff], &[0]),
+        (&[0xff, 0], &[0, 1]),
+        (&[0x00, 0xff], &[0x01, 0xff]),
+        (&[0xff, 0xff, 0x00], &[0, 0, 1]),
+        (
+            &[0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+            &[0xff; 8],
+        ),
+        (&[0xff; 8], &[0; 8]),
+        (&[0xff; 24], &[0; 24]),
+    ];
+
     #[test]
     fn test_increment_bytes() {
-        let mut b = [0];
-
-        increment_bytes(&mut b);
-        assert_eq!(b, [1]);
-        increment_bytes(&mut b);
-        assert_eq!(b, [2]);
-
-        let mut b = [0xff];
-
-        increment_bytes(&mut b);
-        assert_eq!(b, [0]);
-        increment_bytes(&mut b);
-        assert_eq!(b, [1]);
+        for (input, expected) in INCREMENT_VECTORS {
+            let mut bytes = input.to_vec();
+            increment_bytes(&mut bytes);
+            assert_eq!(bytes.as_slice(), *expected, "increment of {input:02x?}");
+        }
 
         let mut b = [0xff, 0];
-
         increment_bytes(&mut b);
         assert_eq!(b, [0, 1]);
         increment_bytes(&mut b);
@@ -244,12 +253,6 @@ mod tests {
 
         xor_buf(&mut a, &b);
         assert_eq!([1], a);
-
-        let mut a = [1, 1, 1];
-        let b = [0];
-
-        xor_buf(&mut a, &b);
-        assert_eq!([1, 1, 1], a);
 
         let mut a = [1, 1, 1];
         let b = [0];
@@ -283,31 +286,71 @@ mod tests {
         #[test]
         fn test_sodium_increment() {
             use libsodium_sys::sodium_increment as so_sodium_increment;
-            use rand::TryRng;
-            use rand::rngs::SysRng;
 
-            use crate::rng::copy_randombytes;
+            use crate::utils::test_util::XorShift64;
 
-            for _ in 0..20 {
-                let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
-                let mut data = vec![0u8; rand_usize];
-                copy_randombytes(&mut data);
+            fn assert_matches_libsodium(input: &[u8]) {
+                let mut ours = input.to_vec();
+                let mut theirs = input.to_vec();
+                sodium_increment(&mut ours);
+                // SAFETY: `theirs` is a valid, writable buffer of exactly
+                // `theirs.len()` bytes for the duration of the call.
+                unsafe { so_sodium_increment(theirs.as_mut_ptr(), theirs.len()) };
+                assert_eq!(ours, theirs, "input {input:02x?}");
+            }
 
-                let mut data_copy = data.clone();
+            for (input, _) in INCREMENT_VECTORS {
+                assert_matches_libsodium(input);
+            }
 
-                sodium_increment(&mut data);
+            let mut rng = XorShift64::new(0x9e37_79b9_7f4a_7c15);
+            for len in 0..=64 {
+                let mut data = vec![0u8; len];
+                for b in &mut data {
+                    *b = rng.next_u64() as u8;
+                }
+                assert_matches_libsodium(&data);
+                assert_matches_libsodium(&vec![0xff; len]);
 
-                unsafe { so_sodium_increment(data_copy.as_mut_ptr(), data_copy.len()) };
-
-                assert_eq!(data, data_copy);
+                // Carry chain that stops at a non-`0xff` final byte.
+                if let Some((last, head)) = data.split_last_mut() {
+                    head.fill(0xff);
+                    *last &= 0x7f;
+                    assert_matches_libsodium(&data);
+                }
             }
         }
     }
 }
 
-/// Helpers shared by the curve and field unit tests.
+/// Helpers shared by the curve, field, and byte-container unit tests.
 #[cfg(test)]
 pub(crate) mod test_util {
+    use crate::error::{Error, ErrorContext, LengthConstraint};
+
+    /// Asserts that `result` is `Error::InvalidLength` for a slice of
+    /// `actual` bytes where exactly `expected` were required, matching on the
+    /// variant rather than its message.
+    pub(crate) fn assert_exact_slice_length_error<T>(
+        result: Result<T, Error>,
+        actual: usize,
+        expected: usize,
+    ) {
+        match result {
+            Err(Error::InvalidLength {
+                context,
+                actual: got,
+                constraint,
+            }) => {
+                assert_eq!(context, ErrorContext::Slice);
+                assert_eq!(got, actual);
+                assert_eq!(constraint, LengthConstraint::Exact(expected));
+            }
+            Err(other) => panic!("unexpected error {other:?}"),
+            Ok(_) => panic!("length {actual} accepted where exactly {expected} is required"),
+        }
+    }
+
     /// Decodes a 64-character hex string into 32 bytes.
     pub(crate) fn hex32(s: &str) -> [u8; 32] {
         hex::decode(s).expect("hex").try_into().expect("32 bytes")

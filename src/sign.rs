@@ -700,4 +700,460 @@ mod tests {
             keypair.public_key.as_slice()
         );
     }
+
+    /// RFC 8032 section 7.1 (Ed25519) tests 1-3 and section 7.3 (Ed25519ph):
+    /// `(seed, public key, message, signature)`.
+    const RFC8032_ED25519: [(&str, &str, &str, &str); 3] = [
+        (
+            "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+            "",
+            concat!(
+                "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155",
+                "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b",
+            ),
+        ),
+        (
+            "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+            "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+            "72",
+            concat!(
+                "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da",
+                "085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00",
+            ),
+        ),
+        (
+            "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+            "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+            "af82",
+            concat!(
+                "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac",
+                "18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a",
+            ),
+        ),
+    ];
+    const RFC8032_ED25519PH: (&str, &str, &str, &str) = (
+        "833fe62409237b9d62ec77587520911e9a759cec1d19755b7da901b96dca3d42",
+        "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+        "616263",
+        concat!(
+            "98a70222f0b8121aa9d30f813d683f809e462b469c7ff87639499bb94e6dae41",
+            "31f85042463c2a355a2003d062adf5aaa10b8c61e636062aaad11c2a26083406",
+        ),
+    );
+
+    fn array<const N: usize>(hex: &str) -> StackByteArray<N> {
+        StackByteArray::try_from(hex::decode(hex).expect("hex").as_slice()).expect("length")
+    }
+
+    fn rfc_keypair(seed: &str, public_key: &str) -> SigningKeyPair<PublicKey, SecretKey> {
+        let keypair = SigningKeyPair::from_seed(&array::<CRYPTO_SIGN_SEEDBYTES>(seed));
+        assert_eq!(
+            keypair.public_key,
+            array::<CRYPTO_SIGN_PUBLICKEYBYTES>(public_key)
+        );
+        assert_eq!(
+            keypair.to_seed::<Seed>(),
+            array::<CRYPTO_SIGN_SEEDBYTES>(seed)
+        );
+        keypair
+    }
+
+    #[test]
+    fn rfc8032_detached_signatures_and_signed_message_wire_format() {
+        for (seed, public_key, message, signature) in RFC8032_ED25519 {
+            let keypair = rfc_keypair(seed, public_key);
+            let message = hex::decode(message).expect("hex");
+            let expected: Signature = array(signature);
+
+            let signed = keypair
+                .sign_with_defaults(message.as_slice())
+                .expect("signing failed");
+            assert_eq!(signed.signature, expected);
+            assert_eq!(signed.message, message);
+            signed.verify(&keypair.public_key).expect("verify failed");
+
+            let mut wire = expected.to_vec();
+            wire.extend_from_slice(&message);
+            assert_eq!(signed.to_vec(), wire);
+            let parsed = VecSignedMessage::from_bytes(&wire).expect("parse");
+            assert_eq!(parsed, signed);
+            parsed.verify(&keypair.public_key).expect("verify failed");
+
+            let (parsed_signature, parsed_message) = parsed.into_parts();
+            assert_eq!(parsed_signature, expected);
+            assert_eq!(parsed_message, message);
+            let rebuilt = VecSignedMessage::from_parts(parsed_signature, parsed_message);
+            assert_eq!(rebuilt.to_bytes::<Vec<u8>>(), wire);
+            rebuilt.verify(&keypair.public_key).expect("verify failed");
+
+            // `sign` with an explicit message type agrees with the Vec wrapper.
+            let signed_array: SignedMessage<Signature, Vec<u8>> =
+                keypair.sign(message.clone()).expect("signing failed");
+            assert_eq!(signed_array, signed);
+
+            // The secret key embeds the public key.
+            assert_eq!(keypair.to_public_key::<PublicKey>(), keypair.public_key);
+            assert_eq!(
+                SigningKeyPair::from_secret_key(keypair.secret_key.clone()),
+                keypair
+            );
+        }
+    }
+
+    #[test]
+    fn rfc8032_ed25519ph_vector_through_incremental_signer() {
+        let (seed, public_key, message, signature) = RFC8032_ED25519PH;
+        let keypair = rfc_keypair(seed, public_key);
+        let message = hex::decode(message).expect("hex");
+        let expected: Signature = array(signature);
+
+        let splits: [&[&[u8]]; 4] = [
+            &[&message],
+            &[&message[..1], &message[1..]],
+            &[&[], &message[..2], &message[2..], &[]],
+            &[&message[..1], &message[1..2], &message[2..]],
+        ];
+        for parts in splits {
+            let mut signer = IncrementalSigner::new();
+            for part in parts {
+                signer.update(part);
+            }
+            let actual: Signature = signer
+                .finalize(&keypair.secret_key)
+                .expect("signing failed");
+            assert_eq!(actual, expected, "split {parts:?}");
+
+            let mut verifier = IncrementalSigner::default();
+            for part in parts {
+                verifier.update(part);
+            }
+            verifier
+                .verify(&expected, &keypair.public_key)
+                .expect("verify failed");
+        }
+
+        // Ed25519ph and pure Ed25519 signatures are distinct and not
+        // interchangeable.
+        let pure = keypair
+            .sign_with_defaults(message.as_slice())
+            .expect("signing failed");
+        assert_ne!(pure.signature, expected);
+        let mut verifier = IncrementalSigner::new();
+        verifier.update(&message);
+        assert!(matches!(
+            verifier.verify(&pure.signature, &keypair.public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(matches!(
+            VecSignedMessage::from_parts(expected, message).verify(&keypair.public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+    }
+
+    #[test]
+    fn tampered_signatures_messages_and_wrong_keys_are_rejected() {
+        let (seed, public_key, message, _) = RFC8032_ED25519[2];
+        let keypair = rfc_keypair(seed, public_key);
+        let other = rfc_keypair(RFC8032_ED25519[1].0, RFC8032_ED25519[1].1);
+        let message = hex::decode(message).expect("hex");
+        let signed = keypair
+            .sign_with_defaults(message.as_slice())
+            .expect("signing failed");
+
+        assert!(matches!(
+            signed.verify(&other.public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        for index in [0, 31, 32, CRYPTO_SIGN_BYTES - 1] {
+            let mut tampered = signed.clone();
+            tampered.signature[index] ^= 0x01;
+            assert!(matches!(
+                tampered.verify(&keypair.public_key),
+                Err(Error::AuthenticationFailed)
+            ));
+        }
+
+        let mut tampered = signed.clone();
+        tampered.message[0] ^= 0x80;
+        assert!(matches!(
+            tampered.verify(&keypair.public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        let mut truncated = signed.clone();
+        truncated.message.pop();
+        assert!(truncated.verify(&keypair.public_key).is_err());
+        let mut extended = signed.clone();
+        extended.message.push(0);
+        assert!(extended.verify(&keypair.public_key).is_err());
+
+        // Incremental verification rejects a signature over a different split
+        // message, and a wrong key.
+        let ph: Signature = {
+            let mut signer = IncrementalSigner::new();
+            signer.update(&message);
+            signer
+                .finalize(&keypair.secret_key)
+                .expect("signing failed")
+        };
+        let mut verifier = IncrementalSigner::new();
+        verifier.update(&&message[..1]);
+        assert!(verifier.verify(&ph, &keypair.public_key).is_err());
+        let mut verifier = IncrementalSigner::new();
+        verifier.update(&message);
+        assert!(matches!(
+            verifier.verify(&ph, &other.public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        // The original is still valid after all rejections.
+        signed.verify(&keypair.public_key).expect("verify failed");
+    }
+
+    #[test]
+    fn signed_message_from_bytes_requires_a_full_signature() {
+        for len in [0, 1, CRYPTO_SIGN_BYTES - 1] {
+            assert!(matches!(
+                VecSignedMessage::from_bytes(&vec![0u8; len]),
+                Err(Error::InvalidLength {
+                    context: ErrorContext::SignedMessage,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+        let bare = VecSignedMessage::from_bytes(&[0x5au8; CRYPTO_SIGN_BYTES])
+            .expect("a lone signature is an empty message");
+        assert!(bare.message.is_empty());
+        assert_eq!(bare.signature.as_slice(), &[0x5au8; CRYPTO_SIGN_BYTES]);
+    }
+
+    #[test]
+    fn from_slices_accepts_exact_lengths_and_reports_the_short_side() {
+        let (seed, public_key, message, signature) = RFC8032_ED25519[0];
+        let keypair = rfc_keypair(seed, public_key);
+        let rebuilt = SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+            keypair.public_key.as_slice(),
+            keypair.secret_key.as_slice(),
+        )
+        .expect("from_slices failed");
+        assert_eq!(rebuilt, keypair);
+        let signed = rebuilt
+            .sign_with_defaults(hex::decode(message).expect("hex").as_slice())
+            .expect("signing failed");
+        assert_eq!(signed.signature, array::<CRYPTO_SIGN_BYTES>(signature));
+
+        for len in [
+            0,
+            CRYPTO_SIGN_PUBLICKEYBYTES - 1,
+            CRYPTO_SIGN_PUBLICKEYBYTES + 1,
+        ] {
+            assert!(matches!(
+                SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+                    &vec![0u8; len],
+                    keypair.secret_key.as_slice(),
+                ),
+                Err(Error::InvalidLength {
+                    context: ErrorContext::PublicKey,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+        for len in [
+            0,
+            CRYPTO_SIGN_SECRETKEYBYTES - 1,
+            CRYPTO_SIGN_SECRETKEYBYTES + 1,
+        ] {
+            assert!(matches!(
+                SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+                    keypair.public_key.as_slice(),
+                    &vec![0u8; len],
+                ),
+                Err(Error::InvalidLength {
+                    context: ErrorContext::SecretKey,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_round_trips_reproduce_rfc8032_signatures() {
+        let (seed, public_key, message, signature) = RFC8032_ED25519[1];
+        let keypair = rfc_keypair(seed, public_key);
+        let message = hex::decode(message).expect("hex");
+        let expected: Signature = array(signature);
+
+        let json = serde_json::to_string(&keypair).expect("serialize keypair");
+        let decoded: SigningKeyPair<PublicKey, SecretKey> =
+            serde_json::from_str(&json).expect("deserialize keypair");
+        assert_eq!(decoded, keypair);
+        let signed = decoded
+            .sign_with_defaults(message.as_slice())
+            .expect("signing failed");
+        assert_eq!(signed.signature, expected);
+
+        let json = serde_json::to_string(&signed).expect("serialize signed message");
+        let decoded: VecSignedMessage =
+            serde_json::from_str(&json).expect("deserialize signed message");
+        assert_eq!(decoded, signed);
+        decoded.verify(&keypair.public_key).expect("verify failed");
+
+        // A field-level change in the encoding is caught by verification.
+        let tampered = json.replacen(
+            &format!("{}", expected[0]),
+            &format!("{}", expected[0] ^ 1),
+            1,
+        );
+        let decoded: VecSignedMessage = serde_json::from_str(&tampered).expect("deserialize");
+        assert!(decoded.verify(&keypair.public_key).is_err());
+    }
+
+    #[cfg(dryoc_native_tests)]
+    mod native_tests {
+        use super::*;
+        use crate::utils::test_util::XorShift64;
+
+        fn libsodium_ph_signature(parts: &[&[u8]], secret_key: &SecretKey) -> Signature {
+            let mut state =
+                std::mem::MaybeUninit::<libsodium_sys::crypto_sign_ed25519ph_state>::uninit();
+            let mut signature = Signature::default();
+            let mut signature_len = 0u64;
+            unsafe {
+                assert_eq!(
+                    libsodium_sys::crypto_sign_ed25519ph_init(state.as_mut_ptr()),
+                    0
+                );
+                for part in parts {
+                    assert_eq!(
+                        libsodium_sys::crypto_sign_ed25519ph_update(
+                            state.as_mut_ptr(),
+                            part.as_ptr(),
+                            part.len() as u64,
+                        ),
+                        0
+                    );
+                }
+                assert_eq!(
+                    libsodium_sys::crypto_sign_ed25519ph_final_create(
+                        state.as_mut_ptr(),
+                        signature.as_mut_ptr(),
+                        &mut signature_len,
+                        secret_key.as_ptr(),
+                    ),
+                    0
+                );
+            }
+            assert_eq!(signature_len as usize, CRYPTO_SIGN_BYTES);
+            signature
+        }
+
+        fn libsodium_ph_verify(
+            parts: &[&[u8]],
+            signature: &Signature,
+            public_key: &PublicKey,
+        ) -> bool {
+            let mut state =
+                std::mem::MaybeUninit::<libsodium_sys::crypto_sign_ed25519ph_state>::uninit();
+            unsafe {
+                assert_eq!(
+                    libsodium_sys::crypto_sign_ed25519ph_init(state.as_mut_ptr()),
+                    0
+                );
+                for part in parts {
+                    libsodium_sys::crypto_sign_ed25519ph_update(
+                        state.as_mut_ptr(),
+                        part.as_ptr(),
+                        part.len() as u64,
+                    );
+                }
+                libsodium_sys::crypto_sign_ed25519ph_final_verify(
+                    state.as_mut_ptr(),
+                    signature.as_ptr(),
+                    public_key.as_ptr(),
+                ) == 0
+            }
+        }
+
+        #[test]
+        fn incremental_signer_matches_libsodium_ed25519ph_for_split_updates() {
+            let mut rng = XorShift64::new(0x6564_3235_3531_3970);
+            for round in 0..8 {
+                let keypair =
+                    SigningKeyPair::<PublicKey, SecretKey>::from_seed(&rng.next_bytes32());
+                let message: Vec<u8> = (0..(round * 97) % 1023)
+                    .map(|_| rng.next_u64() as u8)
+                    .collect();
+                let split = message.len() / 3;
+                let parts: [&[u8]; 3] = [
+                    &message[..split],
+                    &message[split..2 * split],
+                    &message[2 * split..],
+                ];
+
+                let mut signer = IncrementalSigner::new();
+                for part in parts {
+                    signer.update(&part);
+                }
+                let signature: Signature = signer
+                    .finalize(&keypair.secret_key)
+                    .expect("signing failed");
+                assert_eq!(
+                    signature,
+                    libsodium_ph_signature(&parts, &keypair.secret_key)
+                );
+                assert!(libsodium_ph_verify(
+                    &[&message],
+                    &signature,
+                    &keypair.public_key
+                ));
+
+                let mut verifier = IncrementalSigner::new();
+                verifier.update(&message);
+                verifier
+                    .verify(&signature, &keypair.public_key)
+                    .expect("verify failed");
+            }
+        }
+
+        #[test]
+        fn detached_signatures_interoperate_with_sodiumoxide() {
+            use sodiumoxide::crypto::sign::ed25519;
+
+            let (seed, public_key, _, _) = RFC8032_ED25519PH;
+            let keypair = rfc_keypair(seed, public_key);
+            let so_seed = ed25519::Seed::from_slice(&hex::decode(seed).expect("hex")).unwrap();
+            let (so_pk, so_sk) = ed25519::keypair_from_seed(&so_seed);
+            assert_eq!(so_pk.as_ref(), keypair.public_key.as_slice());
+            assert_eq!(so_sk.as_ref(), keypair.secret_key.as_slice());
+
+            let mut rng = XorShift64::new(0x7369_676e_6564_2121);
+            for len in [0, 1, 63, 64, 65, 1023] {
+                let message: Vec<u8> = (0..len).map(|_| rng.next_u64() as u8).collect();
+                let signed = keypair
+                    .sign_with_defaults(message.as_slice())
+                    .expect("signing failed");
+                let so_signature = ed25519::sign_detached(&message, &so_sk);
+                assert_eq!(signed.signature.as_slice(), so_signature.as_ref());
+                assert!(ed25519::verify_detached(
+                    &ed25519::Signature::from_bytes(signed.signature.as_slice()).unwrap(),
+                    &message,
+                    &so_pk
+                ));
+
+                let so_signed = ed25519::sign(&message, &so_sk);
+                let parsed = VecSignedMessage::from_bytes(&so_signed).expect("parse");
+                assert_eq!(parsed, signed);
+                parsed.verify(&keypair.public_key).expect("verify failed");
+                assert_eq!(
+                    ed25519::verify(&signed.to_vec(), &so_pk).expect("sodium verify failed"),
+                    message
+                );
+            }
+        }
+    }
 }

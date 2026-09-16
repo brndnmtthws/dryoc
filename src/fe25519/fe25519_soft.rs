@@ -127,11 +127,13 @@ pub(super) fn mul_121666(a: &[u64; 5]) -> [u64; 5] {
 mod tests {
     use super::*;
 
-    /// The chain squaring equals the plain squaring (as field elements) on
-    /// reduced inputs with limbs at and around their bound, and its output
-    /// limbs stay below `2^51 + 2^12`.
+    /// The chain squaring equals the plain squaring and the big-integer
+    /// square modulo `p` on reduced inputs with limbs at and around their
+    /// bound, and its output limbs stay below `2^51 + 2^12`.
     #[test]
     fn test_square_chain_matches_square() {
+        use super::super::tests::{encode, limbs_to_int};
+
         let mut rng = crate::utils::test_util::XorShift64::new(0x5151_5151_2024);
         let bound = (1u64 << 51) + (1 << 13) - 1;
         let edges = [0u64, 1, MASK51, MASK51 + 1, bound];
@@ -146,6 +148,12 @@ mod tests {
         }
         for a in cases {
             let chained = square_chain(&a);
+            let expected = limbs_to_int(&a);
+            assert_eq!(
+                super::super::Fe(chained).to_bytes(),
+                encode(&(&expected * &expected)),
+                "{a:x?}"
+            );
             assert_eq!(
                 super::super::Fe(chained).to_bytes(),
                 super::super::Fe(square(&a)).to_bytes(),

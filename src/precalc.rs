@@ -247,53 +247,106 @@ mod tests {
     }
     use crate::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
 
-    #[test]
-    fn test_precalculate() {
-        let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
-        public_key.as_mut_array()[0] = 9;
-        let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
-        let precalc_key = PrecalcSecretKey::precalculate(&public_key, &secret_key).unwrap();
-        assert!(!precalc_key.is_empty());
-        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+    /// NaCl `tests/box.c` / RFC 7748 section 6.1 keys: `beforenm(bobpk,
+    /// alicesk)` is NaCl's secretbox `firstkey`.
+    const ALICE_SK: &str = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+    const ALICE_PK: &str = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
+    const BOB_SK: &str = "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+    const BOB_PK: &str = "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f";
+    const SHARED_KEY: &str = "1b27556473e985d462cd51197a9a46c76009549eac6474f206c4ee0844f68389";
 
-        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
-        assert!(PrecalcSecretKey::precalculate(&low_order_public_key, &secret_key).is_err());
+    fn array<const N: usize>(hex: &str) -> StackByteArray<N> {
+        StackByteArray::try_from(hex::decode(hex).expect("hex").as_slice()).expect("length")
+    }
+
+    fn low_order_public_keys() -> [StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>; 2] {
+        let mut identity = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+        identity[0] = 1;
+        [StackByteArray::default(), identity]
+    }
+
+    #[test]
+    fn precalculate_matches_nacl_shared_key_from_both_sides() {
+        let alice_sk: StackByteArray<CRYPTO_BOX_SECRETKEYBYTES> = array(ALICE_SK);
+        let alice_pk: StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES> = array(ALICE_PK);
+        let bob_sk: StackByteArray<CRYPTO_BOX_SECRETKEYBYTES> = array(BOB_SK);
+        let bob_pk: StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES> = array(BOB_PK);
+        let expected: StackByteArray<CRYPTO_BOX_BEFORENMBYTES> = array(SHARED_KEY);
+
+        let alice_side = PrecalcSecretKey::precalculate(&bob_pk, &alice_sk).expect("precalc");
+        let bob_side = PrecalcSecretKey::precalculate(&alice_pk, &bob_sk).expect("precalc");
+        assert_eq!(alice_side.as_array(), expected.as_array());
+        assert_eq!(alice_side.as_slice(), expected.as_slice());
+        assert_eq!(alice_side, bob_side);
+        assert_eq!(alice_side.len(), CRYPTO_BOX_BEFORENMBYTES);
+
+        // A different secret key must not reproduce the shared key.
+        let stranger = PrecalcSecretKey::precalculate(&bob_pk, &bob_sk).expect("precalc");
+        assert_ne!(stranger, alice_side);
+
+        for low_order in low_order_public_keys() {
+            assert!(PrecalcSecretKey::precalculate(&low_order, &alice_sk).is_err());
+        }
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
-    fn test_precalculate_locked() {
-        let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
-        public_key.as_mut_array()[0] = 9;
-        let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
-        let mut precalc_key =
-            PrecalcSecretKey::precalculate_locked(&public_key, &secret_key).unwrap();
-        assert!(!precalc_key.is_empty());
-        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+    fn locked_precalculation_matches_stack_precalculation() {
+        let alice_sk: StackByteArray<CRYPTO_BOX_SECRETKEYBYTES> = array(ALICE_SK);
+        let bob_pk: StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES> = array(BOB_PK);
+        let expected = hex::decode(SHARED_KEY).expect("hex");
 
-        // should be able to write now without blowing up
-        precalc_key.as_mut_slice()[0] = 0;
-        precalc_key.as_mut_array()[0] = 1;
+        let mut locked =
+            PrecalcSecretKey::precalculate_locked(&bob_pk, &alice_sk).expect("precalc locked");
+        assert_eq!(locked.as_slice(), expected.as_slice());
+        assert_eq!(locked.as_array(), &expected[..]);
 
-        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
-        assert!(PrecalcSecretKey::precalculate_locked(&low_order_public_key, &secret_key).is_err());
+        let readonly = PrecalcSecretKey::precalculate_readonly_locked(&bob_pk, &alice_sk)
+            .expect("precalc readonly locked");
+        assert_eq!(readonly.as_slice(), expected.as_slice());
+
+        // The locked key is writable through both mutable accessors.
+        locked.as_mut_slice()[0] ^= 0xff;
+        locked.as_mut_array()[1] ^= 0xff;
+        assert_eq!(locked.as_slice()[0], expected[0] ^ 0xff);
+        assert_eq!(locked.as_slice()[1], expected[1] ^ 0xff);
+        assert_eq!(&locked.as_slice()[2..], &expected[2..]);
+
+        for low_order in low_order_public_keys() {
+            assert!(PrecalcSecretKey::precalculate_locked(&low_order, &alice_sk).is_err());
+            assert!(PrecalcSecretKey::precalculate_readonly_locked(&low_order, &alice_sk).is_err());
+        }
     }
 
-    #[cfg(all(feature = "protected", any(unix, windows)))]
+    #[cfg(dryoc_native_tests)]
     #[test]
-    fn test_precalculate_readonly_locked() {
-        let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
-        public_key.as_mut_array()[0] = 9;
-        let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::default();
-        let precalc_key =
-            PrecalcSecretKey::precalculate_readonly_locked(&public_key, &secret_key).unwrap();
-        assert!(!precalc_key.is_empty());
-        assert_eq!(precalc_key.len(), CRYPTO_BOX_BEFORENMBYTES);
+    fn precalculate_matches_libsodium_beforenm() {
+        use crate::utils::test_util::XorShift64;
 
-        let low_order_public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
-        assert!(
-            PrecalcSecretKey::precalculate_readonly_locked(&low_order_public_key, &secret_key)
-                .is_err()
-        );
+        let mut rng = XorShift64::new(0x7072_6563_616c_6321);
+        for _ in 0..16 {
+            let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::from(rng.next_bytes32());
+            let other_secret_key =
+                StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::from(rng.next_bytes32());
+            let mut public_key = StackByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::default();
+            crate::classic::crypto_core::crypto_scalarmult_base(
+                public_key.as_mut_array(),
+                other_secret_key.as_array(),
+            );
+
+            let precalc =
+                PrecalcSecretKey::precalculate(&public_key, &secret_key).expect("precalc");
+
+            let mut sodium_key = [0u8; CRYPTO_BOX_BEFORENMBYTES];
+            let rc = unsafe {
+                libsodium_sys::crypto_box_beforenm(
+                    sodium_key.as_mut_ptr(),
+                    public_key.as_ptr(),
+                    secret_key.as_ptr(),
+                )
+            };
+            assert_eq!(rc, 0);
+            assert_eq!(precalc.as_array(), &sodium_key);
+        }
     }
 }

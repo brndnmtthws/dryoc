@@ -337,44 +337,262 @@ impl Fe {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::utils::test_util::hex32 as hex;
+    use num_bigint::BigUint;
 
-    /// Field arithmetic against big-integer results, exercising the
-    /// reduction paths with limbs near their bounds.
-    #[test]
-    fn test_field_ops_against_reference() {
-        // p - 1 and 2^255 - 1 (the largest decodable value, which is p + 18).
+    use super::*;
+    use crate::utils::test_util::{XorShift64, hex32 as hex};
+
+    /// The field prime `2^255 - 19`.
+    pub(super) fn prime() -> BigUint {
+        (BigUint::from(1u8) << 255) - 19u8
+    }
+
+    /// The integer the (possibly unreduced) limbs represent.
+    pub(super) fn limbs_to_int(limbs: &[u64; 5]) -> BigUint {
+        limbs
+            .iter()
+            .rev()
+            .fold(BigUint::ZERO, |acc, &l| (acc << 51) + l)
+    }
+
+    /// Canonical little-endian encoding of `v mod p`.
+    pub(super) fn encode(v: &BigUint) -> [u8; 32] {
+        let bytes = (v % prime()).to_bytes_le();
+        let mut out = [0u8; 32];
+        out[..bytes.len()].copy_from_slice(&bytes);
+        out
+    }
+
+    fn int(fe: &Fe) -> BigUint {
+        limbs_to_int(&fe.0)
+    }
+
+    fn bytes_to_int(bytes: &[u8; 32]) -> BigUint {
+        BigUint::from_bytes_le(bytes)
+    }
+
+    /// Structured operands: 0, 1, 2, p - 1, p, p + 1, 2^255 - 1 and limb
+    /// vectors at the reduced (2^51), sub-bias (2^52) and multiply-input
+    /// (2^54) bounds.
+    fn edge_operands() -> Vec<Fe> {
         let p_minus_1 = hex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f");
-        let all_ones = hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-        let a = Fe::from_bytes(&p_minus_1);
-        let b = Fe::from_bytes(&all_ones);
-        // 2^255 - 1 = 18 mod p.
+        let mut two = [0u8; 32];
+        two[0] = 2;
+        vec![
+            Fe::ZERO,
+            Fe::ONE,
+            Fe::from_bytes(&two),
+            Fe::from_bytes(&p_minus_1),
+            Fe([MASK51 - 18, MASK51, MASK51, MASK51, MASK51]),
+            Fe([MASK51 - 17, MASK51, MASK51, MASK51, MASK51]),
+            Fe([MASK51; 5]),
+            Fe([
+                (1 << 52) - 19 - 1,
+                (1 << 52) - 1,
+                (1 << 52) - 1,
+                (1 << 52) - 1,
+                (1 << 52) - 1,
+            ]),
+            Fe([(1 << 54) - 1; 5]),
+            Fe([(1 << 54) - 1, 0, 0, 0, (1 << 54) - 1]),
+            Fe([0, 0, 0, 0, (1 << 54) - 1]),
+            Fe([0, (1 << 54) - 1, 0, 0, 0]),
+        ]
+    }
+
+    /// Multiply, square, multiply-by-121666, add, subtract, negate, `pow2k`
+    /// and invert equal the big-integer results modulo `p` on structured edge
+    /// operands and random limb vectors at the 2^51 and 2^54 bounds, `square`
+    /// equals `mul` of an element with itself, and `0^-1 = 0`.
+    #[test]
+    fn test_field_ops_against_bigint() {
+        let p = prime();
+        let mut rng = XorShift64::new(0x9b05_688c_2b3e_6c1f);
+        let mut operands = edge_operands();
+        for i in 0..96 {
+            let mask = (1u64 << if i % 2 == 0 { 54 } else { 51 }) - 1;
+            operands.push(Fe(std::array::from_fn(|_| rng.next_u64() & mask)));
+            operands.push(Fe::from_bytes(&rng.next_bytes32()));
+        }
+        // Subtrahends must be reduced; production only ever subtracts
+        // multiply outputs and decoded bytes (limbs below 2^51 + 2^13).
+        let weakly_reduced = |fe: &Fe| fe.0.iter().all(|&l| l < (1 << 51) + (1 << 13));
+        let reduced: Vec<Fe> = operands.iter().copied().filter(weakly_reduced).collect();
+        assert!(reduced.len() > operands.len() / 2);
+
+        let m121666 = BigUint::from(121666u32);
+        for (i, a) in operands.iter().enumerate() {
+            let ia = int(a);
+            let square = a.square();
+            assert_eq!(square.to_bytes(), encode(&(&ia * &ia)), "square {i}");
+            assert_eq!(square.to_bytes(), a.mul(a).to_bytes(), "square vs mul {i}");
+            assert_eq!(
+                a.mul_121666().to_bytes(),
+                encode(&(&ia * &m121666)),
+                "mul_121666 {i}"
+            );
+            // `pow2k` chains `square_chain`, which takes multiply outputs.
+            let ia2 = &ia * &ia;
+            for k in [1u32, 5, 50] {
+                let exponent = BigUint::from(1u8) << k;
+                assert_eq!(
+                    square.pow2k(k).to_bytes(),
+                    encode(&ia2.modpow(&exponent, &p)),
+                    "pow2k {i} {k}"
+                );
+            }
+            let inverse = if ia.clone() % &p == BigUint::ZERO {
+                BigUint::ZERO
+            } else {
+                ia.modpow(&(&p - 2u8), &p)
+            };
+            assert_eq!(a.invert().to_bytes(), encode(&inverse), "invert {i}");
+
+            for (j, b) in operands.iter().enumerate().step_by(7) {
+                let ib = int(b);
+                assert_eq!(a.mul(b).to_bytes(), encode(&(&ia * &ib)), "mul {i} {j}");
+                assert_eq!(a.add(b).to_bytes(), encode(&(&ia + &ib)), "add {i} {j}");
+            }
+            for (j, b) in reduced.iter().enumerate() {
+                let ib = int(b);
+                // a - b = a + (p - b mod p).
+                let minus_b = &p - (&ib % &p);
+                assert_eq!(
+                    a.sub(b).to_bytes(),
+                    encode(&(&ia + &minus_b)),
+                    "sub {i} {j}"
+                );
+                assert_eq!(b.neg().to_bytes(), encode(&minus_b), "neg {j}");
+            }
+        }
+        assert_eq!(Fe::ZERO.invert().to_bytes(), [0u8; 32]);
         assert_eq!(
-            b.to_bytes(),
-            hex("1200000000000000000000000000000000000000000000000000000000000000")
+            Fe([MASK51 - 18, MASK51, MASK51, MASK51, MASK51])
+                .invert()
+                .to_bytes(),
+            [0u8; 32],
+            "p^-1 = 0^-1 = 0"
         );
-        // (p - 1)^2 = 1.
-        assert_eq!(a.square().to_bytes(), Fe::ONE.to_bytes());
-        // (p - 1) * 18 = -18 = p - 18.
-        assert_eq!(
-            a.mul(&b).to_bytes(),
-            hex("dbffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
-        );
-        // 0 - 18 = p - 18, via the sub bias.
-        assert_eq!(
-            Fe::ZERO.sub(&b).to_bytes(),
-            hex("dbffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f")
-        );
-        // 18 * 121666 = 2189988.
-        assert_eq!(
-            b.mul_121666().to_bytes(),
-            hex("a46a210000000000000000000000000000000000000000000000000000000000")
-        );
-        // (p - 1)^-1 = p - 1.
-        assert_eq!(a.invert().to_bytes(), a.to_bytes());
-        // (p - 1) + 1 = 0.
-        assert_eq!(a.add(&Fe::ONE).to_bytes(), Fe::ZERO.to_bytes());
+    }
+
+    /// Decoding reads exactly the low 255 bits and encoding fully reduces:
+    /// `p - 1`, `p`, `p + 1` and `2^255 - 1`, each with bit 255 clear and
+    /// set, decode to the integer below bit 255 and encode to that integer
+    /// modulo `p`; unreduced limb vectors of the same values encode the same
+    /// way.
+    #[test]
+    fn test_canonical_encoding_at_field_boundary() {
+        let p = prime();
+        for (low_byte, reduced) in [
+            (0xecu8, &p - 1u8),
+            (0xed, BigUint::ZERO),
+            (0xee, BigUint::from(1u8)),
+            (0xff, BigUint::from(18u8)),
+        ] {
+            let mut encoding = [0xff; 32];
+            encoding[0] = low_byte;
+            encoding[31] = 0x7f;
+            let mut high_bit = encoding;
+            high_bit[31] = 0xff;
+            let value = bytes_to_int(&encoding);
+            assert_eq!(&value % &p, reduced);
+            for bytes in [encoding, high_bit] {
+                let fe = Fe::from_bytes(&bytes);
+                assert_eq!(int(&fe), value, "from_bytes {bytes:02x?}");
+                assert!(fe.is_reduced());
+                assert_eq!(fe.to_bytes(), encode(&value), "to_bytes {bytes:02x?}");
+                assert_eq!(Fe::from_bytes(&fe.to_bytes()).to_bytes(), fe.to_bytes());
+            }
+        }
+
+        // Unreduced representations: 2p, 2p + 1, 2^255 - 1 as all-ones limbs,
+        // and limbs at the multiply-input bound.
+        let two_p = Fe([
+            (1 << 52) - 38,
+            (1 << 52) - 2,
+            (1 << 52) - 2,
+            (1 << 52) - 2,
+            (1 << 52) - 2,
+        ]);
+        assert_eq!(int(&two_p), &p * 2u8);
+        let mut two_p_plus_1 = two_p;
+        two_p_plus_1.0[0] += 1;
+        for fe in [
+            two_p,
+            two_p_plus_1,
+            Fe([MASK51; 5]),
+            Fe([(1 << 54) - 1; 5]),
+            Fe([0, 0, 0, 0, (1 << 54) - 1]),
+        ] {
+            assert_eq!(fe.to_bytes(), encode(&int(&fe)), "{:x?}", fe.0);
+        }
+    }
+
+    /// `sqrt_ratio_i` returns exactly what its contract says for every
+    /// small `u / v` (including zero `u` and zero `v`), random ratios and
+    /// ratios built to be squares or non-squares: the flag is Euler's
+    /// criterion, the root is the unique nonnegative (even) `r` with
+    /// `v r^2 = u` or, for a non-square, `v r^2 = i u`.
+    #[test]
+    fn test_sqrt_ratio_against_bigint() {
+        let p = prime();
+        let i = int(&SQRT_M1);
+        assert_eq!(BigUint::from(2u8).modpow(&((&p - 1u8) >> 2), &p), i);
+        let euler = (&p - 1u8) >> 1;
+
+        let mut rng = XorShift64::new(0x1f83_d9ab_5be0_cd19);
+        let mut cases: Vec<(Fe, Fe)> = Vec::new();
+        for u in 0..=12u64 {
+            for v in 0..=12u64 {
+                cases.push((Fe([u, 0, 0, 0, 0]), Fe([v, 0, 0, 0, 0])));
+            }
+        }
+        for _ in 0..32 {
+            let u = Fe::from_bytes(&rng.next_bytes32());
+            let v = Fe::from_bytes(&rng.next_bytes32());
+            cases.push((u, v));
+            // v r^2 / v = r^2 is a square; i r^2 is not, as i is a non-square
+            // (p = 5 mod 8).
+            let r = Fe::from_bytes(&rng.next_bytes32());
+            let vr2 = v.mul(&r.square());
+            cases.push((vr2, v));
+            cases.push((vr2.mul(&SQRT_M1), v));
+            // Sum/difference inputs, as decompression passes them.
+            cases.push((
+                u.square().sub(&Fe::ONE),
+                u.square().mul(&EDWARDS_D).add(&Fe::ONE),
+            ));
+        }
+
+        let mut squares = 0;
+        for (u, v) in cases {
+            let (iu, iv) = (int(&u) % &p, int(&v) % &p);
+            let (is_square, r) = Fe::sqrt_ratio_i(&u, &v);
+            let ir = int(&r) % &p;
+            assert!(r.is_reduced());
+            // A zero numerator is a square with root zero even when `v` is
+            // zero too (dalek's `sqrt_ratio_i` order of precedence).
+            if iu == BigUint::ZERO {
+                assert!(is_square, "u = 0: {:x?}", v.0);
+                assert_eq!(ir, BigUint::ZERO, "u = 0: {:x?}", v.0);
+                continue;
+            }
+            if iv == BigUint::ZERO {
+                assert!(!is_square, "v = 0: {:x?}", u.0);
+                assert_eq!(ir, BigUint::ZERO, "v = 0: {:x?}", u.0);
+                continue;
+            }
+            let ratio = &iu * iv.modpow(&(&p - 2u8), &p) % &p;
+            let expected_square = ratio.modpow(&euler, &p) == BigUint::from(1u8);
+            assert_eq!(is_square, expected_square, "{:x?} / {:x?}", u.0, v.0);
+            squares += usize::from(is_square);
+            assert!(!r.is_negative(), "{:x?} / {:x?}", u.0, v.0);
+            assert_eq!(r.to_bytes()[0] & 1, 0);
+            let r2 = &ir * &ir % &p;
+            let target = if is_square { ratio } else { &ratio * &i % &p };
+            assert_eq!(r2, target, "{:x?} / {:x?}", u.0, v.0);
+        }
+        assert!(squares > 40);
     }
 
     /// The register-only operations agree with the portable u128 versions,

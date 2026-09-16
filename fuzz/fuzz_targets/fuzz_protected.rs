@@ -1,8 +1,17 @@
 #![no_main]
+//! Protected memory against a plain `Vec<u8>` model: `HeapBytes` resizing,
+//! cloning and indexing; locked/unlocked and read-write/read-only/no-access
+//! typestate transitions, explicit zeroization in every protect mode, and the
+//! fixed-size `HeapByteArray` conversions. Locking may legitimately be refused
+//! by host limits, so a refused `mlock` ends the sequence instead of being
+//! reported as an input-dependent crash; protection changes and unlocking of
+//! an existing allocation have no such excuse and must succeed.
 
 #[cfg(any(unix, windows))]
 use dryoc::protected::*;
 use libfuzzer_sys::fuzz_target;
+#[cfg(any(unix, windows))]
+use zeroize::Zeroize;
 
 #[cfg(any(unix, windows))]
 const MAX_HEAP_BYTES_LEN: usize = 32 * 1024;
@@ -34,33 +43,87 @@ fn exercise_heapbytearray(model: &[u8], byte: u8) {
     let mut expected = array;
     expected[idx] ^= byte;
     assert_eq!(protected.as_array(), &expected);
+
+    // Fixed-size locked conversion takes exactly LENGTH bytes.
+    let prefix = &model[..model.len().min(33)];
+    if prefix.len() == 32 {
+        let Ok(locked) = HeapByteArray::<32>::from_slice_into_locked(prefix) else {
+            return;
+        };
+        assert_eq!(locked.as_slice(), prefix);
+        let readonly = locked.mprotect_readonly().expect("mprotect_readonly");
+        assert_eq!(readonly.as_slice(), prefix);
+    } else {
+        assert!(HeapByteArray::<32>::from_slice_into_locked(prefix).is_err());
+    }
+
+    // Locking the array and reading it back through the read-only view.
+    let Ok(locked) = protected.mlock() else {
+        return;
+    };
+    assert_eq!(locked.as_slice(), &expected);
+    let readonly = locked.mprotect_readonly().expect("mprotect_readonly");
+    assert_eq!(readonly.as_array(), &expected);
 }
 
+/// Walks a copy of `model` through the protected-memory typestate transitions.
+/// `byte` chooses the resized length and fill byte.
 #[cfg(any(unix, windows))]
-fn exercise_locked(model: &[u8]) {
+fn exercise_locked(model: &[u8], byte: u8) {
     if model.len() > MAX_LOCKED_LEN {
         return;
     }
+    let new_len = usize::from(byte) % (MAX_LOCKED_LEN + 1);
 
-    let Ok(locked) = HeapBytes::from_slice_into_locked(model) else {
+    // Lock an already-sized value so lock refusal remains a fallible operation;
+    // locked `Clone` and `resize` allocate internally and panic on host limits.
+    let Ok(locked) = HeapBytes::from(model).mlock() else {
         return;
     };
     assert_eq!(locked.as_slice(), model);
 
-    let Ok(readonly) = locked.mprotect_readonly() else {
-        return;
-    };
+    // Locked, read-only. Explicit zeroization wipes it and restores its
+    // protection, keeping the length.
+    let mut readonly = locked.mprotect_readonly().expect("mprotect_readonly");
     assert_eq!(readonly.as_slice(), model);
-
-    let Ok(readwrite) = readonly.mprotect_readwrite() else {
-        return;
-    };
+    readonly.zeroize();
+    assert_eq!(readonly.len(), model.len());
+    assert!(readonly.as_slice().iter().all(|&b| b == 0));
+    let mut readwrite = readonly.mprotect_readwrite().expect("mprotect_readwrite");
+    readwrite.as_mut_slice().copy_from_slice(model);
     assert_eq!(readwrite.as_slice(), model);
 
-    let Ok(unlocked) = readwrite.munlock() else {
+    // Unlocked: no-access round trips back to read-only and read-write with
+    // the bytes intact, and zeroization while inaccessible still wipes.
+    let unlocked = readwrite.munlock().expect("munlock");
+    assert_eq!(unlocked.as_slice(), model);
+    let noaccess = unlocked.mprotect_noaccess().expect("mprotect_noaccess");
+    let readonly = noaccess.mprotect_readonly().expect("mprotect_readonly");
+    assert_eq!(readonly.as_slice(), model);
+    let noaccess = readonly.mprotect_noaccess().expect("mprotect_noaccess");
+    let readwrite = noaccess.mprotect_readwrite().expect("mprotect_readwrite");
+    assert_eq!(readwrite.as_slice(), model);
+    let mut noaccess = readwrite.mprotect_noaccess().expect("mprotect_noaccess");
+    noaccess.zeroize();
+    let mut readwrite = noaccess.mprotect_readwrite().expect("mprotect_readwrite");
+    assert_eq!(readwrite.len(), model.len());
+    assert!(readwrite.as_slice().iter().all(|&b| b == 0));
+
+    // Unlocked read-write is resizable and can be locked again. Explicit
+    // zeroization of both read-write states is plain.
+    readwrite.resize(new_len, byte);
+    assert_eq!(readwrite.len(), new_len);
+    assert!(
+        readwrite.as_slice()[model.len().min(new_len)..]
+            .iter()
+            .all(|&b| b == byte)
+    );
+    let Ok(mut relocked) = readwrite.mlock() else {
         return;
     };
-    assert_eq!(unlocked.as_slice(), model);
+    relocked.zeroize();
+    assert_eq!(relocked.len(), new_len);
+    assert!(relocked.as_slice().iter().all(|&b| b == 0));
 }
 
 #[cfg(any(unix, windows))]
@@ -91,9 +154,15 @@ fn exercise(data: &[u8]) {
                 assert_eq!(bytes.as_slice(), model.as_slice());
             }
             1 => {
-                let cloned = bytes.clone();
+                let mut cloned = bytes.clone();
                 assert_eq!(cloned, bytes);
                 assert_eq!(cloned.as_slice(), model.as_slice());
+                if !model.is_empty() {
+                    let idx = usize::from(arg) % model.len();
+                    cloned[idx] = !model[idx];
+                    assert_eq!(bytes.as_slice(), model.as_slice());
+                    assert_ne!(cloned, bytes);
+                }
             }
             2 => {
                 if !model.is_empty() {
@@ -105,10 +174,15 @@ fn exercise(data: &[u8]) {
                     assert_eq!(bytes.as_slice(), model.as_slice());
                 }
             }
-            3 => exercise_locked(model.as_slice()),
+            3 => exercise_locked(model.as_slice(), value),
             _ => exercise_heapbytearray(model.as_slice(), value),
         }
     }
+
+    // Explicit zeroization of the plain heap value keeps its length.
+    bytes.zeroize();
+    assert_eq!(bytes.len(), model.len());
+    assert!(bytes.as_slice().iter().all(|&b| b == 0));
 }
 
 fuzz_target!(|data: &[u8]| {

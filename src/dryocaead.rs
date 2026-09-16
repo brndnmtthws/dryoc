@@ -1089,6 +1089,395 @@ mod tests {
         );
     }
 
+    /// Known-answer vectors shared by the ChaCha20-Poly1305-IETF (RFC 8439
+    /// section 2.8.2) and XChaCha20-Poly1305-IETF tests. The XChaCha case
+    /// reuses the RFC 8439 key, associated data and message with a 24-byte
+    /// nonce; its expected bytes are libsodium's output for those inputs, the
+    /// same vector `classic::crypto_aead_xchacha20poly1305_ietf` checks against
+    /// libsodium at runtime in its native tests.
+    mod kat {
+        use super::*;
+        use crate::classic::crypto_aead_chacha20poly1305_ietf::{
+            crypto_aead_chacha20poly1305_ietf_decrypt, crypto_aead_chacha20poly1305_ietf_encrypt,
+        };
+        use crate::classic::crypto_aead_xchacha20poly1305_ietf::{
+            crypto_aead_xchacha20poly1305_ietf_decrypt, crypto_aead_xchacha20poly1305_ietf_encrypt,
+        };
+        use crate::dryocaead::chacha20poly1305_ietf as chacha;
+
+        const MESSAGE: &[u8] = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+        const AD: &[u8] = &[
+            0x50, 0x51, 0x52, 0x53, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
+        ];
+        const KEY: [u8; 32] = [
+            0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d,
+            0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b,
+            0x9c, 0x9d, 0x9e, 0x9f,
+        ];
+        const CHACHA_NONCE: [u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES] = [
+            0x07, 0x00, 0x00, 0x00, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+        ];
+        const CHACHA_EXPECTED: &str = concat!(
+            "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69",
+            "da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad67594",
+            "5585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b61161ae10b594f09e26a7e902ecbd0600691",
+        );
+        const XCHACHA_NONCE: [u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES] = [
+            0xf2, 0x8a, 0x50, 0xa7, 0x8a, 0x7e, 0x23, 0xc9, 0xcb, 0xa6, 0x78, 0x34, 0x66, 0xf8,
+            0x03, 0x59, 0x0f, 0x04, 0xe9, 0x22, 0x31, 0xa3, 0x2d, 0x5d,
+        ];
+        const XCHACHA_EXPECTED: &str = concat!(
+            "20f1ae75e1e5e00040294f0fb10ebb0810c593c7dba4ec104c1e5ef9507faeef58fc2898bbd0e47b2f5331fb",
+            "c367d3c2784e3648ce1eaa7787ad186db2685ee89ae4d3441f6ea0b2224cd5a134161b554d8b48350b4ad401",
+            "15db81ea820968e943892f2b8051cb5f7a8666e7e7ef7f84c0a2f80a12d06680c8eebbd93004109de842",
+        );
+
+        fn chacha_expected() -> Vec<u8> {
+            hex::decode(CHACHA_EXPECTED).expect("hex")
+        }
+
+        fn xchacha_expected() -> Vec<u8> {
+            hex::decode(XCHACHA_EXPECTED).expect("hex")
+        }
+
+        #[test]
+        fn chacha_box_and_envelope_match_rfc_8439_and_classic() {
+            let key = chacha::Key::from(KEY);
+            let nonce = chacha::Nonce::from(CHACHA_NONCE);
+            let expected = chacha_expected();
+
+            let aead = chacha::VecBox::encrypt_to_vecbox(MESSAGE, Some(AD), &nonce, &key)
+                .expect("encrypt");
+            assert_eq!(aead.to_vec(), expected);
+            assert_eq!(aead.clone().into_vec(), expected);
+            assert_eq!(aead.data(), &expected[..MESSAGE.len()]);
+            assert_eq!(aead.tag().as_slice(), &expected[MESSAGE.len()..]);
+
+            // Rustaceous bytes decrypt with the Classic API and vice versa.
+            let mut classic_decrypted = vec![0u8; MESSAGE.len()];
+            crypto_aead_chacha20poly1305_ietf_decrypt(
+                &mut classic_decrypted,
+                &aead.to_vec(),
+                Some(AD),
+                &CHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic decrypt");
+            assert_eq!(classic_decrypted, MESSAGE);
+
+            let mut classic_ciphertext =
+                vec![0u8; MESSAGE.len() + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES];
+            crypto_aead_chacha20poly1305_ietf_encrypt(
+                &mut classic_ciphertext,
+                MESSAGE,
+                Some(AD),
+                &CHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic encrypt");
+            let parsed = chacha::VecBox::from_bytes(&classic_ciphertext).expect("parse");
+            assert_eq!(parsed, aead);
+            assert_eq!(
+                parsed
+                    .decrypt_to_vec(Some(AD), &nonce, &key)
+                    .expect("decrypt"),
+                MESSAGE
+            );
+
+            let (tag, data) = parsed.into_parts();
+            let envelope = chacha::VecEnvelope::from_parts(nonce.clone(), tag, data);
+            let mut envelope_bytes = CHACHA_NONCE.to_vec();
+            envelope_bytes.extend_from_slice(&expected);
+            assert_eq!(envelope.to_vec(), envelope_bytes);
+            assert_eq!(envelope.clone().into_vec(), envelope_bytes);
+            let envelope = chacha::VecEnvelope::from_bytes(&envelope_bytes).expect("parse");
+            assert_eq!(envelope.nonce(), &nonce);
+            assert_eq!(envelope.open_to_vec(Some(AD), &key).expect("open"), MESSAGE);
+        }
+
+        #[test]
+        fn xchacha_box_and_envelope_match_libsodium_vector_and_classic() {
+            let key = Key::from(KEY);
+            let nonce = Nonce::from(XCHACHA_NONCE);
+            let expected = xchacha_expected();
+
+            let aead = VecBox::encrypt_to_vecbox(MESSAGE, Some(AD), &nonce, &key).expect("encrypt");
+            assert_eq!(aead.to_vec(), expected);
+            assert_eq!(aead.clone().into_vec(), expected);
+
+            let mut classic_decrypted = vec![0u8; MESSAGE.len()];
+            crypto_aead_xchacha20poly1305_ietf_decrypt(
+                &mut classic_decrypted,
+                &aead.to_vec(),
+                Some(AD),
+                &XCHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic decrypt");
+            assert_eq!(classic_decrypted, MESSAGE);
+
+            let mut classic_ciphertext =
+                vec![0u8; MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
+            crypto_aead_xchacha20poly1305_ietf_encrypt(
+                &mut classic_ciphertext,
+                MESSAGE,
+                Some(AD),
+                &XCHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic encrypt");
+            let parsed = VecBox::from_bytes(&classic_ciphertext).expect("parse");
+            assert_eq!(parsed, aead);
+            assert_eq!(
+                parsed
+                    .decrypt_to_vec(Some(AD), &nonce, &key)
+                    .expect("decrypt"),
+                MESSAGE
+            );
+
+            let mut envelope_bytes = XCHACHA_NONCE.to_vec();
+            envelope_bytes.extend_from_slice(&expected);
+            let envelope = VecEnvelope::from_bytes(&envelope_bytes).expect("parse");
+            assert_eq!(envelope.to_vec(), envelope_bytes);
+            assert_eq!(envelope.open_to_vec(Some(AD), &key).expect("open"), MESSAGE);
+            let (parsed_nonce, tag, data) = envelope.into_parts();
+            assert_eq!(parsed_nonce, nonce);
+            assert_eq!(
+                VecEnvelope::with_nonce_data_and_mac(parsed_nonce, tag, &data).into_vec(),
+                envelope_bytes
+            );
+        }
+
+        #[test]
+        fn chacha_tampering_and_wrong_inputs_are_rejected() {
+            let key = chacha::Key::from(KEY);
+            let nonce = chacha::Nonce::from(CHACHA_NONCE);
+            let expected = chacha_expected();
+            let aead = chacha::VecBox::from_bytes(&expected).expect("parse");
+
+            assert!(matches!(
+                aead.decrypt_to_vec(None, &nonce, &key),
+                Err(Error::AuthenticationFailed)
+            ));
+            assert!(matches!(
+                aead.decrypt_to_vec(Some(&AD[..AD.len() - 1]), &nonce, &key),
+                Err(Error::AuthenticationFailed)
+            ));
+
+            let mut wrong_key = key.clone();
+            wrong_key[31] ^= 1;
+            assert!(matches!(
+                aead.decrypt_to_vec(Some(AD), &nonce, &wrong_key),
+                Err(Error::AuthenticationFailed)
+            ));
+
+            let mut wrong_nonce = nonce.clone();
+            wrong_nonce[0] ^= 1;
+            assert!(matches!(
+                aead.decrypt_to_vec(Some(AD), &wrong_nonce, &key),
+                Err(Error::AuthenticationFailed)
+            ));
+
+            let tag_start = expected.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+            for index in [0, tag_start - 1, tag_start, expected.len() - 1] {
+                let mut tampered = expected.clone();
+                tampered[index] ^= 0x80;
+                let tampered = chacha::VecBox::from_bytes(&tampered).expect("parse");
+                assert!(matches!(
+                    tampered.decrypt_to_vec(Some(AD), &nonce, &key),
+                    Err(Error::AuthenticationFailed)
+                ));
+
+                let mut envelope_bytes = CHACHA_NONCE.to_vec();
+                envelope_bytes.extend_from_slice(tampered.to_vec().as_slice());
+                let envelope = chacha::VecEnvelope::from_bytes(&envelope_bytes).expect("parse");
+                assert!(matches!(
+                    envelope.open_to_vec(Some(AD), &key),
+                    Err(Error::AuthenticationFailed)
+                ));
+            }
+
+            // A ChaCha20 box must not open under XChaCha20 with a zero-extended
+            // nonce.
+            let mut xnonce = [0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES];
+            xnonce[..CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES].copy_from_slice(&CHACHA_NONCE);
+            let as_xchacha = VecBox::from_bytes(&expected).expect("parse");
+            assert!(
+                as_xchacha
+                    .decrypt_to_vec(Some(AD), &Nonce::from(xnonce), &Key::from(KEY))
+                    .is_err()
+            );
+
+            assert_eq!(
+                aead.decrypt_to_vec(Some(AD), &nonce, &key)
+                    .expect("decrypt"),
+                MESSAGE
+            );
+        }
+
+        #[test]
+        fn chacha_from_bytes_boundaries() {
+            const BOX_MIN: usize = CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+            const ENVELOPE_MIN: usize = CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES
+                + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+
+            for len in [0, 1, BOX_MIN - 1] {
+                assert!(matches!(
+                    chacha::VecBox::from_bytes(&vec![0u8; len]),
+                    Err(Error::InvalidLength {
+                        context: ErrorContext::AeadCiphertext,
+                        actual,
+                        constraint: crate::error::LengthConstraint::AtLeast(BOX_MIN),
+                    }) if actual == len
+                ));
+            }
+            let empty_box = chacha::VecBox::from_bytes(&[0x5au8; BOX_MIN]).expect("empty box");
+            assert!(empty_box.data().is_empty());
+            assert_eq!(empty_box.tag().as_slice(), &[0x5au8; BOX_MIN]);
+
+            for len in [
+                0,
+                1,
+                CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
+                ENVELOPE_MIN - 1,
+            ] {
+                assert!(matches!(
+                    chacha::VecEnvelope::from_bytes(&vec![0u8; len]),
+                    Err(Error::InvalidLength {
+                        context: ErrorContext::AeadEnvelope,
+                        actual,
+                        constraint: crate::error::LengthConstraint::AtLeast(ENVELOPE_MIN),
+                    }) if actual == len
+                ));
+            }
+            let mut envelope_bytes = CHACHA_NONCE.to_vec();
+            envelope_bytes.extend_from_slice(&[0x5au8; BOX_MIN]);
+            let empty_envelope =
+                chacha::VecEnvelope::from_bytes(&envelope_bytes).expect("empty envelope");
+            assert!(empty_envelope.data().is_empty());
+            assert_eq!(empty_envelope.nonce().as_slice(), &CHACHA_NONCE);
+            assert_eq!(empty_envelope.tag().as_slice(), &[0x5au8; BOX_MIN]);
+
+            // An XChaCha envelope is one nonce longer; the ChaCha parser sees
+            // the extra 12 bytes as ciphertext rather than
+            // rejecting them.
+            let xchacha_min = [0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
+                + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
+            assert_eq!(
+                chacha::VecEnvelope::from_bytes(&xchacha_min)
+                    .expect("parses")
+                    .data()
+                    .len(),
+                CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
+                    - CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES
+            );
+            assert!(VecEnvelope::from_bytes(&envelope_bytes).is_err());
+        }
+
+        #[cfg(feature = "serde")]
+        #[test]
+        fn chacha_and_xchacha_json_round_trips_decrypt_with_classic() {
+            let expected = chacha_expected();
+            let aead = chacha::VecBox::from_bytes(&expected).expect("parse");
+            let json = serde_json::to_string(&aead).expect("serialize box");
+            let decoded: chacha::VecBox = serde_json::from_str(&json).expect("deserialize box");
+            assert_eq!(decoded, aead);
+            let mut decrypted = vec![0u8; MESSAGE.len()];
+            crypto_aead_chacha20poly1305_ietf_decrypt(
+                &mut decrypted,
+                &decoded.to_vec(),
+                Some(AD),
+                &CHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic decrypt");
+            assert_eq!(decrypted, MESSAGE);
+
+            let mut envelope_bytes = CHACHA_NONCE.to_vec();
+            envelope_bytes.extend_from_slice(&expected);
+            let envelope = chacha::VecEnvelope::from_bytes(&envelope_bytes).expect("parse");
+            let json = serde_json::to_string(&envelope).expect("serialize envelope");
+            let decoded: chacha::VecEnvelope =
+                serde_json::from_str(&json).expect("deserialize envelope");
+            assert_eq!(decoded, envelope);
+            assert_eq!(decoded.to_vec(), envelope_bytes);
+            assert_eq!(
+                decoded
+                    .open_to_vec(Some(AD), &chacha::Key::from(KEY))
+                    .expect("open"),
+                MESSAGE
+            );
+
+            let xexpected = xchacha_expected();
+            let xaead = VecBox::from_bytes(&xexpected).expect("parse");
+            let decoded: VecBox =
+                serde_json::from_str(&serde_json::to_string(&xaead).expect("ser")).expect("de");
+            assert_eq!(decoded.to_vec(), xexpected);
+            let mut xenvelope_bytes = XCHACHA_NONCE.to_vec();
+            xenvelope_bytes.extend_from_slice(&xexpected);
+            let xenvelope = VecEnvelope::from_bytes(&xenvelope_bytes).expect("parse");
+            let decoded: VecEnvelope =
+                serde_json::from_str(&serde_json::to_string(&xenvelope).expect("ser")).expect("de");
+            assert_eq!(decoded.to_vec(), xenvelope_bytes);
+            let mut decrypted = vec![0u8; MESSAGE.len()];
+            crypto_aead_xchacha20poly1305_ietf_decrypt(
+                &mut decrypted,
+                &decoded.to_vec()[CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES..],
+                Some(AD),
+                &XCHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic decrypt");
+            assert_eq!(decrypted, MESSAGE);
+        }
+
+        #[cfg(feature = "wincode")]
+        #[test]
+        fn chacha_wincode_round_trips_decrypt_with_classic() {
+            let expected = chacha_expected();
+            let aead = chacha::VecBox::from_bytes(&expected).expect("parse");
+            let encoded = wincode::serialize(&aead).expect("serialize box");
+            let decoded: chacha::VecBox = wincode::deserialize(&encoded).expect("deserialize box");
+            assert_eq!(decoded, aead);
+            let mut decrypted = vec![0u8; MESSAGE.len()];
+            crypto_aead_chacha20poly1305_ietf_decrypt(
+                &mut decrypted,
+                &decoded.to_vec(),
+                Some(AD),
+                &CHACHA_NONCE,
+                &KEY,
+            )
+            .expect("classic decrypt");
+            assert_eq!(decrypted, MESSAGE);
+
+            let mut envelope_bytes = CHACHA_NONCE.to_vec();
+            envelope_bytes.extend_from_slice(&expected);
+            let envelope = chacha::VecEnvelope::from_bytes(&envelope_bytes).expect("parse");
+            let encoded = wincode::serialize(&envelope).expect("serialize envelope");
+            let decoded: chacha::VecEnvelope =
+                wincode::deserialize(&encoded).expect("deserialize envelope");
+            assert_eq!(decoded, envelope);
+            assert_eq!(decoded.to_vec(), envelope_bytes);
+            assert_eq!(
+                decoded
+                    .open_to_vec(Some(AD), &chacha::Key::from(KEY))
+                    .expect("open"),
+                MESSAGE
+            );
+
+            // Truncated encodings are rejected rather than misparsed.
+            for encoded in [wincode::serialize(&aead).expect("ser"), encoded] {
+                assert!(
+                    wincode::deserialize::<chacha::VecBox>(&encoded[..encoded.len() - 1]).is_err()
+                );
+                assert!(
+                    wincode::deserialize::<chacha::VecEnvelope>(&encoded[..encoded.len() - 1])
+                        .is_err()
+                );
+            }
+        }
+    }
+
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     mod property_tests {
         use proptest::prelude::*;

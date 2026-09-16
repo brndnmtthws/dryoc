@@ -12,6 +12,16 @@
 //! extended-counter XChaCha20 stream so it can support larger individual
 //! messages than plain ChaCha20-Poly1305-IETF.
 //!
+//! ## Behavior on failure
+//!
+//! Every decrypt function checks the buffer lengths and verifies the tag
+//! before it writes anything, so any error, a length error or
+//! [`Error::AuthenticationFailed`](crate::Error::AuthenticationFailed), leaves
+//! the output (or, in place, `data`) exactly as it found it. The tag case is
+//! the one deliberate departure from libsodium, whose
+//! `crypto_aead_xchacha20poly1305_ietf_decrypt*` zero the output buffer on a
+//! failed tag check, destroying the ciphertext when decrypting in place.
+//!
 //! ## Classic API example
 //!
 //! ```
@@ -119,7 +129,9 @@ impl_chacha20poly1305_aead! {
     /// Detached version of [`crypto_aead_xchacha20poly1305_ietf_decrypt`].
     ///
     /// Compatible with libsodium's
-    /// `crypto_aead_xchacha20poly1305_ietf_decrypt_detached`.
+    /// `crypto_aead_xchacha20poly1305_ietf_decrypt_detached`, except that a
+    /// failed tag check leaves `message` untouched (see [Behavior on
+    /// failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -128,7 +140,9 @@ impl_chacha20poly1305_aead! {
     decrypt_detached: crypto_aead_xchacha20poly1305_ietf_decrypt_detached,
 
     /// In-place detached variant of
-    /// [`crypto_aead_xchacha20poly1305_ietf_decrypt_detached`].
+    /// [`crypto_aead_xchacha20poly1305_ietf_decrypt_detached`]. On a failed tag
+    /// check `data` is left unchanged, so the ciphertext survives (libsodium
+    /// zeroes it; see [Behavior on failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -148,7 +162,9 @@ impl_chacha20poly1305_aead! {
 
     /// Decrypts `ciphertext` with `nonce`, `key`, and optional associated data.
     ///
-    /// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_decrypt`.
+    /// Compatible with libsodium's `crypto_aead_xchacha20poly1305_ietf_decrypt`,
+    /// except that a failed tag check leaves `message` untouched (see
+    /// [Behavior on failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -171,6 +187,9 @@ impl_chacha20poly1305_aead! {
     ///
     /// After success, the first `data.len() -
     /// CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES` bytes contain the plaintext.
+    /// On a failed tag check `data` is left unchanged, so the ciphertext
+    /// survives (libsodium zeroes it; see [Behavior on
+    /// failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -182,6 +201,11 @@ impl_chacha20poly1305_aead! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(dryoc_native_tests)]
+    use crate::classic::crypto_aead_chacha20poly1305_impl::test_util::check_matches_libsodium;
+    use crate::classic::crypto_aead_chacha20poly1305_impl::test_util::{
+        Aead, check_failures_leave_outputs_untouched,
+    };
     use crate::error::{Error, LengthConstraint};
 
     #[test]
@@ -281,32 +305,6 @@ mod tests {
     }
 
     #[test]
-    fn test_failures_do_not_mutate_output() {
-        let mut ciphertext = vec![0u8; MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
-        crypto_aead_xchacha20poly1305_ietf_encrypt(
-            &mut ciphertext,
-            MESSAGE,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect("encrypt");
-        ciphertext[0] ^= 1;
-
-        let mut decrypted = vec![0xa5; MESSAGE.len()];
-        let original = decrypted.clone();
-        crypto_aead_xchacha20poly1305_ietf_decrypt(
-            &mut decrypted,
-            &ciphertext,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect_err("expected auth failure");
-        assert_eq!(decrypted, original);
-    }
-
-    #[test]
     fn test_empty_message_and_no_aad() {
         let mut ciphertext = vec![0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
         crypto_aead_xchacha20poly1305_ietf_encrypt(&mut ciphertext, &[], None, &NONCE, &KEY)
@@ -316,102 +314,6 @@ mod tests {
         crypto_aead_xchacha20poly1305_ietf_decrypt(&mut decrypted, &ciphertext, None, &NONCE, &KEY)
             .expect("decrypt");
         assert!(decrypted.is_empty());
-    }
-
-    #[test]
-    fn test_wrong_aad_fails() {
-        let mut ciphertext = vec![0u8; MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
-        crypto_aead_xchacha20poly1305_ietf_encrypt(
-            &mut ciphertext,
-            MESSAGE,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect("encrypt");
-
-        let mut decrypted = vec![0u8; MESSAGE.len()];
-        crypto_aead_xchacha20poly1305_ietf_decrypt(
-            &mut decrypted,
-            &ciphertext,
-            Some(b"wrong aad"),
-            &NONCE,
-            &KEY,
-        )
-        .expect_err("expected auth failure");
-    }
-
-    #[test]
-    fn test_wrong_key_and_nonce_fail() {
-        let mut ciphertext = vec![0u8; MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
-        crypto_aead_xchacha20poly1305_ietf_encrypt(
-            &mut ciphertext,
-            MESSAGE,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect("encrypt");
-
-        let mut wrong_key = KEY;
-        wrong_key[0] ^= 1;
-        let mut decrypted = vec![0u8; MESSAGE.len()];
-        crypto_aead_xchacha20poly1305_ietf_decrypt(
-            &mut decrypted,
-            &ciphertext,
-            Some(AD),
-            &NONCE,
-            &wrong_key,
-        )
-        .expect_err("expected wrong key auth failure");
-
-        let mut wrong_nonce = NONCE;
-        wrong_nonce[0] ^= 1;
-        crypto_aead_xchacha20poly1305_ietf_decrypt(
-            &mut decrypted,
-            &ciphertext,
-            Some(AD),
-            &wrong_nonce,
-            &KEY,
-        )
-        .expect_err("expected wrong nonce auth failure");
-    }
-
-    #[test]
-    fn test_wrong_mac_and_short_ciphertext_fail() {
-        let mut ciphertext = vec![0u8; MESSAGE.len()];
-        let mut mac = Mac::default();
-        crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
-            &mut ciphertext,
-            &mut mac,
-            MESSAGE,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect("detached encrypt");
-
-        mac[0] ^= 1;
-        let mut decrypted = vec![0u8; MESSAGE.len()];
-        crypto_aead_xchacha20poly1305_ietf_decrypt_detached(
-            &mut decrypted,
-            &ciphertext,
-            &mac,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect_err("expected wrong mac auth failure");
-
-        let mut short_decrypted = vec![];
-        crypto_aead_xchacha20poly1305_ietf_decrypt(
-            &mut short_decrypted,
-            &[0u8; CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES - 1],
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect_err("expected short ciphertext failure");
     }
 
     #[test]
@@ -427,53 +329,64 @@ mod tests {
         assert_eq!(&data[..MESSAGE.len()], MESSAGE);
     }
 
+    /// The XChaCha20 stream's block function input: the original
+    /// 64-bit-counter ChaCha20 layout keyed by HChaCha20 of the first 16
+    /// nonce bytes, with the last 8 nonce bytes as its nonce (words 14 and
+    /// 15) and the counter supplied per block.
+    fn xchacha20_state(nonce: &Nonce, key: &Key) -> [u32; 16] {
+        let mut subkey = HChaCha20Key::default();
+        crypto_core_hchacha20(&mut subkey, ByteArray::as_array(&nonce[..16]), key, None);
+        let mut state = [0u32; 16];
+        state[..4].copy_from_slice(&crate::utils::SIGMA);
+        for (word, bytes) in state[4..12].iter_mut().zip(subkey.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*bytes);
+        }
+        for (word, bytes) in state[14..].iter_mut().zip(nonce[16..].as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*bytes);
+        }
+        state
+    }
+
+    /// The extended stream across the IETF 32-bit counter boundary and at
+    /// the end of the 64-bit counter: 128 bytes from `u32::MAX` are blocks
+    /// `u32::MAX` and `2^32` (word 13 becomes 1), and from `u64::MAX` block
+    /// `u64::MAX` followed by block 0.
     #[test]
-    fn test_xietf_ext_stream_crosses_ietf_counter_boundary() {
-        let mut cipher = xchacha20_stream(&NONCE, &KEY, u64::from(u32::MAX));
+    fn test_xietf_ext_stream_crosses_counter_boundaries() {
+        let state = xchacha20_state(&NONCE, &KEY);
+        for start in [u64::from(u32::MAX), u64::MAX] {
+            let mut expected = [0u8; 128];
+            let (first, second) = expected.split_at_mut(64);
+            crate::chacha20::scalar_block(&state, start, first.try_into().unwrap());
+            crate::chacha20::scalar_block(
+                &state,
+                start.wrapping_add(1),
+                second.try_into().unwrap(),
+            );
+            assert_ne!(first, second);
 
-        let mut stream = [0u8; 128];
-        cipher.apply_keystream(&mut stream);
+            let mut stream = [0u8; 128];
+            xchacha20_stream(&NONCE, &KEY, start).apply_keystream(&mut stream);
+            assert_eq!(stream, expected, "from {start:#x}");
+        }
+    }
 
-        assert_ne!(&stream[..64], &[0u8; 64]);
-        assert_ne!(&stream[64..], &[0u8; 64]);
-        assert_ne!(&stream[..64], &stream[64..]);
+    fn aead() -> Aead<Nonce> {
+        Aead {
+            encrypt_detached: crypto_aead_xchacha20poly1305_ietf_encrypt_detached,
+            encrypt_detached_inplace: crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace,
+            decrypt_detached: crypto_aead_xchacha20poly1305_ietf_decrypt_detached,
+            decrypt_detached_inplace: crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace,
+            encrypt: crypto_aead_xchacha20poly1305_ietf_encrypt,
+            decrypt: crypto_aead_xchacha20poly1305_ietf_decrypt,
+            encrypt_inplace: crypto_aead_xchacha20poly1305_ietf_encrypt_inplace,
+            decrypt_inplace: crypto_aead_xchacha20poly1305_ietf_decrypt_inplace,
+        }
     }
 
     #[test]
-    fn test_inplace_failures_do_not_mutate_data() {
-        let mut data = MESSAGE.to_vec();
-        data.resize(MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, 0);
-        crypto_aead_xchacha20poly1305_ietf_encrypt_inplace(&mut data, Some(AD), &NONCE, &KEY)
-            .expect("inplace encrypt");
-        data[MESSAGE.len()] ^= 1;
-        let original = data.clone();
-
-        crypto_aead_xchacha20poly1305_ietf_decrypt_inplace(&mut data, Some(AD), &NONCE, &KEY)
-            .expect_err("expected auth failure");
-        assert_eq!(data, original);
-
-        let mut detached = MESSAGE.to_vec();
-        let mut mac = Mac::default();
-        crypto_aead_xchacha20poly1305_ietf_encrypt_detached_inplace(
-            &mut detached,
-            &mut mac,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect("detached inplace encrypt");
-        mac[0] ^= 1;
-        let original = detached.clone();
-
-        crypto_aead_xchacha20poly1305_ietf_decrypt_detached_inplace(
-            &mut detached,
-            &mac,
-            Some(AD),
-            &NONCE,
-            &KEY,
-        )
-        .expect_err("expected detached auth failure");
-        assert_eq!(detached, original);
+    fn test_failures_leave_outputs_untouched() {
+        check_failures_leave_outputs_untouched(&aead(), &KEY, &NONCE);
     }
 
     #[cfg(dryoc_native_tests)]
@@ -516,35 +429,47 @@ mod tests {
             assert_eq!(plaintext, MESSAGE);
         }
 
+        /// The extended stream at the IETF 32-bit counter boundary and at the
+        /// end of the 64-bit counter, two blocks from each, against
+        /// libsodium's `crypto_stream_xchacha20_xor_ic`.
         #[test]
-        fn test_counter_boundary_matches_libsodium_xchacha_stream() {
+        fn test_counter_boundaries_match_libsodium_xchacha_stream() {
             use libsodium_sys::crypto_stream_xchacha20_xor_ic;
 
-            let initial_counter = u64::from(u32::MAX);
-            let input = [0u8; 128];
-            let mut expected = [0u8; 128];
-            // SAFETY: All pointers are derived from initialized fixed-size
-            // buffers with lengths matching the arguments passed to
-            // libsodium. The key and nonce are exact-size test vectors.
-            unsafe {
-                assert_eq!(
-                    crypto_stream_xchacha20_xor_ic(
-                        expected.as_mut_ptr(),
-                        input.as_ptr(),
-                        input.len() as u64,
-                        NONCE.as_ptr(),
-                        initial_counter,
-                        KEY.as_ptr(),
-                    ),
-                    0
-                );
+            for start in [u64::from(u32::MAX), u64::MAX] {
+                let input = [0u8; 128];
+                let mut expected = [0u8; 128];
+                // SAFETY: All pointers are derived from initialized fixed-size
+                // buffers with lengths matching the arguments passed to
+                // libsodium. The key and nonce are exact-size test vectors.
+                unsafe {
+                    assert_eq!(
+                        crypto_stream_xchacha20_xor_ic(
+                            expected.as_mut_ptr(),
+                            input.as_ptr(),
+                            input.len() as u64,
+                            NONCE.as_ptr(),
+                            start,
+                            KEY.as_ptr(),
+                        ),
+                        0
+                    );
+                }
+
+                let mut actual = [0u8; 128];
+                xchacha20_stream(&NONCE, &KEY, start).apply_keystream(&mut actual);
+                assert_eq!(actual, expected, "from {start:#x}");
             }
+        }
 
-            let mut actual = [0u8; 128];
-            let mut cipher = xchacha20_stream(&NONCE, &KEY, initial_counter);
-            cipher.apply_keystream(&mut actual);
-
-            assert_eq!(actual, expected);
+        #[test]
+        fn test_matches_libsodium_detached_and_combined() {
+            check_matches_libsodium(
+                &aead(),
+                libsodium_sys::crypto_aead_xchacha20poly1305_ietf_encrypt_detached,
+                &KEY,
+                &NONCE,
+            );
         }
     }
 }

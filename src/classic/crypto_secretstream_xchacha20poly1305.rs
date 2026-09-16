@@ -424,31 +424,69 @@ mod tests {
     use super::*;
     use crate::dryocstream::Tag;
 
+    /// Push and pull must reject wrong buffer lengths with the right error
+    /// and leave the sentinel output, the tag and the (cloned) state exactly
+    /// as they were, and the state must remain usable afterwards. Neither
+    /// libsodium nor this implementation validates the tag byte itself.
     #[test]
-    fn push_and_pull_reject_invalid_buffer_lengths() {
+    fn push_and_pull_reject_invalid_buffer_lengths_without_mutation() {
+        let key = Key::default();
         let mut state = State::new();
-        let mut tag = 0;
+        let mut header = Header::default();
+        crypto_secretstream_xchacha20poly1305_init_push(&mut state, &mut header, &key);
+        let original_state = state.clone();
+        let message = b"message";
 
-        let error = crypto_secretstream_xchacha20poly1305_push(
+        for len in [
+            0,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES - 1,
+            message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES + 1,
+        ] {
+            let mut ciphertext = vec![0xa5u8; len];
+            let error = crypto_secretstream_xchacha20poly1305_push(
+                &mut state,
+                &mut ciphertext,
+                message,
+                None,
+                Tag::MESSAGE.bits(),
+            )
+            .expect_err("ciphertext must be exactly the message plus overhead");
+            assert!(
+                matches!(
+                    error,
+                    Error::InvalidLength {
+                        context: crate::ErrorContext::Ciphertext,
+                        ..
+                    }
+                ),
+                "push into {len} bytes"
+            );
+            assert_eq!(ciphertext, vec![0xa5u8; len], "push into {len} bytes");
+            assert!(state == original_state, "push into {len} bytes");
+        }
+
+        let mut ciphertext =
+            vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+        crypto_secretstream_xchacha20poly1305_push(
             &mut state,
-            &mut [],
-            b"message",
+            &mut ciphertext,
+            message,
             None,
             Tag::MESSAGE.bits(),
         )
-        .expect_err("ciphertext must include secretstream overhead");
-        assert!(matches!(
-            error,
-            Error::InvalidLength {
-                context: crate::ErrorContext::Ciphertext,
-                ..
-            }
-        ));
+        .expect("state must remain usable");
+
+        let mut state = State::new();
+        crypto_secretstream_xchacha20poly1305_init_pull(&mut state, &header, &key);
+        let original_state = state.clone();
+        let mut tag = 0x5a;
 
         let short_ciphertext = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES - 1];
+        let mut output = [0xa5u8; 8];
         let error = crypto_secretstream_xchacha20poly1305_pull(
             &mut state,
-            &mut [],
+            &mut output,
             &mut tag,
             &short_ciphertext,
             None,
@@ -461,11 +499,13 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!((output, tag), ([0xa5u8; 8], 0x5a));
+        assert!(state == original_state);
 
-        let ciphertext = [0u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES + 1];
+        let mut output = vec![0xa5u8; message.len() - 1];
         let error = crypto_secretstream_xchacha20poly1305_pull(
             &mut state,
-            &mut [],
+            &mut output,
             &mut tag,
             &ciphertext,
             None,
@@ -478,6 +518,23 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(output, vec![0xa5u8; message.len() - 1]);
+        assert_eq!(tag, 0x5a);
+        assert!(state == original_state);
+
+        let mut output = vec![0u8; message.len()];
+        crypto_secretstream_xchacha20poly1305_pull(
+            &mut state,
+            &mut output,
+            &mut tag,
+            &ciphertext,
+            None,
+        )
+        .expect("state must remain usable");
+        assert_eq!(
+            (output.as_slice(), tag),
+            (&message[..], Tag::MESSAGE.bits())
+        );
     }
 
     #[test]
@@ -725,6 +782,275 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
+        use crate::constants::{
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_PUSH,
+        };
+
+        /// libsodium's state mirroring `state`.
+        fn so_state(state: &State) -> libsodium_sys::crypto_secretstream_xchacha20poly1305_state {
+            libsodium_sys::crypto_secretstream_xchacha20poly1305_state {
+                k: state.k,
+                nonce: state.nonce,
+                _pad: [0u8; 8],
+            }
+        }
+
+        fn assert_same_state(
+            so: &libsodium_sys::crypto_secretstream_xchacha20poly1305_state,
+            state: &State,
+            ctx: &str,
+        ) {
+            assert_eq!((so.k, so.nonce), (state.k, state.nonce), "{ctx}: state");
+        }
+
+        /// libsodium's push, returning the ciphertext.
+        fn so_push(
+            so: &mut libsodium_sys::crypto_secretstream_xchacha20poly1305_state,
+            message: &[u8],
+            ad: &[u8],
+            tag: u8,
+        ) -> Vec<u8> {
+            let mut ciphertext =
+                vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+            let mut clen: libc::c_ulonglong = 0;
+            // SAFETY: every pointer comes from a live buffer of the length
+            // passed beside it; `ciphertext` has room for the message and
+            // the overhead.
+            let rc = unsafe {
+                libsodium_sys::crypto_secretstream_xchacha20poly1305_push(
+                    so,
+                    ciphertext.as_mut_ptr(),
+                    &mut clen,
+                    message.as_ptr(),
+                    message.len() as libc::c_ulonglong,
+                    ad.as_ptr(),
+                    ad.len() as libc::c_ulonglong,
+                    tag,
+                )
+            };
+            assert_eq!((rc, clen as usize), (0, ciphertext.len()));
+            ciphertext
+        }
+
+        /// libsodium's pull, returning the message and tag.
+        fn so_pull(
+            so: &mut libsodium_sys::crypto_secretstream_xchacha20poly1305_state,
+            ciphertext: &[u8],
+            ad: &[u8],
+        ) -> (Vec<u8>, u8) {
+            let mut message =
+                vec![0u8; ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+            let mut mlen: libc::c_ulonglong = 0;
+            let mut tag: libc::c_uchar = 0;
+            // SAFETY: as in `so_push`; `message` has room for the plaintext.
+            let rc = unsafe {
+                libsodium_sys::crypto_secretstream_xchacha20poly1305_pull(
+                    so,
+                    message.as_mut_ptr(),
+                    &mut mlen,
+                    &mut tag,
+                    ciphertext.as_ptr(),
+                    ciphertext.len() as libc::c_ulonglong,
+                    ad.as_ptr(),
+                    ad.len() as libc::c_ulonglong,
+                )
+            };
+            assert_eq!((rc, mlen as usize), (0, message.len()));
+            (message, tag)
+        }
+
+        /// Pushes `message` with both implementations from equal states and
+        /// checks the ciphertexts and the advanced states agree, then pulls
+        /// it with both from equal pull states and checks the message, tag
+        /// and advanced states agree.
+        #[allow(clippy::too_many_arguments)]
+        fn check_push_pull_match_libsodium(
+            push_state: &mut State,
+            so_push_state: &mut libsodium_sys::crypto_secretstream_xchacha20poly1305_state,
+            pull_state: &mut State,
+            so_pull_state: &mut libsodium_sys::crypto_secretstream_xchacha20poly1305_state,
+            message: &[u8],
+            ad: &[u8],
+            tag: u8,
+            ctx: &str,
+        ) {
+            let expected = so_push(so_push_state, message, ad, tag);
+            let mut ciphertext =
+                vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
+            crypto_secretstream_xchacha20poly1305_push(
+                push_state,
+                &mut ciphertext,
+                message,
+                Some(ad),
+                tag,
+            )
+            .expect("push");
+            assert_eq!(ciphertext, expected, "{ctx}: ciphertext");
+            assert_same_state(so_push_state, push_state, &format!("{ctx}: push"));
+
+            let (expected_message, expected_tag) = so_pull(so_pull_state, &ciphertext, ad);
+            let mut output = vec![0u8; message.len()];
+            let mut pulled_tag = 0xa5;
+            let mlen = crypto_secretstream_xchacha20poly1305_pull(
+                pull_state,
+                &mut output,
+                &mut pulled_tag,
+                &ciphertext,
+                Some(ad),
+            )
+            .expect("pull");
+            assert_eq!(mlen, message.len(), "{ctx}: pulled length");
+            assert_eq!(
+                (&output, pulled_tag),
+                (&expected_message, expected_tag),
+                "{ctx}: pull"
+            );
+            assert_eq!(
+                (&output, pulled_tag),
+                (&message.to_vec(), tag),
+                "{ctx}: round trip"
+            );
+            assert_same_state(so_pull_state, pull_state, &format!("{ctx}: pull"));
+        }
+
+        /// Message lengths around the ChaCha20 block (the message starts at
+        /// block 2, after the MAC key and tag blocks) and around the vector
+        /// kernels' 8-, 9- and 16-block chunks.
+        fn boundary_lens() -> Vec<usize> {
+            let mut lens = vec![0, 1, 63, 64, 65, 127, 128, 129];
+            for chunk in [8 * 64, 9 * 64, 16 * 64] {
+                lens.extend([
+                    chunk - 129,
+                    chunk - 128,
+                    chunk - 127,
+                    chunk - 1,
+                    chunk,
+                    chunk + 1,
+                ]);
+            }
+            lens.sort_unstable();
+            lens.dedup();
+            lens
+        }
+
+        /// One stream carrying every tag (MESSAGE, PUSH, REKEY, FINAL, and an
+        /// arbitrary byte, which both implementations pass through and rekey
+        /// on because its REKEY bit is set) over every message length in
+        /// [`boundary_lens`] with empty, partial-block and whole-block
+        /// associated data, against libsodium at every step.
+        #[test]
+        fn test_every_tag_and_length_matches_libsodium() {
+            let mut rng = crate::utils::test_util::XorShift64::new(0x7f4a_7c15_9e37_79b9);
+            let key: Key = rng.next_bytes32();
+            let mut push_state = State::new();
+            let mut header = Header::default();
+            crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut header, &key);
+            let mut pull_state = State::new();
+            crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &header, &key);
+            let mut so_push_state = so_state(&push_state);
+            let mut so_pull_state = so_state(&pull_state);
+
+            let tags = [
+                CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+                CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_PUSH,
+                CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_REKEY,
+                CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL,
+                0x42,
+            ];
+            let ads: [&[u8]; 3] = [b"", b"aad", &[0x5a; 16]];
+            for len in boundary_lens() {
+                let message: Vec<u8> = (0..len.div_ceil(8))
+                    .flat_map(|_| rng.next_u64().to_le_bytes())
+                    .take(len)
+                    .collect();
+                for tag in tags {
+                    for ad in ads {
+                        check_push_pull_match_libsodium(
+                            &mut push_state,
+                            &mut so_push_state,
+                            &mut pull_state,
+                            &mut so_pull_state,
+                            &message,
+                            ad,
+                            tag,
+                            &format!("len {len}, tag {tag:#04x}, ad {}", ad.len()),
+                        );
+                    }
+                }
+            }
+        }
+
+        /// With the counter set to its last values, the pushes that carry it
+        /// through `ff ff ff ff` to zero must rekey automatically exactly as
+        /// libsodium does (a MESSAGE tag, so only the wrap triggers it), and
+        /// the stream must continue in step afterwards, on both sides.
+        #[test]
+        fn test_counter_wrap_rekeys_like_libsodium() {
+            let mut rng = crate::utils::test_util::XorShift64::new(0x2545_f491_4f6c_dd1d);
+            let key: Key = rng.next_bytes32();
+            for start in [
+                [0xfd, 0xff, 0xff, 0xff],
+                [0xfe, 0xff, 0xff, 0xff],
+                [0xff; 4],
+            ] {
+                let mut push_state = State::new();
+                let mut header = Header::default();
+                crypto_secretstream_xchacha20poly1305_init_push(&mut push_state, &mut header, &key);
+                let mut pull_state = State::new();
+                crypto_secretstream_xchacha20poly1305_init_pull(&mut pull_state, &header, &key);
+                push_state.nonce[..CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES]
+                    .copy_from_slice(&start);
+                pull_state.nonce[..CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES]
+                    .copy_from_slice(&start);
+                let mut so_push_state = so_state(&push_state);
+                let mut so_pull_state = so_state(&pull_state);
+
+                let before_wrap = push_state.clone();
+                for step in 0..5 {
+                    let message: Vec<u8> = (0..37 * step).map(|i| i as u8).collect();
+                    check_push_pull_match_libsodium(
+                        &mut push_state,
+                        &mut so_push_state,
+                        &mut pull_state,
+                        &mut so_pull_state,
+                        &message,
+                        b"counter",
+                        CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_MESSAGE,
+                        &format!("start {start:02x?}, step {step}"),
+                    );
+                    let counter = u32::from_le_bytes(
+                        push_state.nonce[..CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    let wrapped = u32::from_le_bytes(start).checked_add(step + 1).is_none();
+                    if wrapped {
+                        // Rekeyed: fresh key, counter reset to 1.
+                        assert_ne!(
+                            push_state.k, before_wrap.k,
+                            "start {start:02x?}, step {step}"
+                        );
+                        assert_eq!(
+                            counter,
+                            (step + 1) - (u32::MAX - u32::from_le_bytes(start)),
+                            "start {start:02x?}, step {step}"
+                        );
+                    } else {
+                        assert_eq!(
+                            push_state.k, before_wrap.k,
+                            "start {start:02x?}, step {step}"
+                        );
+                        assert_eq!(
+                            counter,
+                            u32::from_le_bytes(start) + step + 1,
+                            "start {start:02x?}, step {step}"
+                        );
+                    }
+                }
+            }
+        }
 
         #[test]
         fn test_secretstream_basic_push() {

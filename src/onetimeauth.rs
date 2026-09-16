@@ -208,34 +208,133 @@ impl OnetimeAuth {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_single_part() {
-        let key = Key::generate();
-        let mac = OnetimeAuth::compute_to_vec(key.clone(), b"Data to authenticate");
+    /// RFC 8439 section 2.5.2 Poly1305 vector.
+    const KEY: &str = "85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b";
+    const MESSAGE: &[u8] = b"Cryptographic Forum Research Group";
+    const TAG: &str = "a8061dc1305136c6c22b8baf0c0127a9";
 
-        OnetimeAuth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+    fn vector() -> (Key, Vec<u8>) {
+        (
+            Key::try_from(hex::decode(KEY).expect("hex").as_slice()).expect("key"),
+            hex::decode(TAG).expect("hex"),
+        )
     }
 
     #[test]
-    fn test_multi_part() {
-        let key = Key::generate();
+    fn rfc8439_vector_through_single_and_multi_part_interfaces() {
+        let (key, expected) = vector();
 
-        let mut mac = OnetimeAuth::new(key.clone());
-        mac.update(b"Multi-part");
-        mac.update(b"data");
-        let mac = mac.finalize_to_vec();
+        assert_eq!(OnetimeAuth::compute_to_vec(key.clone(), &MESSAGE), expected);
+        let fixed: Mac = OnetimeAuth::compute(key.clone(), &MESSAGE);
+        assert_eq!(fixed.as_slice(), expected.as_slice());
+        OnetimeAuth::compute_and_verify(&fixed, key.clone(), &MESSAGE).expect("verify failed");
 
-        let mut verify_mac = OnetimeAuth::new(key.clone());
-        verify_mac.update(b"Multi-part");
-        verify_mac.update(b"data");
-        verify_mac.verify(&mac).expect("verify failed");
+        // Splits at and around the 16-byte Poly1305 block boundary, plus empty
+        // chunks, must all reproduce the one-shot tag.
+        for parts in [
+            vec![MESSAGE],
+            vec![&MESSAGE[..16], &MESSAGE[16..]],
+            vec![&MESSAGE[..15], &MESSAGE[15..17], &MESSAGE[17..]],
+            vec![
+                &[][..],
+                &MESSAGE[..1],
+                &[][..],
+                &MESSAGE[1..33],
+                &MESSAGE[33..],
+                &[][..],
+            ],
+        ] {
+            let mut auth = OnetimeAuth::new(key.clone());
+            for part in &parts {
+                auth.update(part);
+            }
+            assert_eq!(auth.finalize_to_vec(), expected);
 
-        let mut verify_mac = OnetimeAuth::new(key);
-        verify_mac.update(b"Multi-part");
-        verify_mac.update(b"bad data");
-        verify_mac
-            .verify(&mac)
-            .expect_err("verify should have failed");
+            let mut verifier = OnetimeAuth::new(key.clone());
+            for part in &parts {
+                verifier.update(part);
+            }
+            verifier.verify(&fixed).expect("incremental verify failed");
+        }
+
+        for index in [0, CRYPTO_ONETIMEAUTH_BYTES - 1] {
+            let mut flipped = fixed.clone();
+            flipped[index] ^= 1;
+            assert!(matches!(
+                OnetimeAuth::compute_and_verify(&flipped, key.clone(), &MESSAGE),
+                Err(Error::AuthenticationFailed)
+            ));
+            let mut verifier = OnetimeAuth::new(key.clone());
+            verifier.update(&MESSAGE);
+            assert!(matches!(
+                verifier.verify(&flipped),
+                Err(Error::AuthenticationFailed)
+            ));
+        }
+
+        let mut wrong_key = key.clone();
+        wrong_key[CRYPTO_ONETIMEAUTH_KEYBYTES - 1] ^= 1;
+        assert!(matches!(
+            OnetimeAuth::compute_and_verify(&fixed, wrong_key, &MESSAGE),
+            Err(Error::AuthenticationFailed)
+        ));
+        let mut verifier = OnetimeAuth::new(key);
+        verifier.update(&&MESSAGE[..MESSAGE.len() - 1]);
+        assert!(matches!(
+            verifier.verify(&fixed),
+            Err(Error::AuthenticationFailed)
+        ));
+    }
+
+    #[test]
+    fn rustaceous_and_classic_macs_verify_each_other() {
+        let (key, _) = vector();
+        for len in [0, 1, 15, 16, 17, 31, 32, MESSAGE.len()] {
+            let message = &MESSAGE[..len];
+            let mac = OnetimeAuth::compute_to_vec(key.clone(), &message);
+            crypto_onetimeauth_verify(mac.as_array(), message, key.as_array())
+                .expect("classic verify");
+
+            let mut classic = [0u8; CRYPTO_ONETIMEAUTH_BYTES];
+            crypto_onetimeauth(&mut classic, message, key.as_array());
+            OnetimeAuth::compute_and_verify(&classic, key.clone(), &message)
+                .expect("rustaceous verify");
+            let mut verifier = OnetimeAuth::new(key.clone());
+            verifier.update(&message);
+            verifier.verify(&classic).expect("incremental verify");
+        }
+    }
+
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    #[test]
+    fn locked_key_and_input_produce_the_rfc8439_tag() {
+        use crate::onetimeauth::protected::*;
+
+        let (key, expected) = vector();
+        let lock_key =
+            || protected::Key::from_slice_into_readonly_locked(key.as_slice()).expect("lock key");
+        let input = HeapBytes::from_slice_into_readonly_locked(MESSAGE).expect("lock input");
+
+        let mac: Locked<protected::Mac> = OnetimeAuth::compute(lock_key(), &input);
+        assert_eq!(mac.as_slice(), expected.as_slice());
+        OnetimeAuth::compute_and_verify(&mac, lock_key(), &input).expect("verify failed");
+        let mut verifier = OnetimeAuth::new(lock_key());
+        verifier.update(&input);
+        verifier.verify(&mac).expect("incremental verify failed");
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn rfc8439_vector_matches_sodiumoxide() {
+        use sodiumoxide::crypto::onetimeauth;
+
+        let (key, expected) = vector();
+        let so_tag = onetimeauth::authenticate(
+            MESSAGE,
+            &onetimeauth::Key::from_slice(key.as_slice()).unwrap(),
+        );
+        assert_eq!(so_tag.as_ref(), expected.as_slice());
+        OnetimeAuth::compute_and_verify(&so_tag.0, key, &MESSAGE).expect("verify sodium tag");
     }
 
     #[test]

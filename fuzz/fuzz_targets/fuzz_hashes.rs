@@ -1,9 +1,11 @@
 #![no_main]
-//! SHA-256, SHA-512 and their HMACs against the `sha2` crate, plus streamed
-//! and one-shot BLAKE2b and Poly1305 against each other, at every length
-//! and chunking the fuzzer finds. On AArch64 this drives the SHA2/SHA3
-//! hardware compressions, the register-scheduled BLAKE2b rounds and the
-//! NEON Poly1305 bulk path.
+//! SHA-256, SHA-512 and their HMACs against the `sha2` crate, SipHash-2-4
+//! against the paper's reference below, SHA3-256/512 one-shot against
+//! streamed and the Rustaceous wrapper, plus streamed and one-shot BLAKE2b and
+//! Poly1305 against each other (and BLAKE2b's key/output length contract), at
+//! every length and chunking the fuzzer finds. On AArch64 this drives the SHA2
+//! hardware compressions, the register-scheduled BLAKE2b rounds and the NEON
+//! Poly1305 bulk path; SHA-3 is the `sha3` crate behind dryoc's wrapper.
 use dryoc::classic::crypto_auth_hmacsha256::{
     crypto_auth_hmacsha256, crypto_auth_hmacsha256_final, crypto_auth_hmacsha256_init,
     crypto_auth_hmacsha256_update, crypto_auth_hmacsha256_verify,
@@ -23,12 +25,21 @@ use dryoc::classic::crypto_generichash::{
 use dryoc::classic::crypto_hash::{
     crypto_hash_sha256, crypto_hash_sha256_final, crypto_hash_sha256_init,
     crypto_hash_sha256_update, crypto_hash_sha512, crypto_hash_sha512_final,
-    crypto_hash_sha512_init, crypto_hash_sha512_update,
+    crypto_hash_sha512_init, crypto_hash_sha512_update, crypto_hash_sha3256,
+    crypto_hash_sha3256_final, crypto_hash_sha3256_init, crypto_hash_sha3256_update,
+    crypto_hash_sha3512, crypto_hash_sha3512_final, crypto_hash_sha3512_init,
+    crypto_hash_sha3512_update,
 };
 use dryoc::classic::crypto_onetimeauth::{
     crypto_onetimeauth, crypto_onetimeauth_final, crypto_onetimeauth_init,
     crypto_onetimeauth_update, crypto_onetimeauth_verify,
 };
+use dryoc::classic::crypto_shorthash::crypto_shorthash;
+use dryoc::constants::{
+    CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN, CRYPTO_GENERICHASH_KEYBYTES_MAX,
+    CRYPTO_GENERICHASH_KEYBYTES_MIN,
+};
+use dryoc::sha3::{Sha3256, Sha3512};
 use libfuzzer_sys::fuzz_target;
 use sha2::Digest;
 
@@ -70,6 +81,50 @@ fn reference_hmac<H: Digest, const B: usize>(key: &[u8], message: &[u8]) -> Vec<
         .to_vec()
 }
 
+/// SipHash-2-4 as the paper (Aumasson & Bernstein, 2012) spells it.
+fn reference_siphash24(key: &[u8; 16], message: &[u8]) -> [u8; 8] {
+    fn round(v: &mut [u64; 4]) {
+        v[0] = v[0].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(13) ^ v[0];
+        v[0] = v[0].rotate_left(32);
+        v[2] = v[2].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(16) ^ v[2];
+        v[0] = v[0].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(21) ^ v[0];
+        v[2] = v[2].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(17) ^ v[2];
+        v[2] = v[2].rotate_left(32);
+    }
+    fn absorb(v: &mut [u64; 4], m: u64) {
+        v[3] ^= m;
+        round(v);
+        round(v);
+        v[0] ^= m;
+    }
+
+    let k0 = u64::from_le_bytes(key[..8].try_into().unwrap());
+    let k1 = u64::from_le_bytes(key[8..].try_into().unwrap());
+    let mut v = [
+        k0 ^ 0x736f_6d65_7073_6575,
+        k1 ^ 0x646f_7261_6e64_6f6d,
+        k0 ^ 0x6c79_6765_6e65_7261,
+        k1 ^ 0x7465_6462_7974_6573,
+    ];
+    let (blocks, rest) = message.as_chunks::<8>();
+    for block in blocks {
+        absorb(&mut v, u64::from_le_bytes(*block));
+    }
+    let mut last = [0u8; 8];
+    last[..rest.len()].copy_from_slice(rest);
+    last[7] = message.len() as u8;
+    absorb(&mut v, u64::from_le_bytes(last));
+    v[2] ^= 0xff;
+    for _ in 0..4 {
+        round(&mut v);
+    }
+    (v[0] ^ v[1] ^ v[2] ^ v[3]).to_le_bytes()
+}
+
 fuzz_target!(|data: &[u8]| {
     let mut data = data;
     let key = fill::<32>(&mut data);
@@ -106,6 +161,41 @@ fuzz_target!(|data: &[u8]| {
     chunks().for_each(|chunk| crypto_hash_sha512_update(&mut state, chunk));
     crypto_hash_sha512_final(state, &mut digest);
     assert_eq!(digest[..], expected[..]);
+
+    // SHA3-256 / SHA3-512: one-shot against streamed (rate boundaries 136 and
+    // 72 fall within the chunking) and against the Rustaceous wrapper. Both
+    // routes wrap the `sha3` crate, so this checks dryoc's plumbing only; there
+    // is no independent Keccak here to compare against.
+    let mut expected = [0u8; 32];
+    crypto_hash_sha3256(&mut expected, &message);
+    let mut state = crypto_hash_sha3256_init();
+    chunks().for_each(|chunk| crypto_hash_sha3256_update(&mut state, chunk));
+    let mut digest = [0u8; 32];
+    crypto_hash_sha3256_final(state, &mut digest);
+    assert_eq!(digest, expected);
+    assert_eq!(Sha3256::compute_to_vec(&message), expected);
+    let mut hasher = Sha3256::new();
+    chunks().for_each(|chunk| hasher.update(chunk));
+    assert_eq!(hasher.finalize_to_vec(), expected);
+
+    let mut expected = [0u8; 64];
+    crypto_hash_sha3512(&mut expected, &message);
+    let mut state = crypto_hash_sha3512_init();
+    chunks().for_each(|chunk| crypto_hash_sha3512_update(&mut state, chunk));
+    let mut digest = [0u8; 64];
+    crypto_hash_sha3512_final(state, &mut digest);
+    assert_eq!(digest, expected);
+    assert_eq!(Sha3512::compute_to_vec(&message), expected);
+    let mut hasher = Sha3512::new();
+    chunks().for_each(|chunk| hasher.update(chunk));
+    assert_eq!(hasher.finalize_to_vec(), expected);
+
+    // SipHash-2-4 against the paper, including every `len % 8` tail and the
+    // `len as u8` length byte wrapping past 255.
+    let siphash_key: [u8; 16] = key[..16].try_into().unwrap();
+    let mut shorthash = [0u8; 8];
+    crypto_shorthash(&mut shorthash, &message, &siphash_key);
+    assert_eq!(shorthash, reference_siphash24(&siphash_key, &message));
 
     // HMACs: fixed-size keys one-shot (the paired-block HMAC-SHA-512 init on
     // AArch64), fuzz-selected 0..=256-byte keys streamed, and a second
@@ -158,8 +248,10 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(mac[..], expected[..32]);
 
     // BLAKE2b: one-shot (single-block fast path included) against streamed,
-    // unkeyed and keyed.
-    let generichash_key = (hash_keylen >= 16).then_some(&hash_key[..hash_keylen]);
+    // unkeyed and keyed; keys and output lengths outside 16..=64 are rejected
+    // by both the one-shot and the incremental interface.
+    let generichash_key =
+        (hash_keylen >= CRYPTO_GENERICHASH_KEYBYTES_MIN).then_some(&hash_key[..hash_keylen]);
     let mut expected = vec![0u8; outlen];
     crypto_generichash(&mut expected, &message, generichash_key).expect("generichash");
     let mut state = crypto_generichash_init(generichash_key, outlen).expect("generichash init");
@@ -167,6 +259,22 @@ fuzz_target!(|data: &[u8]| {
     let mut actual = vec![0u8; outlen];
     crypto_generichash_final(state, &mut actual).expect("generichash final");
     assert_eq!(actual, expected);
+    if hash_keylen < CRYPTO_GENERICHASH_KEYBYTES_MIN {
+        let short_key = Some(&hash_key[..hash_keylen]);
+        assert!(crypto_generichash(&mut actual, &message, short_key).is_err());
+        assert!(crypto_generichash_init(short_key, outlen).is_err());
+    }
+    let long_key = [0u8; CRYPTO_GENERICHASH_KEYBYTES_MAX + 1];
+    assert!(crypto_generichash(&mut actual, &message, Some(&long_key)).is_err());
+    assert!(crypto_generichash_init(Some(&long_key), outlen).is_err());
+    for bad_outlen in [
+        CRYPTO_GENERICHASH_BYTES_MIN - 1,
+        CRYPTO_GENERICHASH_BYTES_MAX + 1,
+    ] {
+        let mut output = vec![0u8; bad_outlen];
+        assert!(crypto_generichash(&mut output, &message, generichash_key).is_err());
+        assert!(crypto_generichash_init(generichash_key, bad_outlen).is_err());
+    }
 
     // Poly1305: one-shot (the bulk path for long messages) against streamed
     // (partial blocks buffered across the cuts).

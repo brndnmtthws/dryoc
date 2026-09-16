@@ -197,3 +197,49 @@ pub(crate) fn hmac_keygen<const KEY_BYTES: usize>() -> [u8; KEY_BYTES] {
     copy_randombytes(&mut key);
     key
 }
+
+/// An independent HMAC for the tests of the `crypto_auth_hmacsha*` modules.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use sha2::Digest;
+
+    /// RFC 2104 HMAC over the RustCrypto hash `D`, spelled out so it shares
+    /// nothing with the crate's implementation: a key longer than the
+    /// `BLOCK_BYTES` block is hashed first, a shorter one is zero-padded, and
+    /// the tag is the first `OUT_BYTES` bytes of the outer digest (all of it,
+    /// or the 32-byte truncation of HMAC-SHA-512-256).
+    pub(crate) fn reference_hmac<D: Digest, const BLOCK_BYTES: usize, const OUT_BYTES: usize>(
+        key: &[u8],
+        message: &[u8],
+    ) -> [u8; OUT_BYTES] {
+        let mut normalized = [0u8; BLOCK_BYTES];
+        if key.len() > BLOCK_BYTES {
+            let digest = D::digest(key);
+            assert!(
+                digest.len() <= BLOCK_BYTES,
+                "a hashed key must fit the block"
+            );
+            normalized[..digest.len()].copy_from_slice(&digest);
+        } else {
+            normalized[..key.len()].copy_from_slice(key);
+        }
+        let mut ipad = [0x36u8; BLOCK_BYTES];
+        let mut opad = [0x5cu8; BLOCK_BYTES];
+        for ((i, o), k) in ipad.iter_mut().zip(opad.iter_mut()).zip(normalized) {
+            *i ^= k;
+            *o ^= k;
+        }
+        let mut inner = D::new();
+        inner.update(ipad);
+        inner.update(message);
+        let inner = inner.finalize();
+        let mut outer = D::new();
+        outer.update(opad);
+        outer.update(inner);
+        let outer = outer.finalize();
+        assert!(OUT_BYTES <= outer.len(), "a tag must fit the digest");
+        outer[..OUT_BYTES]
+            .try_into()
+            .expect("tag no longer than the digest")
+    }
+}

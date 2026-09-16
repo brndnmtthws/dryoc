@@ -123,6 +123,35 @@ mod tests {
         }
     }
 
+    /// Empty updates at every buffer state and updates that end exactly on
+    /// a block boundary from a partially filled buffer (1 + 63, 63 + 1), a
+    /// whole block from an empty buffer, and finalization from both an empty
+    /// and an almost-full buffer, against the `sha2` crate.
+    #[test]
+    fn test_empty_and_exact_fill_updates_match_sha2() {
+        const B: usize = BLOCK_BYTES;
+        let message: Vec<u8> = (0..3 * B as u32).map(|i| (i * 31 % 251) as u8).collect();
+        for len in [B, B + 1, 2 * B, 2 * B + 1, 3 * B - 1, 3 * B] {
+            let message = &message[..len];
+            let mut cuts: Vec<usize> = [0, 1, B, 2 * B, 3 * B - 1, len]
+                .into_iter()
+                .filter(|&cut| cut <= len)
+                .collect();
+            cuts.dedup();
+            let mut hasher = Sha256::new();
+            hasher.update(b"");
+            for window in cuts.windows(2) {
+                hasher.update(&message[window[0]..window[1]]);
+                hasher.update(b"");
+            }
+            assert_eq!(
+                hasher.finalize_to_vec(),
+                sha2::Sha256::digest(message).to_vec(),
+                "len {len}"
+            );
+        }
+    }
+
     /// The hardware loop agrees with the portable compression for every block
     /// count around its loop boundaries, including the empty run.
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]

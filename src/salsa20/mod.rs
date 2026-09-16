@@ -488,10 +488,16 @@ mod tests {
     /// Keystream for `len` bytes computed one block at a time with the scalar
     /// block function only.
     fn scalar_keystream(state: &[u32; 16], len: usize) -> Vec<u8> {
+        scalar_keystream_from(state, 0, len)
+    }
+
+    /// Keystream for blocks `start..` (wrapping) of `len` bytes computed one
+    /// block at a time with the scalar block function only.
+    fn scalar_keystream_from(state: &[u32; 16], start: u64, len: usize) -> Vec<u8> {
         let mut keystream = Vec::with_capacity(len.next_multiple_of(64));
         let mut block = [0u8; 64];
-        for counter in 0..len.div_ceil(64) as u64 {
-            salsa20_soft::block(state, counter, &mut block);
+        for i in 0..len.div_ceil(64) as u64 {
+            salsa20_soft::block(state, start.wrapping_add(i), &mut block);
             keystream.extend_from_slice(&block);
         }
         keystream.truncate(len);
@@ -976,6 +982,209 @@ mod tests {
                     "len {len}"
                 );
             }
+        }
+
+        /// A fresh cipher positioned at block `start` with no block buffered.
+        fn cipher_at(key: &[u8; 32], nonce: &[u8; 24], start: u64) -> XSalsa20 {
+            let mut cipher = XSalsa20::new(key, nonce);
+            cipher.counter = start;
+            cipher
+        }
+
+        /// Start counters for a kernel of `blocks` per run and a message of
+        /// `total_blocks` whose runs cross the 32-bit boundary (the carry
+        /// into word 9) inside the second run, inside the first run and at a
+        /// run's first lane, plus the starts that end exactly on `u64::MAX`
+        /// (the driver refuses to advance past it) and, when the message
+        /// fits, one whose second run begins there.
+        fn wrap_starts(blocks: u64, total_blocks: u64) -> Vec<u64> {
+            let low = u64::from(u32::MAX);
+            let mut starts = vec![low - (blocks + 1), low - 1, low, u64::MAX - total_blocks];
+            if total_blocks <= blocks + 1 {
+                starts.push(u64::MAX - (blocks + 1));
+            }
+            starts
+        }
+
+        /// The driver with `kernel` (or scalar blocks only) from block `start`
+        /// against the scalar keystream of blocks `start..`: one shot, and
+        /// split so a partial block is buffered by one call and continued
+        /// across the wrap by the next, in place and buffer to buffer,
+        /// checking the counter and buffer position afterwards.
+        fn check_driver_across_wrap<K: Kernel>(kernel: Option<K>, start: u64, len: usize) {
+            let key = [0x5au8; 32];
+            let nonce = [0x66u8; 24];
+            let total = len + 7;
+            let plaintext: Vec<u8> = (0..total as u32).map(|i| (i * 13 % 253) as u8).collect();
+            let reference = XSalsa20::new(&key, &nonce);
+            let expected: Vec<u8> = plaintext
+                .iter()
+                .zip(scalar_keystream_from(&reference.state, start, total))
+                .map(|(byte, ks)| byte ^ ks)
+                .collect();
+            let end = start + total.div_ceil(64) as u64;
+            let end_pos = if total.is_multiple_of(64) {
+                64
+            } else {
+                total % 64
+            };
+            let cuts = [
+                vec![0, total],
+                vec![0, 32, len, total],
+                vec![0, 1, 63, total],
+            ]
+            .map(|mut cuts| {
+                cuts.iter_mut().for_each(|cut| *cut = (*cut).min(total));
+                cuts.sort_unstable();
+                cuts.dedup();
+                cuts
+            });
+            for cuts in &cuts {
+                let ctx = format!("{kernel:?} from {start:#x}, len {len}, cuts {cuts:?}");
+                let mut cipher = cipher_at(&key, &nonce, start);
+                let mut in_place = plaintext.clone();
+                for window in cuts.windows(2) {
+                    cipher.apply_using(kernel, InPlace(&mut in_place[window[0]..window[1]]));
+                }
+                assert_eq!(in_place, expected, "{ctx}, in place");
+                assert_eq!(
+                    (cipher.counter, cipher.pos),
+                    (end, end_pos),
+                    "{ctx}, in place state"
+                );
+
+                let mut cipher = cipher_at(&key, &nonce, start);
+                let mut b2b = vec![0u8; total];
+                for window in cuts.windows(2) {
+                    cipher.apply_using(
+                        kernel,
+                        BufferToBuffer {
+                            input: &plaintext[window[0]..window[1]],
+                            output: &mut b2b[window[0]..window[1]],
+                        },
+                    );
+                }
+                assert_eq!(b2b, expected, "{ctx}, b2b");
+                assert_eq!(
+                    (cipher.counter, cipher.pos),
+                    (end, end_pos),
+                    "{ctx}, b2b state"
+                );
+            }
+        }
+
+        /// The head-block driver with `kernel` (or scalar blocks only) from
+        /// block `start`: the head is block `start`, the data follows from
+        /// `start + 1` across the wrap, and a following call continues from
+        /// the buffered position, in place and buffer to buffer.
+        fn check_head_driver_across_wrap<K: Kernel>(kernel: Option<K>, start: u64, len: usize) {
+            let key = [0x5au8; 32];
+            let nonce = [0x66u8; 24];
+            let tail = 45;
+            let plaintext: Vec<u8> = (0..(len + tail) as u32)
+                .map(|i| (i * 11 % 251) as u8)
+                .collect();
+            let reference = XSalsa20::new(&key, &nonce);
+            let keystream = scalar_keystream_from(&reference.state, start, 64 + len + tail);
+            let expected_head: [u8; 64] = keystream[..64].try_into().unwrap();
+            let expected: Vec<u8> = plaintext
+                .iter()
+                .zip(&keystream[64..])
+                .map(|(byte, ks)| byte ^ ks)
+                .collect();
+            let after_head = (
+                start + (64 + len).div_ceil(64) as u64,
+                if len.is_multiple_of(64) { 64 } else { len % 64 },
+            );
+            let ctx = format!("{kernel:?} from {start:#x}, len {len}");
+
+            let mut cipher = cipher_at(&key, &nonce, start);
+            let mut head = [0u8; 64];
+            let mut in_place = plaintext.clone();
+            cipher.apply_with_head_using(kernel, &mut head, InPlace(&mut in_place[..len]));
+            assert_eq!(head, expected_head, "{ctx}, in place head");
+            assert_eq!(
+                (cipher.counter, cipher.pos),
+                after_head,
+                "{ctx}, in place state"
+            );
+            cipher.apply_using(kernel, InPlace(&mut in_place[len..]));
+            assert_eq!(in_place, expected, "{ctx}, in place");
+
+            let mut cipher = cipher_at(&key, &nonce, start);
+            let mut head = [0u8; 64];
+            let mut b2b = vec![0u8; len + tail];
+            cipher.apply_with_head_using(
+                kernel,
+                &mut head,
+                BufferToBuffer {
+                    input: &plaintext[..len],
+                    output: &mut b2b[..len],
+                },
+            );
+            assert_eq!(head, expected_head, "{ctx}, b2b head");
+            assert_eq!((cipher.counter, cipher.pos), after_head, "{ctx}, b2b state");
+            cipher.apply_using(
+                kernel,
+                BufferToBuffer {
+                    input: &plaintext[len..],
+                    output: &mut b2b[len..],
+                },
+            );
+            assert_eq!(b2b, expected, "{ctx}, b2b");
+        }
+
+        /// Every kernel (and the scalar path) from every start in
+        /// [`wrap_starts`], with and without a head block, over the lengths
+        /// around the kernel thresholds up to two chunks and a block.
+        #[test]
+        fn test_driver_matches_scalar_keystream_across_counter_wraps() {
+            fn run<K: Kernel>(kernel: Option<K>) {
+                let blocks = kernel.map_or(1, |kernel| kernel.blocks() as u64);
+                let chunk = kernel.map_or(64, |kernel| kernel.chunk());
+                for len in threshold_lens(kernel)
+                    .into_iter()
+                    .filter(|&len| len <= 2 * chunk + 65)
+                {
+                    for start in wrap_starts(blocks, (len + 7).div_ceil(64) as u64) {
+                        check_driver_across_wrap(kernel, start, len);
+                    }
+                    for start in wrap_starts(blocks, (64 + len + 45).div_ceil(64) as u64) {
+                        check_head_driver_across_wrap(kernel, start, len);
+                    }
+                }
+            }
+            run(None::<vector::Kernel>);
+            for_each_kernel!(|kernel| {
+                run(Some(kernel));
+            });
+        }
+
+        /// Every data length from one byte to a chunk and a block, for every
+        /// kernel, with and without a head block, from the start that puts
+        /// the 32-bit wrap inside the first run and from the one that ends
+        /// exactly on `u64::MAX`.
+        #[test]
+        fn test_driver_every_length_to_a_chunk_across_counter_wraps() {
+            fn run<K: Kernel>(kernel: K) {
+                for len in 1..=kernel.chunk() + 64 {
+                    for start in [
+                        u64::from(u32::MAX) - 1,
+                        u64::MAX - (len + 7).div_ceil(64) as u64,
+                    ] {
+                        check_driver_across_wrap(Some(kernel), start, len);
+                    }
+                    for start in [
+                        u64::from(u32::MAX) - 1,
+                        u64::MAX - (64 + len + 45).div_ceil(64) as u64,
+                    ] {
+                        check_head_driver_across_wrap(Some(kernel), start, len);
+                    }
+                }
+            }
+            for_each_kernel!(|kernel| {
+                run(kernel);
+            });
         }
     }
 }
