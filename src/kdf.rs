@@ -220,8 +220,12 @@ mod tests {
     };
 
     /// libsodium `test/default/kdf.c` main key (`0..32`) and context
-    /// (`"KDF test"`); `(subkey_id, expected subkey)` from
-    /// `crypto_kdf_derive_from_key` at 16, 32, and 64 bytes.
+    /// (`"KDF test"`); `(subkey_id, expected subkey)` as produced by
+    /// libsodium's `crypto_kdf_derive_from_key` at 16, 32, and 64 bytes.
+    /// Only the 64-byte subkey 0 appears in `kdf.c` itself; the other rows
+    /// were generated with libsodium, and
+    /// `matches_libsodium_derive_from_key` checks the same ids and lengths
+    /// against it at runtime.
     const KAT: [(u64, [&str; 3]); 2] = [
         (
             0,

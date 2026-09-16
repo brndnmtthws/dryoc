@@ -459,8 +459,11 @@ mod tests {
         );
     }
 
+    /// RFC 5869 A.1 inputs with SHA-512: the OpenSSL-derived vector in
+    /// `test/recipes/30-test_evp_data/evpkdf_hkdf.txt` (RFC 5869 itself has no
+    /// SHA-512 answers).
     #[test]
-    fn test_hkdf_sha512_rfc5869_case_1() {
+    fn test_hkdf_sha512_a1_inputs_openssl_vector() {
         let ikm = [0x0bu8; 22];
         let salt = hex::decode("000102030405060708090a0b0c").expect("hex failed");
         let info = hex::decode("f0f1f2f3f4f5f6f7f8f9").expect("hex failed");

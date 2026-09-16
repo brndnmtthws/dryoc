@@ -204,28 +204,11 @@ mod tests {
     }
 
     fn manual_hmac(key: &[u8], message: &[u8]) -> Mac {
-        use sha2::Digest as _;
-
-        let mut normalized = [0u8; 64];
-        if key.len() > 64 {
-            normalized[..32].copy_from_slice(&sha2::Sha256::digest(key));
-        } else {
-            normalized[..key.len()].copy_from_slice(key);
-        }
-        let mut ipad = [0x36u8; 64];
-        let mut opad = [0x5cu8; 64];
-        for ((i, o), k) in ipad.iter_mut().zip(opad.iter_mut()).zip(normalized) {
-            *i ^= k;
-            *o ^= k;
-        }
-        let mut inner = sha2::Sha256::new();
-        inner.update(ipad);
-        inner.update(message);
-        let inner = inner.finalize();
-        let mut outer = sha2::Sha256::new();
-        outer.update(opad);
-        outer.update(inner);
-        outer.finalize().into()
+        crate::classic::crypto_auth_hmac_impl::test_util::reference_hmac::<
+            sha2::Sha256,
+            64,
+            CRYPTO_AUTH_HMACSHA256_BYTES,
+        >(key, message)
     }
 
     #[cfg(dryoc_native_tests)]

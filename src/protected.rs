@@ -1732,10 +1732,58 @@ fn abort_protected_memory_failure(_operation: &str, _error: std::io::Error) -> !
     std::process::abort()
 }
 
+/// Helpers for tests that hold locked memory.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::*;
+
+    /// Whether this process may hold `pages` more one-page locked allocations
+    /// at once. Tests that need locked memory check this first and return
+    /// early when it is `false`, so a small `RLIMIT_MEMLOCK` (or Windows
+    /// working-set quota) skips them instead of failing them: the locked
+    /// `resize`, `Clone` and `HeapBytes::from_slice_into_locked` paths panic
+    /// rather than return `Err` when the lock of a freshly allocated page is
+    /// refused. Only a refusal for lack of quota skips; any other lock failure
+    /// on a fresh allocation is a bug and panics. The probe allocations are
+    /// released before returning.
+    pub(crate) fn can_lock_pages(pages: usize) -> bool {
+        let probes: Result<Vec<_>, _> = (0..pages)
+            .map(|_| HeapBytes::from(&[0u8][..]).mlock())
+            .collect();
+        match probes {
+            Ok(_) => true,
+            Err(error::Error::Io(err)) if is_lock_quota_error(&err) => {
+                eprintln!("skipping: this process cannot lock {pages} page(s): {err}");
+                false
+            }
+            Err(err) => panic!("locking a fresh page failed: {err}"),
+        }
+    }
+
+    /// `mlock(2)` reports an exhausted `RLIMIT_MEMLOCK` as `ENOMEM`, or
+    /// `EPERM` when the limit is zero and the process lacks `CAP_IPC_LOCK`;
+    /// `EAGAIN` is the transient "some pages could not be locked" case.
+    #[cfg(unix)]
+    fn is_lock_quota_error(err: &std::io::Error) -> bool {
+        matches!(
+            err.raw_os_error(),
+            Some(libc::ENOMEM | libc::EPERM | libc::EAGAIN)
+        )
+    }
+
+    /// `VirtualLock` fails with `ERROR_WORKING_SET_QUOTA` (1453) once the
+    /// process's minimum working set is exhausted.
+    #[cfg(windows)]
+    fn is_lock_quota_error(err: &std::io::Error) -> bool {
+        err.raw_os_error() == Some(1453)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
 
+    use super::test_util::can_lock_pages;
     use super::*;
 
     #[test]
@@ -2206,6 +2254,8 @@ mod tests {
     #[test]
     fn protected_allocations_are_page_aligned() {
         let pagesize = *PAGESIZE;
+        // The longest case locks two pages.
+        let lockable = can_lock_pages(2);
 
         for len in [1, pagesize, pagesize + 1] {
             let mut bytes = HeapBytes::default();
@@ -2213,8 +2263,10 @@ mod tests {
             assert_eq!(bytes.len(), len);
             assert_eq!(bytes.as_slice().as_ptr().addr() % pagesize, 0, "len {len}");
 
-            let locked = HeapBytes::from_slice_into_locked(bytes.as_slice()).expect("locked");
-            assert_eq!(locked.as_slice().as_ptr().addr() % pagesize, 0, "len {len}");
+            if lockable {
+                let locked = HeapBytes::from_slice_into_locked(bytes.as_slice()).expect("locked");
+                assert_eq!(locked.as_slice().as_ptr().addr() % pagesize, 0, "len {len}");
+            }
         }
 
         let array = HeapByteArray::<32>::default();
@@ -2264,6 +2316,10 @@ mod tests {
     )]
     #[test]
     fn locked_clone_is_a_distinct_independent_locked_copy() {
+        // The original and its clone are locked at the same time.
+        if !can_lock_pages(2) {
+            return;
+        }
         let original = HeapBytes::from_slice_into_locked(b"clone me").expect("locked");
         let mut cloned = original.clone();
 
@@ -2288,6 +2344,10 @@ mod tests {
     )]
     #[test]
     fn locked_readonly_clone_is_a_distinct_readonly_copy() {
+        // The original and its clone are locked at the same time.
+        if !can_lock_pages(2) {
+            return;
+        }
         let original =
             HeapBytes::from_slice_into_readonly_locked(b"clone me").expect("read-only locked");
         let cloned = original.clone();
@@ -2375,6 +2435,9 @@ mod tests {
         assert_eq!(returned.as_slice()[0], SRC[0] ^ 0xff);
         assert_eq!(&returned.as_slice()[1..], &SRC[1..]);
 
+        if !can_lock_pages(1) {
+            return;
+        }
         let shared = Arc::new(HeapBytes::from_slice_into_locked(&SRC).expect("locked"));
         let readers: Vec<_> = (0..4)
             .map(|_| {
@@ -2399,15 +2462,21 @@ mod tests {
         const LENGTH: usize = 8;
         let data = [7u8; LENGTH + 1];
 
-        let exact =
-            HeapByteArray::<LENGTH>::from_slice_into_locked(&data[..LENGTH]).expect("exact");
-        assert_eq!(exact.as_slice(), &data[..LENGTH]);
-        let exact_readonly =
-            HeapByteArray::<LENGTH>::from_slice_into_readonly_locked(&data[..LENGTH])
-                .expect("exact read-only");
-        assert_eq!(exact_readonly.as_slice(), &data[..LENGTH]);
         let exact_heap = HeapByteArray::<LENGTH>::try_from(&data[..LENGTH]).expect("exact heap");
         assert_eq!(exact_heap.as_slice(), &data[..LENGTH]);
+        // Each locked form is released before the next is created; the
+        // wrong-length rejections below fail before anything is allocated, so
+        // they run regardless.
+        if can_lock_pages(1) {
+            let exact =
+                HeapByteArray::<LENGTH>::from_slice_into_locked(&data[..LENGTH]).expect("exact");
+            assert_eq!(exact.as_slice(), &data[..LENGTH]);
+            drop(exact);
+            let exact_readonly =
+                HeapByteArray::<LENGTH>::from_slice_into_readonly_locked(&data[..LENGTH])
+                    .expect("exact read-only");
+            assert_eq!(exact_readonly.as_slice(), &data[..LENGTH]);
+        }
 
         for actual in [LENGTH - 1, LENGTH + 1] {
             assert_exact_slice_length_error(
@@ -2522,23 +2591,25 @@ mod tests {
         drop(noaccess);
         assert_eq!(wipes.load(SeqCst), 1, "no-access");
 
-        let (spy, wipes) = SpyBytes::new(b"secret");
-        let locked = Unlocked::<SpyBytes>::new_with(spy)
-            .mlock()
-            .expect("mlock failed");
-        assert_eq!(wipes.load(SeqCst), 0);
-        drop(locked);
-        assert_eq!(wipes.load(SeqCst), 1, "locked read-write");
+        if can_lock_pages(1) {
+            let (spy, wipes) = SpyBytes::new(b"secret");
+            let locked = Unlocked::<SpyBytes>::new_with(spy)
+                .mlock()
+                .expect("mlock failed");
+            assert_eq!(wipes.load(SeqCst), 0);
+            drop(locked);
+            assert_eq!(wipes.load(SeqCst), 1, "locked read-write");
 
-        let (spy, wipes) = SpyBytes::new(b"secret");
-        let locked_readonly = Unlocked::<SpyBytes>::new_with(spy)
-            .mlock()
-            .expect("mlock failed")
-            .mprotect_readonly()
-            .expect("readonly mprotect failed");
-        assert_eq!(wipes.load(SeqCst), 0);
-        drop(locked_readonly);
-        assert_eq!(wipes.load(SeqCst), 1, "locked read-only");
+            let (spy, wipes) = SpyBytes::new(b"secret");
+            let locked_readonly = Unlocked::<SpyBytes>::new_with(spy)
+                .mlock()
+                .expect("mlock failed")
+                .mprotect_readonly()
+                .expect("readonly mprotect failed");
+            assert_eq!(wipes.load(SeqCst), 0);
+            drop(locked_readonly);
+            assert_eq!(wipes.load(SeqCst), 1, "locked read-only");
+        }
 
         let (spy, wipes) = SpyBytes::new(b"");
         drop(Unlocked::<SpyBytes>::new_with(spy));

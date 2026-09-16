@@ -1090,8 +1090,11 @@ mod tests {
     }
 
     /// Known-answer vectors shared by the ChaCha20-Poly1305-IETF (RFC 8439
-    /// section 2.8.2) and XChaCha20-Poly1305-IETF (libsodium
-    /// `test/default/aead_xchacha20poly1305.c`) tests.
+    /// section 2.8.2) and XChaCha20-Poly1305-IETF tests. The XChaCha case
+    /// reuses the RFC 8439 key, associated data and message with a 24-byte
+    /// nonce; its expected bytes are libsodium's output for those inputs, the
+    /// same vector `classic::crypto_aead_xchacha20poly1305_ietf` checks against
+    /// libsodium at runtime in its native tests.
     mod kat {
         use super::*;
         use crate::classic::crypto_aead_chacha20poly1305_ietf::{

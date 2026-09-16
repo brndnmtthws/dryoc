@@ -301,22 +301,32 @@ mod tests {
     #[cfg(all(feature = "protected", any(unix, windows)))]
     mod protected {
         use super::*;
+        use crate::protected::test_util::can_lock_pages;
         use crate::protected::*;
 
         #[test]
         fn fixed_protected_containers_deserialize_only_exact_length() {
             check_fixed::<HeapByteArray<3>>();
-            check_fixed::<Locked<HeapByteArray<3>>>();
+            if can_lock_pages(1) {
+                check_fixed::<Locked<HeapByteArray<3>>>();
+            }
         }
 
         #[test]
         fn variable_protected_containers_deserialize_any_length() {
             check_variable::<HeapBytes>();
-            check_variable::<LockedBytes>();
+            // A locked sequence grows by locked `resize`, which holds the old
+            // and the new page at once.
+            if can_lock_pages(2) {
+                check_variable::<LockedBytes>();
+            }
         }
 
         #[test]
         fn locked_deserialization_yields_locked_values() {
+            if !can_lock_pages(1) {
+                return;
+            }
             let locked: LockedBytes = from_bytes(&[1, 2, 3]).expect("locked bytes");
             let unlocked = locked.munlock().expect("munlock");
             assert_eq!(unlocked.as_slice(), &[1, 2, 3]);
@@ -334,30 +344,37 @@ mod tests {
             let heap = HeapBytes::from(&data[..]);
             assert_eq!(serde_json::to_string(&heap).expect("heap"), expected);
 
-            let locked = HeapBytes::from_slice_into_locked(&data).expect("locked");
-            assert_eq!(serde_json::to_string(&locked).expect("locked"), expected);
-
-            // `LockedRO<HeapBytes>` is serialize-only: there is no
-            // `Deserialize` impl for it, so it must serialize exactly like
-            // the unlocked, read-write form it was created from.
-            let readonly = HeapBytes::from_slice_into_readonly_locked(&data).expect("readonly");
-            assert_eq!(
-                serde_json::to_string(&readonly).expect("readonly"),
-                expected
-            );
-
             let array = HeapByteArray::<3>::from(&data);
             assert_eq!(serde_json::to_string(&array).expect("array"), expected);
-
-            let locked_array = HeapByteArray::<3>::from_slice_into_locked(&data).expect("locked");
-            assert_eq!(
-                serde_json::to_string(&locked_array).expect("locked array"),
-                expected
-            );
 
             assert_eq!(
                 serde_json::to_string(&HeapBytes::default()).expect("empty"),
                 "[]"
+            );
+
+            // Each locked form is released before the next is created, so
+            // one lockable page suffices.
+            if !can_lock_pages(1) {
+                return;
+            }
+            {
+                let locked = HeapBytes::from_slice_into_locked(&data).expect("locked");
+                assert_eq!(serde_json::to_string(&locked).expect("locked"), expected);
+            }
+            {
+                // `LockedRO<HeapBytes>` is serialize-only: there is no
+                // `Deserialize` impl for it, so it must serialize exactly like
+                // the unlocked, read-write form it was created from.
+                let readonly = HeapBytes::from_slice_into_readonly_locked(&data).expect("readonly");
+                assert_eq!(
+                    serde_json::to_string(&readonly).expect("readonly"),
+                    expected
+                );
+            }
+            let locked_array = HeapByteArray::<3>::from_slice_into_locked(&data).expect("locked");
+            assert_eq!(
+                serde_json::to_string(&locked_array).expect("locked array"),
+                expected
             );
         }
     }

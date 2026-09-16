@@ -455,8 +455,12 @@ mod tests {
         ]
     }
 
-    /// A.1 inputs with HKDF-SHA-512 (the RFC 5869 authors' published
-    /// extension vectors, also used by libsodium's tests).
+    /// A.1 inputs with HKDF-SHA-512. RFC 5869 publishes SHA-256 and SHA-1
+    /// answers only; this OKM is the "OpenSSL-derived" HKDF-SHA512 vector for
+    /// the same inputs in OpenSSL's
+    /// `test/recipes/30-test_evp_data/evpkdf_hkdf.txt`, and the PRK is the
+    /// extract step's value on the way to it. `classic::crypto_kdf` checks the
+    /// same PRK and OKM.
     fn sha512_case() -> Case {
         Case {
             salt: Some(decode("000102030405060708090a0b0c")),
@@ -567,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    fn rfc5869_sha512_vector() {
+    fn sha512_a1_inputs_openssl_vector() {
         assert_case::<HkdfSha512Variant, CRYPTO_KDF_HKDF_SHA512_KEYBYTES>(&sha512_case());
     }
 

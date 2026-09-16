@@ -135,7 +135,10 @@ fn generichash_known_answer() {
 
 #[wasm_bindgen_test]
 fn aead_xchacha20poly1305_known_answer() {
-    // libsodium's XChaCha20-Poly1305-IETF test vector.
+    // The RFC 8439 section 2.8.2 key, associated data and message with a
+    // 24-byte nonce; the expected bytes are libsodium's output for those
+    // inputs, checked against libsodium at runtime by the crate's native
+    // `classic::crypto_aead_xchacha20poly1305_ietf` tests.
     const MESSAGE: &[u8] =
         b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const AD: &[u8] = &[

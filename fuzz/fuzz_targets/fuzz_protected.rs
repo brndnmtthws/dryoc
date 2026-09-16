@@ -2,9 +2,10 @@
 //! Protected memory against a plain `Vec<u8>` model: `HeapBytes` resizing,
 //! cloning and indexing; locked/unlocked and read-write/read-only/no-access
 //! typestate transitions, explicit zeroization in every protect mode, and the
-//! fixed-size `HeapByteArray` conversions. Lock and protection operations may
-//! legitimately fail because of host limits; those sequences are skipped
-//! rather than reported as input-dependent crashes.
+//! fixed-size `HeapByteArray` conversions. Locking may legitimately be refused
+//! by host limits, so a refused `mlock` ends the sequence instead of being
+//! reported as an input-dependent crash; protection changes and unlocking of
+//! an existing allocation have no such excuse and must succeed.
 
 #[cfg(any(unix, windows))]
 use dryoc::protected::*;
@@ -50,9 +51,7 @@ fn exercise_heapbytearray(model: &[u8], byte: u8) {
             return;
         };
         assert_eq!(locked.as_slice(), prefix);
-        let Ok(readonly) = locked.mprotect_readonly() else {
-            return;
-        };
+        let readonly = locked.mprotect_readonly().expect("mprotect_readonly");
         assert_eq!(readonly.as_slice(), prefix);
     } else {
         assert!(HeapByteArray::<32>::from_slice_into_locked(prefix).is_err());
@@ -63,9 +62,7 @@ fn exercise_heapbytearray(model: &[u8], byte: u8) {
         return;
     };
     assert_eq!(locked.as_slice(), &expected);
-    let Ok(readonly) = locked.mprotect_readonly() else {
-        return;
-    };
+    let readonly = locked.mprotect_readonly().expect("mprotect_readonly");
     assert_eq!(readonly.as_array(), &expected);
 }
 
@@ -87,46 +84,28 @@ fn exercise_locked(model: &[u8], byte: u8) {
 
     // Locked, read-only. Explicit zeroization wipes it and restores its
     // protection, keeping the length.
-    let Ok(mut readonly) = locked.mprotect_readonly() else {
-        return;
-    };
+    let mut readonly = locked.mprotect_readonly().expect("mprotect_readonly");
     assert_eq!(readonly.as_slice(), model);
     readonly.zeroize();
     assert_eq!(readonly.len(), model.len());
     assert!(readonly.as_slice().iter().all(|&b| b == 0));
-    let Ok(mut readwrite) = readonly.mprotect_readwrite() else {
-        return;
-    };
+    let mut readwrite = readonly.mprotect_readwrite().expect("mprotect_readwrite");
     readwrite.as_mut_slice().copy_from_slice(model);
     assert_eq!(readwrite.as_slice(), model);
 
     // Unlocked: no-access round trips back to read-only and read-write with
     // the bytes intact, and zeroization while inaccessible still wipes.
-    let Ok(unlocked) = readwrite.munlock() else {
-        return;
-    };
+    let unlocked = readwrite.munlock().expect("munlock");
     assert_eq!(unlocked.as_slice(), model);
-    let Ok(noaccess) = unlocked.mprotect_noaccess() else {
-        return;
-    };
-    let Ok(readonly) = noaccess.mprotect_readonly() else {
-        return;
-    };
+    let noaccess = unlocked.mprotect_noaccess().expect("mprotect_noaccess");
+    let readonly = noaccess.mprotect_readonly().expect("mprotect_readonly");
     assert_eq!(readonly.as_slice(), model);
-    let Ok(noaccess) = readonly.mprotect_noaccess() else {
-        return;
-    };
-    let Ok(readwrite) = noaccess.mprotect_readwrite() else {
-        return;
-    };
+    let noaccess = readonly.mprotect_noaccess().expect("mprotect_noaccess");
+    let readwrite = noaccess.mprotect_readwrite().expect("mprotect_readwrite");
     assert_eq!(readwrite.as_slice(), model);
-    let Ok(mut noaccess) = readwrite.mprotect_noaccess() else {
-        return;
-    };
+    let mut noaccess = readwrite.mprotect_noaccess().expect("mprotect_noaccess");
     noaccess.zeroize();
-    let Ok(mut readwrite) = noaccess.mprotect_readwrite() else {
-        return;
-    };
+    let mut readwrite = noaccess.mprotect_readwrite().expect("mprotect_readwrite");
     assert_eq!(readwrite.len(), model.len());
     assert!(readwrite.as_slice().iter().all(|&b| b == 0));
 

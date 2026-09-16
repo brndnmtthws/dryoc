@@ -5,6 +5,16 @@
 //! authentication tag in combined mode, and uses 96-bit public nonces as
 //! specified by RFC 8439. This is not the legacy 64-bit-nonce construction.
 //!
+//! ## Behavior on failure
+//!
+//! Every decrypt function checks the buffer lengths and verifies the tag
+//! before it writes anything, so any error, a length error or
+//! [`Error::AuthenticationFailed`](crate::Error::AuthenticationFailed), leaves
+//! the output (or, in place, `data`) exactly as it found it. The tag case is
+//! the one deliberate departure from libsodium, whose
+//! `crypto_aead_chacha20poly1305_ietf_decrypt*` zero the output buffer on a
+//! failed tag check, destroying the ciphertext when decrypting in place.
+//!
 //! ## Classic API example
 //!
 //! ```
@@ -86,7 +96,9 @@ impl_chacha20poly1305_aead! {
     /// Detached version of [`crypto_aead_chacha20poly1305_ietf_decrypt`].
     ///
     /// Compatible with libsodium's
-    /// `crypto_aead_chacha20poly1305_ietf_decrypt_detached`.
+    /// `crypto_aead_chacha20poly1305_ietf_decrypt_detached`, except that a
+    /// failed tag check leaves `message` untouched (see [Behavior on
+    /// failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -95,7 +107,9 @@ impl_chacha20poly1305_aead! {
     decrypt_detached: crypto_aead_chacha20poly1305_ietf_decrypt_detached,
 
     /// In-place detached variant of
-    /// [`crypto_aead_chacha20poly1305_ietf_decrypt_detached`].
+    /// [`crypto_aead_chacha20poly1305_ietf_decrypt_detached`]. On a failed tag
+    /// check `data` is left unchanged, so the ciphertext survives (libsodium
+    /// zeroes it; see [Behavior on failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -115,7 +129,9 @@ impl_chacha20poly1305_aead! {
 
     /// Decrypts `ciphertext` with `nonce`, `key`, and optional associated data.
     ///
-    /// Compatible with libsodium's `crypto_aead_chacha20poly1305_ietf_decrypt`.
+    /// Compatible with libsodium's `crypto_aead_chacha20poly1305_ietf_decrypt`,
+    /// except that a failed tag check leaves `message` untouched (see
+    /// [Behavior on failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///
@@ -138,6 +154,9 @@ impl_chacha20poly1305_aead! {
     ///
     /// After success, the first `data.len() -
     /// CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES` bytes contain the plaintext.
+    /// On a failed tag check `data` is left unchanged, so the ciphertext
+    /// survives (libsodium zeroes it; see [Behavior on
+    /// failure](self#behavior-on-failure)).
     ///
     /// # Errors
     ///

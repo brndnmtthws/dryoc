@@ -1283,7 +1283,7 @@ mod tests {
     }
 
     /// Pure parser, base64 and validation coverage: this test has no native
-    /// dependency and therefore also runs on wasm.
+    /// dependency, so it also compiles for wasm.
     #[cfg(feature = "base64")]
     #[test]
     fn fixed_and_mutated_password_hashes_have_expected_results() {

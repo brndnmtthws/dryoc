@@ -163,7 +163,9 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(digest[..], expected[..]);
 
     // SHA3-256 / SHA3-512: one-shot against streamed (rate boundaries 136 and
-    // 72 fall within the chunking) and against the Rustaceous wrapper.
+    // 72 fall within the chunking) and against the Rustaceous wrapper. Both
+    // routes wrap the `sha3` crate, so this checks dryoc's plumbing only; there
+    // is no independent Keccak here to compare against.
     let mut expected = [0u8; 32];
     crypto_hash_sha3256(&mut expected, &message);
     let mut state = crypto_hash_sha3256_init();
