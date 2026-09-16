@@ -12,13 +12,13 @@ rust-version = "1.89"
 version = "2.0.0"
 
 [dependencies]
-curve25519-dalek = "4.1.3"
+curve25519-dalek = "5.0"
 rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
 serde = { version = "1.0", optional = true, features = ["derive"] }
 sha2 = { version = "0.11", features = ["zeroize"] }
 sha3_impl = { package = "sha3", version = "0.12", features = ["zeroize"] }
 subtle = "2.6"
-wincode = { version = "0.5.3", optional = true, features = ["derive"] }
+wincode = { version = "0.6.1", optional = true, features = ["derive"] }
 zeroize = { version = "1.9", features = ["zeroize_derive"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -41,7 +41,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
-base64 = "0.22"
+base64 = "0.23"
 chacha20 = { version = "0.10", features = ["legacy", "zeroize"] }
 hex = "0.4"
 libc = "0.2"
@@ -50,7 +50,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 salsa20 = { version = "0.11", features = ["zeroize"] }
 static_assertions = "1.1"
-wincode = "0.5.3"
+wincode = "0.6.1"
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
 libsodium-sys = "0.2"
