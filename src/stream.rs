@@ -56,6 +56,27 @@ pub(crate) struct BufferToBuffer<'a> {
     pub(crate) output: &'a mut [u8],
 }
 
+/// XORs the raw keystream of the scalar block `counter` into `extra`,
+/// zeroizing the block copy afterwards. Shared by the ChaCha20 and XSalsa20
+/// kernel drivers for companion blocks that no lane set covers.
+#[cfg(any(
+    dryoc_stream_kernel,
+    all(feature = "simd_backend", feature = "nightly")
+))]
+pub(crate) fn xor_scalar_block(
+    state: &[u32; 16],
+    counter: u64,
+    extra: &mut [u8; 64],
+    block: impl Fn(&[u32; 16], u64, &mut [u8; 64]),
+) {
+    let mut ks = [0u8; 64];
+    block(state, counter, &mut ks);
+    for (byte, ks_byte) in extra.iter_mut().zip(ks) {
+        *byte ^= ks_byte;
+    }
+    crate::utils::zeroize_bytes(&mut ks);
+}
+
 impl Sink for BufferToBuffer<'_> {
     #[inline]
     fn len(&self) -> usize {

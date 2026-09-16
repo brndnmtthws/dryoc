@@ -146,20 +146,14 @@ pub fn crypto_box_easy_afternm(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
-        return Err(
-            length_error!(crate::ErrorContext::Message, message.len(), max CRYPTO_BOX_MESSAGEBYTES_MAX),
-        );
-    }
+    validate_length!(max CRYPTO_BOX_MESSAGEBYTES_MAX, message.len(), crate::ErrorContext::Message);
 
     let expected_ciphertext_len = message.len() + CRYPTO_BOX_MACBYTES;
-    if ciphertext.len() != expected_ciphertext_len {
-        return Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            exact expected_ciphertext_len
-        ));
-    }
+    validate_length!(
+        exact expected_ciphertext_len,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
     let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
     crypto_box_detached_afternm(
@@ -236,30 +230,25 @@ pub fn crypto_box_easy(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if message.len() > CRYPTO_BOX_MESSAGEBYTES_MAX {
-        Err(
-            length_error!(crate::ErrorContext::Message, message.len(), max CRYPTO_BOX_MESSAGEBYTES_MAX),
-        )
-    } else if ciphertext.len() != message.len() + CRYPTO_BOX_MACBYTES {
-        Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            exact message.len() + CRYPTO_BOX_MACBYTES
-        ))
-    } else {
-        let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
-        let mac = MutByteArray::as_mut_array(mac);
-        crypto_box_detached(
-            ciphertext,
-            mac,
-            message,
-            nonce,
-            recipient_public_key,
-            sender_secret_key,
-        )?;
+    validate_length!(max CRYPTO_BOX_MESSAGEBYTES_MAX, message.len(), crate::ErrorContext::Message);
+    validate_length!(
+        exact message.len() + CRYPTO_BOX_MACBYTES,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
-        Ok(())
-    }
+    let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
+    let mac = MutByteArray::as_mut_array(mac);
+    crypto_box_detached(
+        ciphertext,
+        mac,
+        message,
+        nonce,
+        recipient_public_key,
+        sender_secret_key,
+    )?;
+
+    Ok(())
 }
 
 pub(crate) fn crypto_box_seal_nonce(nonce: &mut Nonce, epk: &PublicKey, rpk: &SecretKey) {
@@ -299,33 +288,31 @@ pub fn crypto_box_seal(
     recipient_public_key: &PublicKey,
 ) -> Result<(), Error> {
     let expected_ciphertext_len = crypto_box_seal_ciphertext_len(message.len())?;
-    if ciphertext.len() != expected_ciphertext_len {
-        Err(length_error!(
-            crate::ErrorContext::Ciphertext,
-            ciphertext.len(),
-            exact expected_ciphertext_len
-        ))
-    } else {
-        let mut nonce = Nonce::new_byte_array();
-        let (mut epk, esk) = crypto_box_keypair();
-        let esk = Zeroizing::new(esk);
-        crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
+    validate_length!(
+        exact expected_ciphertext_len,
+        ciphertext.len(),
+        crate::ErrorContext::Ciphertext
+    );
 
-        crypto_box_easy(
-            &mut ciphertext[CRYPTO_BOX_PUBLICKEYBYTES..],
-            message,
-            &nonce,
-            recipient_public_key,
-            &esk,
-        )?;
+    let mut nonce = Nonce::new_byte_array();
+    let (mut epk, esk) = crypto_box_keypair();
+    let esk = Zeroizing::new(esk);
+    crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
 
-        ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES].copy_from_slice(&epk);
+    crypto_box_easy(
+        &mut ciphertext[CRYPTO_BOX_PUBLICKEYBYTES..],
+        message,
+        &nonce,
+        recipient_public_key,
+        &esk,
+    )?;
 
-        epk.zeroize();
-        nonce.zeroize();
+    ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES].copy_from_slice(&epk);
 
-        Ok(())
-    }
+    epk.zeroize();
+    nonce.zeroize();
+
+    Ok(())
 }
 
 /// Encrypts a message in-place in a box.
@@ -352,29 +339,26 @@ pub fn crypto_box_easy_inplace(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if data.len() < CRYPTO_BOX_MACBYTES {
-        Err(length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_BOX_MACBYTES))
-    } else if data.len() - CRYPTO_BOX_MACBYTES > CRYPTO_BOX_MESSAGEBYTES_MAX {
-        Err(length_error!(
-            crate::ErrorContext::Data,
-            data.len(),
-            max CRYPTO_BOX_MESSAGEBYTES_MAX + CRYPTO_BOX_MACBYTES
-        ))
-    } else {
-        let key = Zeroizing::new(crypto_box_beforenm(
-            recipient_public_key,
-            sender_secret_key,
-        )?);
+    validate_length!(min CRYPTO_BOX_MACBYTES, data.len(), crate::ErrorContext::Data);
+    validate_length!(
+        max CRYPTO_BOX_MESSAGEBYTES_MAX + CRYPTO_BOX_MACBYTES,
+        data.len(),
+        crate::ErrorContext::Data
+    );
 
-        data.rotate_right(CRYPTO_BOX_MACBYTES);
+    let key = Zeroizing::new(crypto_box_beforenm(
+        recipient_public_key,
+        sender_secret_key,
+    )?);
 
-        let (mac, data) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
-        let mac = MutByteArray::as_mut_array(mac);
+    data.rotate_right(CRYPTO_BOX_MACBYTES);
 
-        crypto_box_detached_afternm_inplace(data, mac, nonce, &key);
+    let (mac, data) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
+    let mac = MutByteArray::as_mut_array(mac);
 
-        Ok(())
-    }
+    crypto_box_detached_afternm_inplace(data, mac, nonce, &key);
+
+    Ok(())
 }
 
 /// Precalculation variant of [`crypto_box_open_detached`].
@@ -423,20 +407,14 @@ pub fn crypto_box_open_easy_afternm(
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    if ciphertext.len() < CRYPTO_BOX_MACBYTES {
-        return Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_BOX_MACBYTES),
-        );
-    }
+    validate_length!(min CRYPTO_BOX_MACBYTES, ciphertext.len(), crate::ErrorContext::Ciphertext);
 
     let expected_message_len = ciphertext.len() - CRYPTO_BOX_MACBYTES;
-    if message.len() != expected_message_len {
-        return Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            exact expected_message_len
-        ));
-    }
+    validate_length!(
+        exact expected_message_len,
+        message.len(),
+        crate::ErrorContext::Message
+    );
 
     let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
     crypto_box_open_detached_afternm(message, ByteArray::as_array(mac), ciphertext, nonce, key)
@@ -509,29 +487,24 @@ pub fn crypto_box_open_easy(
     sender_public_key: &PublicKey,
     recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if ciphertext.len() < CRYPTO_BOX_MACBYTES {
-        Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_BOX_MACBYTES),
-        )
-    } else if message.len() != ciphertext.len() - CRYPTO_BOX_MACBYTES {
-        Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            exact ciphertext.len() - CRYPTO_BOX_MACBYTES
-        ))
-    } else {
-        let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
-        let mac = ByteArray::as_array(mac);
+    validate_length!(min CRYPTO_BOX_MACBYTES, ciphertext.len(), crate::ErrorContext::Ciphertext);
+    validate_length!(
+        exact ciphertext.len() - CRYPTO_BOX_MACBYTES,
+        message.len(),
+        crate::ErrorContext::Message
+    );
 
-        crypto_box_open_detached(
-            message,
-            mac,
-            ciphertext,
-            nonce,
-            sender_public_key,
-            recipient_secret_key,
-        )
-    }
+    let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
+    let mac = ByteArray::as_array(mac);
+
+    crypto_box_open_detached(
+        message,
+        mac,
+        ciphertext,
+        nonce,
+        sender_public_key,
+        recipient_secret_key,
+    )
 }
 
 /// Decrypts a sealed box.
@@ -554,31 +527,26 @@ pub fn crypto_box_seal_open(
     recipient_public_key: &PublicKey,
     recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if ciphertext.len() < CRYPTO_BOX_SEALBYTES {
-        Err(
-            length_error!(crate::ErrorContext::Ciphertext, ciphertext.len(), min CRYPTO_BOX_SEALBYTES),
-        )
-    } else if message.len() != ciphertext.len() - CRYPTO_BOX_SEALBYTES {
-        Err(length_error!(
-            crate::ErrorContext::Message,
-            message.len(),
-            exact ciphertext.len() - CRYPTO_BOX_SEALBYTES
-        ))
-    } else {
-        let mut nonce = Nonce::new_byte_array();
-        let mut epk = PublicKey::new_byte_array();
-        epk.copy_from_slice(&ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES]);
+    validate_length!(min CRYPTO_BOX_SEALBYTES, ciphertext.len(), crate::ErrorContext::Ciphertext);
+    validate_length!(
+        exact ciphertext.len() - CRYPTO_BOX_SEALBYTES,
+        message.len(),
+        crate::ErrorContext::Message
+    );
 
-        crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
+    let mut nonce = Nonce::new_byte_array();
+    let mut epk = PublicKey::new_byte_array();
+    epk.copy_from_slice(&ciphertext[..CRYPTO_BOX_PUBLICKEYBYTES]);
 
-        crypto_box_open_easy(
-            message,
-            &ciphertext[CRYPTO_BOX_PUBLICKEYBYTES..],
-            &nonce,
-            &epk,
-            recipient_secret_key,
-        )
-    }
+    crypto_box_seal_nonce(&mut nonce, &epk, recipient_public_key);
+
+    crypto_box_open_easy(
+        message,
+        &ciphertext[CRYPTO_BOX_PUBLICKEYBYTES..],
+        &nonce,
+        &epk,
+        recipient_secret_key,
+    )
 }
 
 /// Decrypts a sealed box in-place.
@@ -604,18 +572,16 @@ pub fn crypto_box_open_easy_inplace(
     sender_public_key: &PublicKey,
     recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    if data.len() < CRYPTO_BOX_MACBYTES {
-        Err(length_error!(crate::ErrorContext::Data, data.len(), min CRYPTO_BOX_MACBYTES))
-    } else {
-        let (mac, d) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
-        let mac = ByteArray::as_array(mac);
+    validate_length!(min CRYPTO_BOX_MACBYTES, data.len(), crate::ErrorContext::Data);
 
-        crypto_box_open_detached_inplace(d, mac, nonce, sender_public_key, recipient_secret_key)?;
+    let (mac, d) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
+    let mac = ByteArray::as_array(mac);
 
-        data.rotate_left(CRYPTO_BOX_MACBYTES);
+    crypto_box_open_detached_inplace(d, mac, nonce, sender_public_key, recipient_secret_key)?;
 
-        Ok(())
-    }
+    data.rotate_left(CRYPTO_BOX_MACBYTES);
+
+    Ok(())
 }
 
 #[cfg(test)]

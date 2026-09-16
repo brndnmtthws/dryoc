@@ -10,7 +10,7 @@
 use zeroize::Zeroize;
 
 use crate::stream::{BufferToBuffer, InPlace, Sink};
-use crate::utils::{load_u32_le, zeroize_bytes};
+use crate::utils::{SIGMA, load_u32_le, zeroize_bytes};
 
 mod chacha20_soft;
 
@@ -26,8 +26,6 @@ mod chacha20_x86_64;
 pub(crate) use chacha20_soft::rounds;
 #[cfg(target_arch = "x86_64")]
 use chacha20_x86_64 as vector;
-
-const SIGMA: [u32; 4] = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
 
 /// One ChaCha20 double round (a column round followed by a diagonal round)
 /// of `$x`: the eight quarter rounds spelled out with the backend's `$qr`
@@ -103,7 +101,7 @@ trait Kernel: Copy + std::fmt::Debug {
         (extra_counter, extra): (u64, &mut [u8; 64]),
     ) {
         self.xor_chunk(state, counter, input, output, partial);
-        xor_scalar_block(state, extra_counter, extra);
+        crate::stream::xor_scalar_block(state, extra_counter, extra, chacha20_soft::block);
     }
 
     /// [`Kernel::xor_chunk`] for runs of at most [`vector::SMALL_BLOCKS`]
@@ -142,17 +140,6 @@ trait Kernel: Copy + std::fmt::Debug {
         }
         self.xor_chunk(state, counter, input, output, partial);
     }
-}
-
-/// XORs the raw keystream of the scalar block `counter` into `extra`.
-#[cfg(dryoc_stream_kernel)]
-fn xor_scalar_block(state: &[u32; 16], counter: u64, extra: &mut [u8; 64]) {
-    let mut block = [0u8; 64];
-    chacha20_soft::block(state, counter, &mut block);
-    for (byte, ks) in extra.iter_mut().zip(block) {
-        *byte ^= ks;
-    }
-    zeroize_bytes(&mut block);
 }
 
 /// ChaCha20 keystream generator positioned at a block boundary.

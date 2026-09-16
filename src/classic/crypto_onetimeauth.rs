@@ -48,8 +48,6 @@
 //! // This should not be valid
 //! crypto_onetimeauth_verify(&mac, b"Invalid data", &key).expect_err("should not authenticate");
 //! ```
-use subtle::ConstantTimeEq;
-
 use crate::constants::{
     CRYPTO_ONETIMEAUTH_BYTES, CRYPTO_ONETIMEAUTH_KEYBYTES, CRYPTO_ONETIMEAUTH_POLY1305_BYTES,
     CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES,
@@ -57,6 +55,7 @@ use crate::constants::{
 use crate::error::Error;
 use crate::poly1305::Poly1305;
 use crate::types::*;
+use crate::utils::verify_ct;
 struct OnetimeauthPoly1305State {
     mac: Poly1305,
 }
@@ -76,11 +75,7 @@ fn crypto_onetimeauth_poly1305_verify(mac: &Mac, input: &[u8], key: &Key) -> Res
     poly1305.update(input);
     let computed_mac = poly1305.finalize_to_array();
 
-    if mac.ct_eq(&computed_mac).unwrap_u8() == 1 {
-        Ok(())
-    } else {
-        Err(Error::AuthenticationFailed)
-    }
+    verify_ct(mac, &computed_mac)
 }
 
 fn crypto_onetimeauth_poly1305_init(key: &Key) -> OnetimeauthPoly1305State {

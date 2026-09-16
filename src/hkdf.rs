@@ -247,15 +247,6 @@ where
         }
     }
 
-    /// Randomly generates a new PRK for HKDF expand.
-    ///
-    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// with older Rust editions.
-    #[deprecated(note = "use generate() instead")]
-    pub fn r#gen() -> Self {
-        Self::generate()
-    }
-
     /// Extracts a PRK from input keying material and optional salt.
     pub fn extract<Salt: Bytes + ?Sized, Ikm: Bytes + ?Sized>(
         salt: Option<&Salt>,
@@ -418,15 +409,6 @@ where
     /// Randomly generates a new PRK using the default stack-allocated type.
     pub fn generate_with_defaults() -> Self {
         Self::generate()
-    }
-
-    /// Randomly generates a new PRK using the default stack-allocated type.
-    ///
-    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
-    /// method is retained for compatibility.
-    #[deprecated(note = "use generate_with_defaults() instead")]
-    pub fn gen_with_defaults() -> Self {
-        Self::generate_with_defaults()
     }
 }
 

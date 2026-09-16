@@ -9,7 +9,6 @@ use std::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
@@ -21,6 +20,7 @@ use crate::error::Error;
 use crate::kx;
 use crate::precalc::PrecalcSecretKey;
 use crate::types::*;
+use crate::utils::ct_eq_bytes;
 
 /// Stack-allocated public key type alias.
 pub type PublicKey = StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
@@ -86,15 +86,6 @@ impl<
         }
     }
 
-    /// Generates a random keypair.
-    ///
-    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// with older Rust editions.
-    #[deprecated(note = "use generate() instead")]
-    pub fn r#gen() -> Self {
-        Self::generate()
-    }
-
     /// Derives the public key for `secret_key` and returns the complete
     /// keypair, consuming the secret key.
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
@@ -132,16 +123,6 @@ impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BO
     /// (stack-allocated byte arrays). Provided for convenience.
     pub fn generate_with_defaults() -> Self {
         Self::generate()
-    }
-
-    /// Randomly generates a new keypair, using default types
-    /// (stack-allocated byte arrays). Provided for convenience.
-    ///
-    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
-    /// method is retained for compatibility.
-    #[deprecated(note = "use generate_with_defaults() instead")]
-    pub fn gen_with_defaults() -> Self {
-        Self::generate_with_defaults()
     }
 }
 
@@ -359,25 +340,6 @@ pub mod protected {
             Ok(res)
         }
 
-        /// Returns a new randomly generated locked keypair.
-        ///
-        /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
-        /// This method is retained for compatibility.
-        ///
-        /// # Errors
-        ///
-        /// Returns the same errors as
-        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
-        ///
-        /// # Panics
-        ///
-        /// Panics under the same conditions as
-        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
-        #[deprecated(note = "use generate_locked_keypair() instead")]
-        pub fn gen_locked_keypair() -> Result<Self, Error> {
-            Self::generate_locked_keypair()
-        }
-
         /// Computes a heap-allocated, page-aligned, locked shared secret key
         /// using a secret key from this keypair and
         /// `third_party_public_key`.
@@ -436,26 +398,6 @@ pub mod protected {
             })
         }
 
-        /// Returns a new randomly generated locked, read-only keypair.
-        ///
-        /// Prefer
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        /// This method is retained for compatibility.
-        ///
-        /// # Errors
-        ///
-        /// Returns the same errors as
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        ///
-        /// # Panics
-        ///
-        /// Panics under the same conditions as
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
-        pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
-            Self::generate_readonly_locked_keypair()
-        }
-
         /// Computes a heap-allocated, page-aligned, locked, read-only shared
         /// secret key using a secret key from this keypair and
         /// `third_party_public_key`.
@@ -491,17 +433,8 @@ impl<
 > PartialEq<KeyPair<PublicKey, SecretKey>> for KeyPair<PublicKey, SecretKey>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.public_key
-            .as_slice()
-            .ct_eq(other.public_key.as_slice())
-            .unwrap_u8()
-            == 1
-            && self
-                .secret_key
-                .as_slice()
-                .ct_eq(other.secret_key.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.public_key.as_slice(), other.public_key.as_slice())
+            && ct_eq_bytes(self.secret_key.as_slice(), other.secret_key.as_slice())
     }
 }
 

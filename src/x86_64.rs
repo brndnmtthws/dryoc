@@ -1,12 +1,14 @@
-//! AVX2 and AVX-512 helpers shared by the x86-64 stream-cipher kernels
-//! (`chacha20`, `salsa20`): the kernel variants and their detection, vector
-//! loads and stores, the lane-set input, counter and transpose, the keystream
-//! XOR into a [`Dest`] and the feed-forward XOR of a scalar block; and the
-//! BMI2 check behind the Curve25519 field-arithmetic roots.
+//! AVX2 and AVX-512 helpers shared by the x86-64 kernels (`chacha20`,
+//! `salsa20`, `blake2b`, `argon2`): the kernel variants and their detection,
+//! vector loads and stores, the lane-set input, counter and transpose, the
+//! keystream XOR into a [`Dest`], the feed-forward XOR of a scalar block, the
+//! 64-bit lane rotations, and the BMI2 check behind the Curve25519
+//! field-arithmetic roots.
 
 use std::arch::x86_64::{
-    __m256i, __m512i, _mm256_add_epi32, _mm256_cmpgt_epi32, _mm256_loadu_si256,
-    _mm256_permute2x128_si256, _mm256_set1_epi32, _mm256_setr_epi32, _mm256_storeu_si256,
+    __m256i, __m512i, _mm256_add_epi32, _mm256_add_epi64, _mm256_cmpgt_epi32, _mm256_loadu_si256,
+    _mm256_or_si256, _mm256_permute2x128_si256, _mm256_set1_epi32, _mm256_setr_epi8,
+    _mm256_setr_epi32, _mm256_shuffle_epi32, _mm256_srli_epi64, _mm256_storeu_si256,
     _mm256_sub_epi32, _mm256_unpackhi_epi32, _mm256_unpackhi_epi64, _mm256_unpacklo_epi32,
     _mm256_unpacklo_epi64, _mm256_xor_si256, _mm512_add_epi32, _mm512_cmplt_epu32_mask,
     _mm512_loadu_si512, _mm512_mask_add_epi32, _mm512_set1_epi32, _mm512_setr_epi32,
@@ -15,6 +17,61 @@ use std::arch::x86_64::{
 };
 
 pub(crate) use crate::stream::Dest;
+
+/// Byte permutation (per 128-bit half) rotating every 64-bit lane right by
+/// 24 bits.
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn ror24_table() -> __m256i {
+    _mm256_setr_epi8(
+        3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10, 3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13,
+        14, 15, 8, 9, 10,
+    )
+}
+
+/// Byte permutation (per 128-bit half) rotating every 64-bit lane right by
+/// 16 bits.
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn ror16_table() -> __m256i {
+    _mm256_setr_epi8(
+        2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9, 2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12,
+        13, 14, 15, 8, 9,
+    )
+}
+
+/// Rotates every 64-bit lane right by 32 bits (a dword swap).
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn ror32(v: __m256i) -> __m256i {
+    _mm256_shuffle_epi32::<0xB1>(v)
+}
+
+// `ror24` and `ror16` are only used by the BLAKE2b kernels, which are compiled
+// out when the portable-SIMD BLAKE2b backend is selected; Argon2 uses the
+// tables directly.
+/// Rotates every 64-bit lane right by 24 bits.
+#[inline]
+#[target_feature(enable = "avx2")]
+#[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
+pub(crate) fn ror24(v: __m256i) -> __m256i {
+    std::arch::x86_64::_mm256_shuffle_epi8(v, ror24_table())
+}
+
+/// Rotates every 64-bit lane right by 16 bits.
+#[inline]
+#[target_feature(enable = "avx2")]
+#[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
+pub(crate) fn ror16(v: __m256i) -> __m256i {
+    std::arch::x86_64::_mm256_shuffle_epi8(v, ror16_table())
+}
+
+/// Rotates every 64-bit lane right by 63 bits (left by one).
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn ror63(v: __m256i) -> __m256i {
+    _mm256_or_si256(_mm256_add_epi64(v, v), _mm256_srli_epi64::<63>(v))
+}
 
 /// Blocks per 8-lane (256-bit) vector set.
 pub(crate) const LANES: usize = 8;

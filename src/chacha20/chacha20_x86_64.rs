@@ -109,7 +109,12 @@ impl super::Kernel for Kernel {
         match self.0 {
             LaneSet::Avx2 => {
                 self.xor_chunk(state, counter, input, output, partial);
-                super::xor_scalar_block(state, extra_counter, extra);
+                crate::stream::xor_scalar_block(
+                    state,
+                    extra_counter,
+                    extra,
+                    super::chacha20_soft::block,
+                );
             }
             // SAFETY: as for `xor_chunk`; `LaneSet::Avx512` and
             // `LaneSet::Avx512Vl` require `avx512f`.

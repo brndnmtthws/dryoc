@@ -53,7 +53,7 @@ pub(super) fn block_input(state: &[u32; 16], counter: u64) -> [u32; 16] {
 /// Computes the ChaCha20 keystream block for `state` with words 12 and 13
 /// replaced by the little-endian halves of `counter`, serialising the result
 /// into `out`. The key-bearing working copies are zeroized before returning.
-pub(super) fn block(state: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
+pub(crate) fn block(state: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
     let mut initial = block_input(state, counter);
     let mut x = initial;
     rounds(&mut x);

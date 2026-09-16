@@ -91,8 +91,9 @@ pub use crate::types::*;
 mod tag;
 pub use tag::{Tag, TagIter, TagIterNames};
 
-/// Stream mode marker trait
+/// Stream mode marker trait.
 pub trait Mode {}
+
 /// Indicates a push stream
 pub struct Push;
 /// Indicates a pull stream
@@ -177,12 +178,12 @@ pub mod protected {
 
 /// Secret-key authenticated encrypted streams
 #[derive(PartialEq, Eq, Clone, Zeroize)]
-pub struct DryocStream<Mode> {
+pub struct DryocStream<M> {
     state: State,
-    phantom: std::marker::PhantomData<Mode>,
+    phantom: std::marker::PhantomData<M>,
 }
 
-impl<Mode> Drop for DryocStream<Mode> {
+impl<M> Drop for DryocStream<M> {
     fn drop(&mut self) {
         self.state.zeroize()
     }
@@ -328,24 +329,19 @@ impl DryocStream<Pull> {
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
             CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
         };
-        if ciphertext.as_slice().len() < CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES {
-            return Err(length_error!(
-                crate::ErrorContext::Ciphertext,
-                ciphertext.as_slice().len(),
-                min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-            ));
-        }
+        validate_length!(
+            min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            ciphertext.as_slice().len(),
+            crate::ErrorContext::Ciphertext
+        );
 
         let message_len =
             ciphertext.as_slice().len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-        if message_len > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-            return Err(length_error!(
-                crate::ErrorContext::Ciphertext,
-                ciphertext.as_slice().len(),
-                max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-                    + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES
-            ));
-        }
+        validate_length!(
+            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            ciphertext.as_slice().len(),
+            crate::ErrorContext::Ciphertext
+        );
 
         let mut message = Output::default();
         message.resize(message_len, 0);

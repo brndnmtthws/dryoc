@@ -427,37 +427,7 @@ impl State {
         salt: Option<&[u8; SALTBYTES]>,
         personal: Option<&[u8; PERSONALBYTES]>,
     ) -> Result<State, Error> {
-        if outlen == 0 || outlen as usize > OUTBYTES {
-            return Err(
-                length_error!(crate::ErrorContext::Blake2bOutput, outlen as usize, range 1, OUTBYTES),
-            );
-        }
-
-        let key_length = key.map_or(0, <[u8]>::len);
-
-        if key_length > KEYBYTES {
-            return Err(length_error!(crate::ErrorContext::Blake2bKey, key_length, max KEYBYTES));
-        }
-        let key_length = key_length as u8;
-
-        let salt = match salt {
-            Some(salt) => *salt,
-            None => [0u8; SALTBYTES],
-        };
-
-        let personal = match personal {
-            Some(personal) => *personal,
-            None => [0u8; PERSONALBYTES],
-        };
-
-        let params = Params {
-            digest_length: outlen,
-            key_length,
-            salt,
-            personal,
-            ..Default::default()
-        };
-
+        let params = Params::new(outlen, key, salt, personal)?;
         let mut state = Self::init_param(&params);
 
         if let Some(key) = key {
@@ -506,11 +476,12 @@ impl State {
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
-        if output.is_empty() || output.len() > OUTBYTES {
-            return Err(
-                length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
-            );
-        }
+        validate_length!(
+            1,
+            OUTBYTES,
+            output.len(),
+            crate::ErrorContext::Blake2bOutput
+        );
 
         if self.is_lastblock() {
             return Err(Error::invalid_state(crate::ErrorContext::Blake2b));
@@ -556,9 +527,7 @@ impl State {
 }
 
 pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
-    if output.len() > OUTBYTES {
-        return Err(length_error!(crate::ErrorContext::Blake2bOutput, output.len(), max OUTBYTES));
-    }
+    validate_length!(max OUTBYTES, output.len(), crate::ErrorContext::Blake2bOutput);
 
     let mut state = State::init(output.len() as u8, key, None, None)?;
 
@@ -574,14 +543,13 @@ pub(crate) fn hash_key_only(
     salt: &[u8; SALTBYTES],
     personal: &[u8; PERSONALBYTES],
 ) -> Result<(), Error> {
-    if output.is_empty() || output.len() > OUTBYTES {
-        return Err(
-            length_error!(crate::ErrorContext::Blake2bOutput, output.len(), range 1, OUTBYTES),
-        );
-    }
-    if key.is_empty() || key.len() > KEYBYTES {
-        return Err(length_error!(crate::ErrorContext::Blake2bKey, key.len(), range 1, KEYBYTES));
-    }
+    validate_length!(
+        1,
+        OUTBYTES,
+        output.len(),
+        crate::ErrorContext::Blake2bOutput
+    );
+    validate_length!(1, KEYBYTES, key.len(), crate::ErrorContext::Blake2bKey);
     State::init(output.len() as u8, Some(key), Some(salt), Some(personal))?.finalize(output)
 }
 
@@ -642,7 +610,6 @@ mod tests {
     #[test]
     fn test_vectors() {
         for vector in TEST_VECTORS.iter() {
-            println!("input {:?}, key {:?}", vector.in_, vector.key);
             let key = if vector.key.is_empty() {
                 None
             } else {

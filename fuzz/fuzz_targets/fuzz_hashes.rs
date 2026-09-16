@@ -74,8 +74,11 @@ fuzz_target!(|data: &[u8]| {
     let mut data = data;
     let key = fill::<32>(&mut data);
     let hash_key = fill::<64>(&mut data);
+    let hash_keylen = usize::from(fill::<1>(&mut data)[0]) % 65;
+    let hmac_key = fill::<256>(&mut data);
+    let hmac_keylen = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) % 257;
+    let long_hmac_keylen = 129 + usize::from(fill::<1>(&mut data)[0]) % 128;
     let outlen = 16 + usize::from(fill::<1>(&mut data)[0]) % 49;
-    let keylen = usize::from(fill::<1>(&mut data)[0]) % 65;
     let message_len = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) & 0xfff;
     let message: Vec<u8> = if data.is_empty() {
         vec![0u8; message_len]
@@ -105,14 +108,20 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(digest[..], expected[..]);
 
     // HMACs: fixed-size keys one-shot (the paired-block HMAC-SHA-512 init on
-    // AArch64), variable-length keys streamed.
+    // AArch64), fuzz-selected 0..=256-byte keys streamed, and a second
+    // guaranteed >128-byte streamed pass for long-key normalization.
     let expected = reference_hmac::<sha2::Sha256, 64>(&key, &message);
     let mut mac = [0u8; 32];
     crypto_auth_hmacsha256(&mut mac, &message, &key);
     assert_eq!(mac[..], expected[..]);
     crypto_auth_hmacsha256_verify(&mac, &message, &key).expect("hmacsha256 verify");
-    let expected = reference_hmac::<sha2::Sha256, 64>(&hash_key[..keylen], &message);
-    let mut state = crypto_auth_hmacsha256_init(&hash_key[..keylen]);
+    let expected = reference_hmac::<sha2::Sha256, 64>(&hmac_key[..hmac_keylen], &message);
+    let mut state = crypto_auth_hmacsha256_init(&hmac_key[..hmac_keylen]);
+    chunks().for_each(|chunk| crypto_auth_hmacsha256_update(&mut state, chunk));
+    crypto_auth_hmacsha256_final(state, &mut mac);
+    assert_eq!(mac[..], expected[..]);
+    let expected = reference_hmac::<sha2::Sha256, 64>(&hmac_key[..long_hmac_keylen], &message);
+    let mut state = crypto_auth_hmacsha256_init(&hmac_key[..long_hmac_keylen]);
     chunks().for_each(|chunk| crypto_auth_hmacsha256_update(&mut state, chunk));
     crypto_auth_hmacsha256_final(state, &mut mac);
     assert_eq!(mac[..], expected[..]);
@@ -122,8 +131,13 @@ fuzz_target!(|data: &[u8]| {
     crypto_auth_hmacsha512(&mut mac, &message, &key);
     assert_eq!(mac[..], expected[..]);
     crypto_auth_hmacsha512_verify(&mac, &message, &key).expect("hmacsha512 verify");
-    let expected = reference_hmac::<sha2::Sha512, 128>(&hash_key[..keylen], &message);
-    let mut state = crypto_auth_hmacsha512_init(&hash_key[..keylen]);
+    let expected = reference_hmac::<sha2::Sha512, 128>(&hmac_key[..hmac_keylen], &message);
+    let mut state = crypto_auth_hmacsha512_init(&hmac_key[..hmac_keylen]);
+    chunks().for_each(|chunk| crypto_auth_hmacsha512_update(&mut state, chunk));
+    crypto_auth_hmacsha512_final(state, &mut mac);
+    assert_eq!(mac[..], expected[..]);
+    let expected = reference_hmac::<sha2::Sha512, 128>(&hmac_key[..long_hmac_keylen], &message);
+    let mut state = crypto_auth_hmacsha512_init(&hmac_key[..long_hmac_keylen]);
     chunks().for_each(|chunk| crypto_auth_hmacsha512_update(&mut state, chunk));
     crypto_auth_hmacsha512_final(state, &mut mac);
     assert_eq!(mac[..], expected[..]);
@@ -132,15 +146,20 @@ fuzz_target!(|data: &[u8]| {
     let mut mac = [0u8; 32];
     crypto_auth_hmacsha512256(&mut mac, &message, &key);
     assert_eq!(mac[..], expected[..32]);
-    let expected = reference_hmac::<sha2::Sha512, 128>(&hash_key[..keylen], &message);
-    let mut state = crypto_auth_hmacsha512256_init(&hash_key[..keylen]);
+    let expected = reference_hmac::<sha2::Sha512, 128>(&hmac_key[..hmac_keylen], &message);
+    let mut state = crypto_auth_hmacsha512256_init(&hmac_key[..hmac_keylen]);
+    chunks().for_each(|chunk| crypto_auth_hmacsha512256_update(&mut state, chunk));
+    crypto_auth_hmacsha512256_final(state, &mut mac);
+    assert_eq!(mac[..], expected[..32]);
+    let expected = reference_hmac::<sha2::Sha512, 128>(&hmac_key[..long_hmac_keylen], &message);
+    let mut state = crypto_auth_hmacsha512256_init(&hmac_key[..long_hmac_keylen]);
     chunks().for_each(|chunk| crypto_auth_hmacsha512256_update(&mut state, chunk));
     crypto_auth_hmacsha512256_final(state, &mut mac);
     assert_eq!(mac[..], expected[..32]);
 
     // BLAKE2b: one-shot (single-block fast path included) against streamed,
     // unkeyed and keyed.
-    let generichash_key = (keylen >= 16).then_some(&hash_key[..keylen]);
+    let generichash_key = (hash_keylen >= 16).then_some(&hash_key[..hash_keylen]);
     let mut expected = vec![0u8; outlen];
     crypto_generichash(&mut expected, &message, generichash_key).expect("generichash");
     let mut state = crypto_generichash_init(generichash_key, outlen).expect("generichash init");

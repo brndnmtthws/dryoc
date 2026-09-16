@@ -106,7 +106,6 @@
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::constants::{
@@ -115,6 +114,7 @@ use crate::constants::{
 };
 use crate::error::*;
 pub use crate::types::*;
+use crate::utils::{ct_eq_bytes, split_prefix};
 
 /// Stack-allocated public key for authenticated public-key boxes.
 pub type PublicKey = StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
@@ -438,17 +438,13 @@ impl<
     /// Returns an error if `bytes` is shorter than one authentication tag or
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_BOX_MACBYTES {
-            Err(length_error!(crate::ErrorContext::Box, bytes.len(), min CRYPTO_BOX_MACBYTES))
-        } else {
-            let (tag, data) = bytes.split_at(CRYPTO_BOX_MACBYTES);
-            Ok(Self {
-                ephemeral_pk: None,
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (tag, data) = split_prefix(bytes, CRYPTO_BOX_MACBYTES, ErrorContext::Box)?;
+        Ok(Self {
+            ephemeral_pk: None,
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 
     /// Initializes a sealed [`DryocBox`] from a slice. Expects the first
@@ -462,23 +458,19 @@ impl<
     /// plus one authentication tag, or if either field cannot be converted to
     /// its target type.
     pub fn from_sealed_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_BOX_SEALBYTES {
-            Err(
-                length_error!(crate::ErrorContext::SealedBox, bytes.len(), min CRYPTO_BOX_SEALBYTES),
-            )
-        } else {
-            let (seal, data) = bytes.split_at(CRYPTO_BOX_SEALBYTES);
-            let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
-            Ok(Self {
-                ephemeral_pk: Some(
-                    EphemeralPublicKey::try_from(epk)
-                        .map_err(|_| Error::invalid_key(crate::ErrorContext::EphemeralPublicKey))?,
-                ),
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        validate_length!(min CRYPTO_BOX_SEALBYTES, bytes.len(), crate::ErrorContext::SealedBox);
+
+        let (seal, data) = bytes.split_at(CRYPTO_BOX_SEALBYTES);
+        let (epk, tag) = seal.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
+        Ok(Self {
+            ephemeral_pk: Some(
+                EphemeralPublicKey::try_from(epk)
+                    .map_err(|_| Error::invalid_key(crate::ErrorContext::EphemeralPublicKey))?,
+            ),
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 
@@ -627,24 +619,19 @@ impl<
 
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
-        let mut data = Bytes::new_bytes();
         match &self.ephemeral_pk {
             Some(epk) => {
+                let mut data = Bytes::new_bytes();
                 data.resize(epk.len() + self.tag.len() + self.data.len(), 0);
                 let s = data.as_mut_slice();
                 s[..CRYPTO_BOX_PUBLICKEYBYTES].copy_from_slice(epk.as_slice());
                 s[CRYPTO_BOX_PUBLICKEYBYTES..CRYPTO_BOX_SEALBYTES]
                     .copy_from_slice(self.tag.as_slice());
                 s[CRYPTO_BOX_SEALBYTES..].copy_from_slice(self.data.as_slice());
+                data
             }
-            None => {
-                data.resize(self.tag.len() + self.data.len(), 0);
-                let s = data.as_mut_slice();
-                s[..CRYPTO_BOX_MACBYTES].copy_from_slice(self.tag.as_slice());
-                s[CRYPTO_BOX_MACBYTES..].copy_from_slice(self.data.as_slice());
-            }
+            None => concat_bytes(self.tag.as_slice(), self.data.as_slice()),
         }
-        data
     }
 }
 
@@ -801,25 +788,15 @@ impl<
     fn eq(&self, other: &Self) -> bool {
         if let Some(our_epk) = &self.ephemeral_pk {
             if let Some(their_epk) = &other.ephemeral_pk {
-                self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
-                    && self
-                        .data
-                        .as_slice()
-                        .ct_eq(other.data.as_slice())
-                        .unwrap_u8()
-                        == 1
-                    && our_epk.as_slice().ct_eq(their_epk.as_slice()).unwrap_u8() == 1
+                ct_eq_bytes(self.tag.as_slice(), other.tag.as_slice())
+                    && ct_eq_bytes(self.data.as_slice(), other.data.as_slice())
+                    && ct_eq_bytes(our_epk.as_slice(), their_epk.as_slice())
             } else {
                 false
             }
         } else if other.ephemeral_pk.is_none() {
-            self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
-                && self
-                    .data
-                    .as_slice()
-                    .ct_eq(other.data.as_slice())
-                    .unwrap_u8()
-                    == 1
+            ct_eq_bytes(self.tag.as_slice(), other.tag.as_slice())
+                && ct_eq_bytes(self.data.as_slice(), other.data.as_slice())
         } else {
             false
         }

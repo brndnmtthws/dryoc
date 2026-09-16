@@ -459,13 +459,9 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
 
 #[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
-fn test_protected_generation_compatibility_api() {
-    use dryoc::dryocbox::protected::{
-        LockedKeyPair, LockedROKeyPair, Nonce as BoxNonce, PublicKey as BoxPublicKey,
-        SecretKey as BoxSecretKey,
-    };
+fn test_protected_generation_api() {
+    use dryoc::dryocbox::protected::{LockedKeyPair, LockedROKeyPair, Nonce as BoxNonce};
     use dryoc::dryocstream::protected::Key as StreamKey;
-    use dryoc::keypair::KeyPair;
     use dryoc::protected::{LockedRO, NewLocked};
     use dryoc::sign::SigningKeyPair;
     use dryoc::sign::protected::{
@@ -505,44 +501,6 @@ fn test_protected_generation_compatibility_api() {
         readonly_signing_keypair.secret_key.len(),
         dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
     );
-
-    #[allow(deprecated)]
-    {
-        let legacy_key = StreamKey::gen_locked().expect("legacy key failed");
-        assert_eq!(
-            legacy_key.len(),
-            dryoc::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES
-        );
-        let legacy_nonce = BoxNonce::gen_readonly_locked().expect("legacy nonce failed");
-        assert_eq!(legacy_nonce.len(), dryoc::constants::CRYPTO_BOX_NONCEBYTES);
-
-        let legacy_box_keypair = LockedKeyPair::gen_locked_keypair().expect("legacy box keypair");
-        assert_eq!(
-            legacy_box_keypair.secret_key.len(),
-            dryoc::constants::CRYPTO_BOX_SECRETKEYBYTES
-        );
-        let legacy_readonly_box_keypair: KeyPair<LockedRO<BoxPublicKey>, LockedRO<BoxSecretKey>> =
-            KeyPair::gen_readonly_locked_keypair().expect("legacy readonly box keypair");
-        assert_eq!(
-            legacy_readonly_box_keypair.public_key.len(),
-            dryoc::constants::CRYPTO_BOX_PUBLICKEYBYTES
-        );
-
-        let legacy_signing_keypair =
-            LockedSigningKeyPair::gen_locked_keypair().expect("legacy signing keypair");
-        assert_eq!(
-            legacy_signing_keypair.secret_key.len(),
-            dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
-        );
-        let legacy_readonly_signing_keypair: SigningKeyPair<
-            LockedRO<SignPublicKey>,
-            LockedRO<SignSecretKey>,
-        > = SigningKeyPair::gen_readonly_locked_keypair().expect("legacy readonly signing keypair");
-        assert_eq!(
-            legacy_readonly_signing_keypair.public_key.len(),
-            dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
-        );
-    }
 }
 
 #[cfg(all(feature = "serde", feature = "protected", any(unix, windows)))]
@@ -668,6 +626,27 @@ fn test_dryocaead() {
         .expect("unable to open");
 
     assert_eq!(message, decrypted.as_slice());
+}
+
+#[test]
+fn test_dryocaead_vec_nonce_envelope() {
+    use dryoc::constants::CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
+    use dryoc::dryocaead::{AeadEnvelope, Key, Mac, XChaCha20Poly1305Ietf};
+    use dryoc::types::NewByteArray;
+
+    type VecNonceEnvelope = AeadEnvelope<XChaCha20Poly1305Ietf, Vec<u8>, Mac, Vec<u8>>;
+
+    let key = Key::generate();
+    let envelope = VecNonceEnvelope::seal(b"message", None, &key).expect("seal");
+
+    assert_eq!(
+        envelope.nonce().len(),
+        CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
+    );
+    assert_eq!(
+        envelope.open::<Vec<u8>, _>(None, &key).expect("open"),
+        b"message"
+    );
 }
 
 #[test]

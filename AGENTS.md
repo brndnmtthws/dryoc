@@ -18,9 +18,9 @@ than convenience refactors.
 
 - The crate uses Rust 2024. `Cargo.toml` declares `rust-version = "1.89"`;
   avoid newer language features unless the MSRV is intentionally changed.
-- Rust 2024 reserves `gen` as a keyword. Existing generation APIs retain their
-  public name through raw identifier syntax; define and call them as `r#gen`
-  (for example, `Key::r#gen()`).
+- Rust 2024 reserves `gen` as a keyword. Random generation APIs are named
+  `generate` (for example, `Key::generate()`); the legacy `gen`/`r#gen`
+  aliases were removed.
 - Default features are `base64`, `u64_backend`, and `protected`.
 - Optional features:
   - `serde`: serialization support for supported types.

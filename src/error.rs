@@ -380,6 +380,16 @@ macro_rules! validate_length {
             return Err(length_error!($context, $value, exact $expected));
         }
     };
+    (min $min:expr_2021, $value:expr_2021, $context:expr_2021) => {
+        if $value < $min {
+            return Err(length_error!($context, $value, min $min));
+        }
+    };
+    (max $max:expr_2021, $value:expr_2021, $context:expr_2021) => {
+        if $value > $max {
+            return Err(length_error!($context, $value, max $max));
+        }
+    };
     ($min:expr_2021, $max:expr_2021, $value:expr_2021, $context:expr_2021) => {
         if !($min..=$max).contains(&$value) {
             return Err(length_error!($context, $value, range $min, $max));

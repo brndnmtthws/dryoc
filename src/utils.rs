@@ -1,3 +1,10 @@
+use crate::error::{Error, ErrorContext};
+
+/// The ChaCha/Salsa20 "expand 32-byte k" constant, as four little-endian
+/// words. Shared by the ChaCha20 and XSalsa20 stream ciphers and the
+/// HChaCha20/HSalsa20 defaults in [`crate::classic::crypto_core`].
+pub(crate) const SIGMA: [u32; 4] = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+
 /// Increments `bytes` in constant time, representing a large little-endian
 /// integer; equivalent to `sodium_increment`.
 #[inline]
@@ -47,6 +54,66 @@ pub(crate) fn load_u32_le(bytes: &[u8]) -> u32 {
 #[inline]
 pub(crate) fn pad16(n: usize) -> usize {
     (0x10 - (n % 16)) & 0xf
+}
+
+/// Splits `bytes` into a fixed-length prefix and the remainder.
+///
+/// Returns [`Error::InvalidLength`] with `context` when `bytes` is shorter
+/// than `len`. Shared by the Rustaceous `from_bytes` constructors, which all
+/// parse an authentication tag, signature, or nonce off one end of a slice.
+pub(crate) fn split_prefix(
+    bytes: &[u8],
+    len: usize,
+    context: ErrorContext,
+) -> Result<(&[u8], &[u8]), Error> {
+    if bytes.len() < len {
+        Err(length_error!(context, bytes.len(), min len))
+    } else {
+        Ok(bytes.split_at(len))
+    }
+}
+
+/// Splits `bytes` into the leading remainder and a fixed-length suffix.
+///
+/// Returns [`Error::InvalidLength`] with `context` when `bytes` is shorter
+/// than `len`. See [`split_prefix`].
+pub(crate) fn split_suffix(
+    bytes: &[u8],
+    len: usize,
+    context: ErrorContext,
+) -> Result<(&[u8], &[u8]), Error> {
+    if bytes.len() < len {
+        Err(length_error!(context, bytes.len(), min len))
+    } else {
+        Ok(bytes.split_at(bytes.len() - len))
+    }
+}
+
+/// Compares `expected` against `computed` in constant time, returning
+/// [`Error::AuthenticationFailed`] on mismatch.
+///
+/// Shared by the Classic verify paths, which all performed this exact
+/// [`subtle::ConstantTimeEq`] comparison inline. Both slices must have the
+/// same length; every caller compares fixed-size tags or hashes.
+pub(crate) fn verify_ct(expected: &[u8], computed: &[u8]) -> Result<(), Error> {
+    use subtle::ConstantTimeEq;
+
+    if expected.ct_eq(computed).unwrap_u8() == 1 {
+        Ok(())
+    } else {
+        Err(Error::AuthenticationFailed)
+    }
+}
+
+/// Compares `a` and `b` in constant time, returning `true` when equal.
+///
+/// Shared by the constant-time [`PartialEq`] impls of the byte-container
+/// types. Both slices must have the same length; every caller compares
+/// fixed-size values.
+pub(crate) fn ct_eq_bytes(a: &[u8], b: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
+
+    a.ct_eq(b).unwrap_u8() == 1
 }
 
 /// Zeroizes `bytes` with volatile stores like [`zeroize::Zeroize`], but

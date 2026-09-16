@@ -97,7 +97,6 @@ use std::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::classic::crypto_sign::{
@@ -110,8 +109,9 @@ use crate::constants::{
     CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES, CRYPTO_SIGN_SECRETKEYBYTES,
     CRYPTO_SIGN_SEEDBYTES,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorContext};
 use crate::types::*;
+use crate::utils::{ct_eq_bytes, split_prefix};
 
 /// Stack-allocated public key for message signing.
 pub type PublicKey = StackByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>;
@@ -201,15 +201,6 @@ impl<
         }
     }
 
-    /// Generates a random signing keypair.
-    ///
-    /// Prefer [`generate`](Self::generate). `gen` is retained for compatibility
-    /// with older Rust editions.
-    #[deprecated(note = "use generate() instead")]
-    pub fn r#gen() -> Self {
-        Self::generate()
-    }
-
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
     /// a new keypair.
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
@@ -266,16 +257,6 @@ impl
     /// (stack-allocated byte arrays). Provided for convenience.
     pub fn generate_with_defaults() -> Self {
         Self::generate()
-    }
-
-    /// Randomly generates a new signing keypair, using default types
-    /// (stack-allocated byte arrays). Provided for convenience.
-    ///
-    /// Prefer [`generate_with_defaults`](Self::generate_with_defaults). This
-    /// method is retained for compatibility.
-    #[deprecated(note = "use generate_with_defaults() instead")]
-    pub fn gen_with_defaults() -> Self {
-        Self::generate_with_defaults()
     }
 }
 
@@ -408,25 +389,6 @@ pub mod protected {
 
             Ok(res)
         }
-
-        /// Returns a new randomly generated locked signing keypair.
-        ///
-        /// Prefer [`generate_locked_keypair`](Self::generate_locked_keypair).
-        /// This method is retained for compatibility.
-        ///
-        /// # Errors
-        ///
-        /// Returns the same errors as
-        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
-        ///
-        /// # Panics
-        ///
-        /// Panics under the same conditions as
-        /// [`generate_locked_keypair`](Self::generate_locked_keypair).
-        #[deprecated(note = "use generate_locked_keypair() instead")]
-        pub fn gen_locked_keypair() -> Result<Self, Error> {
-            Self::generate_locked_keypair()
-        }
     }
 
     impl
@@ -460,26 +422,6 @@ pub mod protected {
                 public_key,
                 secret_key,
             })
-        }
-
-        /// Returns a new randomly generated locked, read-only signing keypair.
-        ///
-        /// Prefer
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        /// This method is retained for compatibility.
-        ///
-        /// # Errors
-        ///
-        /// Returns the same errors as
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        ///
-        /// # Panics
-        ///
-        /// Panics under the same conditions as
-        /// [`generate_readonly_locked_keypair`](Self::generate_readonly_locked_keypair).
-        #[deprecated(note = "use generate_readonly_locked_keypair() instead")]
-        pub fn gen_readonly_locked_keypair() -> Result<Self, Error> {
-            Self::generate_readonly_locked_keypair()
         }
     }
 }
@@ -655,18 +597,13 @@ impl<
     /// Returns an error if `bytes` is shorter than a signature or the
     /// signature cannot be converted to the requested output type.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_SIGN_BYTES {
-            Err(
-                length_error!(crate::ErrorContext::SignedMessage, bytes.len(), min CRYPTO_SIGN_BYTES),
-            )
-        } else {
-            let (signature, message) = bytes.split_at(CRYPTO_SIGN_BYTES);
-            Ok(Self {
-                signature: Signature::try_from(signature)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::Signature))?,
-                message: Message::from(message),
-            })
-        }
+        let (signature, message) =
+            split_prefix(bytes, CRYPTO_SIGN_BYTES, ErrorContext::SignedMessage)?;
+        Ok(Self {
+            signature: Signature::try_from(signature)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::Signature))?,
+            message: Message::from(message),
+        })
     }
 }
 
@@ -692,14 +629,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
-        let mut data = Bytes::new_bytes();
-
-        data.resize(self.signature.len() + self.message.len(), 0);
-        let s = data.as_mut_slice();
-        s[..CRYPTO_SIGN_BYTES].copy_from_slice(self.signature.as_slice());
-        s[CRYPTO_SIGN_BYTES..].copy_from_slice(self.message.as_slice());
-
-        data
+        concat_bytes(self.signature.as_slice(), self.message.as_slice())
     }
 }
 
@@ -709,17 +639,8 @@ impl<
 > PartialEq<SigningKeyPair<PublicKey, SecretKey>> for SigningKeyPair<PublicKey, SecretKey>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.public_key
-            .as_slice()
-            .ct_eq(other.public_key.as_slice())
-            .unwrap_u8()
-            == 1
-            && self
-                .secret_key
-                .as_slice()
-                .ct_eq(other.secret_key.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.public_key.as_slice(), other.public_key.as_slice())
+            && ct_eq_bytes(self.secret_key.as_slice(), other.secret_key.as_slice())
     }
 }
 
@@ -727,17 +648,8 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
     PartialEq<SignedMessage<Signature, Message>> for SignedMessage<Signature, Message>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.signature
-            .as_slice()
-            .ct_eq(other.signature.as_slice())
-            .unwrap_u8()
-            == 1
-            && self
-                .message
-                .as_slice()
-                .ct_eq(other.message.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.signature.as_slice(), other.signature.as_slice())
+            && ct_eq_bytes(self.message.as_slice(), other.message.as_slice())
     }
 }
 

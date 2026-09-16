@@ -68,14 +68,14 @@
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
-use crate::error::Error;
+use crate::error::{Error, ErrorContext};
 pub use crate::types::*;
+use crate::utils::{ct_eq_bytes, split_prefix};
 
 /// Stack-allocated secret for authenticated secret box.
 pub type Key = StackByteArray<CRYPTO_SECRETBOX_KEYBYTES>;
@@ -260,18 +260,12 @@ impl<
     /// Returns an error if `bytes` is shorter than one authentication tag or
     /// the tag cannot be converted to `Mac`.
     pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
-        if bytes.len() < CRYPTO_SECRETBOX_MACBYTES {
-            Err(
-                length_error!(crate::ErrorContext::SecretBox, bytes.len(), min CRYPTO_SECRETBOX_MACBYTES),
-            )
-        } else {
-            let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
-            Ok(Self {
-                tag: Mac::try_from(tag)
-                    .map_err(|_| Error::invalid_encoding(crate::ErrorContext::AuthenticationTag))?,
-                data: Data::from(data),
-            })
-        }
+        let (tag, data) = split_prefix(bytes, CRYPTO_SECRETBOX_MACBYTES, ErrorContext::SecretBox)?;
+        Ok(Self {
+            tag: Mac::try_from(tag)
+                .map_err(|_| Error::invalid_encoding(ErrorContext::AuthenticationTag))?,
+            data: Data::from(data),
+        })
     }
 }
 
@@ -331,12 +325,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
-        let mut data = Bytes::new_bytes();
-        data.resize(self.tag.len() + self.data.len(), 0);
-        let s = data.as_mut_slice();
-        s[..CRYPTO_SECRETBOX_MACBYTES].copy_from_slice(self.tag.as_slice());
-        s[CRYPTO_SECRETBOX_MACBYTES..].copy_from_slice(self.data.as_slice());
-        data
+        concat_bytes(self.tag.as_slice(), self.data.as_slice())
     }
 }
 
@@ -417,13 +406,8 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     PartialEq<DryocSecretBox<Mac, Data>> for DryocSecretBox<Mac, Data>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.tag.as_slice().ct_eq(other.tag.as_slice()).unwrap_u8() == 1
-            && self
-                .data
-                .as_slice()
-                .ct_eq(other.data.as_slice())
-                .unwrap_u8()
-                == 1
+        ct_eq_bytes(self.tag.as_slice(), other.tag.as_slice())
+            && ct_eq_bytes(self.data.as_slice(), other.data.as_slice())
     }
 }
 

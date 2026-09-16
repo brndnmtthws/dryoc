@@ -32,7 +32,7 @@ pub(super) fn block_input(input: &[u32; 16], counter: u64) -> [u32; 16] {
 /// Computes the Salsa20/20 keystream block for `input` with words 8 and 9
 /// replaced by the little-endian halves of `counter`, serialising the result
 /// into `out`. The key-bearing working copies are zeroized before returning.
-pub(super) fn block(input: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
+pub(crate) fn block(input: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
     let mut initial = block_input(input, counter);
     let mut x = initial;
     for _ in 0..10 {
