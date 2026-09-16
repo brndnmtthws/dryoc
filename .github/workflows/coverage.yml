@@ -20,15 +20,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup nightly Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - name: Setup nightly Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
         with:
           toolchain: nightly
-          cargo-packages: |
-            cargo-tarpaulin
-            cargo-hold
-      - run: cargo hold voyage
-      - run: cargo tarpaulin --features serde,nightly,wincode --out Xml
+          profile: minimal
+      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+        with:
+          cache-generation: coverage
+          version: 1.12.0
+      - name: Install cargo-tarpaulin
+        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        with:
+          packages: cargo-tarpaulin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: mbx tarpaulin --features serde,nightly,wincode --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.repository == 'brndnmtthws/dryoc'

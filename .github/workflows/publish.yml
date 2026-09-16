@@ -20,10 +20,18 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      # Release jobs restore no compiler cache; see "Production releases" in the
+      # mbx GitHub Action guide (https://mr-boxington.jdx.dev/github-action).
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
         with:
           toolchain: stable
-          cargo-packages: --locked cargo-nextest
+          profile: minimal
+          components: clippy
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        with:
+          packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Verify tag matches crate version
