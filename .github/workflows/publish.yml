@@ -20,14 +20,18 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      # Release jobs restore no compiler cache; see "Production releases" in the
-      # mbx GitHub Action guide (https://mr-boxington.jdx.dev/github-action).
       - name: Setup stable Rust toolchain
         uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
         with:
           toolchain: stable
           profile: minimal
           components: clippy
+      # Tag pushes never save a cache, so restore the archive that the
+      # `features / optional-features` job saves on main.
+      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+        with:
+          cache-generation: features-optional-features
+          version: 1.12.0
       - name: Install cargo-nextest
         uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
         with:
@@ -42,20 +46,20 @@ jobs:
             echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${CRATE_VERSION}" >&2
             exit 1
           fi
-      - run: cargo nextest run --all-targets
-      - run: cargo nextest run --all-targets --no-default-features
-      - run: cargo nextest run --all-targets --no-default-features --features serde,base64,wincode
-      - run: cargo nextest run --all-targets --no-default-features --features serde,protected
-      - run: cargo test --doc
-      - run: cargo doc --no-default-features --no-deps
+      - run: mbx nextest run --all-targets
+      - run: mbx nextest run --all-targets --no-default-features
+      - run: mbx nextest run --all-targets --no-default-features --features serde,base64,wincode
+      - run: mbx nextest run --all-targets --no-default-features --features serde,protected
+      - run: mbx test --doc
+      - run: mbx doc --no-default-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: cargo clippy --all-targets --features serde,base64,wincode -- -D warnings
+      - run: mbx clippy --all-targets --features serde,base64,wincode -- -D warnings
       - name: Install nightly validation toolchain
         run: rustup toolchain install nightly --profile minimal --component clippy
-      - run: cargo +nightly nextest run --all-targets --all-features
-      - run: cargo +nightly test --doc --all-features
-      - run: cargo +nightly clippy --all-targets --all-features -- -D warnings
+      - run: mbx +nightly nextest run --all-targets --all-features
+      - run: mbx +nightly test --doc --all-features
+      - run: mbx +nightly clippy --all-targets --all-features -- -D warnings
       - run: cargo package
       - name: Authenticate with crates.io
         id: auth
