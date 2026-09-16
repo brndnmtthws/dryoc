@@ -194,3 +194,171 @@ mod protected {
         |v| HeapByteArray::<LENGTH>::from_slice_into_locked(v).map_err(E::custom)
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::de::value::{BytesDeserializer, Error as ValueError, SeqDeserializer};
+
+    use super::*;
+
+    /// Iterator whose `size_hint` is wrong, so `visit_seq` cannot rely on it
+    /// for the final length.
+    struct LyingHint<I> {
+        iter: I,
+        hint: usize,
+    }
+
+    impl<I: Iterator> Iterator for LyingHint<I> {
+        type Item = I::Item;
+
+        fn next(&mut self) -> Option<I::Item> {
+            self.iter.next()
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            (self.hint, Some(self.hint))
+        }
+    }
+
+    /// Drives the `visit_bytes` path with a byte string.
+    fn from_bytes<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, ValueError> {
+        T::deserialize(BytesDeserializer::<ValueError>::new(bytes))
+    }
+
+    /// Drives the `visit_seq` path with a sequence claiming `hint` elements.
+    fn from_seq<T: for<'de> Deserialize<'de>>(bytes: &[u8], hint: usize) -> Result<T, ValueError> {
+        let iter = LyingHint {
+            iter: bytes.iter().copied(),
+            hint,
+        };
+        T::deserialize(SeqDeserializer::<_, ValueError>::new(iter))
+    }
+
+    /// A fixed-size container accepts exactly `LENGTH` bytes from either
+    /// input form and rejects one fewer or one more.
+    fn check_fixed<T: for<'de> Deserialize<'de> + Bytes>() {
+        let data = [7u8, 8, 9];
+
+        assert_eq!(
+            from_bytes::<T>(&data).expect("exact bytes").as_slice(),
+            &data
+        );
+        assert!(from_bytes::<T>(&data[..2]).is_err());
+        assert!(from_bytes::<T>(&[7, 8, 9, 10]).is_err());
+        assert!(from_bytes::<T>(&[]).is_err());
+
+        for hint in [0, 3, 100] {
+            assert_eq!(
+                from_seq::<T>(&data, hint).expect("exact seq").as_slice(),
+                &data,
+                "hint {hint}"
+            );
+            assert!(from_seq::<T>(&data[..2], hint).is_err(), "hint {hint}");
+            assert!(from_seq::<T>(&[7, 8, 9, 10], hint).is_err(), "hint {hint}");
+        }
+    }
+
+    /// A variable-size container accepts any length from either input form,
+    /// regardless of what the sequence claims about its length.
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    fn check_variable<T: for<'de> Deserialize<'de> + Bytes>() {
+        for len in [0usize, 1, 5, 17] {
+            let data: Vec<u8> = (1..=len as u8).collect();
+            assert_eq!(from_bytes::<T>(&data).expect("bytes").as_slice(), &data);
+            for hint in [0, 1, len, 100] {
+                assert_eq!(
+                    from_seq::<T>(&data, hint).expect("seq").as_slice(),
+                    &data,
+                    "len {len} hint {hint}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stack_byte_array_deserializes_only_exact_length() {
+        check_fixed::<StackByteArray<3>>();
+    }
+
+    #[test]
+    fn stack_byte_array_json_uses_byte_array_form() {
+        let array = StackByteArray::from([1u8, 2, 3]);
+        let json = serde_json::to_string(&array).expect("serialize");
+        assert_eq!(json, "[1,2,3]");
+
+        let decoded: StackByteArray<3> = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, array);
+
+        // A JSON string reaches the visitor as a byte string.
+        let from_string: StackByteArray<3> = serde_json::from_str("\"abc\"").expect("string");
+        assert_eq!(from_string.as_slice(), b"abc");
+        assert!(serde_json::from_str::<StackByteArray<3>>("\"ab\"").is_err());
+        assert!(serde_json::from_str::<StackByteArray<3>>("[1,2]").is_err());
+        assert!(serde_json::from_str::<StackByteArray<3>>("[1,2,3,4]").is_err());
+        assert!(serde_json::from_str::<StackByteArray<3>>("null").is_err());
+    }
+
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    mod protected {
+        use super::*;
+        use crate::protected::*;
+
+        #[test]
+        fn fixed_protected_containers_deserialize_only_exact_length() {
+            check_fixed::<HeapByteArray<3>>();
+            check_fixed::<Locked<HeapByteArray<3>>>();
+        }
+
+        #[test]
+        fn variable_protected_containers_deserialize_any_length() {
+            check_variable::<HeapBytes>();
+            check_variable::<LockedBytes>();
+        }
+
+        #[test]
+        fn locked_deserialization_yields_locked_values() {
+            let locked: LockedBytes = from_bytes(&[1, 2, 3]).expect("locked bytes");
+            let unlocked = locked.munlock().expect("munlock");
+            assert_eq!(unlocked.as_slice(), &[1, 2, 3]);
+
+            let locked: Locked<HeapByteArray<3>> = from_seq(&[4, 5, 6], 0).expect("locked array");
+            let unlocked = locked.munlock().expect("munlock");
+            assert_eq!(unlocked.as_slice(), &[4, 5, 6]);
+        }
+
+        #[test]
+        fn protected_containers_serialize_as_their_bytes() {
+            let data = [1u8, 2, 3];
+            let expected = serde_json::to_string(&data).expect("serialize array");
+
+            let heap = HeapBytes::from(&data[..]);
+            assert_eq!(serde_json::to_string(&heap).expect("heap"), expected);
+
+            let locked = HeapBytes::from_slice_into_locked(&data).expect("locked");
+            assert_eq!(serde_json::to_string(&locked).expect("locked"), expected);
+
+            // `LockedRO<HeapBytes>` is serialize-only: there is no
+            // `Deserialize` impl for it, so it must serialize exactly like
+            // the unlocked, read-write form it was created from.
+            let readonly = HeapBytes::from_slice_into_readonly_locked(&data).expect("readonly");
+            assert_eq!(
+                serde_json::to_string(&readonly).expect("readonly"),
+                expected
+            );
+
+            let array = HeapByteArray::<3>::from(&data);
+            assert_eq!(serde_json::to_string(&array).expect("array"), expected);
+
+            let locked_array = HeapByteArray::<3>::from_slice_into_locked(&data).expect("locked");
+            assert_eq!(
+                serde_json::to_string(&locked_array).expect("locked array"),
+                expected
+            );
+
+            assert_eq!(
+                serde_json::to_string(&HeapBytes::default()).expect("empty"),
+                "[]"
+            );
+        }
+    }
+}

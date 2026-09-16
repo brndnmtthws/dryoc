@@ -202,4 +202,91 @@ mod tests {
         crypto_auth_hmacsha256_final(state, &mut state_mac);
         assert_eq!(state_mac.as_slice(), so_mac.as_ref());
     }
+
+    fn manual_hmac(key: &[u8], message: &[u8]) -> Mac {
+        use sha2::Digest as _;
+
+        let mut normalized = [0u8; 64];
+        if key.len() > 64 {
+            normalized[..32].copy_from_slice(&sha2::Sha256::digest(key));
+        } else {
+            normalized[..key.len()].copy_from_slice(key);
+        }
+        let mut ipad = [0x36u8; 64];
+        let mut opad = [0x5cu8; 64];
+        for ((i, o), k) in ipad.iter_mut().zip(opad.iter_mut()).zip(normalized) {
+            *i ^= k;
+            *o ^= k;
+        }
+        let mut inner = sha2::Sha256::new();
+        inner.update(ipad);
+        inner.update(message);
+        let inner = inner.finalize();
+        let mut outer = sha2::Sha256::new();
+        outer.update(opad);
+        outer.update(inner);
+        outer.finalize().into()
+    }
+
+    #[cfg(dryoc_native_tests)]
+    fn sodium_hmac(key: &[u8], message: &[u8]) -> Mac {
+        let mut state = unsafe { std::mem::zeroed() };
+        assert_eq!(
+            unsafe {
+                libsodium_sys::crypto_auth_hmacsha256_init(&mut state, key.as_ptr(), key.len())
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                libsodium_sys::crypto_auth_hmacsha256_update(&mut state, std::ptr::null(), 0)
+            },
+            0
+        );
+        for chunk in message.chunks(17) {
+            assert_eq!(
+                unsafe {
+                    libsodium_sys::crypto_auth_hmacsha256_update(
+                        &mut state,
+                        chunk.as_ptr(),
+                        chunk.len() as u64,
+                    )
+                },
+                0
+            );
+        }
+        let mut mac = Mac::default();
+        assert_eq!(
+            unsafe { libsodium_sys::crypto_auth_hmacsha256_final(&mut state, mac.as_mut_ptr()) },
+            0
+        );
+        mac
+    }
+
+    /// Empty and block-boundary keys/messages, including the key-hashing
+    /// transition at B+1, against the independent `sha2` construction and,
+    /// natively, libsodium's variable-key incremental API.
+    #[test]
+    fn test_key_and_message_block_boundaries() {
+        for key_len in [0usize, 63, 64, 65] {
+            let key: Vec<u8> = (0..key_len as u32).map(|i| (i * 37 % 251) as u8).collect();
+            for message_len in [0usize, 63, 64, 65] {
+                let message: Vec<u8> = (0..message_len as u32)
+                    .map(|i| (i * 31 % 251) as u8)
+                    .collect();
+                let expected = manual_hmac(&key, &message);
+                let mut state = crypto_auth_hmacsha256_init(&key);
+                crypto_auth_hmacsha256_update(&mut state, b"");
+                for chunk in message.chunks(17) {
+                    crypto_auth_hmacsha256_update(&mut state, chunk);
+                    crypto_auth_hmacsha256_update(&mut state, b"");
+                }
+                let mut actual = Mac::default();
+                crypto_auth_hmacsha256_final(state, &mut actual);
+                assert_eq!(actual, expected, "key {key_len}, message {message_len}");
+                #[cfg(dryoc_native_tests)]
+                assert_eq!(actual, sodium_hmac(&key, &message));
+            }
+        }
+    }
 }

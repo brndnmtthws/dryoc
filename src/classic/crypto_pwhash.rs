@@ -731,10 +731,11 @@ pub fn crypto_pwhash_str_needs_rehash(
     }
 }
 
-#[cfg(all(test, dryoc_native_tests))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_pwhash() {
         use sodiumoxide::crypto::pwhash;
@@ -967,6 +968,68 @@ mod tests {
         }
     }
 
+    /// Every classic-API validation failure happens before Argon2 sees the
+    /// caller's output buffer.
+    #[test]
+    fn invalid_parameters_leave_output_unchanged() {
+        let salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
+        let password = b"password";
+        let sentinel = [0xa5u8; CRYPTO_PWHASH_BYTES_MIN];
+
+        let mut too_short = [0xa5u8; CRYPTO_PWHASH_BYTES_MIN - 1];
+        assert!(
+            crypto_pwhash(
+                &mut too_short,
+                password,
+                &salt,
+                CRYPTO_PWHASH_OPSLIMIT_MIN,
+                CRYPTO_PWHASH_MEMLIMIT_MIN,
+                PasswordHashAlgorithm::Argon2id13,
+            )
+            .is_err()
+        );
+        assert_eq!(too_short, [0xa5u8; CRYPTO_PWHASH_BYTES_MIN - 1]);
+
+        for case in [0usize, 1, 2, 3] {
+            let mut output = sentinel;
+            let result = match case {
+                0 => crypto_pwhash(
+                    &mut output,
+                    password,
+                    &salt[..CRYPTO_PWHASH_SALTBYTES - 1],
+                    CRYPTO_PWHASH_OPSLIMIT_MIN,
+                    CRYPTO_PWHASH_MEMLIMIT_MIN,
+                    PasswordHashAlgorithm::Argon2id13,
+                ),
+                1 => crypto_pwhash(
+                    &mut output,
+                    password,
+                    &salt,
+                    CRYPTO_PWHASH_OPSLIMIT_MIN - 1,
+                    CRYPTO_PWHASH_MEMLIMIT_MIN,
+                    PasswordHashAlgorithm::Argon2id13,
+                ),
+                2 => crypto_pwhash(
+                    &mut output,
+                    password,
+                    &salt,
+                    CRYPTO_PWHASH_OPSLIMIT_MIN,
+                    CRYPTO_PWHASH_MEMLIMIT_MIN - 1,
+                    PasswordHashAlgorithm::Argon2id13,
+                ),
+                _ => crypto_pwhash(
+                    &mut output,
+                    password,
+                    &salt,
+                    CRYPTO_PWHASH_ARGON2I_OPSLIMIT_MIN - 1,
+                    CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MIN,
+                    PasswordHashAlgorithm::Argon2i13,
+                ),
+            };
+            assert!(result.is_err(), "case {case}");
+            assert_eq!(output, sentinel, "case {case}");
+        }
+    }
     #[test]
     fn password_hashing_enforces_classic_parameter_contract() {
         let mut output = [0u8; CRYPTO_PWHASH_BYTES_MIN];
@@ -1013,6 +1076,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(feature = "base64")]
     #[test]
     fn test_crypto_pwhash_str() {
@@ -1062,6 +1126,7 @@ mod tests {
         crypto_pwhash_str_verify(&argon2i, password).expect("argon2i verify failed");
     }
 
+    #[cfg(dryoc_native_tests)]
     #[cfg(feature = "base64")]
     #[test]
     fn test_crypto_pwhash_str_verify() {
@@ -1145,5 +1210,217 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[cfg(feature = "base64")]
+    const FIXED_PASSWORD_HASH: &str = concat!(
+        "$argon2id$v=19$m=8,t=1,p=1$9ekTPbzKHDiIpMlbQaGlhw$",
+        "hNvEox1vwA2JfhZp1wZR15ZgoNTLZbWZo6XJcN6naXw",
+    );
+    #[cfg(feature = "base64")]
+    const FIXED_PASSWORD_HASH_M16: &str = concat!(
+        "$argon2id$v=19$m=16,t=1,p=1$s1CQM+Z7bXo6yOSiVIBY8A$",
+        "Qx7ztSAZoE3T52niRU2LRwiV4hVtE7XHI+GxwYep4D0",
+    );
+
+    #[cfg(feature = "base64")]
+    fn exact_max_password_hash() -> String {
+        let salt = [0x42u8; 8];
+        let mut hash = [0u8; 66];
+        argon2_hash(
+            1,
+            8,
+            1,
+            b"password",
+            &salt,
+            None,
+            None,
+            &mut hash,
+            PasswordHashAlgorithm::Argon2id13.into(),
+        )
+        .expect("argon2");
+        let encoded = pwhash_to_string(PasswordHashAlgorithm::Argon2id13, 1, 8, 1, &salt, &hash);
+        assert_eq!(encoded.len(), CRYPTO_PWHASH_STRBYTES - 1);
+        encoded
+    }
+
+    #[cfg(feature = "base64")]
+    fn mutated_password_hashes() -> Vec<(&'static str, String, bool)> {
+        let valid = FIXED_PASSWORD_HASH;
+        let mut cases = Vec::new();
+        for (i, _) in valid.match_indices('$') {
+            cases.push(("truncated before $", valid[..i].to_owned(), false));
+            cases.push(("truncated after $", valid[..=i].to_owned(), false));
+        }
+        cases.extend([
+            (
+                "wrong prefix",
+                valid.replacen("$argon2id$", "$argon2wat$", 1),
+                false,
+            ),
+            ("extra field", format!("{valid}$extra"), false),
+            (
+                "non-canonical salt pad bits",
+                valid.replace("9ekTPbzKHDiIpMlbQaGlhw", "9ekTPbzKHDiIpMlbQaGlhx"),
+                false,
+            ),
+            (
+                "non-canonical hash pad bits",
+                format!("{}x", &valid[..valid.len() - 1]),
+                false,
+            ),
+            ("m overflow", valid.replace("m=8", "m=4294967296"), false),
+            ("t overflow", valid.replace("t=1", "t=4294967296"), false),
+            ("p overflow", valid.replace("p=1", "p=4294967296"), false),
+            ("m below one KiB block", valid.replace("m=8", "m=7"), false),
+            (
+                "one beyond maximum encoded length",
+                format!("{}x", exact_max_password_hash()),
+                false,
+            ),
+        ]);
+        cases
+    }
+
+    /// Pure parser, base64 and validation coverage: this test has no native
+    /// dependency and therefore also runs on wasm.
+    #[cfg(feature = "base64")]
+    #[test]
+    fn fixed_and_mutated_password_hashes_have_expected_results() {
+        Pwhash::parse_encoded_pwhash(FIXED_PASSWORD_HASH).expect("fixed string parses");
+        crypto_pwhash_str_verify(FIXED_PASSWORD_HASH, b"password").expect("fixed string verifies");
+        crypto_pwhash_str_verify(FIXED_PASSWORD_HASH, b"wrong").expect_err("wrong password");
+        assert!(!crypto_pwhash_str_needs_rehash(FIXED_PASSWORD_HASH, 1, 8192).expect("rehash"));
+        assert!(crypto_pwhash_str_needs_rehash(FIXED_PASSWORD_HASH, 2, 8192).expect("rehash"));
+
+        for (name, encoded, valid) in mutated_password_hashes() {
+            assert_eq!(
+                Pwhash::parse_encoded_pwhash(&encoded).is_ok(),
+                valid,
+                "parse: {name}"
+            );
+            assert!(
+                crypto_pwhash_str_verify(&encoded, b"password").is_err(),
+                "verify: {name}"
+            );
+            assert!(
+                crypto_pwhash_str_needs_rehash(&encoded, 1, 8192).is_err(),
+                "needs_rehash: {name}"
+            );
+        }
+        let encoded = exact_max_password_hash();
+        Pwhash::parse_encoded_pwhash(&encoded).expect("max string parses");
+        crypto_pwhash_str_verify(&encoded, b"password").expect("max string verifies");
+        assert!(!crypto_pwhash_str_needs_rehash(&encoded, 1, 8192).expect("rehash"));
+
+        let argon2i = FIXED_PASSWORD_HASH.replacen("$argon2id$", "$argon2i$", 1);
+        Pwhash::parse_encoded_pwhash(&argon2i).expect("algorithm mutation parses");
+        assert!(crypto_pwhash_str_verify(&argon2i, b"password").is_err());
+        assert!(!crypto_pwhash_str_needs_rehash(&argon2i, 1, 8192).expect("rehash"));
+
+        let parallel = FIXED_PASSWORD_HASH_M16.replace("p=1", "p=2");
+        Pwhash::parse_encoded_pwhash(&parallel).expect("parallelism mutation parses");
+        assert!(crypto_pwhash_str_verify(&parallel, b"password").is_err());
+        assert!(!crypto_pwhash_str_needs_rehash(&parallel, 1, 16_384).expect("rehash"));
+    }
+
+    /// Every invalid parser/verify/rehash result in the mutation matrix agrees
+    /// with libsodium, including canonical pad bits and the 128-byte rejection.
+    #[cfg(all(feature = "base64", dryoc_native_tests))]
+    #[test]
+    fn mutation_matrix_matches_libsodium() {
+        use std::ffi::CString;
+
+        for (name, encoded, _) in mutated_password_hashes() {
+            let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
+            let sodium_verify = unsafe {
+                libsodium_sys::crypto_pwhash_str_verify(
+                    encoded_c.as_ptr(),
+                    b"password".as_ptr().cast(),
+                    8,
+                )
+            };
+            let sodium_rehash = unsafe {
+                libsodium_sys::crypto_pwhash_str_needs_rehash(encoded_c.as_ptr(), 1, 8192)
+            };
+            assert_eq!(
+                crypto_pwhash_str_verify(&encoded, b"password").is_ok(),
+                sodium_verify == 0,
+                "verify: {name}"
+            );
+            let ours_rehash = crypto_pwhash_str_needs_rehash(&encoded, 1, 8192);
+            assert_eq!(
+                ours_rehash.is_err(),
+                sodium_rehash < 0,
+                "rehash validity: {name}"
+            );
+            if let Ok(ours_rehash) = ours_rehash {
+                assert_eq!(ours_rehash, sodium_rehash == 1, "rehash result: {name}");
+            }
+        }
+    }
+
+    #[cfg(all(feature = "base64", dryoc_native_tests))]
+    #[test]
+    fn algorithm_and_parallelism_mutations_match_libsodium() {
+        use std::ffi::CString;
+
+        for (encoded, memlimit) in [
+            (
+                FIXED_PASSWORD_HASH.replacen("$argon2id$", "$argon2i$", 1),
+                8192,
+            ),
+            (FIXED_PASSWORD_HASH_M16.replace("p=1", "p=2"), 16_384),
+        ] {
+            let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
+            let sodium_verify = unsafe {
+                libsodium_sys::crypto_pwhash_str_verify(
+                    encoded_c.as_ptr(),
+                    b"password".as_ptr().cast(),
+                    8,
+                )
+            };
+            let sodium_rehash = unsafe {
+                libsodium_sys::crypto_pwhash_str_needs_rehash(encoded_c.as_ptr(), 1, memlimit)
+            };
+            assert_eq!(
+                crypto_pwhash_str_verify(&encoded, b"password").is_ok(),
+                sodium_verify == 0
+            );
+            assert_eq!(
+                crypto_pwhash_str_needs_rehash(&encoded, 1, memlimit).expect("rehash"),
+                sodium_rehash == 1
+            );
+        }
+    }
+    /// The longest encodable string (`CRYPTO_PWHASH_STRBYTES - 1` bytes, a
+    /// 66-byte hash) verifies and reports `needs_rehash` exactly as libsodium.
+    #[cfg(all(feature = "base64", dryoc_native_tests))]
+    #[test]
+    fn exact_maximum_encoded_length_matches_libsodium() {
+        use std::ffi::CString;
+
+        let encoded = exact_max_password_hash();
+        let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
+        let sodium_verify = unsafe {
+            libsodium_sys::crypto_pwhash_str_verify(
+                encoded_c.as_ptr(),
+                b"password".as_ptr().cast(),
+                8,
+            )
+        };
+        let sodium_rehash =
+            unsafe { libsodium_sys::crypto_pwhash_str_needs_rehash(encoded_c.as_ptr(), 1, 8192) };
+        // Both must accept: an `Err == -1` agreement would hide a broken hash.
+        // libsodium's verify recomputes Argon2id from the decoded 8-byte salt
+        // and compares all 66 bytes, so this is also the raw-hash parity check
+        // (the raw `crypto_pwhash` API expects a fixed 16-byte salt, so it
+        // cannot reproduce this string's parameters directly).
+        crypto_pwhash_str_verify(&encoded, b"password").expect("dryoc verifies");
+        assert_eq!(sodium_verify, 0, "libsodium verifies the 66-byte hash");
+        assert_eq!(
+            crypto_pwhash_str_needs_rehash(&encoded, 1, 8192).expect("rehash"),
+            sodium_rehash == 1
+        );
     }
 }

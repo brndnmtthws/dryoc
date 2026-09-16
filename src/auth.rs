@@ -207,34 +207,135 @@ impl Auth {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_single_part() {
-        let key = Key::generate();
-        let mac = Auth::compute_to_vec(key.clone(), b"Data to authenticate");
+    /// RFC 4231 cases 1-3 for HMAC-SHA-512, truncated to the 32 bytes
+    /// `crypto_auth` (HMAC-SHA-512-256) emits. Keys shorter than 32 bytes are
+    /// zero-padded, which HMAC defines to yield the same tag.
+    const CASES: [(&[u8], &[u8], &str); 3] = [
+        (
+            &[0x0b; 20],
+            b"Hi There",
+            "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde",
+        ),
+        (
+            b"Jefe",
+            b"what do ya want for nothing?",
+            "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea250554",
+        ),
+        (
+            &[0xaa; 20],
+            &[0xdd; 50],
+            "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39",
+        ),
+    ];
 
-        Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+    fn padded_key(key: &[u8]) -> Key {
+        let mut padded = Key::default();
+        padded[..key.len()].copy_from_slice(key);
+        padded
     }
 
     #[test]
-    fn test_multi_part() {
-        let key = Key::generate();
+    fn rfc4231_vectors_through_single_and_multi_part_interfaces() {
+        for (key, message, expected) in CASES {
+            let key = padded_key(key);
+            let expected = hex::decode(expected).expect("hex");
 
-        let mut mac = Auth::new(key.clone());
-        mac.update(b"Multi-part");
-        mac.update(b"data");
-        let mac = mac.finalize_to_vec();
+            assert_eq!(Auth::compute_to_vec(key.clone(), &message), expected);
+            let fixed: Mac = Auth::compute(key.clone(), &message);
+            assert_eq!(fixed.as_slice(), expected.as_slice());
+            Auth::compute_and_verify(&fixed, key.clone(), &message).expect("verify failed");
 
-        let mut verify_mac = Auth::new(key.clone());
-        verify_mac.update(b"Multi-part");
-        verify_mac.update(b"data");
-        verify_mac.verify(&mac).expect("verify failed");
+            let split = message.len() / 2;
+            let mut auth = Auth::new(key.clone());
+            auth.update(&&message[..split]);
+            auth.update(&&[][..]);
+            auth.update(&&message[split..]);
+            assert_eq!(auth.finalize_to_vec(), expected);
 
-        let mut verify_mac = Auth::new(key);
-        verify_mac.update(b"Multi-part");
-        verify_mac.update(b"bad data");
-        verify_mac
-            .verify(&mac)
-            .expect_err("verify should have failed");
+            let mut verifier = Auth::new(key.clone());
+            verifier.update(&message);
+            verifier.verify(&fixed).expect("incremental verify failed");
+
+            for index in [0, CRYPTO_AUTH_BYTES - 1] {
+                let mut flipped = fixed.clone();
+                flipped[index] ^= 1;
+                assert!(matches!(
+                    Auth::compute_and_verify(&flipped, key.clone(), &message),
+                    Err(Error::AuthenticationFailed)
+                ));
+                let mut verifier = Auth::new(key.clone());
+                verifier.update(&message);
+                assert!(matches!(
+                    verifier.verify(&flipped),
+                    Err(Error::AuthenticationFailed)
+                ));
+            }
+
+            let mut wrong_key = key.clone();
+            wrong_key[CRYPTO_AUTH_KEYBYTES - 1] ^= 1;
+            assert!(matches!(
+                Auth::compute_and_verify(&fixed, wrong_key, &message),
+                Err(Error::AuthenticationFailed)
+            ));
+            let mut verifier = Auth::new(key);
+            verifier.update(&&message[..message.len() - 1]);
+            assert!(matches!(
+                verifier.verify(&fixed),
+                Err(Error::AuthenticationFailed)
+            ));
+        }
+    }
+
+    #[test]
+    fn rustaceous_and_classic_macs_verify_each_other() {
+        for (key, message, _) in CASES {
+            let key = padded_key(key);
+            let mac = Auth::compute_to_vec(key.clone(), &message);
+            crypto_auth_verify(mac.as_array(), message, key.as_array()).expect("classic verify");
+
+            let mut classic = [0u8; CRYPTO_AUTH_BYTES];
+            crypto_auth(&mut classic, message, key.as_array());
+            Auth::compute_and_verify(&classic, key.clone(), &message).expect("rustaceous verify");
+            let mut verifier = Auth::new(key);
+            verifier.update(&message);
+            verifier.verify(&classic).expect("incremental verify");
+        }
+    }
+
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    #[test]
+    fn locked_key_and_input_produce_the_same_mac() {
+        use crate::auth::protected::*;
+
+        for (key, message, expected) in CASES {
+            let expected = hex::decode(expected).expect("hex");
+            let lock_key = || {
+                protected::Key::from_slice_into_readonly_locked(padded_key(key).as_slice())
+                    .expect("lock key")
+            };
+            let input = HeapBytes::from_slice_into_readonly_locked(message).expect("lock input");
+
+            let mac: Locked<protected::Mac> = Auth::compute(lock_key(), &input);
+            assert_eq!(mac.as_slice(), expected.as_slice());
+            Auth::compute_and_verify(&mac, lock_key(), &input).expect("verify failed");
+            let mut verifier = Auth::new(lock_key());
+            verifier.update(&input);
+            verifier.verify(&mac).expect("incremental verify failed");
+        }
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn rfc4231_keys_match_sodiumoxide() {
+        use sodiumoxide::crypto::auth;
+
+        for (key, message, _) in CASES {
+            let key = padded_key(key);
+            let so_tag =
+                auth::authenticate(message, &auth::Key::from_slice(key.as_slice()).unwrap());
+            assert_eq!(Auth::compute_to_vec(key.clone(), &message), so_tag.as_ref());
+            Auth::compute_and_verify(&so_tag.0, key, &message).expect("verify sodium tag");
+        }
     }
 
     #[test]

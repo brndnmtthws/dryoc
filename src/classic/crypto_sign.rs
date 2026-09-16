@@ -208,6 +208,96 @@ pub fn crypto_sign_final_verify(
     crypto_sign_ed25519ph_final_verify(state.state, signature, public_key)
 }
 
+#[cfg(test)]
+mod consistency_tests {
+    use super::*;
+    use crate::constants::CRYPTO_SIGN_BYTES;
+    use crate::utils::test_util::XorShift64;
+
+    /// A combined signed message is the detached signature followed by the
+    /// message, for the empty, one-byte and 1023-byte messages (the RFC 8032
+    /// vector lengths); the signature verifies detached and the message opens.
+    #[test]
+    fn combined_signature_prefix_matches_detached() {
+        let mut rng = XorShift64::new(0x1f83_d9ab_fb41_bd6b);
+        let (public_key, secret_key) = crypto_sign_seed_keypair(&[21u8; 32]);
+        let mut random = Vec::with_capacity(1023);
+        while random.len() < 1023 {
+            random.extend_from_slice(&rng.next_bytes32());
+        }
+        random.truncate(1023);
+
+        for message in [&[][..], &[0x72], &random] {
+            let mut signature = [0u8; CRYPTO_SIGN_BYTES];
+            crypto_sign_detached(&mut signature, message, &secret_key).unwrap();
+
+            let mut signed_message = vec![0u8; message.len() + CRYPTO_SIGN_BYTES];
+            crypto_sign(&mut signed_message, message, &secret_key).unwrap();
+            assert_eq!(
+                signed_message[..CRYPTO_SIGN_BYTES],
+                signature,
+                "{}",
+                message.len()
+            );
+            assert_eq!(
+                signed_message[CRYPTO_SIGN_BYTES..],
+                *message,
+                "{}",
+                message.len()
+            );
+
+            crypto_sign_verify_detached(&signature, message, &public_key).unwrap();
+            let mut opened = vec![0xa5; message.len()];
+            crypto_sign_open(&mut opened, &signed_message, &public_key).unwrap();
+            assert_eq!(opened, message);
+        }
+    }
+
+    /// The incremental interface (Ed25519ph) gives one signature for a
+    /// message however it is split across updates, verifiable by a state fed
+    /// with any other split, and never the plain detached signature.
+    #[test]
+    fn incremental_signature_is_independent_of_split_points() {
+        let mut rng = XorShift64::new(0x5be0_cd19_137e_2179);
+        let (public_key, secret_key) = crypto_sign_seed_keypair(&[22u8; 32]);
+        let message: Vec<u8> = (0..3).flat_map(|_| rng.next_bytes32()).take(75).collect();
+
+        let mut whole = crypto_sign_init();
+        crypto_sign_update(&mut whole, &message);
+        let mut reference = [0u8; CRYPTO_SIGN_BYTES];
+        crypto_sign_final_create(whole, &mut reference, &secret_key).unwrap();
+
+        let mut byte_at_a_time = crypto_sign_init();
+        for byte in &message {
+            crypto_sign_update(&mut byte_at_a_time, std::slice::from_ref(byte));
+        }
+        crypto_sign_final_verify(byte_at_a_time, &reference, &public_key).unwrap();
+
+        for split in [0, 1, 63, 64, 65, 74, 75] {
+            let mut signer = crypto_sign_init();
+            crypto_sign_update(&mut signer, &message[..split]);
+            crypto_sign_update(&mut signer, &message[split..]);
+            let mut signature = [0u8; CRYPTO_SIGN_BYTES];
+            crypto_sign_final_create(signer, &mut signature, &secret_key).unwrap();
+            assert_eq!(signature, reference, "split {split}");
+        }
+
+        let mut detached = [0u8; CRYPTO_SIGN_BYTES];
+        crypto_sign_detached(&mut detached, &message, &secret_key).unwrap();
+        assert_ne!(reference, detached);
+        let mut verifier = crypto_sign_init();
+        crypto_sign_update(&mut verifier, &message);
+        assert!(matches!(
+            crypto_sign_final_verify(verifier, &detached, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(matches!(
+            crypto_sign_verify_detached(&reference, &message, &public_key),
+            Err(Error::AuthenticationFailed)
+        ));
+    }
+}
+
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;

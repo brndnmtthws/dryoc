@@ -71,7 +71,7 @@ cargo +nightly tarpaulin --features serde,nightly,wincode --out Xml
 Fuzzing lives in `fuzz/` and is isolated as its own workspace:
 
 ```sh
-cargo fuzz run fuzz_target_1
+cargo fuzz run fuzz_hashes
 ```
 
 ## Formatting And Lints

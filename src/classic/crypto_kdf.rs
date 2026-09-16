@@ -328,23 +328,34 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn test_crypto_kdf_variable_lengths_match_libsodium() {
-        use sodiumoxide::crypto::kdf;
-
-        let key = [0x42; CRYPTO_KDF_KEYBYTES];
-        let context = *b"dryockdf";
-        let sodium_key = kdf::Key::from_slice(&key).expect("invalid key length");
-
-        for length in [16, 32, 64] {
-            let mut ours = vec![0u8; length];
-            let mut sodium = vec![0u8; length];
-
-            crypto_kdf_derive_from_key(&mut ours, 7, &context, &key)
-                .expect("dryoc derivation failed");
-            kdf::derive_from_key(&mut sodium, 7, context, &sodium_key)
-                .expect("libsodium derivation failed");
-
-            assert_eq!(ours, sodium);
+    fn test_crypto_kdf_boundary_parameters_match_libsodium() {
+        let key: Key = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
+        for context in [
+            [0u8; CRYPTO_KDF_CONTEXTBYTES],
+            [0xff; CRYPTO_KDF_CONTEXTBYTES],
+        ] {
+            for subkey_id in [0, 1, u64::MAX] {
+                for length in [16usize, 64] {
+                    let mut ours = vec![0u8; length];
+                    let mut sodium = vec![0u8; length];
+                    crypto_kdf_derive_from_key(&mut ours, subkey_id, &context, &key)
+                        .expect("dryoc derivation failed");
+                    let rc = unsafe {
+                        libsodium_sys::crypto_kdf_derive_from_key(
+                            sodium.as_mut_ptr(),
+                            sodium.len(),
+                            subkey_id,
+                            context.as_ptr().cast(),
+                            key.as_ptr(),
+                        )
+                    };
+                    assert_eq!(rc, 0);
+                    assert_eq!(
+                        ours, sodium,
+                        "context {context:x?}, id {subkey_id}, length {length}"
+                    );
+                }
+            }
         }
     }
 

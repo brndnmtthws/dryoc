@@ -214,27 +214,239 @@ impl Kdf<Key, Context> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::{
+        CRYPTO_KDF_BLAKE2B_BYTES_MAX as CRYPTO_KDF_BYTES_MAX,
+        CRYPTO_KDF_BLAKE2B_BYTES_MIN as CRYPTO_KDF_BYTES_MIN,
+    };
+
+    /// libsodium `test/default/kdf.c` main key (`0..32`) and context
+    /// (`"KDF test"`); `(subkey_id, expected subkey)` from
+    /// `crypto_kdf_derive_from_key` at 16, 32, and 64 bytes.
+    const KAT: [(u64, [&str; 3]); 2] = [
+        (
+            0,
+            [
+                "e9136a52b9690eb4df4e9665e819a6d3",
+                "c13fcc2e6cd0cd0f82d93b163a5696c5105378f8c629d36baf3ae0239de9c280",
+                concat!(
+                    "a0c724404728c8bb95e5433eb6a9716171144d61efb23e74b873fcbeda51d807",
+                    "1b5d70aae12066dfc94ce943f145aa176c055040c3dd73b0a15e36254d450614",
+                ),
+            ],
+        ),
+        (
+            u64::MAX,
+            [
+                "040f6b7312b53bce5d711bb9c589cdd4",
+                "500c3043b2b9177ec843ecbe9f98f92d8c11fbbd10a225ab844548de89c21d55",
+                concat!(
+                    "6be4464350f6934d151c1bb8f555bc18e75028be95b892c6dca047101f2827a1",
+                    "950b2b0fb35e996a2782db9a760e76c8b8da52e362f741bf5bcfefff0fc943fc",
+                ),
+            ],
+        ),
+    ];
+
+    fn kat_kdf() -> StackKdf {
+        let key: [u8; CRYPTO_KDF_KEYBYTES] = std::array::from_fn(|i| i as u8);
+        Kdf::from_parts(Key::from(key), Context::from(*b"KDF test"))
+    }
 
     #[test]
-    fn test_kdf() {
-        let key = StackKdf::generate();
+    fn derives_libsodium_known_answers_for_ids_zero_and_max() {
+        let kdf = kat_kdf();
+        for (subkey_id, expected) in KAT {
+            let expected16 = hex::decode(expected[0]).expect("hex");
+            let expected32 = hex::decode(expected[1]).expect("hex");
+            let expected64 = hex::decode(expected[2]).expect("hex");
 
-        let short_subkey: StackByteArray<16> = key.derive_subkey(0).expect("derive failed");
-        let long_subkey = key.derive_subkey_to_vec(0, 64).expect("derive failed");
+            let short: StackByteArray<16> = kdf.derive_subkey(subkey_id).expect("derive");
+            let medium: StackByteArray<32> = kdf.derive_subkey(subkey_id).expect("derive");
+            let long: StackByteArray<64> = kdf.derive_subkey(subkey_id).expect("derive");
+            assert_eq!(short.as_slice(), expected16.as_slice());
+            assert_eq!(medium.as_slice(), expected32.as_slice());
+            assert_eq!(long.as_slice(), expected64.as_slice());
 
-        assert_eq!(short_subkey.len(), 16);
-        assert_eq!(long_subkey.len(), 64);
-        assert!(format!("{key:?}").contains("[REDACTED]"));
+            assert_eq!(
+                kdf.derive_subkey_to_vec(subkey_id, 16).expect("derive"),
+                expected16
+            );
+            assert_eq!(
+                kdf.derive_subkey_to_vec(subkey_id, 32).expect("derive"),
+                expected32
+            );
+            assert_eq!(
+                kdf.derive_subkey_to_vec(subkey_id, 64).expect("derive"),
+                expected64
+            );
+
+            // Fixed-size and Vec outputs of different lengths are distinct
+            // derivations, not prefixes of one another.
+            assert_ne!(&expected64[..32], expected32.as_slice());
+            assert_ne!(&expected32[..16], expected16.as_slice());
+        }
+    }
+
+    #[test]
+    fn matches_classic_derive_from_key_and_separates_key_context_and_id() {
+        let kdf = kat_kdf();
+        let (key, context) = kdf.clone().into_parts();
+        for subkey_id in [0, 1, 2, u64::from(u32::MAX), u64::MAX - 1, u64::MAX] {
+            for length in [
+                CRYPTO_KDF_BYTES_MIN,
+                17,
+                31,
+                32,
+                33,
+                63,
+                CRYPTO_KDF_BYTES_MAX,
+            ] {
+                let mut classic = vec![0u8; length];
+                crypto_kdf_derive_from_key(
+                    &mut classic,
+                    subkey_id,
+                    context.as_array(),
+                    key.as_array(),
+                )
+                .expect("classic derive");
+                assert_eq!(
+                    kdf.derive_subkey_to_vec(subkey_id, length).expect("derive"),
+                    classic
+                );
+            }
+        }
+
+        let baseline = kdf.derive_subkey_to_vec(7, 32).expect("derive");
+        assert_ne!(kdf.derive_subkey_to_vec(8, 32).expect("derive"), baseline);
+
+        let mut other_key = key.clone();
+        other_key[0] ^= 1;
+        assert_ne!(
+            Kdf::from_parts(other_key, context.clone())
+                .derive_subkey_to_vec(7, 32)
+                .expect("derive"),
+            baseline
+        );
+        let mut other_context = context.clone();
+        other_context[CRYPTO_KDF_CONTEXTBYTES - 1] ^= 1;
+        assert_ne!(
+            Kdf::from_parts(key, other_context)
+                .derive_subkey_to_vec(7, 32)
+                .expect("derive"),
+            baseline
+        );
+    }
+
+    #[test]
+    fn rejects_out_of_range_subkey_lengths_and_redacts_debug_output() {
+        let kdf = kat_kdf();
+        assert!(format!("{kdf:?}").contains("[REDACTED]"));
+        assert!(!format!("{kdf:?}").contains("KDF test"));
+
+        for length in [
+            0,
+            CRYPTO_KDF_BYTES_MIN - 1,
+            CRYPTO_KDF_BYTES_MAX + 1,
+            usize::MAX,
+        ] {
+            assert!(matches!(
+                kdf.derive_subkey_to_vec(0, length),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Subkey,
+                    actual,
+                    ..
+                }) if actual == length
+            ));
+        }
         assert!(matches!(
-            key.derive_subkey_to_vec(0, usize::MAX),
+            kdf.derive_subkey::<15, StackByteArray<15>>(0),
             Err(Error::InvalidLength {
                 context: crate::ErrorContext::Subkey,
-                actual: usize::MAX,
+                actual: 15,
                 ..
             })
         ));
+        assert!(matches!(
+            kdf.derive_subkey::<65, StackByteArray<65>>(0),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Subkey,
+                actual: 65,
+                ..
+            })
+        ));
+    }
 
-        let invalid_fixed: Result<StackByteArray<15>, Error> = key.derive_subkey(0);
-        assert!(invalid_fixed.is_err());
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_round_trip_derives_the_same_subkeys() {
+        let kdf = kat_kdf();
+        let json = serde_json::to_string(&kdf).expect("serialize");
+        let decoded: StackKdf = serde_json::from_str(&json).expect("deserialize");
+        for (subkey_id, expected) in KAT {
+            assert_eq!(
+                decoded.derive_subkey_to_vec(subkey_id, 64).expect("derive"),
+                hex::decode(expected[2]).expect("hex")
+            );
+        }
+        let (key, context) = decoded.into_parts();
+        assert_eq!(context.as_slice(), b"KDF test");
+        assert_eq!(key, kat_kdf().into_parts().0);
+    }
+
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    #[test]
+    fn locked_kdf_derives_the_same_subkeys_as_the_stack_kdf() {
+        use crate::kdf::protected::*;
+
+        let (key, context) = kat_kdf().into_parts();
+        let locked: LockedKdf = Kdf::from_parts(
+            protected::Key::from_slice_into_locked(key.as_slice()).expect("lock key"),
+            protected::Context::from_slice_into_locked(context.as_slice()).expect("lock context"),
+        );
+        for (subkey_id, expected) in KAT {
+            let locked_subkey: Locked<HeapByteArray<64>> =
+                locked.derive_subkey(subkey_id).expect("derive");
+            assert_eq!(
+                locked_subkey.as_slice(),
+                hex::decode(expected[2]).expect("hex").as_slice()
+            );
+            assert_eq!(
+                locked.derive_subkey_to_vec(subkey_id, 16).expect("derive"),
+                hex::decode(expected[0]).expect("hex")
+            );
+        }
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn matches_libsodium_derive_from_key() {
+        use crate::utils::test_util::XorShift64;
+
+        let mut rng = XorShift64::new(0x6b64_665f_7465_7374);
+        for _ in 0..8 {
+            let key = Key::from(rng.next_bytes32());
+            let context =
+                Context::try_from(&rng.next_bytes32()[..CRYPTO_KDF_CONTEXTBYTES]).expect("context");
+            let kdf = Kdf::from_parts(key.clone(), context.clone());
+            for subkey_id in [0, rng.next_u64(), u64::MAX] {
+                for length in [CRYPTO_KDF_BYTES_MIN, 32, CRYPTO_KDF_BYTES_MAX] {
+                    let mut sodium = vec![0u8; length];
+                    let rc = unsafe {
+                        libsodium_sys::crypto_kdf_derive_from_key(
+                            sodium.as_mut_ptr(),
+                            length,
+                            subkey_id,
+                            context.as_ptr().cast(),
+                            key.as_ptr(),
+                        )
+                    };
+                    assert_eq!(rc, 0);
+                    assert_eq!(
+                        kdf.derive_subkey_to_vec(subkey_id, length).expect("derive"),
+                        sodium
+                    );
+                }
+            }
+        }
     }
 }

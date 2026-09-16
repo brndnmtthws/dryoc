@@ -337,4 +337,231 @@ mod tests {
         test_vec("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfd", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f", "d444bfa2362a96df213d070e33fa841f51334e4e76866b8139e8af3bb3398be2dfaddcbc56b9146de9f68118dc5829e74b0c28d7711907b121f9161cb92b69a9");
         test_vec("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfe", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f", "142709d62e28fcccd0af97fad0f8465b971e82201dc51070faa0372aa43e92484be1c1e73ba10906d5d1853db6a4106e0a7bf9800d373d6dee2d46d62ef2a461");
     }
+
+    use crate::constants::{
+        CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
+        CRYPTO_GENERICHASH_KEYBYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MIN,
+    };
+
+    const FOX: &[u8] = b"The quick brown fox jumps over the lazy dog";
+
+    /// libsodium `crypto_generichash` of `FOX` for `(outlen, key = 0..keylen)`.
+    /// The unkeyed 64-byte value is the published BLAKE2b-512 digest.
+    const FOX_KAT: [(usize, usize, &str); 5] = [
+        (16, 0, "249df9a49f517ddcd37f5c897620ec73"),
+        (
+            64,
+            0,
+            concat!(
+                "a8add4bdddfd93e4877d2746e62817b116364a1fa7bc148d95090bc7333b3673",
+                "f82401cf7aa2e4cb1ecd90296e3f14cb5413f8ed77be73045b13914cdcd6a918",
+            ),
+        ),
+        (16, 16, "fb80e606c7e3d993cbf7117a60f630a0"),
+        (
+            32,
+            32,
+            "5d9461aff732d77d0cc98725ea29298c914fd5193b4c08ec9e3ad6b28c3e2faf",
+        ),
+        (
+            64,
+            64,
+            concat!(
+                "1d58d71414d24752db3274afdc483fc0f4c68317c4c2f6a31e09de9437ba02cc",
+                "ab8c8585790a52b0d476f7920c0e1397d1aec9e52f3df3feae76f7d6223ce5cf",
+            ),
+        ),
+    ];
+
+    fn sequential_key<const LENGTH: usize>() -> StackByteArray<LENGTH> {
+        StackByteArray::from(std::array::from_fn::<u8, LENGTH, _>(|i| i as u8))
+    }
+
+    /// Hashes `FOX` one-shot and in three incremental splits, checking both
+    /// against `expected`.
+    fn assert_fox<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize>(
+        key: Option<&StackByteArray<KEY_LENGTH>>,
+        expected: &str,
+    ) {
+        let expected = hex::decode(expected).expect("hex");
+        let output: StackByteArray<OUTPUT_LENGTH> =
+            GenericHash::<KEY_LENGTH, OUTPUT_LENGTH>::hash(FOX, key).expect("hash");
+        assert_eq!(output.as_slice(), expected.as_slice());
+        assert_eq!(
+            GenericHash::<KEY_LENGTH, OUTPUT_LENGTH>::hash_to_vec(&FOX, key).expect("hash"),
+            expected
+        );
+
+        for parts in [
+            vec![FOX],
+            vec![&FOX[..1], &FOX[1..]],
+            vec![&[][..], &FOX[..20], &FOX[20..40], &FOX[40..], &[][..]],
+        ] {
+            let mut hasher = GenericHash::<KEY_LENGTH, OUTPUT_LENGTH>::new(key).expect("new");
+            for part in &parts {
+                hasher.update(*part);
+            }
+            let output: StackByteArray<OUTPUT_LENGTH> = hasher.finalize().expect("finalize");
+            assert_eq!(output.as_slice(), expected.as_slice());
+        }
+    }
+
+    #[test]
+    fn min_and_max_output_and_key_lengths_match_libsodium_known_answers() {
+        assert_fox::<CRYPTO_GENERICHASH_KEYBYTES, 16>(None, FOX_KAT[0].2);
+        assert_fox::<CRYPTO_GENERICHASH_KEYBYTES, 64>(None, FOX_KAT[1].2);
+        assert_fox::<16, 16>(Some(&sequential_key::<16>()), FOX_KAT[2].2);
+        assert_fox::<32, 32>(Some(&sequential_key::<32>()), FOX_KAT[3].2);
+        assert_fox::<64, 64>(Some(&sequential_key::<64>()), FOX_KAT[4].2);
+
+        // A key changes the output, and the short digest is not a truncation of
+        // the long one.
+        let unkeyed16 = hex::decode(FOX_KAT[0].2).expect("hex");
+        let keyed16 = hex::decode(FOX_KAT[2].2).expect("hex");
+        let unkeyed64 = hex::decode(FOX_KAT[1].2).expect("hex");
+        assert_ne!(unkeyed16, keyed16);
+        assert_ne!(unkeyed16, &unkeyed64[..16]);
+    }
+
+    #[test]
+    fn out_of_range_output_and_key_lengths_are_rejected_before_hashing() {
+        assert!(matches!(
+            GenericHash::<CRYPTO_GENERICHASH_KEYBYTES, { CRYPTO_GENERICHASH_BYTES_MIN - 1 }>::new::<
+                Key,
+            >(None),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Output,
+                actual: 15,
+                ..
+            })
+        ));
+        let too_long: Result<StackByteArray<{ CRYPTO_GENERICHASH_BYTES_MAX + 1 }>, Error> =
+            GenericHash::<CRYPTO_GENERICHASH_KEYBYTES, { CRYPTO_GENERICHASH_BYTES_MAX + 1 }>::hash::<
+                _,
+                Key,
+                _,
+            >(FOX, None);
+        assert!(matches!(
+            too_long,
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Output,
+                actual: 65,
+                ..
+            })
+        ));
+
+        let short_key = sequential_key::<{ CRYPTO_GENERICHASH_KEYBYTES_MIN - 1 }>();
+        assert!(matches!(
+            GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MIN - 1 }, 32>::new(Some(&short_key)),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Blake2bKey,
+                actual: 15,
+                ..
+            })
+        ));
+        let long_key = sequential_key::<{ CRYPTO_GENERICHASH_KEYBYTES_MAX + 1 }>();
+        let rejected: Result<Hash, Error> =
+            GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MAX + 1 }, 32>::hash(FOX, Some(&long_key));
+        assert!(matches!(
+            rejected,
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Blake2bKey,
+                actual: 65,
+                ..
+            })
+        ));
+
+        // Only a supplied key is validated: an unusual key type with no key
+        // still hashes, and matches the unkeyed default.
+        let unkeyed: Hash = GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MIN - 1 }, 32>::hash(
+            FOX,
+            None::<&StackByteArray<15>>,
+        )
+        .expect("unkeyed");
+        let default_unkeyed: Hash =
+            GenericHash::hash_with_defaults::<_, Key, _>(FOX, None).expect("unkeyed");
+        assert_eq!(unkeyed, default_unkeyed);
+    }
+
+    #[cfg(all(feature = "protected", any(unix, windows)))]
+    #[test]
+    fn locked_key_input_and_output_match_stack_types() {
+        use crate::generichash::protected::*;
+
+        let input = HeapBytes::from_slice_into_readonly_locked(FOX).expect("lock input");
+        let key = sequential_key::<CRYPTO_GENERICHASH_KEYBYTES>();
+        let locked_key =
+            protected::Key::from_slice_into_readonly_locked(key.as_slice()).expect("lock key");
+        let expected = hex::decode(FOX_KAT[3].2).expect("hex");
+
+        let hash: Locked<protected::Hash> =
+            GenericHash::hash(&input, Some(&locked_key)).expect("hash");
+        assert_eq!(hash.as_slice(), expected.as_slice());
+        let stack: Hash = GenericHash::hash(FOX, Some(&key)).expect("hash");
+        assert_eq!(stack.as_slice(), hash.as_slice());
+
+        let mut hasher = GenericHash::new_with_defaults(Some(&locked_key)).expect("new");
+        hasher.update(&input);
+        let hash: Locked<protected::Hash> = hasher.finalize().expect("finalize");
+        assert_eq!(hash.as_slice(), expected.as_slice());
+
+        let unkeyed: Locked<protected::Hash> =
+            GenericHash::hash_with_defaults::<_, protected::Key, _>(&input, None).expect("hash");
+        let stack_unkeyed: Hash =
+            GenericHash::hash_with_defaults::<_, Key, _>(FOX, None).expect("hash");
+        assert_eq!(unkeyed.as_slice(), stack_unkeyed.as_slice());
+        assert_ne!(unkeyed.as_slice(), expected.as_slice());
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn keyed_and_unkeyed_hashes_match_libsodium_at_length_bounds() {
+        fn sodium_hash(input: &[u8], key: Option<&[u8]>, outlen: usize) -> Vec<u8> {
+            let mut output = vec![0u8; outlen];
+            let rc = unsafe {
+                libsodium_sys::crypto_generichash(
+                    output.as_mut_ptr(),
+                    outlen,
+                    input.as_ptr(),
+                    input.len() as u64,
+                    key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                    key.map_or(0, <[u8]>::len),
+                )
+            };
+            assert_eq!(rc, 0);
+            output
+        }
+
+        for (outlen, keylen, _) in FOX_KAT {
+            let key: Vec<u8> = (0..keylen as u8).collect();
+            let key = (keylen > 0).then_some(key.as_slice());
+            let expected = sodium_hash(FOX, key, outlen);
+            let actual = match (keylen, outlen) {
+                (0, 16) => GenericHash::<64, 16>::hash_to_vec(&FOX, None::<&StackByteArray<64>>),
+                (0, 64) => GenericHash::<64, 64>::hash_to_vec(&FOX, None::<&StackByteArray<64>>),
+                (16, 16) => GenericHash::<16, 16>::hash_to_vec(&FOX, Some(&sequential_key::<16>())),
+                (32, 32) => GenericHash::<32, 32>::hash_to_vec(&FOX, Some(&sequential_key::<32>())),
+                (64, 64) => GenericHash::<64, 64>::hash_to_vec(&FOX, Some(&sequential_key::<64>())),
+                _ => unreachable!(),
+            }
+            .expect("hash");
+            assert_eq!(actual, expected);
+        }
+
+        // Inputs straddling the 128-byte BLAKE2b block boundary.
+        let key = sequential_key::<CRYPTO_GENERICHASH_KEYBYTES>();
+        for len in [0, 1, 127, 128, 129, 255, 256, 257] {
+            let input: Vec<u8> = (0..len).map(|i| (i * 7 % 251) as u8).collect();
+            let expected = sodium_hash(&input, Some(key.as_slice()), CRYPTO_GENERICHASH_BYTES);
+            assert_eq!(
+                GenericHash::hash_with_defaults_to_vec(&input, Some(&key)).expect("hash"),
+                expected
+            );
+            let expected = sodium_hash(&input, None, CRYPTO_GENERICHASH_BYTES);
+            assert_eq!(
+                GenericHash::hash_with_defaults_to_vec::<_, Key>(&input, None).expect("hash"),
+                expected
+            );
+        }
+    }
 }

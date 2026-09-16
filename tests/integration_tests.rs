@@ -505,39 +505,94 @@ fn test_protected_generation_api() {
 
 #[cfg(all(feature = "serde", feature = "protected", any(unix, windows)))]
 #[test]
-fn test_protected_serde_sequence_deserialization() {
-    use dryoc::protected::{HeapByteArray, HeapBytes, Locked, LockedBytes};
+fn test_protected_serde_json_roundtrips() {
+    use dryoc::protected::{
+        HeapByteArray, HeapBytes, Locked, LockedBytes, LockedRO, NewLockedFromSlice,
+    };
     use dryoc::types::Bytes;
 
-    let bytes: LockedBytes = serde_json::from_str("[1,2,3]").expect("bytes failed");
-    assert_eq!(bytes.as_slice(), &[1, 2, 3]);
+    let data = [1u8, 2, 3];
+    let json = serde_json::to_string(&data).expect("array json");
 
-    let empty_bytes: LockedBytes = serde_json::from_str("[]").expect("empty bytes failed");
-    assert!(empty_bytes.is_empty());
+    let heap_bytes = HeapBytes::from(&data[..]);
+    assert_eq!(serde_json::to_string(&heap_bytes).expect("serialize"), json);
+    let decoded: HeapBytes = serde_json::from_str(&json).expect("heap bytes");
+    assert_eq!(decoded, heap_bytes);
 
-    let empty_heap_bytes: HeapBytes = serde_json::from_str("[]").expect("empty heap bytes failed");
-    assert!(empty_heap_bytes.is_empty());
+    let locked_bytes = HeapBytes::from_slice_into_locked(&data).expect("lock");
+    assert_eq!(
+        serde_json::to_string(&locked_bytes).expect("serialize"),
+        json
+    );
+    let decoded: LockedBytes = serde_json::from_str(&json).expect("locked bytes");
+    assert_eq!(decoded.as_slice(), &data);
 
-    let array: Locked<HeapByteArray<3>> = serde_json::from_str("[4,5,6]").expect("array failed");
-    assert_eq!(array.as_slice(), &[4, 5, 6]);
+    // `LockedRO<HeapBytes>` implements `Serialize` only; it has no
+    // `Deserialize` impl, so it must serialize exactly like the read-write
+    // forms above.
+    let readonly: LockedRO<HeapBytes> =
+        HeapBytes::from_slice_into_readonly_locked(&data).expect("readonly lock");
+    assert_eq!(serde_json::to_string(&readonly).expect("serialize"), json);
 
-    let heap_array: HeapByteArray<3> = serde_json::from_str("[7,8,9]").expect("heap array failed");
-    assert_eq!(heap_array.as_slice(), &[7, 8, 9]);
+    let heap_array = HeapByteArray::<3>::from(&data);
+    assert_eq!(serde_json::to_string(&heap_array).expect("serialize"), json);
+    let decoded: HeapByteArray<3> = serde_json::from_str(&json).expect("heap array");
+    assert_eq!(decoded, heap_array);
 
-    assert!(serde_json::from_str::<HeapByteArray<3>>("[1,2]").is_err());
-    assert!(serde_json::from_str::<HeapByteArray<3>>("[1,2,3,4]").is_err());
+    let locked_array = HeapByteArray::<3>::from_slice_into_locked(&data).expect("lock");
+    assert_eq!(
+        serde_json::to_string(&locked_array).expect("serialize"),
+        json
+    );
+    let decoded: Locked<HeapByteArray<3>> = serde_json::from_str(&json).expect("locked array");
+    assert_eq!(decoded.as_slice(), &data);
+
+    // A JSON string is delivered to the visitors as a byte string.
+    let from_string: HeapBytes = serde_json::from_str("\"abc\"").expect("heap bytes string");
+    assert_eq!(from_string.as_slice(), b"abc");
+    let from_string: Locked<HeapByteArray<3>> =
+        serde_json::from_str("\"abc\"").expect("locked array string");
+    assert_eq!(from_string.as_slice(), b"abc");
+
+    let empty: LockedBytes = serde_json::from_str("[]").expect("empty locked bytes");
+    assert!(empty.is_empty());
+    let empty: HeapBytes = serde_json::from_str("[]").expect("empty heap bytes");
+    assert!(empty.is_empty());
+    assert_eq!(serde_json::to_string(&empty).expect("serialize"), "[]");
+
+    for short_or_long in ["[1,2]", "[1,2,3,4]", "\"ab\"", "\"abcd\"", "[]"] {
+        assert!(
+            serde_json::from_str::<HeapByteArray<3>>(short_or_long).is_err(),
+            "{short_or_long}"
+        );
+        assert!(
+            serde_json::from_str::<Locked<HeapByteArray<3>>>(short_or_long).is_err(),
+            "{short_or_long}"
+        );
+    }
 }
 
 #[cfg(feature = "serde")]
 #[test]
-fn test_stack_byte_array_serde_requires_exact_length() {
+fn test_stack_byte_array_serde_json_roundtrip_requires_exact_length() {
     use dryoc::types::{Bytes, StackByteArray};
 
-    let array: StackByteArray<3> = serde_json::from_str("[1,2,3]").expect("array failed");
-    assert_eq!(array.as_slice(), &[1, 2, 3]);
+    let array = StackByteArray::from([1u8, 2, 3]);
+    let json = serde_json::to_string(&array).expect("serialize");
+    assert_eq!(json, "[1,2,3]");
 
-    assert!(serde_json::from_str::<StackByteArray<3>>("[1,2]").is_err());
-    assert!(serde_json::from_str::<StackByteArray<3>>("[1,2,3,4]").is_err());
+    let decoded: StackByteArray<3> = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(decoded, array);
+
+    let from_string: StackByteArray<3> = serde_json::from_str("\"abc\"").expect("string");
+    assert_eq!(from_string.as_slice(), b"abc");
+
+    for short_or_long in ["[1,2]", "[1,2,3,4]", "\"ab\"", "\"abcd\"", "[]"] {
+        assert!(
+            serde_json::from_str::<StackByteArray<3>>(short_or_long).is_err(),
+            "{short_or_long}"
+        );
+    }
 }
 
 #[test]
@@ -843,15 +898,41 @@ fn test_dryocaead_serde_json() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+/// The bincode-style wire layout the crate's `SchemaWrite` impls promise:
+/// fixed arrays are written raw and `Vec<u8>` as a little-endian `u64` length
+/// prefix followed by the bytes.
+#[cfg(feature = "wincode")]
+fn wincode_vec(bytes: &[u8]) -> Vec<u8> {
+    let mut out = (bytes.len() as u64).to_le_bytes().to_vec();
+    out.extend_from_slice(bytes);
+    out
+}
+
+#[cfg(feature = "wincode")]
 #[test]
-fn test_dryocbox_wincode_bytes() {
+fn test_dryocbox_wincode_wire_format() {
+    use dryoc::classic::crypto_box::crypto_box_detached;
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
-    let nonce = Nonce::generate();
+    let sender_keypair = KeyPair::from_seed(&[1u8; 32]);
+    let recipient_keypair = KeyPair::from_seed(&[2u8; 32]);
+    let nonce = Nonce::from([3u8; 24]);
     let message = b"hey friend";
 
+    // Independent oracle for the ciphertext and tag.
+    let mut ciphertext = vec![0u8; message.len()];
+    let mut mac = [0u8; 16];
+    crypto_box_detached(
+        &mut ciphertext,
+        &mut mac,
+        message,
+        nonce.as_array(),
+        recipient_keypair.public_key.as_array(),
+        sender_keypair.secret_key.as_array(),
+    )
+    .expect("classic encrypt");
+
+    // Regular box: `Option::None` tag, tag, then the length-prefixed data.
     let dryocbox: VecBox = DryocBox::encrypt(
         message,
         &nonce,
@@ -859,48 +940,100 @@ fn test_dryocbox_wincode_bytes() {
         &sender_keypair.secret_key,
     )
     .expect("unable to encrypt");
+    let encoded = wincode::serialize(&dryocbox).expect("doesn't serialize");
 
-    let encoded = wincode::serialize(&dryocbox.to_vec()).expect("doesn't serialize");
+    let mut expected = vec![0u8];
+    expected.extend_from_slice(&mac);
+    expected.extend_from_slice(&wincode_vec(&ciphertext));
+    assert_eq!(encoded, expected);
 
-    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
-    let dryocbox = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
-
-    let decrypted: Vec<u8> = dryocbox
+    let decoded: VecBox = wincode::deserialize(&expected).expect("doesn't deserialize");
+    let decrypted: Vec<u8> = decoded
         .decrypt(
             &nonce,
             &sender_keypair.public_key,
             &recipient_keypair.secret_key,
         )
         .expect("decrypt failed");
-
     assert_eq!(message, decrypted.as_slice());
+
+    // Sealed box: `Option::Some` tag followed by the ephemeral public key.
+    let sealed: VecBox = DryocBox::seal(message, &recipient_keypair.public_key).expect("seal");
+    let encoded = wincode::serialize(&sealed).expect("doesn't serialize");
+    let (tag, data, ephemeral_pk) = sealed.into_parts();
+    let ephemeral_pk = ephemeral_pk.expect("sealed box has an ephemeral public key");
+
+    let mut expected = vec![1u8];
+    expected.extend_from_slice(ephemeral_pk.as_slice());
+    expected.extend_from_slice(tag.as_slice());
+    expected.extend_from_slice(&wincode_vec(&data));
+    assert_eq!(encoded, expected);
+
+    let decoded: VecBox = wincode::deserialize(&expected).expect("doesn't deserialize");
+    let decrypted: Vec<u8> = decoded.unseal(&recipient_keypair).expect("unseal failed");
+    assert_eq!(message, decrypted.as_slice());
+
+    // Truncated input is rejected rather than read past the end.
+    assert!(wincode::deserialize::<VecBox>(&expected[..expected.len() - 1]).is_err());
 }
 
+#[cfg(feature = "wincode")]
 #[test]
-fn test_dryocaead_wincode_bytes() {
+fn test_dryocaead_wincode_wire_format() {
+    use dryoc::classic::crypto_aead_xchacha20poly1305_ietf::crypto_aead_xchacha20poly1305_ietf_encrypt_detached;
     use dryoc::dryocaead::*;
 
-    let key = Key::generate();
-    let nonce = Nonce::generate();
+    let key = Key::from([4u8; 32]);
+    let nonce = Nonce::from([5u8; 24]);
     let message = b"hey authenticated friend";
     let aad = b"metadata";
 
-    let dryocaead =
-        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("unable to encrypt");
-    let encoded = wincode::serialize(&dryocaead.to_vec()).expect("doesn't serialize");
-    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
-    let dryocaead = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
-    let decrypted = dryocaead
-        .decrypt_to_vec(Some(aad), &nonce, &key)
-        .expect("decrypt failed");
-    assert_eq!(message, decrypted.as_slice());
+    let mut ciphertext = vec![0u8; message.len()];
+    let mut mac = [0u8; 16];
+    crypto_aead_xchacha20poly1305_ietf_encrypt_detached(
+        &mut ciphertext,
+        &mut mac,
+        message,
+        Some(aad),
+        nonce.as_array(),
+        key.as_array(),
+    )
+    .expect("classic encrypt");
 
-    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
-    let encoded = wincode::serialize(&envelope.to_vec()).expect("doesn't serialize");
-    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
-    let envelope = VecEnvelope::from_bytes(&bytes).expect("doesn't deserialize");
-    let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
-    assert_eq!(message, decrypted.as_slice());
+    // Box: length-prefixed ciphertext, then the tag.
+    let aead_box =
+        VecBox::encrypt_to_vecbox(message, Some(aad), &nonce, &key).expect("unable to encrypt");
+    let encoded = wincode::serialize(&aead_box).expect("doesn't serialize");
+
+    let mut expected = wincode_vec(&ciphertext);
+    expected.extend_from_slice(&mac);
+    assert_eq!(encoded, expected);
+
+    let decoded: VecBox = wincode::deserialize(&expected).expect("doesn't deserialize");
+    assert_eq!(
+        decoded
+            .decrypt_to_vec(Some(aad), &nonce, &key)
+            .expect("decrypt failed"),
+        message
+    );
+
+    // Envelope: nonce, length-prefixed ciphertext, then the tag.
+    let (tag, data) = aead_box.into_parts();
+    let envelope = VecEnvelope::from_parts(nonce.clone(), tag, data);
+    let encoded = wincode::serialize(&envelope).expect("doesn't serialize");
+
+    let mut expected = nonce.as_slice().to_vec();
+    expected.extend_from_slice(&wincode_vec(&ciphertext));
+    expected.extend_from_slice(&mac);
+    assert_eq!(encoded, expected);
+
+    let decoded: VecEnvelope = wincode::deserialize(&expected).expect("doesn't deserialize");
+    assert_eq!(
+        decoded.open_to_vec(Some(aad), &key).expect("open failed"),
+        message
+    );
+
+    assert!(wincode::deserialize::<VecEnvelope>(&expected[..expected.len() - 1]).is_err());
 }
 
 #[cfg(feature = "wincode")]
@@ -982,26 +1115,42 @@ fn test_dryocbox_sealed_wincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "wincode")]
 #[test]
-fn test_dryocsecretbox_wincode_bytes() {
+fn test_dryocsecretbox_wincode_wire_format() {
+    use dryoc::classic::crypto_secretbox::crypto_secretbox_detached;
     use dryoc::dryocsecretbox::*;
 
-    let secret_key = Key::generate();
-    let nonce = Nonce::generate();
+    let secret_key = Key::from([6u8; 32]);
+    let nonce = Nonce::from([7u8; 24]);
     let message = b"hey buddy bro";
 
+    let mut ciphertext = vec![0u8; message.len()];
+    let mut mac = [0u8; 16];
+    crypto_secretbox_detached(
+        &mut ciphertext,
+        &mut mac,
+        message,
+        nonce.as_array(),
+        secret_key.as_array(),
+    )
+    .expect("classic encrypt");
+
+    // Tag, then the length-prefixed ciphertext.
     let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let encoded = wincode::serialize(&dryocsecretbox).expect("doesn't serialize");
 
-    let encoded = wincode::serialize(&dryocsecretbox.to_vec()).expect("doesn't serialize");
+    let mut expected = mac.to_vec();
+    expected.extend_from_slice(&wincode_vec(&ciphertext));
+    assert_eq!(encoded, expected);
 
-    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
-    let dryocsecretbox = VecBox::from_bytes(&bytes).expect("doesn't deserialize");
-
-    let decrypted: Vec<u8> = dryocsecretbox
+    let decoded: VecBox = wincode::deserialize(&expected).expect("doesn't deserialize");
+    let decrypted: Vec<u8> = decoded
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
-
     assert_eq!(message, decrypted.as_slice());
+
+    assert!(wincode::deserialize::<VecBox>(&expected[..expected.len() - 1]).is_err());
 }
 
 #[cfg(feature = "wincode")]
@@ -1027,7 +1176,7 @@ fn test_dryocsecretbox_wincode() {
 
 #[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
-fn test_dryocsecretbox_protected_wincode_bytes() {
+fn test_dryocsecretbox_protected_to_bytes_from_parts() {
     use dryoc::constants::CRYPTO_SECRETBOX_MACBYTES;
     use dryoc::dryocsecretbox::protected::*;
     use dryoc::dryocsecretbox::*;
@@ -1045,10 +1194,11 @@ fn test_dryocsecretbox_protected_wincode_bytes() {
     let dryocsecretbox: protected::LockedBox =
         DryocSecretBox::encrypt(&message, &nonce, &secret_key);
 
+    // `to_bytes` writes `tag || ciphertext`, the same layout `VecBox::to_vec`
+    // produces for the unprotected form.
     let bytes: Vec<u8> = dryocsecretbox.to_bytes();
-    let encoded = wincode::serialize(&bytes).expect("doesn't serialize");
+    assert_eq!(bytes.len(), CRYPTO_SECRETBOX_MACBYTES + message.len());
 
-    let bytes: Vec<u8> = wincode::deserialize(&encoded).unwrap();
     let (tag, data) = bytes.split_at(CRYPTO_SECRETBOX_MACBYTES);
     let tag = protected::Mac::from_slice_into_locked(tag).expect("doesn't deserialize tag");
     let data = HeapBytes::from_slice_into_locked(data).expect("doesn't deserialize data");

@@ -763,47 +763,179 @@ mod tests {
             assert_eq!(data, original_data);
         }
     }
+
+    /// A failed in-place open (bad tag, wrong sender, wrong nonce) leaves
+    /// every byte of the caller's buffer as it was, tag and body alike.
     #[test]
     fn test_crypto_box_easy_inplace_invalid() {
-        for _ in 0..20 {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
+        let (sender_pk, sender_sk) = crypto_box_keypair();
+        let (recipient_pk, recipient_sk) = crypto_box_keypair();
+        let (other_pk, _) = crypto_box_keypair();
+        let nonce = Nonce::generate();
 
-            let (sender_pk, _sender_sk) = crypto_box_keypair();
-            let (_recipient_pk, recipient_sk) = crypto_box_keypair();
-            let nonce = Nonce::generate();
+        let mut ciphertext: Vec<u8> = vec![];
+        crypto_box_open_easy_inplace(&mut ciphertext, &nonce, &sender_pk, &recipient_sk)
+            .expect_err("expected an error");
 
-            let mut ciphertext: Vec<u8> = vec![];
+        for len in [CRYPTO_BOX_MACBYTES, CRYPTO_BOX_MACBYTES + 1, 1024] {
+            let mut random = vec![0u8; len];
+            copy_randombytes(&mut random);
+            let original = random.clone();
+            crypto_box_open_easy_inplace(&mut random, &nonce, &sender_pk, &recipient_sk)
+                .expect_err("random bytes must not authenticate");
+            assert_eq!(random, original);
 
-            crypto_box_open_easy_inplace(&mut ciphertext, &nonce, &sender_pk, &recipient_sk)
-                .expect_err("expected an error");
+            let mut data = original.clone();
+            crypto_box_easy_inplace(&mut data, &nonce, &recipient_pk, &sender_sk)
+                .expect("encrypt failed");
+            let sealed = data.clone();
+            let mut tampered = sealed.clone();
+            tampered[len - 1] ^= 1;
+            crypto_box_open_easy_inplace(&mut tampered, &nonce, &sender_pk, &recipient_sk)
+                .expect_err("tampered body must not authenticate");
+            assert_eq!(tampered[len - 1], sealed[len - 1] ^ 1);
+            assert_eq!(tampered[..len - 1], sealed[..len - 1]);
 
-            ciphertext.resize(1024, 0);
-            copy_randombytes(ciphertext.as_mut_slice());
-            let ciphertext_copy = ciphertext.clone();
+            let mut wrong_sender = sealed.clone();
+            crypto_box_open_easy_inplace(&mut wrong_sender, &nonce, &other_pk, &recipient_sk)
+                .expect_err("wrong sender must not authenticate");
+            assert_eq!(wrong_sender, sealed);
 
-            crypto_box_open_easy_inplace(&mut ciphertext, &nonce, &sender_pk, &recipient_sk)
-                .expect_err("expected an error");
+            let mut wrong_nonce = sealed.clone();
+            let mut other_nonce = nonce;
+            other_nonce[0] ^= 1;
+            crypto_box_open_easy_inplace(&mut wrong_nonce, &other_nonce, &sender_pk, &recipient_sk)
+                .expect_err("wrong nonce must not authenticate");
+            assert_eq!(wrong_nonce, sealed);
 
-            assert_eq!(ciphertext.len(), ciphertext_copy.len());
+            crypto_box_open_easy_inplace(&mut data, &nonce, &sender_pk, &recipient_sk)
+                .expect("decrypt failed");
             assert_eq!(
-                general_purpose::STANDARD_NO_PAD.encode(&ciphertext[0..CRYPTO_BOX_MACBYTES]),
-                general_purpose::STANDARD_NO_PAD.encode(&ciphertext_copy[0..CRYPTO_BOX_MACBYTES])
+                data[..len - CRYPTO_BOX_MACBYTES],
+                original[..len - CRYPTO_BOX_MACBYTES]
             );
         }
+    }
+
+    /// Detached opens verify before writing: on a bad tag, a low-order key or
+    /// a too-short output, the message buffer (or the in-place data) is
+    /// untouched.
+    #[test]
+    fn test_crypto_box_open_detached_failure_atomicity() {
+        let (sender_pk, sender_sk) = crypto_box_seed_keypair(&[0x41; CRYPTO_BOX_SEEDBYTES]);
+        let (recipient_pk, recipient_sk) = crypto_box_seed_keypair(&[0x42; CRYPTO_BOX_SEEDBYTES]);
+        let nonce = [0x43; CRYPTO_BOX_NONCEBYTES];
+        let message = [0x44; 70];
+        let mut ciphertext = [0u8; 70];
+        let mut mac = Mac::default();
+        crypto_box_detached(
+            &mut ciphertext,
+            &mut mac,
+            &message,
+            &nonce,
+            &recipient_pk,
+            &sender_sk,
+        )
+        .unwrap();
+        let key = crypto_box_beforenm(&sender_pk, &recipient_sk).unwrap();
+        let mut bad_mac = mac;
+        bad_mac[0] ^= 1;
+        let mut low_order = PublicKey::default();
+        low_order[0] = 1;
+
+        let sentinel = [0xa5; 70];
+        let mut output = sentinel;
+        assert!(matches!(
+            crypto_box_open_detached(
+                &mut output,
+                &bad_mac,
+                &ciphertext,
+                &nonce,
+                &sender_pk,
+                &recipient_sk
+            ),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert_eq!(output, sentinel);
+        assert!(matches!(
+            crypto_box_open_detached_afternm(&mut output, &bad_mac, &ciphertext, &nonce, &key),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert_eq!(output, sentinel);
+        assert!(matches!(
+            crypto_box_open_detached(
+                &mut output,
+                &mac,
+                &ciphertext,
+                &nonce,
+                &low_order,
+                &recipient_sk
+            ),
+            Err(Error::InvalidKey { .. })
+        ));
+        assert_eq!(output, sentinel);
+        let mut short_output = [0xa5; 69];
+        assert!(matches!(
+            crypto_box_open_detached(
+                &mut short_output,
+                &mac,
+                &ciphertext,
+                &nonce,
+                &sender_pk,
+                &recipient_sk
+            ),
+            Err(Error::InvalidLength { .. })
+        ));
+        assert_eq!(short_output, [0xa5; 69]);
+
+        let mut data = ciphertext;
+        assert!(
+            crypto_box_open_detached_inplace(
+                &mut data,
+                &bad_mac,
+                &nonce,
+                &sender_pk,
+                &recipient_sk
+            )
+            .is_err()
+        );
+        assert_eq!(data, ciphertext);
+        assert!(
+            crypto_box_open_detached_afternm_inplace(&mut data, &bad_mac, &nonce, &key).is_err()
+        );
+        assert_eq!(data, ciphertext);
+        assert!(
+            crypto_box_open_detached_inplace(&mut data, &mac, &nonce, &low_order, &recipient_sk)
+                .is_err()
+        );
+        assert_eq!(data, ciphertext);
+
+        crypto_box_open_detached(
+            &mut output,
+            &mac,
+            &ciphertext,
+            &nonce,
+            &sender_pk,
+            &recipient_sk,
+        )
+        .unwrap();
+        assert_eq!(output, message);
+        crypto_box_open_detached_inplace(&mut data, &mac, &nonce, &sender_pk, &recipient_sk)
+            .unwrap();
+        assert_eq!(data, message);
     }
 
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
 
+        /// Every low-order peer key (libsodium's blacklist, with and without
+        /// bit 255) is refused by the precomputation, as libsodium does.
         #[test]
         fn test_crypto_box_beforenm_low_order_compatibility() {
-            let (_, secret_key) = crypto_box_keypair();
-            let mut one = PublicKey::default();
-            one[0] = 1;
+            let (_, secret_key) = crypto_box_seed_keypair(&[0x54; CRYPTO_BOX_SEEDBYTES]);
 
-            for public_key in [PublicKey::default(), one] {
+            for public_key in crate::scalarmult_curve25519::test_vectors::low_order_u_encodings() {
                 let mut sodium_key = Key::default();
                 let sodium_result = unsafe {
                     libsodium_sys::crypto_box_curve25519xsalsa20poly1305_beforenm(
@@ -813,8 +945,196 @@ mod tests {
                     )
                 };
 
-                assert!(crypto_box_beforenm(&public_key, &secret_key).is_err());
-                assert_eq!(sodium_result, -1);
+                assert!(
+                    crypto_box_beforenm(&public_key, &secret_key).is_err(),
+                    "{public_key:02x?}"
+                );
+                assert_eq!(sodium_result, -1, "{public_key:02x?}");
+            }
+        }
+
+        /// Detached boxes at the empty, one-byte and Salsa20 block-boundary
+        /// lengths interoperate with libsodium in both directions: direct
+        /// and precomputed (`afternm`), out of place and in place, with the
+        /// same fixed keys and nonce.
+        #[test]
+        fn test_crypto_box_detached_matches_libsodium() {
+            let (sender_pk, sender_sk) = crypto_box_seed_keypair(&[0x51; CRYPTO_BOX_SEEDBYTES]);
+            let (recipient_pk, recipient_sk) =
+                crypto_box_seed_keypair(&[0x52; CRYPTO_BOX_SEEDBYTES]);
+            let nonce = [0x53; CRYPTO_BOX_NONCEBYTES];
+
+            let sender_key = crypto_box_beforenm(&recipient_pk, &sender_sk).unwrap();
+            let recipient_key = crypto_box_beforenm(&sender_pk, &recipient_sk).unwrap();
+            assert_eq!(sender_key, recipient_key);
+            let mut sodium_key = Key::default();
+            let result = unsafe {
+                libsodium_sys::crypto_box_beforenm(
+                    sodium_key.as_mut_ptr(),
+                    recipient_pk.as_ptr(),
+                    sender_sk.as_ptr(),
+                )
+            };
+            assert_eq!(result, 0);
+            assert_eq!(sender_key, sodium_key);
+
+            let mut rng = crate::utils::test_util::XorShift64::new(0x243f_6a88_85a3_08d3);
+            let mut all = Vec::with_capacity(96);
+            while all.len() < 65 {
+                all.extend_from_slice(&rng.next_bytes32());
+            }
+
+            for len in [0usize, 1, 31, 32, 33, 63, 64, 65] {
+                let message = &all[..len];
+
+                let mut ciphertext = vec![0u8; len];
+                let mut mac = Mac::default();
+                crypto_box_detached(
+                    &mut ciphertext,
+                    &mut mac,
+                    message,
+                    &nonce,
+                    &recipient_pk,
+                    &sender_sk,
+                )
+                .unwrap();
+
+                let mut sodium_ciphertext = vec![0u8; len];
+                let mut sodium_mac = Mac::default();
+                let result = unsafe {
+                    libsodium_sys::crypto_box_detached(
+                        sodium_ciphertext.as_mut_ptr(),
+                        sodium_mac.as_mut_ptr(),
+                        message.as_ptr(),
+                        len as u64,
+                        nonce.as_ptr(),
+                        recipient_pk.as_ptr(),
+                        sender_sk.as_ptr(),
+                    )
+                };
+                assert_eq!(result, 0);
+                assert_eq!(ciphertext, sodium_ciphertext, "len {len}");
+                assert_eq!(mac, sodium_mac, "len {len}");
+
+                let mut afternm_ciphertext = vec![0u8; len];
+                let mut afternm_mac = Mac::default();
+                crypto_box_detached_afternm(
+                    &mut afternm_ciphertext,
+                    &mut afternm_mac,
+                    message,
+                    &nonce,
+                    &sender_key,
+                )
+                .unwrap();
+                assert_eq!(afternm_ciphertext, ciphertext, "afternm len {len}");
+                assert_eq!(afternm_mac, mac, "afternm len {len}");
+                let result = unsafe {
+                    libsodium_sys::crypto_box_detached_afternm(
+                        sodium_ciphertext.as_mut_ptr(),
+                        sodium_mac.as_mut_ptr(),
+                        message.as_ptr(),
+                        len as u64,
+                        nonce.as_ptr(),
+                        sodium_key.as_ptr(),
+                    )
+                };
+                assert_eq!(result, 0);
+                assert_eq!(ciphertext, sodium_ciphertext, "sodium afternm len {len}");
+                assert_eq!(mac, sodium_mac, "sodium afternm len {len}");
+
+                let mut data = message.to_vec();
+                let mut inplace_mac = Mac::default();
+                crypto_box_detached_inplace(
+                    &mut data,
+                    &mut inplace_mac,
+                    &nonce,
+                    &recipient_pk,
+                    &sender_sk,
+                )
+                .unwrap();
+                assert_eq!(data, ciphertext, "inplace len {len}");
+                assert_eq!(inplace_mac, mac, "inplace len {len}");
+                let mut data = message.to_vec();
+                let mut inplace_mac = Mac::default();
+                crypto_box_detached_afternm_inplace(
+                    &mut data,
+                    &mut inplace_mac,
+                    &nonce,
+                    &sender_key,
+                );
+                assert_eq!(data, ciphertext, "afternm inplace len {len}");
+                assert_eq!(inplace_mac, mac, "afternm inplace len {len}");
+
+                // libsodium's box opens with every dryoc variant.
+                let mut opened = vec![0xa5; len];
+                crypto_box_open_detached(
+                    &mut opened,
+                    &sodium_mac,
+                    &sodium_ciphertext,
+                    &nonce,
+                    &sender_pk,
+                    &recipient_sk,
+                )
+                .unwrap();
+                assert_eq!(opened, message, "open len {len}");
+                opened.fill(0xa5);
+                crypto_box_open_detached_afternm(
+                    &mut opened,
+                    &sodium_mac,
+                    &sodium_ciphertext,
+                    &nonce,
+                    &recipient_key,
+                )
+                .unwrap();
+                assert_eq!(opened, message, "open afternm len {len}");
+                let mut data = sodium_ciphertext.clone();
+                crypto_box_open_detached_inplace(
+                    &mut data,
+                    &sodium_mac,
+                    &nonce,
+                    &sender_pk,
+                    &recipient_sk,
+                )
+                .unwrap();
+                assert_eq!(data, message, "open inplace len {len}");
+                let mut data = sodium_ciphertext.clone();
+                crypto_box_open_detached_afternm_inplace(
+                    &mut data,
+                    &sodium_mac,
+                    &nonce,
+                    &recipient_key,
+                )
+                .unwrap();
+                assert_eq!(data, message, "open afternm inplace len {len}");
+
+                // libsodium opens dryoc's box, directly and precomputed.
+                let mut sodium_opened = vec![0xa5; len];
+                let result = unsafe {
+                    libsodium_sys::crypto_box_open_detached(
+                        sodium_opened.as_mut_ptr(),
+                        ciphertext.as_ptr(),
+                        mac.as_ptr(),
+                        len as u64,
+                        nonce.as_ptr(),
+                        sender_pk.as_ptr(),
+                        recipient_sk.as_ptr(),
+                    )
+                };
+                assert_eq!(result, 0, "sodium open len {len}");
+                assert_eq!(sodium_opened, message, "sodium open len {len}");
+                sodium_opened.fill(0xa5);
+                let result = unsafe {
+                    libsodium_sys::crypto_box_open_detached_afternm(
+                        sodium_opened.as_mut_ptr(),
+                        ciphertext.as_ptr(),
+                        mac.as_ptr(),
+                        len as u64,
+                        nonce.as_ptr(),
+                        sodium_key.as_ptr(),
+                    )
+                };
+                assert_eq!(result, 0, "sodium open afternm len {len}");
+                assert_eq!(sodium_opened, message, "sodium open afternm len {len}");
             }
         }
 

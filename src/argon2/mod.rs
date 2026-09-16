@@ -885,6 +885,61 @@ mod tests {
         }
     }
 
+    /// Direct upper bounds are rejected before allocation or hashing. `t_cost`
+    /// and `m_cost` are already `u32`; their representable maxima are valid,
+    /// so only wider lengths and the 24-bit lane bound have a value above max.
+    #[test]
+    fn validator_rejects_representable_upper_bound_overflows() {
+        if let Some(output_len) = ARGON2_MAX_OUTLEN.checked_add(1) {
+            assert!(matches!(
+                validate_argon2_pwhash_parameters(output_len, ARGON2_MIN_SALT_LENGTH, 1, 8, 1,),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Output,
+                    ..
+                })
+            ));
+        }
+        if let Some(salt_len) = ARGON2_MAX_SALT_LENGTH.checked_add(1) {
+            assert!(matches!(
+                validate_argon2_pwhash_parameters(ARGON2_MIN_OUTLEN, salt_len, 1, 8, 1,),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::PasswordHashSalt,
+                    ..
+                })
+            ));
+        }
+        assert!(matches!(
+            validate_argon2_pwhash_parameters(
+                ARGON2_MIN_OUTLEN,
+                ARGON2_MIN_SALT_LENGTH,
+                1,
+                8 * (ARGON2_MAX_LANES + 1),
+                ARGON2_MAX_LANES + 1,
+            ),
+            Err(Error::InvalidValue {
+                context: crate::ErrorContext::Parallelism,
+                ..
+            })
+        ));
+        // `ARGON2_MAX_MEMORY` is `u32::MAX` on 64-bit targets, so an
+        // over-maximum value only exists on 32-bit ones.
+        if let Some(m_cost) = ARGON2_MAX_MEMORY.checked_add(1) {
+            assert!(matches!(
+                validate_argon2_pwhash_parameters(
+                    ARGON2_MIN_OUTLEN,
+                    ARGON2_MIN_SALT_LENGTH,
+                    1,
+                    m_cost,
+                    1,
+                ),
+                Err(Error::InvalidValue {
+                    context: crate::ErrorContext::MemoryCost,
+                    ..
+                })
+            ));
+        }
+    }
+
     #[cfg(feature = "nightly")]
     fn bench_argon2id(b: &mut test::Bencher, t_cost: u32, m_cost: u32) {
         let password = [1u8; 32];
@@ -1161,6 +1216,57 @@ mod tests {
                     132, 187, 20, 129, 150, 215, 60, 29, 241, 172, 175, 109, 12, 46
                 ]
             );
+        }
+
+        /// Additional low-cost cases around the minimum-memory lane rule,
+        /// including the p=1,t=1 path and p=4 lane initialization, for both
+        /// RFC 9106 variants. This uses libargon2 directly because libsodium's
+        /// high-level Argon2i API imposes a larger minimum operation count.
+        #[test]
+        fn test_low_cost_parameter_matrix_matches_libargon2() {
+            let password = b"deterministic password";
+            let salt = b"saltsalt";
+            for type_ in [Argon2Type::Argon2i, Argon2Type::Argon2id] {
+                for (t_cost, m_cost, parallelism) in [(1, 8, 1), (1, 9, 1), (1, 32, 4), (2, 64, 4)]
+                {
+                    let mut ours = [0u8; 32];
+                    let mut native = [0u8; 32];
+                    super::argon2_hash(
+                        t_cost,
+                        m_cost,
+                        parallelism,
+                        password,
+                        salt,
+                        None,
+                        None,
+                        &mut ours,
+                        type_,
+                    )
+                    .expect("dryoc argon2");
+                    let rc = unsafe {
+                        argon2_hash(
+                            t_cost,
+                            m_cost,
+                            parallelism,
+                            password.as_ptr(),
+                            password.len(),
+                            salt.as_ptr(),
+                            salt.len(),
+                            native.as_mut_ptr(),
+                            native.len(),
+                            std::ptr::null_mut(),
+                            0,
+                            type_ as i32,
+                        )
+                    };
+                    assert_eq!(rc, 0);
+                    assert_eq!(
+                        ours, native,
+                        "type {}, t {t_cost}, m {m_cost}, p {parallelism}",
+                        type_ as i32
+                    );
+                }
+            }
         }
 
         /// libsodium's `argon2_hash` with the same parameters as

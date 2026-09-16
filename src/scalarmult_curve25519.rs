@@ -127,10 +127,62 @@ fn ladder(
     z3.zeroize();
 }
 
+/// Inputs shared by the X25519 unit tests and the `crypto_core`, `crypto_kx`
+/// and `crypto_box` tests.
+#[cfg(test)]
+pub(crate) mod test_vectors {
+    /// The seven `u` encodings whose X25519 output is all zero: libsodium's
+    /// `has_small_order` blacklist, in its order (0, 1, the two order-8
+    /// points, `p - 1`, `p` and `p + 1`). X25519 ignores bit 255, so each
+    /// also stands for the encoding with that bit set.
+    pub(crate) const LOW_ORDER_U: [[u8; 32]; 7] = [
+        [0; 32],
+        {
+            let mut one = [0u8; 32];
+            one[0] = 1;
+            one
+        },
+        [
+            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f,
+            0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16,
+            0x5f, 0x49, 0xb8, 0x00,
+        ],
+        [
+            0x5f, 0x9c, 0x95, 0xbc, 0xa3, 0x50, 0x8c, 0x24, 0xb1, 0xd0, 0xb1, 0x55, 0x9c, 0x83,
+            0xef, 0x5b, 0x04, 0x44, 0x5c, 0xc4, 0x58, 0x1c, 0x8e, 0x86, 0xd8, 0x22, 0x4e, 0xdd,
+            0xd0, 0x9f, 0x11, 0x57,
+        ],
+        field_prime_plus(-1),
+        field_prime_plus(0),
+        field_prime_plus(1),
+    ];
+
+    /// Little-endian `2^255 - 19 + offset` for small `offset`, with bit 255
+    /// clear.
+    pub(crate) const fn field_prime_plus(offset: i8) -> [u8; 32] {
+        let mut bytes = [0xff; 32];
+        bytes[0] = (0xed + offset as i16) as u8;
+        bytes[31] = 0x7f;
+        bytes
+    }
+
+    /// [`LOW_ORDER_U`] with bit 255 clear and set: fourteen encodings.
+    pub(crate) fn low_order_u_encodings() -> [[u8; 32]; 14] {
+        let mut all = [[0u8; 32]; 14];
+        for (i, u) in LOW_ORDER_U.iter().enumerate() {
+            all[2 * i] = *u;
+            all[2 * i + 1] = *u;
+            all[2 * i + 1][31] |= 0x80;
+        }
+        all
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use curve25519_dalek::montgomery::MontgomeryPoint;
 
+    use super::test_vectors::{field_prime_plus, low_order_u_encodings};
     use super::*;
     use crate::utils::test_util::{XorShift64, hex32 as hex};
 
@@ -235,6 +287,48 @@ mod tests {
             masked[31] &= 0x7f;
             let expected = MontgomeryPoint(masked).mul_clamped(k).0;
             assert_eq!(x25519(&k, &u), expected, "input {i}");
+        }
+    }
+
+    /// Every low-order `u` (libsodium's blacklist, with and without bit 255)
+    /// multiplies to the all-zero output for any clamped scalar, which is
+    /// what `crypto_scalarmult` turns into an error; dalek's ladder agrees.
+    #[test]
+    fn test_low_order_inputs_yield_zero() {
+        let mut rng = XorShift64::new(0x6a09_e667_f3bc_c908);
+        let scalars = [[0u8; 32], [0xff; 32], [0x42; 32], rng.next_bytes32()];
+        for u in low_order_u_encodings() {
+            let mut masked = u;
+            masked[31] &= 0x7f;
+            for k in scalars {
+                assert_eq!(x25519(&k, &u), [0u8; 32], "u {u:02x?}");
+                assert_eq!(MontgomeryPoint(masked).mul_clamped(k).0, [0u8; 32]);
+            }
+        }
+    }
+
+    /// `p + j` and `2^255 + p + j` decode to the same field element as `j`
+    /// (RFC 7748 section 5: the top bit is ignored, the value reduced), so
+    /// the four encodings of every `j` in `0..=18` (up to `2^256 - 1`) give
+    /// the same output as dalek does for the canonical `j`.
+    #[test]
+    fn test_noncanonical_u_matches_reduced_u() {
+        let mut rng = XorShift64::new(0xbb67_ae85_84ca_a73b);
+        for j in 0..=18u8 {
+            let mut canonical = [0u8; 32];
+            canonical[0] = j;
+            let mut canonical_high = canonical;
+            canonical_high[31] |= 0x80;
+            let unreduced = field_prime_plus(j as i8);
+            let mut unreduced_high = unreduced;
+            unreduced_high[31] |= 0x80;
+            assert_eq!(unreduced_high[31], 0xff);
+
+            let k = rng.next_bytes32();
+            let expected = MontgomeryPoint(canonical).mul_clamped(k).0;
+            for u in [canonical, canonical_high, unreduced, unreduced_high] {
+                assert_eq!(x25519(&k, &u), expected, "j {j}, u {u:02x?}");
+            }
         }
     }
 }

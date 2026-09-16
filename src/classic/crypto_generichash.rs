@@ -137,90 +137,115 @@ pub fn crypto_generichash_keygen() -> [u8; CRYPTO_GENERICHASH_KEYBYTES] {
 
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
-    use rand::TryRng;
-
     use super::*;
+    use crate::constants::{
+        CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
+        CRYPTO_GENERICHASH_KEYBYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MIN,
+    };
 
-    #[test]
-    fn test_generichash() {
-        use libsodium_sys::crypto_generichash as so_crypto_generichash;
-        use rand::rngs::SysRng;
-
-        use crate::constants::{CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN};
-        use crate::rng::copy_randombytes;
-
-        for _ in 0..20 {
-            let outlen = CRYPTO_GENERICHASH_BYTES_MIN
-                + (SysRng.try_next_u32().unwrap() as usize
-                    % (CRYPTO_GENERICHASH_BYTES_MAX - CRYPTO_GENERICHASH_BYTES_MIN));
-            let mut output = vec![0u8; outlen];
-
-            let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 5000) as usize];
-
-            copy_randombytes(&mut input);
-
-            let mut so_output = output.clone();
-
-            crypto_generichash(&mut output, &input, None).ok();
-
-            unsafe {
-                so_crypto_generichash(
-                    so_output.as_mut_ptr(),
-                    so_output.len(),
-                    input.as_ptr(),
-                    input.len() as u64,
-                    std::ptr::null(),
-                    0,
-                );
-            }
-
-            assert_eq!(output, so_output);
-        }
+    fn message(len: usize) -> Vec<u8> {
+        (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()
     }
 
-    #[test]
-    fn test_generichash_key() {
-        use libsodium_sys::crypto_generichash as so_crypto_generichash;
-        use rand::rngs::SysRng;
-
-        use crate::constants::{
-            CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
-            CRYPTO_GENERICHASH_KEYBYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MIN,
+    fn sodium_hash(input: &[u8], key: Option<&[u8]>, outlen: usize) -> Vec<u8> {
+        let mut output = vec![0u8; outlen];
+        let rc = unsafe {
+            libsodium_sys::crypto_generichash(
+                output.as_mut_ptr(),
+                output.len(),
+                input.as_ptr(),
+                input.len() as u64,
+                key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                key.map_or(0, <[u8]>::len),
+            )
         };
-        use crate::rng::copy_randombytes;
+        assert_eq!(rc, 0);
+        output
+    }
 
-        for _ in 0..20 {
-            let outlen = CRYPTO_GENERICHASH_BYTES_MIN
-                + (SysRng.try_next_u32().unwrap() as usize
-                    % (CRYPTO_GENERICHASH_BYTES_MAX - CRYPTO_GENERICHASH_BYTES_MIN));
-            let mut output = vec![0u8; outlen];
+    /// One-shot and incremental dryoc paths against one-shot and incremental
+    /// libsodium at the BLAKE2b block boundaries. Includes the inclusive API
+    /// maxima that the former `% (max-min)` random tests could never select.
+    #[test]
+    fn test_generichash_parameter_boundaries_match_libsodium() {
+        let key: Vec<u8> = (0..CRYPTO_GENERICHASH_KEYBYTES_MAX as u8)
+            .map(|i| i.wrapping_mul(37).wrapping_add(11))
+            .collect();
+        for len in [127usize, 128, 129] {
+            let input = message(len);
+            for outlen in [CRYPTO_GENERICHASH_BYTES_MIN, CRYPTO_GENERICHASH_BYTES_MAX] {
+                for key in [
+                    None,
+                    Some(&key[..CRYPTO_GENERICHASH_KEYBYTES_MIN]),
+                    Some(&key[..CRYPTO_GENERICHASH_KEYBYTES_MAX]),
+                ] {
+                    let expected = sodium_hash(&input, key, outlen);
 
-            let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 5000) as usize];
+                    let mut one_shot = vec![0u8; outlen];
+                    crypto_generichash(&mut one_shot, &input, key).expect("one-shot");
+                    assert_eq!(
+                        one_shot, expected,
+                        "len {len}, outlen {outlen}, key {key:?}"
+                    );
 
-            let keylen = CRYPTO_GENERICHASH_KEYBYTES_MIN
-                + (SysRng.try_next_u32().unwrap() as usize
-                    % (CRYPTO_GENERICHASH_KEYBYTES_MAX - CRYPTO_GENERICHASH_KEYBYTES_MIN));
-            let mut key = vec![0u8; keylen];
+                    let mut ours = crypto_generichash_init(key, outlen).expect("init");
+                    let mut sodium = libsodium_sys::crypto_generichash_state { opaque: [0u8; 384] };
+                    let rc = unsafe {
+                        libsodium_sys::crypto_generichash_init(
+                            &mut sodium,
+                            key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                            key.map_or(0, <[u8]>::len),
+                            outlen,
+                        )
+                    };
+                    assert_eq!(rc, 0);
 
-            copy_randombytes(&mut input);
-            copy_randombytes(&mut key);
+                    let cuts = [0usize, 1, 127, 128, 129, len];
+                    let mut start = 0;
+                    for cut in cuts.into_iter().filter(|&cut| cut <= len) {
+                        let cut = cut.max(start);
+                        crypto_generichash_update(&mut ours, &input[start..cut]);
+                        crypto_generichash_update(&mut ours, b"");
+                        assert_eq!(
+                            unsafe {
+                                libsodium_sys::crypto_generichash_update(
+                                    &mut sodium,
+                                    input[start..cut].as_ptr(),
+                                    (cut - start) as u64,
+                                )
+                            },
+                            0
+                        );
+                        assert_eq!(
+                            unsafe {
+                                libsodium_sys::crypto_generichash_update(
+                                    &mut sodium,
+                                    std::ptr::null(),
+                                    0,
+                                )
+                            },
+                            0
+                        );
+                        start = cut;
+                    }
 
-            let mut so_output = output.clone();
-
-            crypto_generichash(&mut output, &input, Some(&key)).ok();
-
-            unsafe {
-                so_crypto_generichash(
-                    so_output.as_mut_ptr(),
-                    so_output.len(),
-                    input.as_ptr(),
-                    input.len() as u64,
-                    key.as_ptr(),
-                    key.len(),
-                );
+                    let mut ours_out = vec![0u8; outlen];
+                    crypto_generichash_final(ours, &mut ours_out).expect("final");
+                    let mut sodium_out = vec![0u8; outlen];
+                    assert_eq!(
+                        unsafe {
+                            libsodium_sys::crypto_generichash_final(
+                                &mut sodium,
+                                sodium_out.as_mut_ptr(),
+                                outlen,
+                            )
+                        },
+                        0
+                    );
+                    assert_eq!(ours_out, sodium_out);
+                    assert_eq!(ours_out, expected);
+                }
             }
-
-            assert_eq!(output, so_output);
         }
     }
 }

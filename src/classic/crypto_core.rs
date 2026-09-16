@@ -268,6 +268,7 @@ mod tests {
 
     use super::*;
     use crate::classic::crypto_sign::crypto_sign_keypair;
+    use crate::scalarmult_curve25519::test_vectors::low_order_u_encodings;
 
     #[test]
     fn test_crypto_core_ed25519_is_valid_point() {
@@ -416,16 +417,24 @@ mod tests {
         }
     }
 
+    /// Every low-order `u` (libsodium's blacklist, with and without bit 255)
+    /// is rejected, and the all-zero shared secret it produces is what the
+    /// caller's buffer holds afterwards.
     #[test]
     fn test_crypto_scalarmult_rejects_low_order_points() {
         let scalar = [0x42; CRYPTO_SCALARMULT_SCALARBYTES];
-        let mut one = [0u8; CRYPTO_SCALARMULT_BYTES];
-        one[0] = 1;
 
-        for public_key in [[0u8; CRYPTO_SCALARMULT_BYTES], one] {
+        for public_key in low_order_u_encodings() {
             let mut shared_secret = [0xa5; CRYPTO_SCALARMULT_BYTES];
-            crypto_scalarmult(&mut shared_secret, &scalar, &public_key)
-                .expect_err("low-order public key must be rejected");
+            assert!(
+                matches!(
+                    crypto_scalarmult(&mut shared_secret, &scalar, &public_key),
+                    Err(Error::InvalidKey {
+                        context: crate::ErrorContext::Curve25519PublicKey,
+                    })
+                ),
+                "{public_key:02x?}"
+            );
             assert_eq!(shared_secret, [0u8; CRYPTO_SCALARMULT_BYTES]);
         }
     }
@@ -450,6 +459,7 @@ mod tests {
     mod native_tests {
         use super::*;
         use crate::classic::crypto_box::*;
+        use crate::scalarmult_curve25519::test_vectors::field_prime_plus;
 
         #[test]
         fn test_crypto_core_ed25519_compatibility_for_version_stable_points() {
@@ -556,24 +566,70 @@ mod tests {
             }
         }
 
+        /// libsodium refuses the same fourteen low-order encodings (its
+        /// `has_small_order` blacklist compares with bit 255 masked), and
+        /// both sides reject them for every scalar tried.
         #[test]
         fn test_crypto_scalarmult_low_order_compatibility() {
-            use sodiumoxide::crypto::scalarmult::curve25519::{GroupElement, Scalar, scalarmult};
+            use libsodium_sys::crypto_scalarmult as sodium_scalarmult;
 
-            let scalar = [0x42; CRYPTO_SCALARMULT_SCALARBYTES];
-            let mut one = [0u8; CRYPTO_SCALARMULT_BYTES];
-            one[0] = 1;
+            let mut rng = crate::utils::test_util::XorShift64::new(0x3c6e_f372_fe94_f82b);
+            let scalars = [[0u8; 32], [0xff; 32], [0x42; 32], rng.next_bytes32()];
 
-            for public_key in [[0u8; CRYPTO_SCALARMULT_BYTES], one] {
-                let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
-                assert!(crypto_scalarmult(&mut shared_secret, &scalar, &public_key).is_err());
-                assert!(
-                    scalarmult(
-                        &Scalar::from_slice(&scalar).unwrap(),
-                        &GroupElement::from_slice(&public_key).unwrap(),
-                    )
-                    .is_err()
-                );
+            for public_key in low_order_u_encodings() {
+                for scalar in scalars {
+                    let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+                    assert!(
+                        crypto_scalarmult(&mut shared_secret, &scalar, &public_key).is_err(),
+                        "{public_key:02x?}"
+                    );
+                    let mut sodium_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+                    let sodium_result = unsafe {
+                        sodium_scalarmult(
+                            sodium_secret.as_mut_ptr(),
+                            scalar.as_ptr(),
+                            public_key.as_ptr(),
+                        )
+                    };
+                    assert_eq!(sodium_result, -1, "{public_key:02x?}");
+                }
+            }
+        }
+
+        /// Non-canonical `u` encodings (`p + j`, with and without bit 255)
+        /// are accepted and give libsodium's output, which is the output for
+        /// the reduced `j`.
+        #[test]
+        fn test_crypto_scalarmult_noncanonical_compatibility() {
+            use libsodium_sys::crypto_scalarmult as sodium_scalarmult;
+
+            let mut rng = crate::utils::test_util::XorShift64::new(0xa54f_f53a_5f1d_36f1);
+            // 0 and 1 are low order (tested above); 2..=18 reach 2^255 - 1.
+            for j in 2..=18u8 {
+                let scalar = rng.next_bytes32();
+                let mut canonical = [0u8; CRYPTO_SCALARMULT_BYTES];
+                canonical[0] = j;
+                let mut expected = [0u8; CRYPTO_SCALARMULT_BYTES];
+                crypto_scalarmult(&mut expected, &scalar, &canonical).unwrap();
+
+                let unreduced = field_prime_plus(j as i8);
+                let mut unreduced_high = unreduced;
+                unreduced_high[31] |= 0x80;
+                for public_key in [unreduced, unreduced_high] {
+                    let mut shared_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+                    crypto_scalarmult(&mut shared_secret, &scalar, &public_key).unwrap();
+                    let mut sodium_secret = [0u8; CRYPTO_SCALARMULT_BYTES];
+                    let sodium_result = unsafe {
+                        sodium_scalarmult(
+                            sodium_secret.as_mut_ptr(),
+                            scalar.as_ptr(),
+                            public_key.as_ptr(),
+                        )
+                    };
+                    assert_eq!(sodium_result, 0, "j {j}");
+                    assert_eq!(shared_secret, sodium_secret, "j {j}");
+                    assert_eq!(shared_secret, expected, "j {j}");
+                }
             }
         }
 

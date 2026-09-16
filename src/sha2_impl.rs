@@ -74,6 +74,14 @@ macro_rules! sha2_hasher {
                 }
             }
 
+            /// A fresh hasher whose length counter claims `len` bytes were
+            /// already absorbed, for exercising the length field of the final
+            /// block without feeding that many bytes.
+            #[cfg(test)]
+            pub(crate) fn with_absorbed_len(len: $len) -> Self {
+                Self { len, ..Self::new() }
+            }
+
             #[doc = concat!(
                 "One-time interface to compute ", $algo, " digest for `input`, copying result\n",
                 "into `output`."
@@ -212,3 +220,89 @@ macro_rules! sha2_hasher {
 }
 
 pub(crate) use sha2_hasher;
+
+/// The length field both instantiations share, on the inputs where a
+/// counter bug would show.
+#[cfg(test)]
+mod tests {
+    use crate::sha256::Sha256;
+    use crate::sha512::Sha512;
+
+    const SHA256_IV: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    const SHA512_IV: [u64; 8] = [
+        0x6a09e667f3bcc908,
+        0xbb67ae8584caa73b,
+        0x3c6ef372fe94f82b,
+        0xa54ff53a5f1d36f1,
+        0x510e527fade682d1,
+        0x9b05688c2b3e6c1f,
+        0x1f83d9abfb41bd6b,
+        0x5be0cd19137e2179,
+    ];
+
+    /// FIPS 180-4 §5.1 padding of `tail` as the end of a message of
+    /// `total_bits` bits: `0x80`, zeros, then the big-endian bit length in
+    /// the last `L` bytes of the last block (one block when the tail plus
+    /// nine (SHA-256) or seventeen (SHA-512) bytes fit, two otherwise).
+    fn padded<const B: usize, const L: usize>(tail: &[u8], total_bits: u128) -> Vec<[u8; B]> {
+        let blocks = (tail.len() + 1 + L).div_ceil(B);
+        let mut out = vec![[0u8; B]; blocks];
+        let flat = out.as_flattened_mut();
+        flat[..tail.len()].copy_from_slice(tail);
+        flat[tail.len()] = 0x80;
+        let field = &mut flat[blocks * B - L..];
+        field.copy_from_slice(&total_bits.to_be_bytes()[16 - L..]);
+        out
+    }
+
+    /// Isolates the final-block construction: a hasher claiming `absorbed`
+    /// bytes (state still the IV, so this is not a digest of a real long
+    /// message) fed `tail` must finalize exactly like compressing the
+    /// FIPS-padded tail carrying the bit length of the whole message from the
+    /// same IV. Absorbed lengths put the bit count past 2^32 (both) and past
+    /// 2^64 (SHA-512's high length word); tails of 0, `B - L - 1` (last byte
+    /// that still fits one final block) and `B - L` (forces the second padding
+    /// block) bytes, plus a whole block. Real-message digests are covered by
+    /// the RustCrypto comparisons in `sha256`/`sha512`.
+    #[test]
+    fn test_length_field_encodes_total_bits_past_word_boundaries() {
+        let tail = |n: usize| -> Vec<u8> { (0..n).map(|i| (i * 7 + 1) as u8).collect() };
+
+        for absorbed in [1u64 << 30, 1u64 << 32, 1u64 << 61] {
+            for tail in [tail(0), tail(64 - 8 - 1), tail(64 - 8), tail(64)] {
+                let mut hasher = Sha256::with_absorbed_len(absorbed);
+                hasher.update(&tail);
+                let total_bits = (u128::from(absorbed) + tail.len() as u128) * 8;
+                let mut state = SHA256_IV;
+                sha2::block_api::compress256(&mut state, &padded::<64, 8>(&tail, total_bits));
+                let expected: Vec<u8> = state.iter().flat_map(|w| w.to_be_bytes()).collect();
+                assert_eq!(
+                    hasher.finalize_to_vec(),
+                    expected,
+                    "sha256 absorbed {absorbed} tail {}",
+                    tail.len()
+                );
+            }
+        }
+
+        for absorbed in [1u128 << 30, 1u128 << 61, 1u128 << 64] {
+            for tail in [tail(0), tail(128 - 16 - 1), tail(128 - 16), tail(128)] {
+                let mut hasher = Sha512::with_absorbed_len(absorbed);
+                hasher.update(&tail);
+                let total_bits = (absorbed + tail.len() as u128) * 8;
+                let mut state = SHA512_IV;
+                sha2::block_api::compress512(&mut state, &padded::<128, 16>(&tail, total_bits));
+                let expected: Vec<u8> = state.iter().flat_map(|w| w.to_be_bytes()).collect();
+                assert_eq!(
+                    hasher.finalize_to_vec(),
+                    expected,
+                    "sha512 absorbed {absorbed} tail {}",
+                    tail.len()
+                );
+            }
+        }
+    }
+}

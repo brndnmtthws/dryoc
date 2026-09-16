@@ -305,16 +305,3 @@ pub mod types;
 pub mod utils;
 
 pub use error::{Error, ErrorContext, LengthConstraint, ValueConstraint};
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn test_randombytes_buf() {
-        use crate::rng::*;
-        let r = randombytes_buf(5);
-        assert_eq!(r.len(), 5);
-        let sum = r.into_iter().fold(0u64, |acc, n| acc + n as u64);
-        assert_ne!(sum, 0);
-    }
-}

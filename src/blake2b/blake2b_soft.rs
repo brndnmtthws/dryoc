@@ -273,6 +273,14 @@ impl State {
         Ok(())
     }
 
+    /// Presets the byte counter so a short message drives its low word
+    /// across `u64::MAX` (see
+    /// `native_tests::test_counter_carry_matches_libsodium`).
+    #[cfg(all(test, dryoc_native_tests))]
+    pub(crate) fn set_counter(&mut self, t: [u64; 2]) {
+        self.t = t;
+    }
+
     fn set_lastnode(&mut self) {
         self.f[1] = -1i64 as u64;
     }
@@ -712,6 +720,48 @@ mod tests {
                 };
 
                 assert_eq!(output, so_output);
+            }
+        }
+
+        /// With the byte counter preset just below `u64::MAX` on both sides,
+        /// the blocks that follow carry into the high counter word, which
+        /// the compression mixes in (`v[13] ^= t[1]`): a backend that
+        /// dropped or mis-carried the high word diverges from libsodium
+        /// here and nowhere in the ordinary vectors.
+        #[test]
+        fn test_counter_carry_matches_libsodium() {
+            let message: Vec<u8> = (0..3 * BLOCKBYTES as u32)
+                .map(|i| (i * 31 % 251) as u8)
+                .collect();
+            for len in [
+                BLOCKBYTES + 1,
+                2 * BLOCKBYTES,
+                2 * BLOCKBYTES + 1,
+                3 * BLOCKBYTES,
+            ] {
+                for t in [[u64::MAX - 64, 0], [u64::MAX - BLOCKBYTES as u64, 0xdead]] {
+                    let mut s = B2state {
+                        h: [0u64; 8],
+                        t: [0u64; 2],
+                        f: [0u64; 2],
+                        buf: [0u8; 256],
+                        buflen: 0,
+                        last_node: 0,
+                    };
+                    unsafe { blake2b_init(&mut s, 64) };
+                    s.t = t;
+                    unsafe { blake2b_update(&mut s, message.as_ptr(), len as u64) };
+                    let mut so_output = [0u8; 64];
+                    unsafe { blake2b_final(&mut s, so_output.as_mut_ptr(), 64) };
+
+                    let mut state = State::init(64, None, None, None).expect("init");
+                    state.set_counter(t);
+                    state.update(&message[..len]);
+                    let mut output = [0u8; 64];
+                    state.finalize(&mut output).expect("finalize");
+
+                    assert_eq!(output, so_output, "len {len}, t {t:x?}");
+                }
             }
         }
 

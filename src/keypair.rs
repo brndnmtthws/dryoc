@@ -495,69 +495,239 @@ mod tests {
         assert_eq!(keypair_1.public_key, keypair_2.public_key);
     }
 
+    /// `crypto_box_seed_keypair` outputs from libsodium for the all-`0x01` and
+    /// all-`0x02` seeds, and the `crypto_kx_client_session_keys` they derive.
+    const SEED_KEYPAIRS: [([u8; CRYPTO_BOX_SEEDBYTES], &str, &str); 2] = [
+        (
+            [1u8; CRYPTO_BOX_SEEDBYTES],
+            "1b1b58dd50ea14b60da17b790cd02754d970c9bab864ebb3c0f3016fe51d3f57",
+            "5ce86efb75fa4e2c410f46e16de9f6acae1a1703528651b69bc176c088bef3ee",
+        ),
+        (
+            [2u8; CRYPTO_BOX_SEEDBYTES],
+            "60346e7c911a5f6ba154129174cafe75b294ac3bbd5549632f48cec6266f8410",
+            "aa3c626bc9c38c8c201878ebb1d5b0b50ac40e8986c78793db1d4ef369fca1ce",
+        ),
+    ];
+    const CLIENT_RX: &str = "4081524abf55a75021ebd5e98e08552fb2bd26315c40e563b74e64abff1be442";
+    const CLIENT_TX: &str = "2f9c2f944f504caf772db17affc91e3ba8886a806ba53ab37881d15c042f3410";
+
+    /// RFC 7748 section 6.1 / NaCl `tests/box.c` keys and their
+    /// `crypto_box_beforenm` shared key.
+    const ALICE_SK: &str = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+    const ALICE_PK: &str = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
+    const BOB_SK: &str = "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+    const BOB_PK: &str = "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f";
+    const SHARED_KEY: &str = "1b27556473e985d462cd51197a9a46c76009549eac6474f206c4ee0844f68389";
+
+    fn keypair_from_hex(public_key: &str, secret_key: &str) -> StackKeyPair {
+        KeyPair::from_slices(
+            &hex::decode(public_key).expect("hex"),
+            &hex::decode(secret_key).expect("hex"),
+        )
+        .expect("keypair")
+    }
+
     #[test]
-    fn test_keypair_precalculate() {
-        let kp1 = KeyPair::generate_with_defaults();
-        let kp2 = KeyPair::generate_with_defaults();
-        let precalc = kp1.precalculate(&kp2.public_key).unwrap();
-        assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
+    fn from_seed_matches_libsodium_and_classic_seed_keypair() {
+        for (seed, public_key, secret_key) in SEED_KEYPAIRS {
+            let keypair: StackKeyPair = KeyPair::from_seed(&seed);
+            assert_eq!(keypair, keypair_from_hex(public_key, secret_key));
+
+            let (classic_pk, classic_sk) =
+                crate::classic::crypto_box::crypto_box_seed_keypair(&seed);
+            assert_eq!(keypair.public_key.as_array(), &classic_pk);
+            assert_eq!(keypair.secret_key.as_array(), &classic_sk);
+
+            assert_eq!(
+                KeyPair::from_secret_key(keypair.secret_key.clone()),
+                keypair
+            );
+            assert!(KeyPair::<PublicKey, SecretKey>::is_valid_public_key(
+                &keypair.public_key
+            ));
+        }
+        assert_ne!(
+            StackKeyPair::from_seed(&SEED_KEYPAIRS[0].0),
+            StackKeyPair::from_seed(&SEED_KEYPAIRS[1].0)
+        );
+    }
+
+    #[test]
+    fn generated_public_key_is_the_base_point_multiple_of_the_secret_key() {
+        use crate::classic::crypto_core::crypto_scalarmult_base;
+
+        let keypair = KeyPair::generate_with_defaults();
+        let mut public_key = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
+        crypto_scalarmult_base(&mut public_key, keypair.secret_key.as_array());
+        assert_eq!(keypair.public_key.as_array(), &public_key);
+        assert_eq!(
+            KeyPair::from_secret_key(keypair.secret_key.clone()),
+            keypair
+        );
+    }
+
+    #[test]
+    fn from_slices_accepts_exact_lengths_and_reports_the_short_side() {
+        let alice = keypair_from_hex(ALICE_PK, ALICE_SK);
+        assert_eq!(
+            alice.public_key.as_slice(),
+            hex::decode(ALICE_PK).expect("hex")
+        );
+        assert_eq!(
+            alice.secret_key.as_slice(),
+            hex::decode(ALICE_SK).expect("hex")
+        );
+        assert_eq!(
+            StackKeyPair::from_secret_key(alice.secret_key.clone()).public_key,
+            alice.public_key
+        );
+
+        for len in [
+            0,
+            CRYPTO_BOX_PUBLICKEYBYTES - 1,
+            CRYPTO_BOX_PUBLICKEYBYTES + 1,
+        ] {
+            assert!(matches!(
+                StackKeyPair::from_slices(&vec![0u8; len], alice.secret_key.as_slice()),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::PublicKey,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+        for len in [
+            0,
+            CRYPTO_BOX_SECRETKEYBYTES - 1,
+            CRYPTO_BOX_SECRETKEYBYTES + 1,
+        ] {
+            assert!(matches!(
+                StackKeyPair::from_slices(alice.public_key.as_slice(), &vec![0u8; len]),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::SecretKey,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+    }
+
+    #[test]
+    fn precalculate_matches_nacl_shared_key() {
+        let alice = keypair_from_hex(ALICE_PK, ALICE_SK);
+        let bob = keypair_from_hex(BOB_PK, BOB_SK);
+        let expected = hex::decode(SHARED_KEY).expect("hex");
+
+        let from_alice = alice.precalculate(&bob.public_key).expect("precalc");
+        let from_bob = bob.precalculate(&alice.public_key).expect("precalc");
+        assert_eq!(from_alice.as_slice(), expected.as_slice());
+        assert_eq!(from_alice, from_bob);
+        assert!(alice.precalculate(&PublicKey::default()).is_err());
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
-    fn test_keypair_precalculate_locked() {
+    fn locked_precalculate_matches_nacl_shared_key() {
         use crate::keypair::protected::*;
-        let kp1 = KeyPair::generate_locked_keypair().unwrap();
-        let kp2 = KeyPair::generate_locked_keypair().unwrap();
-        let precalc = kp1.precalculate_locked(&kp2.public_key).unwrap();
-        assert_eq!(precalc.len(), crate::constants::CRYPTO_BOX_BEFORENMBYTES);
-    }
 
-    #[test]
-    fn test_keypair_kx_new_client_session() {
-        let server_kp = KeyPair::generate_with_defaults();
-        let client_kp = KeyPair::generate_with_defaults();
-        let session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = client_kp
-            .kx_new_client_session(&server_kp.public_key)
-            .unwrap();
-        assert_eq!(
-            session.rx_as_slice().len(),
-            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
-        );
-        assert_eq!(
-            session.tx_as_slice().len(),
-            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
-        );
-    }
+        let alice = keypair_from_hex(ALICE_PK, ALICE_SK);
+        let bob = keypair_from_hex(BOB_PK, BOB_SK);
+        let expected = hex::decode(SHARED_KEY).expect("hex");
+        let locked_alice = KeyPair {
+            public_key: HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::from_slice_into_locked(
+                alice.public_key.as_slice(),
+            )
+            .expect("lock pk"),
+            secret_key: HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::from_slice_into_locked(
+                alice.secret_key.as_slice(),
+            )
+            .expect("lock sk"),
+        };
 
-    #[test]
-    fn test_keypair_kx_new_server_session() {
-        let client_kp = KeyPair::generate_with_defaults();
-        let server_kp = KeyPair::generate_with_defaults();
-        let session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = server_kp
-            .kx_new_server_session(&client_kp.public_key)
-            .unwrap();
-        assert_eq!(
-            session.rx_as_slice().len(),
-            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
-        );
-        assert_eq!(
-            session.tx_as_slice().len(),
-            crate::constants::CRYPTO_KX_SESSIONKEYBYTES
+        let locked = locked_alice
+            .precalculate_locked(&bob.public_key)
+            .expect("precalc locked");
+        assert_eq!(locked.as_slice(), expected.as_slice());
+        assert!(
+            locked_alice
+                .precalculate_locked(&PublicKey::default())
+                .is_err()
         );
     }
 
     #[test]
-    fn test_keypair_from_seed() {
-        let seed = [42u8; 32];
-        let kp: StackKeyPair = KeyPair::from_seed(&seed);
-        assert!(!kp.public_key.iter().all(|x| *x == 0));
+    fn kx_sessions_equal_session_constructors_and_libsodium_known_answers() {
+        let client: StackKeyPair = KeyPair::from_seed(&SEED_KEYPAIRS[0].0);
+        let server: StackKeyPair = KeyPair::from_seed(&SEED_KEYPAIRS[1].0);
+        let client_rx = hex::decode(CLIENT_RX).expect("hex");
+        let client_tx = hex::decode(CLIENT_TX).expect("hex");
+
+        let client_session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = client
+            .kx_new_client_session(&server.public_key)
+            .expect("client session");
+        assert_eq!(client_session.rx_as_slice(), client_rx.as_slice());
+        assert_eq!(client_session.tx_as_slice(), client_tx.as_slice());
+        let expected =
+            Session::new_client_with_defaults(&client, &server.public_key).expect("client");
+        assert_eq!(client_session.rx_as_array(), expected.rx_as_array());
+        assert_eq!(client_session.tx_as_array(), expected.tx_as_array());
+
+        let server_session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = server
+            .kx_new_server_session(&client.public_key)
+            .expect("server session");
+        assert_eq!(server_session.rx_as_slice(), client_tx.as_slice());
+        assert_eq!(server_session.tx_as_slice(), client_rx.as_slice());
+        let expected =
+            Session::new_server_with_defaults(&server, &client.public_key).expect("server");
+        assert_eq!(server_session.rx_as_array(), expected.rx_as_array());
+        assert_eq!(server_session.tx_as_array(), expected.tx_as_array());
+
+        let low_order: Result<Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>>, Error> =
+            client.kx_new_client_session(&PublicKey::default());
+        assert!(low_order.is_err());
+        let low_order: Result<Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>>, Error> =
+            server.kx_new_server_session(&PublicKey::default());
+        assert!(low_order.is_err());
     }
 
+    #[cfg(feature = "serde")]
     #[test]
-    fn test_keypair_generate_with_defaults() {
-        let kp = KeyPair::generate_with_defaults();
-        assert!(!kp.public_key.iter().all(|x| *x == 0));
+    fn serde_round_trip_keeps_the_keypair_usable_for_boxes() {
+        use crate::dryocbox::{DryocBox, Nonce, VecBox};
+
+        let alice = keypair_from_hex(ALICE_PK, ALICE_SK);
+        let bob = keypair_from_hex(BOB_PK, BOB_SK);
+
+        let json = serde_json::to_string(&bob).expect("serialize");
+        let decoded: StackKeyPair = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, bob);
+
+        let nonce = Nonce::from([3u8; crate::constants::CRYPTO_BOX_NONCEBYTES]);
+        let dryocbox =
+            DryocBox::encrypt_to_vecbox(b"for bob", &nonce, &decoded.public_key, &alice.secret_key)
+                .expect("encrypt");
+        assert_eq!(
+            VecBox::from_bytes(&dryocbox.to_vec())
+                .expect("parse")
+                .decrypt_to_vec(&nonce, &alice.public_key, &decoded.secret_key)
+                .expect("decrypt"),
+            b"for bob"
+        );
+
+        // Swapping the encoded fields yields a keypair that cannot open the
+        // box.
+        let swapped = json
+            .replacen("public_key", "tmp", 1)
+            .replacen("secret_key", "public_key", 1)
+            .replacen("tmp", "secret_key", 1);
+        let swapped: StackKeyPair = serde_json::from_str(&swapped).expect("deserialize");
+        assert_ne!(swapped, bob);
+        assert!(
+            dryocbox
+                .decrypt_to_vec(&nonce, &alice.public_key, &swapped.secret_key)
+                .is_err()
+        );
     }
 
     #[test]

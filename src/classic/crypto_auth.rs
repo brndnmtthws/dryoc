@@ -113,37 +113,62 @@ pub fn crypto_auth_final(state: AuthState, output: &mut [u8; CRYPTO_AUTH_BYTES])
     crypto_auth_hmacsha512256_final(state.state, output)
 }
 
-#[cfg(all(test, dryoc_native_tests))]
+#[cfg(test)]
 mod tests {
-    use rand::TryRng;
-
     use super::*;
 
+    const KEY: Key = {
+        let mut key = [0u8; CRYPTO_AUTH_KEYBYTES];
+        let mut i = 0;
+        while i < key.len() {
+            key[i] = i as u8;
+            i += 1;
+        }
+        key
+    };
+    const MESSAGE: &[u8] = b"classic crypto_auth boundary";
+    /// HMAC-SHA-512 of `MESSAGE` under `KEY`, truncated to 32 bytes
+    /// (computed independently with Python's `hmac`/`hashlib`).
+    const TAG: &str = "2f850f393b25f3568a2e8686d2a19401aa2343ab2ea1474f450962cef5de2b58";
+
+    /// `crypto_auth` is HMAC-SHA-512-256, one-shot and streamed, and the tag
+    /// verifies only for the exact message.
     #[test]
-    fn test_crypto_auth() {
-        use rand::rngs::SysRng;
+    fn test_crypto_auth_known_answer() {
+        let expected = hex::decode(TAG).expect("hex failed");
+        let mut mac = Mac::default();
+        crypto_auth(&mut mac, MESSAGE, &KEY);
+        assert_eq!(mac.as_slice(), expected.as_slice());
+
+        let mut state = crypto_auth_init(&KEY);
+        crypto_auth_update(&mut state, b"");
+        for chunk in MESSAGE.chunks(7) {
+            crypto_auth_update(&mut state, chunk);
+        }
+        let mut streamed = Mac::default();
+        crypto_auth_final(state, &mut streamed);
+        assert_eq!(streamed, mac);
+
+        crypto_auth_verify(&mac, MESSAGE, &KEY).expect("verify failed");
+        crypto_auth_verify(&mac, &MESSAGE[..MESSAGE.len() - 1], &KEY)
+            .expect_err("truncated message");
+        let mut flipped = mac;
+        flipped[0] ^= 1;
+        crypto_auth_verify(&flipped, MESSAGE, &KEY).expect_err("flipped tag");
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_crypto_auth_matches_libsodium() {
         use sodiumoxide::crypto::auth;
-        use sodiumoxide::crypto::auth::Key as SOKey;
 
-        use crate::rng::copy_randombytes;
-
-        for _ in 0..20 {
-            let mlen = (SysRng.try_next_u32().unwrap() % 5000) as usize;
-            let mut message = vec![0u8; mlen];
-            copy_randombytes(&mut message);
-            let key = crypto_auth_keygen();
-
+        for len in [0usize, 127, 128, 129] {
+            let message: Vec<u8> = (0..len as u32).map(|i| (i * 31 % 251) as u8).collect();
             let so_tag =
-                auth::authenticate(&message, &SOKey::from_slice(&key).expect("key failed"));
-
+                auth::authenticate(&message, &auth::Key::from_slice(&KEY).expect("key failed"));
             let mut mac = Mac::default();
-            crypto_auth(&mut mac, &message, &key);
-
-            assert_eq!(mac, so_tag.0);
-
-            crypto_auth_verify(&mac, &message, &key).expect("verify failed");
-            crypto_auth_verify(&mac, b"invalid message", &key)
-                .expect_err("verify should have failed");
+            crypto_auth(&mut mac, &message, &KEY);
+            assert_eq!(mac, so_tag.0, "len {len}");
         }
     }
 }

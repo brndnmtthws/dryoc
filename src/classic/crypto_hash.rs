@@ -170,124 +170,265 @@ crypto_hash_state! {
 
 #[cfg(test)]
 mod tests {
+    use sha2::Digest as _;
+
     use super::*;
+    use crate::sha3::test_vectors::{SHA3_256_RATE, SHA3_512_RATE, sha3_256, sha3_512};
 
-    #[test]
-    fn test_crypto_hash_sha256() {
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA256_BYTES];
-        crypto_hash_sha256(&mut our_digest, b"abc");
-
-        let expected =
-            hex::decode("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-                .expect("hex failed");
-        assert_eq!(our_digest.as_slice(), expected.as_slice());
+    fn hex(s: &str) -> Vec<u8> {
+        hex::decode(s).expect("hex failed")
     }
 
-    #[test]
-    fn test_crypto_hash_uses_sha512() {
-        let mut generic = [0u8; CRYPTO_HASH_SHA512_BYTES];
-        let mut sha512 = [0u8; CRYPTO_HASH_SHA512_BYTES];
-
-        crypto_hash(&mut generic, b"abc");
-        crypto_hash_sha512(&mut sha512, b"abc");
-
-        assert_eq!(generic, sha512);
+    fn pattern(len: usize) -> Vec<u8> {
+        (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()
     }
 
-    #[test]
-    fn test_crypto_hash_sha3256() {
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA3256_BYTES];
-        crypto_hash_sha3256(&mut our_digest, b"abc");
-
-        let expected =
-            hex::decode("3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532")
-                .expect("hex failed");
-        assert_eq!(our_digest.as_slice(), expected.as_slice());
+    /// Lengths around the padding boundary (the last message length whose
+    /// `0x80` and bit-length field still fit the same block), the block
+    /// boundary and two blocks, for a hash with `block`-byte blocks and a
+    /// `length_field`-byte bit-length field.
+    fn sha2_lengths(block: usize, length_field: usize) -> impl Iterator<Item = usize> {
+        let pad = block - length_field;
+        [
+            0,
+            1,
+            pad - 1,
+            pad,
+            pad + 1,
+            block - 1,
+            block,
+            block + 1,
+            2 * block - 1,
+            2 * block,
+        ]
+        .into_iter()
     }
 
-    #[test]
-    fn test_crypto_hash_sha3256_update() {
-        let mut state = crypto_hash_sha3256_init();
-        crypto_hash_sha3256_update(&mut state, b"a");
-        crypto_hash_sha3256_update(&mut state, b"b");
-        crypto_hash_sha3256_update(&mut state, b"c");
+    /// Drives a classic `init`/`update`/`final` triple over `message` with
+    /// each chunking: one update, exact `block`-sized updates, and one byte
+    /// per update with an empty update around every byte.
+    fn streamed<S>(
+        message: &[u8],
+        block: usize,
+        init: impl Fn() -> S,
+        update: impl Fn(&mut S, &[u8]),
+        finalize: impl Fn(S) -> Vec<u8>,
+    ) -> [Vec<u8>; 3] {
+        let mut one = init();
+        update(&mut one, message);
 
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA3256_BYTES];
-        crypto_hash_sha3256_final(state, &mut our_digest);
-
-        let expected =
-            hex::decode("3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532")
-                .expect("hex failed");
-        assert_eq!(our_digest.as_slice(), expected.as_slice());
-    }
-
-    #[test]
-    fn test_crypto_hash_sha3512() {
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA3512_BYTES];
-        crypto_hash_sha3512(&mut our_digest, b"abc");
-
-        let expected = hex::decode(concat!(
-            "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e",
-            "10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0"
-        ))
-        .expect("hex failed");
-        assert_eq!(our_digest.as_slice(), expected.as_slice());
-    }
-
-    #[test]
-    fn test_crypto_hash_sha3512_update() {
-        let mut state = crypto_hash_sha3512_init();
-        crypto_hash_sha3512_update(&mut state, b"a");
-        crypto_hash_sha3512_update(&mut state, b"b");
-        crypto_hash_sha3512_update(&mut state, b"c");
-
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA3512_BYTES];
-        crypto_hash_sha3512_final(state, &mut our_digest);
-
-        let expected = hex::decode(concat!(
-            "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e",
-            "10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0"
-        ))
-        .expect("hex failed");
-        assert_eq!(our_digest.as_slice(), expected.as_slice());
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_crypto_hash_sha512() {
-        use sodiumoxide::crypto::hash;
-
-        use crate::rng::randombytes_buf;
-
-        let r = randombytes_buf(64);
-
-        let their_digest = hash::hash(&r);
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
-        crypto_hash_sha512(&mut our_digest, &r);
-
-        assert_eq!(their_digest.as_ref(), our_digest);
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_crypto_hash_sha512_update() {
-        use sodiumoxide::crypto::hash;
-
-        use crate::rng::randombytes_buf;
-
-        let mut their_state = hash::State::new();
-        let mut our_state = crypto_hash_sha512_init();
-
-        for _ in 0..10 {
-            let r = randombytes_buf(64);
-            their_state.update(&r);
-            crypto_hash_sha512_update(&mut our_state, &r);
+        let mut blocks = init();
+        for chunk in message.chunks(block) {
+            update(&mut blocks, chunk);
         }
 
-        let their_digest = their_state.finalize();
-        let mut our_digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
-        crypto_hash_sha512_final(our_state, &mut our_digest);
+        let mut bytes = init();
+        update(&mut bytes, b"");
+        for byte in message {
+            update(&mut bytes, std::slice::from_ref(byte));
+            update(&mut bytes, b"");
+        }
 
-        assert_eq!(their_digest.as_ref(), our_digest);
+        [finalize(one), finalize(blocks), finalize(bytes)]
+    }
+
+    /// FIPS 180-4 SHA-256 known answers through the one-shot function.
+    #[test]
+    fn test_crypto_hash_sha256() {
+        for (message, expected) in [
+            (
+                &b""[..],
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                b"abc",
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+            ),
+        ] {
+            let mut digest = [0u8; CRYPTO_HASH_SHA256_BYTES];
+            crypto_hash_sha256(&mut digest, message);
+            assert_eq!(digest.to_vec(), hex(expected));
+        }
+    }
+
+    /// `crypto_hash` is FIPS 180-4 SHA-512: the `abc` and two-block example
+    /// digests, one-shot and streamed.
+    #[test]
+    fn test_crypto_hash_is_sha512() {
+        for (message, expected) in [
+            (
+                &b"abc"[..],
+                concat!(
+                    "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a",
+                    "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+                ),
+            ),
+            (
+                b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno\
+                  ijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+                concat!(
+                    "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018",
+                    "501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909",
+                ),
+            ),
+        ] {
+            let expected = hex(expected);
+            let mut digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
+            crypto_hash(&mut digest, message);
+            assert_eq!(digest.to_vec(), expected);
+
+            for actual in streamed(
+                message,
+                128,
+                crypto_hash_sha512_init,
+                crypto_hash_sha512_update,
+                |state| {
+                    let mut digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
+                    crypto_hash_sha512_final(state, &mut digest);
+                    digest.to_vec()
+                },
+            ) {
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    /// The SHA-256 classic API at every padding and block boundary, for each
+    /// chunking, against the `sha2` crate.
+    #[test]
+    fn test_crypto_hash_sha256_boundaries_match_sha2() {
+        for len in sha2_lengths(64, 8) {
+            let message = pattern(len);
+            let expected = sha2::Sha256::digest(&message).to_vec();
+            let mut digest = [0u8; CRYPTO_HASH_SHA256_BYTES];
+            crypto_hash_sha256(&mut digest, &message);
+            assert_eq!(digest.to_vec(), expected, "one-shot len {len}");
+            for actual in streamed(
+                &message,
+                64,
+                crypto_hash_sha256_init,
+                crypto_hash_sha256_update,
+                |state| {
+                    let mut digest = [0u8; CRYPTO_HASH_SHA256_BYTES];
+                    crypto_hash_sha256_final(state, &mut digest);
+                    digest.to_vec()
+                },
+            ) {
+                assert_eq!(actual, expected, "streamed len {len}");
+            }
+        }
+    }
+
+    /// The SHA-512 classic API at every padding and block boundary, for each
+    /// chunking, against the `sha2` crate.
+    #[test]
+    fn test_crypto_hash_sha512_boundaries_match_sha2() {
+        for len in sha2_lengths(128, 16) {
+            let message = pattern(len);
+            let expected = sha2::Sha512::digest(&message).to_vec();
+            let mut digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
+            crypto_hash_sha512(&mut digest, &message);
+            assert_eq!(digest.to_vec(), expected, "one-shot len {len}");
+            for actual in streamed(
+                &message,
+                128,
+                crypto_hash_sha512_init,
+                crypto_hash_sha512_update,
+                |state| {
+                    let mut digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
+                    crypto_hash_sha512_final(state, &mut digest);
+                    digest.to_vec()
+                },
+            ) {
+                assert_eq!(actual, expected, "streamed len {len}");
+            }
+        }
+    }
+
+    /// FIPS 202 SHA3-256 answers at the rate boundaries through the one-shot
+    /// function and every `init`/`update`/`final` chunking (rate-sized
+    /// updates end exactly on a permutation).
+    #[test]
+    fn test_crypto_hash_sha3256_known_answers() {
+        for (message, expected) in sha3_256() {
+            let len = message.len();
+            let mut digest = [0u8; CRYPTO_HASH_SHA3256_BYTES];
+            crypto_hash_sha3256(&mut digest, &message);
+            assert_eq!(digest.to_vec(), expected, "one-shot len {len}");
+            if len > 2 * SHA3_256_RATE {
+                // The million-byte message only needs the one-shot check.
+                continue;
+            }
+            for actual in streamed(
+                &message,
+                SHA3_256_RATE,
+                crypto_hash_sha3256_init,
+                crypto_hash_sha3256_update,
+                |state| {
+                    let mut digest = [0u8; CRYPTO_HASH_SHA3256_BYTES];
+                    crypto_hash_sha3256_final(state, &mut digest);
+                    digest.to_vec()
+                },
+            ) {
+                assert_eq!(actual, expected, "streamed len {len}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_crypto_hash_sha3512_known_answers() {
+        for (message, expected) in sha3_512() {
+            let len = message.len();
+            let mut digest = [0u8; CRYPTO_HASH_SHA3512_BYTES];
+            crypto_hash_sha3512(&mut digest, &message);
+            assert_eq!(digest.to_vec(), expected, "one-shot len {len}");
+            if len > 2 * SHA3_512_RATE {
+                continue;
+            }
+            for actual in streamed(
+                &message,
+                SHA3_512_RATE,
+                crypto_hash_sha3512_init,
+                crypto_hash_sha3512_update,
+                |state| {
+                    let mut digest = [0u8; CRYPTO_HASH_SHA3512_BYTES];
+                    crypto_hash_sha3512_final(state, &mut digest);
+                    digest.to_vec()
+                },
+            ) {
+                assert_eq!(actual, expected, "streamed len {len}");
+            }
+        }
+    }
+
+    /// libsodium's `crypto_hash` (SHA-512) at the same boundaries, one-shot
+    /// and streamed with the same cuts on both sides.
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_crypto_hash_sha512_matches_libsodium() {
+        use sodiumoxide::crypto::hash;
+
+        for len in sha2_lengths(128, 16) {
+            let message = pattern(len);
+            let expected = hash::hash(&message);
+            let mut digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
+            crypto_hash(&mut digest, &message);
+            assert_eq!(digest, expected.0, "one-shot len {len}");
+
+            let mut theirs = hash::State::new();
+            let mut ours = crypto_hash_sha512_init();
+            for chunk in message.chunks(127) {
+                theirs.update(chunk);
+                crypto_hash_sha512_update(&mut ours, chunk);
+                theirs.update(b"");
+                crypto_hash_sha512_update(&mut ours, b"");
+            }
+            crypto_hash_sha512_final(ours, &mut digest);
+            assert_eq!(digest, theirs.finalize().0, "streamed len {len}");
+        }
     }
 }

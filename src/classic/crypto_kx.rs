@@ -158,36 +158,131 @@ pub fn crypto_kx_server_session_keys(
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
     use super::*;
+    use crate::scalarmult_curve25519::test_vectors::low_order_u_encodings;
+    use crate::utils::test_util::XorShift64;
 
+    fn sodium_kx_seed_keypair(seed: &[u8; CRYPTO_KX_SEEDBYTES]) -> (PublicKey, SecretKey) {
+        let mut pk = PublicKey::default();
+        let mut sk = SecretKey::default();
+        let result = unsafe {
+            libsodium_sys::crypto_kx_seed_keypair(pk.as_mut_ptr(), sk.as_mut_ptr(), seed.as_ptr())
+        };
+        assert_eq!(result, 0);
+        (pk, sk)
+    }
+
+    /// The seed-derived secret key (Blake2b-256 of the seed) and its public
+    /// key are libsodium's, for the all-zero, all-ones and a random seed.
+    #[test]
+    fn test_kx_seed_keypair_matches_libsodium() {
+        let mut rng = XorShift64::new(0x510e_527f_ade6_82d1);
+        for seed in [
+            [0u8; CRYPTO_KX_SEEDBYTES],
+            [0xff; CRYPTO_KX_SEEDBYTES],
+            rng.next_bytes32(),
+        ] {
+            let (pk, sk) = crypto_kx_seed_keypair(&seed).expect("seed keypair failed");
+            let (sodium_pk, sodium_sk) = sodium_kx_seed_keypair(&seed);
+            assert_eq!(sk, sodium_sk, "seed {seed:02x?}");
+            assert_eq!(pk, sodium_pk, "seed {seed:02x?}");
+        }
+    }
+
+    /// Both roles derive libsodium's session keys for a fixed seeded pair,
+    /// and each side's rx is the other's tx.
+    #[test]
+    fn test_kx_session_keys_match_libsodium_for_seeded_pair() {
+        let (client_pk, client_sk) = crypto_kx_seed_keypair(&[0x11; CRYPTO_KX_SEEDBYTES]).unwrap();
+        let (server_pk, server_sk) = crypto_kx_seed_keypair(&[0x22; CRYPTO_KX_SEEDBYTES]).unwrap();
+
+        let (mut crx, mut ctx, mut srx, mut stx) = (
+            SessionKey::default(),
+            SessionKey::default(),
+            SessionKey::default(),
+            SessionKey::default(),
+        );
+        crypto_kx_client_session_keys(&mut crx, &mut ctx, &client_pk, &client_sk, &server_pk)
+            .expect("client kx failed");
+        crypto_kx_server_session_keys(&mut srx, &mut stx, &server_pk, &server_sk, &client_pk)
+            .expect("server kx failed");
+        assert_eq!(crx, stx);
+        assert_eq!(ctx, srx);
+
+        let (mut so_crx, mut so_ctx, mut so_srx, mut so_stx) = (
+            SessionKey::default(),
+            SessionKey::default(),
+            SessionKey::default(),
+            SessionKey::default(),
+        );
+        let (client_result, server_result) = unsafe {
+            (
+                libsodium_sys::crypto_kx_client_session_keys(
+                    so_crx.as_mut_ptr(),
+                    so_ctx.as_mut_ptr(),
+                    client_pk.as_ptr(),
+                    client_sk.as_ptr(),
+                    server_pk.as_ptr(),
+                ),
+                libsodium_sys::crypto_kx_server_session_keys(
+                    so_srx.as_mut_ptr(),
+                    so_stx.as_mut_ptr(),
+                    server_pk.as_ptr(),
+                    server_sk.as_ptr(),
+                    client_pk.as_ptr(),
+                ),
+            )
+        };
+        assert_eq!(client_result, 0);
+        assert_eq!(server_result, 0);
+        assert_eq!(crx, so_crx);
+        assert_eq!(ctx, so_ctx);
+        assert_eq!(srx, so_srx);
+        assert_eq!(stx, so_stx);
+    }
+
+    /// Every low-order peer key (libsodium's blacklist, with and without bit
+    /// 255) is rejected by both roles before any session key is written, as
+    /// libsodium does.
     #[test]
     fn test_kx_rejects_low_order_public_keys() {
-        use sodiumoxide::crypto::kx;
+        let (pk, sk) = crypto_kx_seed_keypair(&[0x33; CRYPTO_KX_SEEDBYTES]).unwrap();
 
-        let (client_pk, client_sk) = crypto_kx_keypair();
-        let mut rx = SessionKey::default();
-        let mut tx = SessionKey::default();
-        let mut one = PublicKey::default();
-        one[0] = 1;
-
-        for server_pk in [PublicKey::default(), one] {
+        for peer_pk in low_order_u_encodings() {
+            let mut rx = [0xa5; CRYPTO_KX_SESSIONKEYBYTES];
+            let mut tx = [0x5a; CRYPTO_KX_SESSIONKEYBYTES];
             assert!(
-                crypto_kx_client_session_keys(
-                    &mut rx,
-                    &mut tx,
-                    &client_pk,
-                    &client_sk,
-                    &server_pk,
-                )
-                .is_err()
+                crypto_kx_client_session_keys(&mut rx, &mut tx, &pk, &sk, &peer_pk).is_err(),
+                "client {peer_pk:02x?}"
             );
             assert!(
-                kx::client_session_keys(
-                    &kx::PublicKey::from_slice(&client_pk).unwrap(),
-                    &kx::SecretKey::from_slice(&client_sk).unwrap(),
-                    &kx::PublicKey::from_slice(&server_pk).unwrap(),
-                )
-                .is_err()
+                crypto_kx_server_session_keys(&mut rx, &mut tx, &pk, &sk, &peer_pk).is_err(),
+                "server {peer_pk:02x?}"
             );
+            assert_eq!(rx, [0xa5; CRYPTO_KX_SESSIONKEYBYTES]);
+            assert_eq!(tx, [0x5a; CRYPTO_KX_SESSIONKEYBYTES]);
+
+            let (client_result, server_result) = unsafe {
+                (
+                    libsodium_sys::crypto_kx_client_session_keys(
+                        rx.as_mut_ptr(),
+                        tx.as_mut_ptr(),
+                        pk.as_ptr(),
+                        sk.as_ptr(),
+                        peer_pk.as_ptr(),
+                    ),
+                    libsodium_sys::crypto_kx_server_session_keys(
+                        rx.as_mut_ptr(),
+                        tx.as_mut_ptr(),
+                        pk.as_ptr(),
+                        sk.as_ptr(),
+                        peer_pk.as_ptr(),
+                    ),
+                )
+            };
+            assert_eq!(client_result, -1, "client {peer_pk:02x?}");
+            assert_eq!(server_result, -1, "server {peer_pk:02x?}");
+            assert_eq!(rx, [0xa5; CRYPTO_KX_SESSIONKEYBYTES]);
+            assert_eq!(tx, [0x5a; CRYPTO_KX_SESSIONKEYBYTES]);
         }
     }
 

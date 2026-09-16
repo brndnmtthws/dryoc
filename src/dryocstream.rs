@@ -464,11 +464,243 @@ mod validation_tests {
         assert_eq!(decrypted, message);
         assert_eq!(tag, Tag::MESSAGE);
     }
+
+    #[test]
+    fn rustaceous_pull_rejects_short_ciphertext_without_advancing_state() {
+        let key = Key::generate();
+        let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+        let c1 = push_stream
+            .push_to_vec(b"first", None, Tag::MESSAGE)
+            .expect("push failed");
+
+        let mut pull_stream = DryocStream::init_pull(&key, &header);
+        let original_state = pull_stream.state.clone();
+        for len in [0, 1, CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES - 1] {
+            let short: &[u8] = &c1[..len];
+            assert!(matches!(
+                pull_stream.pull_to_vec(&short, None),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Ciphertext,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+            assert!(pull_stream.state == original_state);
+        }
+
+        let (message, tag) = pull_stream.pull_to_vec(&c1, None).expect("pull failed");
+        assert_eq!(message, b"first");
+        assert_eq!(tag, Tag::MESSAGE);
+    }
+
+    #[test]
+    fn rustaceous_pull_out_of_order_fails_and_state_stays_usable() {
+        let key = Key::generate();
+        let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+        let aad: &[u8] = b"stream aad";
+        let c1 = push_stream
+            .push_to_vec(&&b"first"[..], Some(&aad), Tag::MESSAGE)
+            .expect("push failed");
+        let c2 = push_stream
+            .push_to_vec(&&b"second"[..], Some(&aad), Tag::PUSH)
+            .expect("push failed");
+        let c3 = push_stream
+            .push_to_vec(&&b"third"[..], Some(&aad), Tag::FINAL)
+            .expect("push failed");
+        let aad = aad.to_vec();
+
+        let mut pull_stream = DryocStream::init_pull(&key, &header);
+        let initial_state = pull_stream.state.clone();
+
+        // Skipping ahead is rejected and does not consume the position.
+        assert!(matches!(
+            pull_stream.pull_to_vec(&c2, Some(&aad)),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(matches!(
+            pull_stream.pull_to_vec(&c3, Some(&aad)),
+            Err(Error::AuthenticationFailed)
+        ));
+        // Mismatched associated data is rejected the same way.
+        assert!(matches!(
+            pull_stream.pull_to_vec(&c1, None),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(pull_stream.state == initial_state);
+
+        let (m1, t1) = pull_stream.pull_to_vec(&c1, Some(&aad)).expect("pull c1");
+        assert_eq!((m1.as_slice(), t1), (&b"first"[..], Tag::MESSAGE));
+
+        // Replaying the consumed message and skipping c2 both fail.
+        let after_c1 = pull_stream.state.clone();
+        assert!(pull_stream.pull_to_vec(&c1, Some(&aad)).is_err());
+        assert!(pull_stream.pull_to_vec(&c3, Some(&aad)).is_err());
+        assert!(pull_stream.state == after_c1);
+
+        let (m2, t2) = pull_stream.pull_to_vec(&c2, Some(&aad)).expect("pull c2");
+        assert_eq!((m2.as_slice(), t2), (&b"second"[..], Tag::PUSH));
+        let (m3, t3) = pull_stream.pull_to_vec(&c3, Some(&aad)).expect("pull c3");
+        assert_eq!((m3.as_slice(), t3), (&b"third"[..], Tag::FINAL));
+    }
+
+    #[test]
+    fn manual_rekey_must_be_mirrored_by_the_pull_side() {
+        let key = Key::generate();
+        let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+        let c1 = push_stream
+            .push_to_vec(b"before rekey", None, Tag::MESSAGE)
+            .expect("push failed");
+        push_stream.rekey();
+        let c2 = push_stream
+            .push_to_vec(b"after rekey", None, Tag::MESSAGE)
+            .expect("push failed");
+        let c3 = push_stream
+            .push_to_vec(b"final", None, Tag::FINAL)
+            .expect("push failed");
+
+        let mut pull_stream = DryocStream::init_pull(&key, &header);
+        let (m1, _) = pull_stream.pull_to_vec(&c1, None).expect("pull c1");
+        assert_eq!(m1, b"before rekey");
+
+        // Without the matching rekey the stream is desynchronized...
+        let before_rekey = pull_stream.state.clone();
+        assert!(matches!(
+            pull_stream.pull_to_vec(&c2, None),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(pull_stream.state == before_rekey);
+
+        // ...and the same rekey resynchronizes it.
+        pull_stream.rekey();
+        let (m2, t2) = pull_stream.pull_to_vec(&c2, None).expect("pull c2");
+        assert_eq!((m2.as_slice(), t2), (&b"after rekey"[..], Tag::MESSAGE));
+        let (m3, t3) = pull_stream.pull_to_vec(&c3, None).expect("pull c3");
+        assert_eq!((m3.as_slice(), t3), (&b"final"[..], Tag::FINAL));
+    }
 }
 
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
+    use sodiumoxide::crypto::secretstream::{
+        Header as SOHeader, Key as SOKey, Stream as SOStream, Tag as SOTag,
+    };
+
     use super::*;
+
+    /// Shared stream key; each stream still derives a random header.
+    fn fixed_key() -> Key {
+        Key::from(*b"dryoc secretstream rekey key 32b")
+    }
+
+    #[test]
+    fn rekey_on_push_side_is_mirrored_by_sodiumoxide_pull() {
+        let key = fixed_key();
+        let aad: &[u8] = b"associated";
+        let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
+        let c1 = push_stream
+            .push_to_vec(&&b"before rekey"[..], Some(&aad), Tag::MESSAGE)
+            .expect("push failed");
+        push_stream.rekey();
+        let c2 = push_stream
+            .push_to_vec(&&b"after rekey"[..], Some(&aad), Tag::PUSH)
+            .expect("push failed");
+        let c3 = push_stream
+            .push_to_vec(&&b"final"[..], Some(&aad), Tag::FINAL)
+            .expect("push failed");
+
+        let so_header = SOHeader::from_slice(header.as_slice()).expect("header");
+        let so_key = SOKey::from_slice(key.as_slice()).expect("key");
+
+        // Without the rekey, sodium cannot continue past c1.
+        let mut unsynced = SOStream::init_pull(&so_header, &so_key).expect("init pull");
+        assert_eq!(
+            unsynced.pull(&c1, Some(aad)).expect("pull c1"),
+            (b"before rekey".to_vec(), SOTag::Message)
+        );
+        assert!(unsynced.pull(&c2, Some(aad)).is_err());
+
+        let mut so_pull = SOStream::init_pull(&so_header, &so_key).expect("init pull");
+        assert_eq!(
+            so_pull.pull(&c1, Some(aad)).expect("pull c1"),
+            (b"before rekey".to_vec(), SOTag::Message)
+        );
+        so_pull.rekey().expect("rekey");
+        assert_eq!(
+            so_pull.pull(&c2, Some(aad)).expect("pull c2"),
+            (b"after rekey".to_vec(), SOTag::Push)
+        );
+        assert_eq!(
+            so_pull.pull(&c3, Some(aad)).expect("pull c3"),
+            (b"final".to_vec(), SOTag::Final)
+        );
+        assert!(so_pull.is_finalized());
+    }
+
+    #[test]
+    fn rekey_on_sodiumoxide_push_side_is_mirrored_by_rustaceous_pull() {
+        let key = fixed_key();
+        let so_key = SOKey::from_slice(key.as_slice()).expect("key");
+        let (mut so_push, so_header) = SOStream::init_push(&so_key).expect("init push");
+        let c1 = so_push
+            .push(b"before rekey", None, SOTag::Message)
+            .expect("push failed");
+        so_push.rekey().expect("rekey");
+        let c2 = so_push
+            .push(b"after rekey", None, SOTag::Rekey)
+            .expect("push failed");
+        let c3 = so_push
+            .push(b"after tag rekey", None, SOTag::Message)
+            .expect("push failed");
+        let c4 = so_push
+            .push(b"final", None, SOTag::Final)
+            .expect("push failed");
+
+        let header = Header::try_from(so_header.as_ref()).expect("header");
+        let mut pull_stream = DryocStream::init_pull(&key, &header);
+        let (m1, t1) = pull_stream.pull_to_vec(&c1, None).expect("pull c1");
+        assert_eq!((m1.as_slice(), t1), (&b"before rekey"[..], Tag::MESSAGE));
+
+        let before_rekey = pull_stream.state.clone();
+        assert!(matches!(
+            pull_stream.pull_to_vec(&c2, None),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(pull_stream.state == before_rekey);
+
+        pull_stream.rekey();
+        let (m2, t2) = pull_stream.pull_to_vec(&c2, None).expect("pull c2");
+        assert_eq!((m2.as_slice(), t2), (&b"after rekey"[..], Tag::REKEY));
+        // The authenticated REKEY tag rekeys automatically; no manual call.
+        let (m3, t3) = pull_stream.pull_to_vec(&c3, None).expect("pull c3");
+        assert_eq!((m3.as_slice(), t3), (&b"after tag rekey"[..], Tag::MESSAGE));
+        let (m4, t4) = pull_stream.pull_to_vec(&c4, None).expect("pull c4");
+        assert_eq!((m4.as_slice(), t4), (&b"final"[..], Tag::FINAL));
+    }
+
+    #[test]
+    fn sodiumoxide_messages_pulled_out_of_order_fail_and_state_stays_usable() {
+        let key = fixed_key();
+        let so_key = SOKey::from_slice(key.as_slice()).expect("key");
+        let (mut so_push, so_header) = SOStream::init_push(&so_key).expect("init push");
+        let c1 = so_push.push(b"one", None, SOTag::Message).expect("push");
+        let c2 = so_push.push(b"two", None, SOTag::Message).expect("push");
+        let c3 = so_push.push(b"three", None, SOTag::Final).expect("push");
+
+        let header = Header::try_from(so_header.as_ref()).expect("header");
+        let mut pull_stream = DryocStream::init_pull(&key, &header);
+
+        assert!(matches!(
+            pull_stream.pull_to_vec(&c2, None),
+            Err(Error::AuthenticationFailed)
+        ));
+        let (m1, _) = pull_stream.pull_to_vec(&c1, None).expect("pull c1");
+        assert_eq!(m1, b"one");
+        assert!(pull_stream.pull_to_vec(&c3, None).is_err());
+        let (m2, _) = pull_stream.pull_to_vec(&c2, None).expect("pull c2");
+        assert_eq!(m2, b"two");
+        let (m3, t3) = pull_stream.pull_to_vec(&c3, None).expect("pull c3");
+        assert_eq!((m3.as_slice(), t3), (&b"three"[..], Tag::FINAL));
+    }
 
     #[test]
     fn test_stream_push() {

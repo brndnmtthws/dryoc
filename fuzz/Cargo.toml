@@ -12,12 +12,14 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 # Independent oracles for the differential targets; all already in the dryoc
-# dependency graph (`sha2` and `curve25519-dalek` as dependencies, `chacha20`
-# and `salsa20` as dev-dependencies).
+# dependency graph (`sha2`, `curve25519-dalek` and `zeroize` as dependencies,
+# `chacha20` and `salsa20` as dev-dependencies). `zeroize` only supplies the
+# trait `fuzz_protected` needs to call `Zeroize::zeroize` on protected values.
 chacha20 = { version = "0.10", features = ["xchacha"] }
 curve25519-dalek = "4.1.3"
 salsa20 = "0.11"
 sha2 = "0.11"
+zeroize = "1.9"
 
 [dependencies.dryoc]
 path = ".."
@@ -33,12 +35,6 @@ simd_backend = ["dryoc/simd_backend"]
 # Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
-
-[[bin]]
-name = "fuzz_target_1"
-path = "fuzz_targets/fuzz_target_1.rs"
-test = false
-doc = false
 
 [[bin]]
 name = "fuzz_secretstream_pull"
@@ -63,6 +59,7 @@ name = "fuzz_protected"
 path = "fuzz_targets/fuzz_protected.rs"
 test = false
 doc = false
+
 [[bin]]
 name = "fuzz_aead"
 path = "fuzz_targets/fuzz_aead.rs"

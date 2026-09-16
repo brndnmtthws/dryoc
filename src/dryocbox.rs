@@ -806,6 +806,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::CRYPTO_BOX_SEEDBYTES;
     use crate::precalc::PrecalcSecretKey;
 
     #[test]
@@ -825,55 +826,310 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_decrypt_failure_empty() {
-        for _ in 0..20 {
-            use crate::keypair::*;
+    /// NaCl `tests/box.c` vector (also RFC 7748 section 6.1 keys): Alice's
+    /// and Bob's X25519 keys, the nonce, the 131-byte message, and the
+    /// 147-byte `tag || ciphertext` output. `beforenm(bobpk, alicesk)` is the
+    /// `firstkey` used by NaCl's secretbox vector.
+    const ALICE_SK: &str = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+    const ALICE_PK: &str = "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a";
+    const BOB_SK: &str = "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+    const BOB_PK: &str = "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f";
+    const SHARED_KEY: &str = "1b27556473e985d462cd51197a9a46c76009549eac6474f206c4ee0844f68389";
+    const NONCE: &str = "69696ee955b62b73cd62bda875fc73d68219e0036b7a0b37";
+    const MESSAGE: &str = concat!(
+        "be075fc53c81f2d5cf141316ebeb0c7b5228c52a4c62cbd44b66849b64244ffce5ecbaaf33bd751a1ac728d4",
+        "5e6c61296cdc3c01233561f41db66cce314adb310e3be8250c46f06dceea3a7fa1348057e2f6556ad6b1318a",
+        "024a838f21af1fde048977eb48f59ffd4924ca1c60902e52f0a089bc76897040e082f937763848645e0705",
+    );
+    const BOXED: &str = concat!(
+        "f3ffc7703f9400e52a7dfb4b3d3305d98e993b9f48681273c29650ba32fc76ce48332ea7164d96a4476fb8c5",
+        "31a1186ac0dfc17c98dce87b4da7f011ec48c97271d2c20f9b928fe2270d6fb863d51738b48eeee314a7cc8a",
+        "b932164548e526ae90224368517acfeabd6bb3732bc0e9da99832b61ca01b6de56244a9e88d5f9b37973f622",
+        "a43d14a6599b1f654cb45a74e355a5",
+    );
 
-            let invalid_key = KeyPair::generate();
-            let invalid_key_copy_1 = invalid_key.clone();
-            let invalid_key_copy_2 = invalid_key.clone();
-            let nonce = Nonce::generate();
+    fn array<const N: usize>(hex: &str) -> StackByteArray<N> {
+        StackByteArray::try_from(hex::decode(hex).expect("hex").as_slice()).expect("length")
+    }
 
-            let dryocbox: VecBox =
-                DryocBox::from_bytes(b"trollolllololololollollolololololol").expect("ok");
-            DryocBox::decrypt::<
-                Nonce,
-                crate::classic::crypto_box::PublicKey,
-                crate::classic::crypto_box::SecretKey,
-                Vec<u8>,
-            >(
-                &dryocbox,
-                &nonce,
-                &invalid_key_copy_1.public_key,
-                &invalid_key_copy_2.secret_key,
+    struct NaclVector {
+        alice: KeyPair,
+        bob: KeyPair,
+        nonce: Nonce,
+        message: Vec<u8>,
+        boxed: Vec<u8>,
+    }
+
+    fn nacl_vector() -> NaclVector {
+        NaclVector {
+            alice: KeyPair::from_slices(
+                &hex::decode(ALICE_PK).expect("hex"),
+                &hex::decode(ALICE_SK).expect("hex"),
             )
-            .expect_err("hmm");
+            .expect("alice keypair"),
+            bob: KeyPair::from_slices(
+                &hex::decode(BOB_PK).expect("hex"),
+                &hex::decode(BOB_SK).expect("hex"),
+            )
+            .expect("bob keypair"),
+            nonce: array(NONCE),
+            message: hex::decode(MESSAGE).expect("hex"),
+            boxed: hex::decode(BOXED).expect("hex"),
         }
     }
 
     #[test]
-    fn test_copy() {
-        for _ in 0..20 {
-            use std::convert::TryFrom;
+    fn nacl_vector_encrypts_to_known_bytes_and_decrypts_with_swapped_keys() {
+        let v = nacl_vector();
+        assert_eq!(
+            KeyPair::from_secret_key(v.alice.secret_key.clone()).public_key,
+            v.alice.public_key
+        );
+        assert_eq!(
+            KeyPair::from_secret_key(v.bob.secret_key.clone()).public_key,
+            v.bob.public_key
+        );
 
-            use crate::rng::*;
+        let dryocbox = DryocBox::encrypt_to_vecbox(
+            &v.message,
+            &v.nonce,
+            &v.bob.public_key,
+            &v.alice.secret_key,
+        )
+        .expect("encrypt failed");
+        assert_eq!(dryocbox.to_vec(), v.boxed);
+        assert_eq!(dryocbox.tag.as_slice(), &v.boxed[..CRYPTO_BOX_MACBYTES]);
+        assert_eq!(dryocbox.data, v.boxed[CRYPTO_BOX_MACBYTES..]);
+        assert!(dryocbox.ephemeral_pk.is_none());
 
-            let mut data1: Vec<u8> = vec![0u8; 1024];
-            copy_randombytes(data1.as_mut_slice());
-            let data1_copy = data1.clone();
+        let parsed = VecBox::from_bytes(&v.boxed).expect("known-good box should parse");
+        assert_eq!(parsed, dryocbox);
+        assert_eq!(
+            parsed
+                .decrypt_to_vec(&v.nonce, &v.alice.public_key, &v.bob.secret_key)
+                .expect("decrypt failed"),
+            v.message
+        );
 
-            let dryocbox: VecBox = DryocBox::from_bytes(&data1).expect("ok");
-            assert_eq!(dryocbox.data.as_slice(), &data1_copy[CRYPTO_BOX_MACBYTES..]);
-            assert_eq!(dryocbox.tag.as_slice(), &data1_copy[..CRYPTO_BOX_MACBYTES]);
+        // The DH shared key is symmetric, so Bob-to-Alice under the same nonce
+        // is the identical box; this is why both directions share one nonce
+        // space.
+        let reverse = DryocBox::encrypt_to_vecbox(
+            &v.message,
+            &v.nonce,
+            &v.alice.public_key,
+            &v.bob.secret_key,
+        )
+        .expect("encrypt failed");
+        assert_eq!(reverse.to_vec(), v.boxed);
+    }
 
-            let data1 = data1_copy.clone();
-            let (tag, data) = data1.split_at(CRYPTO_BOX_MACBYTES);
-            let dryocbox: VecBox =
-                DryocBox::new_with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
-            assert_eq!(dryocbox.data.as_slice(), &data1_copy[CRYPTO_BOX_MACBYTES..]);
-            assert_eq!(dryocbox.tag.as_array(), &data1_copy[..CRYPTO_BOX_MACBYTES]);
+    #[test]
+    fn nacl_vector_precalculated_key_and_ciphertext_match() {
+        let v = nacl_vector();
+        let expected_key: StackByteArray<CRYPTO_BOX_BEFORENMBYTES> = array(SHARED_KEY);
+
+        let alice_side = PrecalcSecretKey::precalculate(&v.bob.public_key, &v.alice.secret_key)
+            .expect("precalculation failed");
+        let bob_side = v
+            .bob
+            .precalculate(&v.alice.public_key)
+            .expect("precalculation failed");
+        assert_eq!(alice_side.as_array(), expected_key.as_array());
+        assert_eq!(alice_side, bob_side);
+
+        let dryocbox = DryocBox::precalc_encrypt_to_vecbox(&v.message, &v.nonce, &alice_side)
+            .expect("encrypt failed");
+        assert_eq!(dryocbox.to_vec(), v.boxed);
+
+        let parsed = VecBox::from_bytes(&v.boxed).expect("parse");
+        assert_eq!(
+            parsed
+                .precalc_decrypt_to_vec(&v.nonce, &bob_side)
+                .expect("decrypt failed"),
+            v.message
+        );
+        // Precalculated and direct decryption interoperate.
+        assert_eq!(
+            parsed
+                .decrypt_to_vec(&v.nonce, &v.alice.public_key, &v.bob.secret_key)
+                .expect("decrypt failed"),
+            v.message
+        );
+    }
+
+    #[test]
+    fn tampering_and_wrong_keys_are_rejected_and_the_box_stays_usable() {
+        let v = nacl_vector();
+        let dryocbox = VecBox::from_bytes(&v.boxed).expect("parse");
+        let precalc = v.bob.precalculate(&v.alice.public_key).expect("precalc");
+        let stranger = KeyPair::from_seed(&[9u8; CRYPTO_BOX_SEEDBYTES]);
+
+        // Wrong sender: authentication binds the sender's public key.
+        assert!(matches!(
+            dryocbox.decrypt_to_vec(&v.nonce, &stranger.public_key, &v.bob.secret_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        // Wrong recipient.
+        assert!(matches!(
+            dryocbox.decrypt_to_vec(&v.nonce, &v.alice.public_key, &stranger.secret_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        // Low-order sender key is rejected before authentication.
+        assert!(
+            dryocbox
+                .decrypt_to_vec(&v.nonce, &PublicKey::default(), &v.bob.secret_key)
+                .is_err()
+        );
+
+        let mut wrong_nonce = v.nonce.clone();
+        wrong_nonce[0] ^= 1;
+        assert!(matches!(
+            dryocbox.decrypt_to_vec(&wrong_nonce, &v.alice.public_key, &v.bob.secret_key),
+            Err(Error::AuthenticationFailed)
+        ));
+        assert!(matches!(
+            dryocbox.precalc_decrypt_to_vec(&wrong_nonce, &precalc),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        for index in [
+            0,
+            CRYPTO_BOX_MACBYTES - 1,
+            CRYPTO_BOX_MACBYTES,
+            v.boxed.len() - 1,
+        ] {
+            let mut tampered = v.boxed.clone();
+            tampered[index] ^= 0x80;
+            let tampered = VecBox::from_bytes(&tampered).expect("parse");
+            assert!(matches!(
+                tampered.decrypt_to_vec(&v.nonce, &v.alice.public_key, &v.bob.secret_key),
+                Err(Error::AuthenticationFailed)
+            ));
+            assert!(matches!(
+                tampered.precalc_decrypt_to_vec(&v.nonce, &precalc),
+                Err(Error::AuthenticationFailed)
+            ));
         }
+
+        let mut wrong_precalc = precalc.clone();
+        wrong_precalc.as_mut_array()[0] ^= 1;
+        assert!(matches!(
+            dryocbox.precalc_decrypt_to_vec(&v.nonce, &wrong_precalc),
+            Err(Error::AuthenticationFailed)
+        ));
+
+        // Rejections leave the box untouched and decryptable.
+        assert_eq!(dryocbox.to_vec(), v.boxed);
+        assert_eq!(
+            dryocbox
+                .decrypt_to_vec(&v.nonce, &v.alice.public_key, &v.bob.secret_key)
+                .expect("decrypt"),
+            v.message
+        );
+    }
+
+    #[test]
+    fn encrypt_rejects_low_order_recipient_key() {
+        let v = nacl_vector();
+        let mut identity = PublicKey::default();
+        identity[0] = 1;
+        for low_order in [PublicKey::default(), identity] {
+            assert!(
+                DryocBox::encrypt_to_vecbox(&v.message, &v.nonce, &low_order, &v.alice.secret_key)
+                    .is_err()
+            );
+            assert!(PrecalcSecretKey::precalculate(&low_order, &v.alice.secret_key).is_err());
+        }
+    }
+
+    #[test]
+    fn from_bytes_and_from_sealed_bytes_require_their_prefixes() {
+        for len in 0..CRYPTO_BOX_MACBYTES {
+            assert!(matches!(
+                VecBox::from_bytes(&vec![0u8; len]),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Box,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+        for len in [0, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES - 1] {
+            assert!(matches!(
+                VecBox::from_sealed_bytes(&vec![0u8; len]),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::SealedBox,
+                    actual,
+                    ..
+                }) if actual == len
+            ));
+        }
+
+        let empty_sealed =
+            VecBox::from_sealed_bytes(&[0x5au8; CRYPTO_BOX_SEALBYTES]).expect("empty sealed box");
+        assert!(empty_sealed.data.is_empty());
+        assert_eq!(
+            empty_sealed.ephemeral_pk.as_ref().map(|epk| epk.as_slice()),
+            Some(&[0x5au8; CRYPTO_BOX_PUBLICKEYBYTES][..])
+        );
+    }
+
+    #[test]
+    fn sealed_wire_format_is_ephemeral_key_then_tag_then_ciphertext() {
+        let epk: PublicKey = array(ALICE_PK);
+        let tag: Mac = array(&NONCE[..CRYPTO_BOX_MACBYTES * 2]);
+        let data = hex::decode(MESSAGE).expect("hex");
+
+        let mut expected = epk.to_vec();
+        expected.extend_from_slice(tag.as_slice());
+        expected.extend_from_slice(&data);
+
+        let sealed = VecBox::from_parts(tag.clone(), data.clone(), Some(epk.clone()));
+        assert_eq!(sealed.to_vec(), expected);
+        let reparsed = VecBox::from_sealed_bytes(&expected).expect("parse");
+        assert_eq!(reparsed, sealed);
+        let (parsed_tag, parsed_data, parsed_epk) = reparsed.into_parts();
+        assert_eq!(parsed_tag, tag);
+        assert_eq!(parsed_data, data);
+        assert_eq!(parsed_epk.as_ref(), Some(&epk));
+
+        // Without an ephemeral key the same tag and data serialize as a regular
+        // box.
+        let regular = VecBox::from_parts(tag.clone(), data.clone(), None);
+        assert_eq!(regular.to_vec(), &expected[CRYPTO_BOX_PUBLICKEYBYTES..]);
+        assert_eq!(regular, DryocBox::new_with_data_and_mac(tag.clone(), &data));
+        assert_eq!(VecBox::new_with_epk_data_and_mac(epk, tag, &data), sealed);
+    }
+
+    #[test]
+    fn sealed_box_authenticates_recipient_and_contents() {
+        let v = nacl_vector();
+        let sealed = DryocBox::seal_to_vecbox(&v.message, &v.bob.public_key).expect("seal");
+        assert_eq!(sealed.unseal_to_vec(&v.bob).expect("unseal"), v.message);
+
+        let wrong_recipient = sealed.unseal_to_vec(&v.alice);
+        assert!(matches!(wrong_recipient, Err(Error::AuthenticationFailed)));
+
+        let bytes = sealed.to_vec();
+        for index in [
+            0,
+            CRYPTO_BOX_PUBLICKEYBYTES,
+            CRYPTO_BOX_SEALBYTES,
+            bytes.len() - 1,
+        ] {
+            let mut tampered = bytes.clone();
+            tampered[index] ^= 0x80;
+            let tampered = VecBox::from_sealed_bytes(&tampered).expect("parse");
+            assert!(tampered.unseal_to_vec(&v.bob).is_err());
+        }
+        assert_eq!(
+            VecBox::from_sealed_bytes(&bytes)
+                .expect("parse")
+                .unseal_to_vec(&v.bob)
+                .expect("unseal"),
+            v.message
+        );
     }
 
     #[test]
@@ -988,6 +1244,131 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
+
+        #[test]
+        fn nacl_vector_matches_sodiumoxide_and_libsodium_beforenm() {
+            use sodiumoxide::crypto::box_;
+            use sodiumoxide::crypto::box_::{
+                Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
+            };
+
+            let v = nacl_vector();
+            let so_boxed = box_::seal(
+                &v.message,
+                &SONonce::from_slice(&v.nonce).unwrap(),
+                &SOPublicKey::from_slice(&v.bob.public_key).unwrap(),
+                &SOSecretKey::from_slice(&v.alice.secret_key).unwrap(),
+            );
+            assert_eq!(so_boxed, v.boxed);
+
+            let precalc = v.alice.precalculate(&v.bob.public_key).expect("precalc");
+            let so_precalc = box_::precompute(
+                &SOPublicKey::from_slice(&v.bob.public_key).unwrap(),
+                &SOSecretKey::from_slice(&v.alice.secret_key).unwrap(),
+            );
+            assert_eq!(precalc.as_slice(), so_precalc.as_ref());
+
+            let mut sodium_key = [0u8; CRYPTO_BOX_BEFORENMBYTES];
+            let rc = unsafe {
+                libsodium_sys::crypto_box_beforenm(
+                    sodium_key.as_mut_ptr(),
+                    v.bob.public_key.as_ptr(),
+                    v.alice.secret_key.as_ptr(),
+                )
+            };
+            assert_eq!(rc, 0);
+            assert_eq!(precalc.as_array(), &sodium_key);
+        }
+
+        #[test]
+        fn sodiumoxide_regular_and_precomputed_boxes_decrypt_with_rustaceous() {
+            use sodiumoxide::crypto::box_;
+            use sodiumoxide::crypto::box_::{
+                Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
+            };
+
+            let v = nacl_vector();
+            let so_nonce = SONonce::from_slice(&v.nonce).unwrap();
+            let so_bob_pk = SOPublicKey::from_slice(&v.bob.public_key).unwrap();
+            let so_alice_sk = SOSecretKey::from_slice(&v.alice.secret_key).unwrap();
+            let so_alice_pk = SOPublicKey::from_slice(&v.alice.public_key).unwrap();
+            let so_bob_sk = SOSecretKey::from_slice(&v.bob.secret_key).unwrap();
+            let so_precalc = box_::precompute(&so_bob_pk, &so_alice_sk);
+            let precalc = v.bob.precalculate(&v.alice.public_key).expect("precalc");
+
+            for len in [0, 1, 15, 16, 17, 63, 64, 65, v.message.len()] {
+                let plaintext = &v.message[..len];
+
+                let so_boxed = box_::seal(plaintext, &so_nonce, &so_bob_pk, &so_alice_sk);
+                let dryocbox = VecBox::from_bytes(&so_boxed).expect("sodium box should parse");
+                assert_eq!(
+                    dryocbox
+                        .decrypt_to_vec(&v.nonce, &v.alice.public_key, &v.bob.secret_key)
+                        .expect("decrypt failed"),
+                    plaintext
+                );
+                assert_eq!(
+                    dryocbox
+                        .precalc_decrypt_to_vec(&v.nonce, &precalc)
+                        .expect("precalc decrypt failed"),
+                    plaintext
+                );
+
+                let so_afternm = box_::seal_precomputed(plaintext, &so_nonce, &so_precalc);
+                assert_eq!(so_afternm, so_boxed);
+                let dryocbox =
+                    VecBox::from_bytes(&so_afternm).expect("sodium afternm box should parse");
+                assert_eq!(
+                    dryocbox
+                        .precalc_decrypt_to_vec(&v.nonce, &precalc)
+                        .expect("precalc decrypt failed"),
+                    plaintext
+                );
+
+                let precalc_box =
+                    DryocBox::precalc_encrypt_to_vecbox(plaintext, &v.nonce, &precalc)
+                        .expect("precalc encrypt failed");
+                assert_eq!(
+                    box_::open_precomputed(&precalc_box.to_vec(), &so_nonce, &so_precalc)
+                        .expect("sodium open_precomputed failed"),
+                    plaintext
+                );
+                assert_eq!(
+                    box_::open(&precalc_box.to_vec(), &so_nonce, &so_alice_pk, &so_bob_sk)
+                        .expect("sodium open failed"),
+                    plaintext
+                );
+            }
+        }
+
+        #[test]
+        fn sodiumoxide_sealed_box_rejects_wrong_recipient_and_modification() {
+            use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
+            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+
+            let v = nacl_vector();
+            let ciphertext = curve25519blake2bxsalsa20poly1305::seal(
+                &v.message,
+                &SOPublicKey::from_slice(&v.bob.public_key).unwrap(),
+            );
+            let sealed = VecBox::from_sealed_bytes(&ciphertext).expect("parse");
+            assert_eq!(sealed.unseal_to_vec(&v.bob).expect("unseal"), v.message);
+            assert!(matches!(
+                sealed.unseal_to_vec(&v.alice),
+                Err(Error::AuthenticationFailed)
+            ));
+
+            for index in [0, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES] {
+                let mut tampered = ciphertext.clone();
+                tampered[index] ^= 0x80;
+                assert!(
+                    VecBox::from_sealed_bytes(&tampered)
+                        .expect("parse")
+                        .unseal_to_vec(&v.bob)
+                        .is_err()
+                );
+            }
+        }
 
         #[test]
         fn test_dryocbox_vecbox() {

@@ -149,6 +149,11 @@ impl_chacha20poly1305_aead! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(dryoc_native_tests)]
+    use crate::classic::crypto_aead_chacha20poly1305_impl::test_util::check_matches_libsodium;
+    use crate::classic::crypto_aead_chacha20poly1305_impl::test_util::{
+        Aead, check_failures_leave_outputs_untouched,
+    };
     use crate::error::{Error, LengthConstraint};
 
     #[test]
@@ -253,47 +258,6 @@ mod tests {
     }
 
     #[test]
-    fn test_authentication_failure_does_not_mutate_output() {
-        let mut ciphertext = expected();
-        ciphertext[0] ^= 1;
-        let mut plaintext = vec![0xa5; MESSAGE.len()];
-        let original = plaintext.clone();
-
-        assert!(matches!(
-            crypto_aead_chacha20poly1305_ietf_decrypt(
-                &mut plaintext,
-                &ciphertext,
-                Some(AD),
-                &NONCE,
-                &KEY,
-            ),
-            Err(Error::AuthenticationFailed)
-        ));
-        assert_eq!(plaintext, original);
-
-        let mut inplace = ciphertext;
-        let original = inplace.clone();
-        assert!(matches!(
-            crypto_aead_chacha20poly1305_ietf_decrypt_inplace(&mut inplace, Some(AD), &NONCE, &KEY,),
-            Err(Error::AuthenticationFailed)
-        ));
-        assert_eq!(inplace, original);
-
-        let mut plaintext = vec![0xa5; MESSAGE.len()];
-        assert!(matches!(
-            crypto_aead_chacha20poly1305_ietf_decrypt(
-                &mut plaintext,
-                &expected(),
-                Some(b"wrong associated data"),
-                &NONCE,
-                &KEY,
-            ),
-            Err(Error::AuthenticationFailed)
-        ));
-        assert_eq!(plaintext, vec![0xa5; MESSAGE.len()]);
-    }
-
-    #[test]
     fn test_empty_message_and_length_errors() {
         let mut ciphertext = [0u8; CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES];
         crypto_aead_chacha20poly1305_ietf_encrypt(&mut ciphertext, &[], None, &NONCE, &KEY)
@@ -317,82 +281,127 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_final_counter_block_is_available() {
-        let mut block = [0u8; 64];
-        ChaCha20::ietf(&KEY, &NONCE, u32::MAX).apply_keystream(&mut block);
-        assert_ne!(block, [0u8; 64]);
+    /// The RFC 8439 state for `nonce`, as the scalar block function's input:
+    /// constants, key, then the counter word and the three nonce words. The
+    /// block function takes the block position as a 64-bit value over words
+    /// 12 and 13, so it overrides the first nonce word.
+    fn rfc8439_state(key: &Key, nonce: &Nonce) -> [u32; 16] {
+        let mut state = [0u32; 16];
+        state[..4].copy_from_slice(&crate::utils::SIGMA);
+        for (word, bytes) in state[4..12].iter_mut().zip(key.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*bytes);
+        }
+        for (word, bytes) in state[13..].iter_mut().zip(nonce.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*bytes);
+        }
+        state
+    }
 
-        ChaCha20::ietf(&KEY, &NONCE, u32::MAX).apply_keystream(&mut block);
-        assert_eq!(block, [0u8; 64]);
+    /// One stream across the 32-bit counter boundary: 128 bytes from block
+    /// `u32::MAX` are block `u32::MAX` followed by block 0 of the nonce whose
+    /// first word is one higher (the carry libsodium's reference code makes;
+    /// with an all-`ff` nonce the packed 64-bit position wraps to zero).
+    #[test]
+    fn test_stream_crosses_ietf_counter_boundary() {
+        for nonce in [NONCE, [0xffu8; 12]] {
+            let state = rfc8439_state(&KEY, &nonce);
+            let nonce_word = u32::from_le_bytes(nonce[..4].try_into().unwrap());
+            let start = u64::from(u32::MAX) | (u64::from(nonce_word) << 32);
+            let next = u64::from(nonce_word.wrapping_add(1)) << 32;
+            assert_eq!(next, start.wrapping_add(1));
+
+            let mut expected = [0u8; 128];
+            let (first, second) = expected.split_at_mut(64);
+            crate::chacha20::scalar_block(&state, start, first.try_into().unwrap());
+            crate::chacha20::scalar_block(&state, next, second.try_into().unwrap());
+            assert_ne!(first, second);
+
+            let mut stream = [0u8; 128];
+            ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut stream);
+            assert_eq!(stream, expected, "nonce {nonce:02x?}");
+        }
+    }
+
+    fn aead() -> Aead<Nonce> {
+        Aead {
+            encrypt_detached: crypto_aead_chacha20poly1305_ietf_encrypt_detached,
+            encrypt_detached_inplace: crypto_aead_chacha20poly1305_ietf_encrypt_detached_inplace,
+            decrypt_detached: crypto_aead_chacha20poly1305_ietf_decrypt_detached,
+            decrypt_detached_inplace: crypto_aead_chacha20poly1305_ietf_decrypt_detached_inplace,
+            encrypt: crypto_aead_chacha20poly1305_ietf_encrypt,
+            decrypt: crypto_aead_chacha20poly1305_ietf_decrypt,
+            encrypt_inplace: crypto_aead_chacha20poly1305_ietf_encrypt_inplace,
+            decrypt_inplace: crypto_aead_chacha20poly1305_ietf_decrypt_inplace,
+        }
     }
 
     #[test]
-    fn test_final_counter_block_is_available_ff_nonce() {
-        // The first nonce word is the high half of the packed 64-bit counter,
-        // so with 0xffffffff there the final block's counter is u64::MAX;
-        // advancing past it must wrap the discarded position rather than
-        // overflow. The final block itself must stay usable for every nonce.
-        let nonce = [0xffu8; 12];
-        let mut block = [0u8; 64];
-        ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut block);
-        assert_ne!(block, [0u8; 64]);
+    fn test_failures_leave_outputs_untouched() {
+        check_failures_leave_outputs_untouched(&aead(), &KEY, &NONCE);
+    }
 
-        ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut block);
-        assert_eq!(block, [0u8; 64]);
+    /// libsodium's `crypto_stream_chacha20_ietf_xor_ic` accepts block
+    /// `u32::MAX` alone (one more block trips its misuse check), so the
+    /// final block is compared directly and the carry beyond it through the
+    /// legacy function, whose 64-bit counter occupies the same two words.
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_final_counter_blocks_match_libsodium() {
+        use libc::c_ulonglong;
+        use libsodium_sys::{crypto_stream_chacha20_ietf_xor_ic, crypto_stream_chacha20_xor_ic};
+
+        for nonce in [NONCE, [0xffu8; 12]] {
+            let mut stream = [0u8; 128];
+            ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut stream);
+
+            let mut expected = [0u8; 128];
+            let start = u64::from(u32::MAX)
+                | (u64::from(u32::from_le_bytes(nonce[..4].try_into().unwrap())) << 32);
+            // SAFETY: every buffer is valid for the length passed beside it;
+            // libsodium permits `c == m`.
+            let rc = unsafe {
+                crypto_stream_chacha20_xor_ic(
+                    expected.as_mut_ptr(),
+                    expected.as_ptr(),
+                    expected.len() as c_ulonglong,
+                    nonce[4..].as_ptr(),
+                    start,
+                    KEY.as_ptr(),
+                )
+            };
+            assert_eq!(rc, 0);
+            assert_eq!(stream, expected, "nonce {nonce:02x?}");
+
+            let mut final_block = [0u8; 64];
+            // SAFETY: as above.
+            let rc = unsafe {
+                crypto_stream_chacha20_ietf_xor_ic(
+                    final_block.as_mut_ptr(),
+                    final_block.as_ptr(),
+                    final_block.len() as c_ulonglong,
+                    nonce.as_ptr(),
+                    u32::MAX,
+                    KEY.as_ptr(),
+                )
+            };
+            assert_eq!(rc, 0);
+            assert_eq!(
+                stream[..64],
+                final_block,
+                "nonce {nonce:02x?}, ietf final block"
+            );
+        }
     }
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn test_final_counter_block_matches_libsodium() {
-        use libsodium_sys::crypto_stream_chacha20_ietf_xor_ic;
-
-        let message = [0xa5u8; 64];
-        let mut actual = message;
-        ChaCha20::ietf(&KEY, &NONCE, u32::MAX).apply_keystream(&mut actual);
-
-        let mut expected = [0u8; 64];
-        // SAFETY: All pointers reference initialized, correctly sized arrays
-        // that remain valid and non-overlapping for the duration of the call.
-        let result = unsafe {
-            crypto_stream_chacha20_ietf_xor_ic(
-                expected.as_mut_ptr(),
-                message.as_ptr(),
-                message.len() as u64,
-                NONCE.as_ptr(),
-                u32::MAX,
-                KEY.as_ptr(),
-            )
-        };
-        assert_eq!(result, 0);
-        assert_eq!(actual, expected);
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_final_counter_block_ff_nonce_matches_libsodium() {
-        use libsodium_sys::crypto_stream_chacha20_ietf_xor_ic;
-
-        let nonce = [0xffu8; 12];
-        let message = [0xa5u8; 64];
-        let mut actual = message;
-        ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut actual);
-
-        let mut expected = [0u8; 64];
-        // SAFETY: All pointers reference initialized, correctly sized arrays
-        // that remain valid and non-overlapping for the duration of the call.
-        let result = unsafe {
-            crypto_stream_chacha20_ietf_xor_ic(
-                expected.as_mut_ptr(),
-                message.as_ptr(),
-                message.len() as u64,
-                nonce.as_ptr(),
-                u32::MAX,
-                KEY.as_ptr(),
-            )
-        };
-        assert_eq!(result, 0);
-        assert_eq!(actual, expected);
+    fn test_matches_libsodium_detached_and_combined() {
+        check_matches_libsodium(
+            &aead(),
+            libsodium_sys::crypto_aead_chacha20poly1305_ietf_encrypt_detached,
+            &KEY,
+            &NONCE,
+        );
     }
 
     #[cfg(dryoc_native_tests)]

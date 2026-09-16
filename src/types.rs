@@ -541,38 +541,235 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
     use super::*;
+    use crate::utils::test_util::assert_exact_slice_length_error;
+
+    const SRC: [u8; 6] = [10, 20, 30, 40, 50, 60];
 
     #[test]
-    #[should_panic(expected = "invalid vec length 2, expecting at least 3")]
-    fn test_vec_as_array_out_of_bounds_panic() {
-        let vec = vec![1, 2];
-        let _ = <Vec<u8> as ByteArray<3>>::as_array(&vec)[2];
+    fn bytes_views_agree_with_the_source_for_every_container() {
+        fn check<B: Bytes + ?Sized>(bytes: &B, expected: &[u8]) {
+            assert_eq!(bytes.as_slice(), expected);
+            assert_eq!(bytes.len(), expected.len());
+            assert_eq!(bytes.is_empty(), expected.is_empty());
+        }
+
+        check(&SRC[..], &SRC);
+        check(&&SRC[..], &SRC);
+        let mut copy = SRC;
+        check(&&mut copy[..], &SRC);
+        check(&SRC.to_vec(), &SRC);
+        check(&SRC, &SRC);
+        check(&&SRC, &SRC);
+        check(&StackByteArray::from(SRC), &SRC);
+
+        check(&[][..], &[]);
+        check(&Vec::<u8>::new(), &[]);
+        check(&[0u8; 0], &[]);
+        check(&StackByteArray::<0>::new(), &[]);
     }
 
     #[test]
-    fn test_vec_as_array_out_of_bounds_ok() {
-        let vec = vec![1, 2];
-        let _ = <Vec<u8> as ByteArray<2>>::as_array(&vec)[1];
+    fn mut_bytes_copy_from_slice_and_mutation_reach_the_source() {
+        fn check<B: MutBytes + ?Sized>(bytes: &mut B) {
+            bytes.copy_from_slice(&SRC);
+            assert_eq!(bytes.as_slice(), &SRC);
+            bytes.as_mut_slice()[2] ^= 0xff;
+            assert_eq!(bytes.as_slice()[2], SRC[2] ^ 0xff);
+            assert_eq!(&bytes.as_slice()[3..], &SRC[3..]);
+        }
+
+        let mut vec = vec![0u8; 6];
+        check(&mut vec);
+        assert_eq!(vec[2], SRC[2] ^ 0xff);
+
+        let mut array = [0u8; 6];
+        check(&mut array);
+        assert_eq!(array[2], SRC[2] ^ 0xff);
+
+        let mut slice_backing = [0u8; 6];
+        check(&mut slice_backing[..]);
+        assert_eq!(slice_backing[2], SRC[2] ^ 0xff);
+
+        let mut stack = StackByteArray::<6>::new();
+        check(&mut stack);
+        assert_eq!(stack[2], SRC[2] ^ 0xff);
     }
 
     #[test]
-    #[should_panic(expected = "invalid vec length 2, expecting at least 3")]
-    fn test_vec_as_mut_array_out_of_bounds_panic() {
-        let mut vec = vec![1, 2];
-        let _ = <Vec<u8> as MutByteArray<3>>::as_mut_array(&mut vec)[2];
+    fn new_bytes_and_new_byte_array_start_zeroed() {
+        assert!(<Vec<u8> as NewBytes>::new_bytes().is_empty());
+        assert_eq!(<Vec<u8> as NewByteArray<4>>::new_byte_array(), [0; 4]);
+        assert_eq!(<[u8; 4] as NewBytes>::new_bytes(), [0; 4]);
+        assert_eq!(<[u8; 4] as NewByteArray<4>>::new_byte_array(), [0; 4]);
+        assert_eq!(
+            <StackByteArray<4> as NewBytes>::new_bytes().as_slice(),
+            &[0; 4]
+        );
+        assert_eq!(
+            <StackByteArray<4> as NewByteArray<4>>::new_byte_array().as_slice(),
+            &[0; 4]
+        );
     }
 
     #[test]
-    fn test_vec_as_mut_array_out_of_bounds_ok() {
-        let mut vec = vec![1, 2];
-        let _ = <Vec<u8> as MutByteArray<2>>::as_mut_array(&mut vec)[1];
-    }
-
-    #[test]
-    fn vec_generate_preserves_fixed_length() {
+    fn generate_fills_the_whole_fixed_length_array() {
         let vec = <Vec<u8> as NewByteArray<32>>::generate();
         assert_eq!(vec.len(), 32);
+        assert_ne!(vec, vec![0; 32]);
+
+        let array = <[u8; 32] as NewByteArray<32>>::generate();
+        assert_ne!(array, [0; 32]);
+
+        let stack = <StackByteArray<32> as NewByteArray<32>>::generate();
+        assert_ne!(stack, StackByteArray::<32>::new());
+        assert_ne!(stack.as_slice(), array.as_slice());
+    }
+
+    #[test]
+    fn resizable_vec_concat_preserves_prefix_then_data() {
+        let out: Vec<u8> = concat_bytes(b"ab", b"cde");
+        assert_eq!(out, b"abcde");
+
+        let out: Vec<u8> = concat_bytes(b"", b"xyz");
+        assert_eq!(out, b"xyz");
+
+        let out: Vec<u8> = concat_bytes(b"xyz", b"");
+        assert_eq!(out, b"xyz");
+
+        let mut vec = vec![1u8, 2, 3];
+        ResizableBytes::resize(&mut vec, 5, 9);
+        assert_eq!(vec, [1, 2, 3, 9, 9]);
+        ResizableBytes::resize(&mut vec, 1, 0);
+        assert_eq!(vec, [1]);
+    }
+
+    #[test]
+    fn fixed_size_views_over_runtime_buffers_expose_the_prefix() {
+        // Exact length and one byte longer both view the first LENGTH bytes.
+        for len in [3usize, 4] {
+            let data = &SRC[..len];
+            let vec = data.to_vec();
+
+            assert_eq!(<&[u8] as ByteArray<3>>::as_array(&data), &SRC[..3]);
+            assert_eq!(<[u8] as ByteArray<3>>::as_array(data), &SRC[..3]);
+            assert_eq!(<Vec<u8> as ByteArray<3>>::as_array(&vec), &SRC[..3]);
+        }
+
+        assert_eq!(<[u8; 3] as ByteArray<3>>::as_array(&[1, 2, 3]), &[1, 2, 3]);
+        assert_eq!(
+            <StackByteArray<3> as ByteArray<3>>::as_array(&StackByteArray::from([1, 2, 3])),
+            &[1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn mutable_fixed_size_views_write_through_to_the_source() {
+        for len in [3usize, 4] {
+            let mut vec = SRC[..len].to_vec();
+            <Vec<u8> as MutByteArray<3>>::as_mut_array(&mut vec)[1] = 0xaa;
+            assert_eq!(vec[1], 0xaa);
+            assert_eq!(vec[0], SRC[0]);
+            assert_eq!(&vec[2..], &SRC[2..len]);
+
+            let mut backing = [0u8; 4];
+            backing[..len].copy_from_slice(&SRC[..len]);
+            let slice = &mut backing[..len];
+            <[u8] as MutByteArray<3>>::as_mut_array(slice)[2] = 0xbb;
+            assert_eq!(backing[2], 0xbb);
+            assert_eq!(&backing[..2], &SRC[..2]);
+        }
+
+        let mut array = [1u8, 2, 3];
+        <[u8; 3] as MutByteArray<3>>::as_mut_array(&mut array)[0] = 7;
+        assert_eq!(array, [7, 2, 3]);
+
+        let mut stack = StackByteArray::from([1u8, 2, 3]);
+        <StackByteArray<3> as MutByteArray<3>>::as_mut_array(&mut stack)[0] = 7;
+        assert_eq!(stack.as_slice(), &[7, 2, 3]);
+    }
+
+    #[test]
+    fn fixed_size_views_over_short_runtime_buffers_panic() {
+        let short = [1u8, 2];
+        let slice: &[u8] = &short;
+        let mut vec = short.to_vec();
+        let mut backing = short;
+
+        assert!(catch_unwind(|| <&[u8] as ByteArray<3>>::as_array(&slice)[0]).is_err());
+        assert!(catch_unwind(|| <[u8] as ByteArray<3>>::as_array(slice)[0]).is_err());
+        assert!(catch_unwind(|| <Vec<u8> as ByteArray<3>>::as_array(&vec)[0]).is_err());
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                <Vec<u8> as MutByteArray<3>>::as_mut_array(&mut vec)[0] = 0
+            }))
+            .is_err()
+        );
+        assert!(
+            catch_unwind(AssertUnwindSafe(|| {
+                <[u8] as MutByteArray<3>>::as_mut_array(&mut backing[..])[0] = 0
+            }))
+            .is_err()
+        );
+
+        // The source bytes are untouched by the rejected views.
+        assert_eq!(vec, short);
+        assert_eq!(backing, short);
+    }
+
+    #[test]
+    fn stack_byte_array_try_from_requires_exact_length() {
+        let ok = StackByteArray::<3>::try_from(&SRC[..3]).expect("exact length");
+        assert_eq!(ok.as_slice(), &SRC[..3]);
+
+        assert_exact_slice_length_error(StackByteArray::<3>::try_from(&SRC[..2]), 2, 3);
+        assert_exact_slice_length_error(StackByteArray::<3>::try_from(&SRC[..4]), 4, 3);
+        assert_exact_slice_length_error(StackByteArray::<3>::try_from(&[][..]), 0, 3);
+        assert_exact_slice_length_error(StackByteArray::<0>::try_from(&SRC[..1]), 1, 0);
+    }
+
+    #[test]
+    fn stack_byte_array_conversions_and_views() {
+        let from_owned = StackByteArray::from(SRC);
+        let from_ref = StackByteArray::from(&SRC);
+        assert_eq!(from_owned, from_ref);
+        assert_eq!(AsRef::<[u8; 6]>::as_ref(&from_owned), &SRC);
+        assert_eq!(AsRef::<[u8]>::as_ref(&from_owned), &SRC);
+        assert_eq!(&*from_owned, &SRC);
+        assert_eq!(from_owned[1], SRC[1]);
+        assert_eq!(&from_owned[1..3], &SRC[1..3]);
+        assert_eq!(&from_owned[..], &SRC);
+        assert_eq!(&from_owned[4..], &SRC[4..]);
+
+        let mut mutated = from_owned.clone();
+        AsMut::<[u8; 6]>::as_mut(&mut mutated)[0] = 1;
+        AsMut::<[u8]>::as_mut(&mut mutated)[1] = 2;
+        mutated[2] = 3;
+        mutated[3..5].copy_from_slice(&[4, 5]);
+        (*mutated)[5] = 6;
+        assert_eq!(mutated.as_slice(), &[1, 2, 3, 4, 5, 6]);
+        assert_ne!(mutated, from_owned);
+        assert_eq!(from_owned.as_slice(), &SRC);
+    }
+
+    #[test]
+    fn stack_byte_array_equality_is_by_value() {
+        let a = StackByteArray::from([1u8, 2, 3, 4]);
+        let mut b = StackByteArray::from([1u8, 2, 3, 4]);
+        assert_eq!(a, b);
+        b[3] = 5;
+        assert_ne!(a, b);
+        assert_ne!(StackByteArray::<4>::new(), a);
+        assert_eq!(StackByteArray::<0>::new(), StackByteArray::<0>::new());
+    }
+
+    #[test]
+    fn stack_byte_array_zeroize_clears_contents() {
+        let mut bytes = StackByteArray::from([0xabu8; 8]);
+        bytes.zeroize();
+        assert_eq!(bytes.as_slice(), &[0; 8]);
     }
 
     #[test]

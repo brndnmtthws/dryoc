@@ -23,6 +23,10 @@ mod chacha20_neon;
 use chacha20_neon as vector;
 #[cfg(target_arch = "x86_64")]
 mod chacha20_x86_64;
+/// The scalar block function, as an oracle for the tests of the
+/// constructions built on this cipher.
+#[cfg(test)]
+pub(crate) use chacha20_soft::block as scalar_block;
 pub(crate) use chacha20_soft::rounds;
 #[cfg(target_arch = "x86_64")]
 use chacha20_x86_64 as vector;
@@ -152,11 +156,14 @@ trait Kernel: Copy + std::fmt::Debug {
 /// callers work in whole blocks, so no partial-block continuity is kept.
 pub(crate) struct ChaCha20 {
     /// ChaCha20 input words; words 12 and 13 hold the current 64-bit block
-    /// counter (low word first). In the IETF layout word 13 is the first
-    /// nonce word, which a counter carry alters exactly as libsodium's
-    /// reference implementation does. Callers bound message lengths, so the
-    /// counter is only ever advanced past the final block onto a position
-    /// that is discarded, never read back.
+    /// counter (low word first) in both layouts. In the IETF layout word 13
+    /// is the first nonce word, which a counter carry alters exactly as
+    /// libsodium's `chacha20_ietf_ext` primitive (`chacha20_ref.c`) does.
+    /// Callers bound message lengths so the carry is never reached: the IETF
+    /// AEAD's `2^38 - 64` bound stops at the final block, and the counter is
+    /// only ever advanced past it onto a position that is discarded, never
+    /// read back. XChaCha20 uses the legacy layout after HChaCha20 (see
+    /// `xchacha20_stream`), so its 64-bit counter is the whole contract.
     state: [u32; 16],
 }
 
@@ -418,7 +425,10 @@ impl ChaCha20 {
                         input,
                         output,
                         None,
-                        (self.counter() + kernel.blocks() as u64, &mut partial),
+                        (
+                            self.counter().wrapping_add(kernel.blocks() as u64),
+                            &mut partial,
+                        ),
                     );
                 } else {
                     kernel.xor_chunk(
@@ -695,6 +705,137 @@ mod tests {
                 assert_eq!(actual, expected, "legacy, len {len}");
             }
         }
+
+        /// libsodium's keystream for the IETF layout positioned at `counter`
+        /// past the 32-bit boundary. `crypto_stream_chacha20_ietf_xor_ic`
+        /// itself aborts (`sodium_misuse`) when `counter + blocks` exceeds
+        /// `2^32`, so the carry into the first nonce word is checked through
+        /// the legacy function, whose 64-bit counter occupies exactly those
+        /// two words: legacy `(nonce[4..], counter | nonce_word_0 << 32)`.
+        fn sodium_ietf_carrying(key: &[u8; 32], nonce: &[u8; 12], counter: u32, data: &mut [u8]) {
+            let start = u64::from(counter) | (u64::from(load_u32_le(&nonce[..4])) << 32);
+            sodium_legacy(key, nonce[4..].try_into().unwrap(), start, data);
+        }
+
+        /// Both layouts across their counter wraps against libsodium: legacy
+        /// from 0, `u32::MAX` (carry into word 13) and `u64::MAX` (wrap to
+        /// 0); IETF from `u32::MAX`, with a plain and an all-`ff` nonce (so
+        /// the packed counter passes `u64::MAX`). Past its final block the
+        /// IETF layout is checked against libsodium's internal
+        /// `chacha20_ietf_ext` primitive, which carries word 12 into word 13
+        /// (`chacha20_ref.c`); no public dryoc API reaches that carry (the
+        /// IETF AEAD's `2^38 - 64` bound stops at the final block), so this
+        /// pins the shared 64-bit driver, not a public contract. The final
+        /// block itself is also checked against the public
+        /// `crypto_stream_chacha20_ietf_xor_ic` (the last position it accepts
+        /// before `sodium_misuse`).
+        #[test]
+        fn test_counter_wraps_match_libsodium() {
+            let key: [u8; 32] = std::array::from_fn(|i| (i * 11 + 3) as u8);
+            let legacy_nonce: [u8; 8] = std::array::from_fn(|i| (i * 17 + 9) as u8);
+            let lens = [1usize, 64, 65, 128, 129, 192, 193, 640, 641, 4096 + 3];
+            for start in [0u64, u64::from(u32::MAX), u64::MAX] {
+                for len in lens {
+                    let plaintext = pattern(len);
+                    let mut expected = plaintext.clone();
+                    sodium_legacy(&key, &legacy_nonce, start, &mut expected);
+                    let mut actual = plaintext.clone();
+                    let mut cipher = ChaCha20::legacy(&key, &legacy_nonce, start);
+                    cipher.apply_keystream(&mut actual);
+                    assert_eq!(actual, expected, "legacy from {start}, len {len}");
+                    assert_eq!(
+                        cipher.counter(),
+                        start.wrapping_add(len.div_ceil(64) as u64),
+                        "legacy counter from {start}, len {len}"
+                    );
+                }
+            }
+            for nonce in [
+                std::array::from_fn::<u8, 12, _>(|i| (i * 13 + 5) as u8),
+                [0xffu8; 12],
+            ] {
+                for len in lens {
+                    let plaintext = pattern(len);
+                    let mut expected = plaintext.clone();
+                    sodium_ietf_carrying(&key, &nonce, u32::MAX, &mut expected);
+                    if len <= 64 {
+                        let mut ietf = plaintext.clone();
+                        sodium_ietf(&key, &nonce, u32::MAX, &mut ietf);
+                        assert_eq!(ietf, expected, "libsodium ietf vs legacy, len {len}");
+                    }
+                    let mut actual = vec![0u8; len];
+                    let mut cipher = ChaCha20::ietf(&key, &nonce, u32::MAX);
+                    cipher.apply_keystream_b2b(&plaintext, &mut actual);
+                    assert_eq!(actual, expected, "ietf nonce {nonce:02x?}, len {len}");
+                    let start = u64::from(u32::MAX) | (u64::from(load_u32_le(&nonce[..4])) << 32);
+                    assert_eq!(
+                        cipher.counter(),
+                        start.wrapping_add(len.div_ceil(64) as u64),
+                        "ietf counter nonce {nonce:02x?}, len {len}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Fixed legacy-layout keystream: RFC 8439 A.1 vectors #1 and #2 (zero
+    /// key and nonce, blocks 0 and 1, where both layouts coincide), then two
+    /// blocks from `u32::MAX` and from `u64::MAX` as produced by libsodium's
+    /// `crypto_stream_chacha20_xor_ic` for key `00..1f` and nonce
+    /// `0000000000000002`.
+    #[test]
+    fn test_legacy_keystream_known_answers() {
+        let vectors: [([u8; 32], [u8; 8], u64, &str); 3] = [
+            (
+                [0u8; 32],
+                [0u8; 8],
+                0,
+                concat!(
+                    "76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7",
+                    "da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",
+                    "9f07e7be5551387a98ba977c732d080dcb0f29a048e3656912c6533e32ee7aed",
+                    "29b721769ce64e43d57133b074d839d531ed1f28510afb45ace10a1f4b794d6f",
+                ),
+            ),
+            (
+                std::array::from_fn(|i| i as u8),
+                [0, 0, 0, 0, 0, 0, 0, 2],
+                u64::from(u32::MAX),
+                concat!(
+                    "36f3a4a53e1de56d413c81b785ebfb49875b1d31c10a83523c3db1652d95e0c6",
+                    "72aca60c51443934a3c2102d80233b5b35096269aba63b6d1416a697a40e0c51",
+                    "5deb945a50cf0c407fa1dde08ff12d97ae94412641d731eb750ce30ea92c587d",
+                    "253072746ab78e16af0e18d5e3e18cc7f55fb26299a7fcbd8dad4606ed731de7",
+                ),
+            ),
+            (
+                std::array::from_fn(|i| i as u8),
+                [0, 0, 0, 0, 0, 0, 0, 2],
+                u64::MAX,
+                concat!(
+                    "f3195589f5e2624bf4108275a1e213a3f08b2c735ffbab6fa1949c5e0498e055",
+                    "d9d56336aac551ff23f64d6cd332dcde7a89c4edd2924aa608b5afaf6c995760",
+                    "129d17a79b52f1b2be1c6d8dfcc83b501998267a2ebf61a5d88866db84806aaf",
+                    "e566443ba12f8a725e8776210f4a56d10f9ed7a751f92fa26878f90f3defcce7",
+                ),
+            ),
+        ];
+        for (key, nonce, start, expected) in vectors {
+            let expected = hex(expected);
+            let mut keystream = [0u8; 128];
+            let mut cipher = ChaCha20::legacy(&key, &nonce, start);
+            cipher.apply_keystream(&mut keystream);
+            assert_eq!(keystream.to_vec(), expected, "one call from {start}");
+            assert_eq!(cipher.counter(), start.wrapping_add(2));
+
+            // Block by block through the scalar block function.
+            let mut block = [0u8; 64];
+            let cipher = ChaCha20::legacy(&key, &nonce, start);
+            chacha20_soft::block(&cipher.state, start, &mut block);
+            assert_eq!(block.to_vec(), expected[..64], "block {start}");
+            chacha20_soft::block(&cipher.state, start.wrapping_add(1), &mut block);
+            assert_eq!(block.to_vec(), expected[64..], "block {start} + 1");
+        }
     }
 
     #[cfg(dryoc_stream_kernel)]
@@ -711,12 +852,12 @@ mod tests {
             kernels
         }
 
-        /// Keystream for blocks `counter..` computed with the scalar block
-        /// function only, XORed into `data`.
+        /// Keystream for blocks `counter..` (wrapping) computed with the
+        /// scalar block function only, XORed into `data`.
         fn scalar_xor(state: &[u32; 16], counter: u64, data: &mut [u8]) {
             let mut block = [0u8; 64];
             for (i, chunk) in data.chunks_mut(64).enumerate() {
-                chacha20_soft::block(state, counter + i as u64, &mut block);
+                chacha20_soft::block(state, counter.wrapping_add(i as u64), &mut block);
                 for (byte, ks) in chunk.iter_mut().zip(block) {
                     *byte ^= ks;
                 }
@@ -984,6 +1125,165 @@ mod tests {
                     (&expected, forced.counter()),
                     "b2b, len {len}"
                 );
+            }
+        }
+
+        /// Which state words hold the counter: the legacy layout's 64-bit
+        /// counter, or the IETF layout's 32-bit counter whose carry lands in
+        /// the first nonce word (word 13) as in libsodium's reference
+        /// implementation, so both are positioned by one packed 64-bit value.
+        #[derive(Clone, Copy, Debug)]
+        enum Layout {
+            Legacy,
+            Ietf,
+        }
+
+        impl Layout {
+            fn at(self, start: u64) -> ChaCha20 {
+                let key = [0x5au8; 32];
+                match self {
+                    Layout::Legacy => ChaCha20::legacy(&key, &[0x66u8; 8], start),
+                    Layout::Ietf => {
+                        let mut nonce = [0x77u8; 12];
+                        nonce[..4].copy_from_slice(&((start >> 32) as u32).to_le_bytes());
+                        ChaCha20::ietf(&key, &nonce, start as u32)
+                    }
+                }
+            }
+        }
+
+        /// Start counters for a kernel of `blocks` blocks per run whose runs
+        /// cross the 32-bit boundary (the carry into word 13) and the 64-bit
+        /// boundary (the wrap to 0): inside the second run, inside the first
+        /// run, and at the first lane of a run.
+        fn wrap_starts(blocks: u64) -> [u64; 6] {
+            let low = u64::from(u32::MAX);
+            [
+                low - (blocks + 1),
+                low - 1,
+                low,
+                u64::MAX - (blocks + 1),
+                u64::MAX - blocks,
+                u64::MAX - 1,
+            ]
+        }
+
+        /// The driver forced to `kernel` on `layout` from counter `start`
+        /// over `len` bytes must XOR exactly the scalar keystream of blocks
+        /// `start..` (wrapping) and land on `start + ceil(len / 64)`: one
+        /// shot in place and buffer to buffer, split at block boundaries so
+        /// the wrap falls in either call, and with a head block at `start`
+        /// followed by the data from `start + 1`.
+        fn check_driver_across_wrap(
+            kernel: Option<vector::Kernel>,
+            layout: Layout,
+            start: u64,
+            len: usize,
+        ) {
+            let plaintext = pattern(len);
+            let reference = layout.at(start);
+            let mut expected = plaintext.clone();
+            scalar_xor(&reference.state, start, &mut expected);
+            let blocks = len.div_ceil(64) as u64;
+            let end = start.wrapping_add(blocks);
+            let ctx = format!("{kernel:?} {layout:?} from {start:#x}, len {len}");
+
+            let mut cipher = layout.at(start);
+            let mut actual = plaintext.clone();
+            cipher.apply_using(kernel, InPlace(&mut actual));
+            assert_eq!(actual, expected, "{ctx}, in place");
+            assert_eq!(cipher.counter(), end, "{ctx}, in place counter");
+
+            let mut cipher = layout.at(start);
+            let mut actual = vec![0u8; len];
+            cipher.apply_using(
+                kernel,
+                BufferToBuffer {
+                    input: &plaintext,
+                    output: &mut actual,
+                },
+            );
+            assert_eq!(actual, expected, "{ctx}, b2b");
+            assert_eq!(cipher.counter(), end, "{ctx}, b2b counter");
+
+            let mut splits = vec![64, len / 128 * 64];
+            if let Some(kernel) = kernel {
+                splits.extend([kernel.chunk() - 64, kernel.chunk()]);
+            }
+            for split in splits.into_iter().filter(|&split| split > 0 && split < len) {
+                let mut cipher = layout.at(start);
+                let mut actual = plaintext.clone();
+                cipher.apply_using(kernel, InPlace(&mut actual[..split]));
+                cipher.apply_using(kernel, InPlace(&mut actual[split..]));
+                assert_eq!(actual, expected, "{ctx}, split {split}");
+                assert_eq!(cipher.counter(), end, "{ctx}, split {split} counter");
+            }
+
+            let mut expected_head = [0u8; 64];
+            chacha20_soft::block(&reference.state, start, &mut expected_head);
+            let mut expected_data = plaintext.clone();
+            scalar_xor(&reference.state, start.wrapping_add(1), &mut expected_data);
+            let head_end = start.wrapping_add(1 + blocks);
+
+            let mut cipher = layout.at(start);
+            let mut head = [0u8; 64];
+            let mut actual = plaintext.clone();
+            cipher.apply_with_head_using(kernel, &mut head, InPlace(&mut actual));
+            assert_eq!(head, expected_head, "{ctx}, in place head");
+            assert_eq!(actual, expected_data, "{ctx}, in place after head");
+            assert_eq!(cipher.counter(), head_end, "{ctx}, in place head counter");
+
+            let mut cipher = layout.at(start);
+            let mut head = [0u8; 64];
+            let mut actual = vec![0u8; len];
+            cipher.apply_with_head_using(
+                kernel,
+                &mut head,
+                BufferToBuffer {
+                    input: &plaintext,
+                    output: &mut actual,
+                },
+            );
+            assert_eq!(head, expected_head, "{ctx}, b2b head");
+            assert_eq!(actual, expected_data, "{ctx}, b2b after head");
+            assert_eq!(cipher.counter(), head_end, "{ctx}, b2b head counter");
+        }
+
+        /// Every kernel (and the scalar path) on both layouts, from every
+        /// start in [`wrap_starts`], over the lengths around the kernel
+        /// thresholds up to two chunks and a block.
+        #[test]
+        fn test_driver_matches_scalar_keystream_across_counter_wraps() {
+            let max_chunk = kernels().iter().map(|k| k.chunk()).max().unwrap_or(64);
+            let lens: Vec<usize> = threshold_lens()
+                .into_iter()
+                .filter(|&len| len <= 2 * max_chunk + 65)
+                .collect();
+            for kernel in drivers() {
+                let blocks = kernel.map_or(1, |kernel| kernel.blocks() as u64);
+                for start in wrap_starts(blocks) {
+                    for layout in [Layout::Legacy, Layout::Ietf] {
+                        for &len in &lens {
+                            check_driver_across_wrap(kernel, layout, start, len);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Every data length from one byte to a chunk and a block, for every
+        /// kernel on both layouts, from the starts that put the 32-bit and
+        /// 64-bit wraps inside the first run (second block).
+        #[test]
+        fn test_driver_every_length_to_a_chunk_across_counter_wraps() {
+            for kernel in kernels() {
+                for start in [u64::from(u32::MAX) - 1, u64::MAX - 1] {
+                    for layout in [Layout::Legacy, Layout::Ietf] {
+                        for len in 1..=kernel.chunk() + 64 {
+                            check_driver_across_wrap(Some(kernel), layout, start, len);
+                        }
+                    }
+                }
             }
         }
     }

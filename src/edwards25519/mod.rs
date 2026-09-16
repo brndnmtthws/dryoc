@@ -682,7 +682,34 @@ mod tests {
         assert_eq!(d.mul(&m121666).to_bytes(), m121665.neg().to_bytes());
     }
 
-    /// Every table entry is the basepoint multiple it claims to be.
+    /// The affine point a Niels entry encodes: `y = (P + M) / 2`,
+    /// `x = (P - M) / 2` for `P = y + x`, `M = y - x`; also checks that
+    /// `xy2d` is `2 d x y` for that `(x, y)`.
+    fn niels_to_point(entry: &Niels) -> Point {
+        // 2^-1 = (p + 1) / 2.
+        let two_inv = Fe::from_bytes(&{
+            let mut half = [0u8; 32];
+            half[0] = 0xf7;
+            half[1..31].fill(0xff);
+            half[31] = 0x3f;
+            half
+        });
+        let y = entry.y_plus_x.add(&entry.y_minus_x).mul(&two_inv);
+        let x = entry.y_plus_x.sub(&entry.y_minus_x).mul(&two_inv);
+        assert_eq!(
+            entry.xy2d.to_bytes(),
+            x.mul(&y).mul(&EDWARDS_D2).to_bytes(),
+            "xy2d"
+        );
+        Point {
+            x,
+            y,
+            z: Fe::ONE,
+            t: x.mul(&y),
+        }
+    }
+
+    /// Every fixed-base table entry is the basepoint multiple it claims to be.
     #[test]
     fn test_table_matches_dalek() {
         let mut scale = Scalar::ONE;
@@ -691,32 +718,26 @@ mod tests {
                 let expected = (ED25519_BASEPOINT_TABLE * &(scale * Scalar::from(j as u64 + 1)))
                     .compress()
                     .to_bytes();
-                // Recover (x, y) from the Niels form: y = (P + M) / 2, x = (P -
-                // M) / 2.
-                let two_inv = Fe::from_bytes(&{
-                    let mut half = [0u8; 32];
-                    half[0] = 0xf7;
-                    half[1..31].fill(0xff);
-                    half[31] = 0x3f;
-                    half
-                });
-                let y = entry.y_plus_x.add(&entry.y_minus_x).mul(&two_inv);
-                let x = entry.y_plus_x.sub(&entry.y_minus_x).mul(&two_inv);
-                let point = Point {
-                    x,
-                    y,
-                    z: Fe::ONE,
-                    t: x.mul(&y),
-                };
-                assert_eq!(point.compress(), expected);
-                assert_eq!(
-                    entry.xy2d.to_bytes(),
-                    x.mul(&y).mul(&EDWARDS_D2).to_bytes(),
-                    "xy2d"
-                );
+                assert_eq!(niels_to_point(entry).compress(), expected);
             }
             scale *= Scalar::from(256u64);
         }
+    }
+
+    /// Every odd-multiple entry used by the double-scalar multiplication is
+    /// `[2 j + 1] B`.
+    #[test]
+    fn test_odd_table_matches_dalek() {
+        for (j, entry) in TABLES.odd.iter().enumerate() {
+            let expected = (ED25519_BASEPOINT_TABLE * &Scalar::from(2 * j as u64 + 1))
+                .compress()
+                .to_bytes();
+            assert_eq!(niels_to_point(entry).compress(), expected, "odd {j}");
+        }
+        assert_eq!(
+            niels_to_point(&TABLES.odd[0]).compress(),
+            niels_to_point(&TABLES.base[0][0]).compress()
+        );
     }
 
     /// `[s]B` agrees with dalek for random reduced scalars, clamped-style
@@ -772,6 +793,198 @@ mod tests {
         assert_eq!(
             mul_base(&a).compress(),
             hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+        );
+    }
+
+    /// Unreduced scalars at the top of the `< 2^255` range and radix-16
+    /// carry patterns (every digit 8, alternating carries, a carry into the
+    /// top nibble): `2^255 - 1`, `p`, `L - 1`, `L`, `L + 1`, `2^254` and the
+    /// repeated-byte patterns, against dalek's reduction modulo `L`.
+    #[test]
+    fn test_mul_base_scalar_boundaries() {
+        let mut scalars: Vec<[u8; 32]> = vec![
+            hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+            hex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
+            hex("ecd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"),
+            GROUP_ORDER,
+            hex("eed3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"),
+            hex("0000000000000000000000000000000000000000000000000000000000000040"),
+            hex("0800000000000000000000000000000000000000000000000000000000000000"),
+            hex("0000000000000000000000000000000000000000000000000000000000000008"),
+        ];
+        for (fill, top) in [
+            (0x88u8, 0x78u8),
+            (0x78, 0x78),
+            (0xf8, 0x7f),
+            (0x08, 0x08),
+            (0x80, 0x78),
+            (0x87, 0x78),
+            (0xff, 0x0f),
+            (0x00, 0x7f),
+        ] {
+            let mut k = [fill; 32];
+            k[31] = top;
+            scalars.push(k);
+        }
+        for k in scalars {
+            assert!(k[31] < 0x80);
+            let expected = ED25519_BASEPOINT_TABLE * &Scalar::from_bytes_mod_order(k);
+            let p = mul_base(&k);
+            assert_eq!(p.compress(), expected.compress().to_bytes(), "{k:02x?}");
+            assert_eq!(
+                p.to_montgomery(),
+                expected.to_montgomery().to_bytes(),
+                "{k:02x?}"
+            );
+        }
+    }
+
+    /// `add_digits` adds `da * A + db * B` for every NAF digit pair the
+    /// double-scalar multiplication can produce (odd `da` in `-15..=15`, odd
+    /// `db` in `-127..=127`, and zeros), checking the odd-multiple cache, the
+    /// negation branches and every `TABLES.odd` entry in use.
+    #[test]
+    fn test_add_digits_matches_dalek() {
+        use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
+        use curve25519_dalek::edwards::EdwardsPoint;
+
+        let mut rng = XorShift64::new(0x7137_4491_23ef_65cd);
+        let a_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
+        let q_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
+        let dalek_a: EdwardsPoint = ED25519_BASEPOINT_TABLE * &a_scalar;
+        let dalek_q: EdwardsPoint = ED25519_BASEPOINT_TABLE * &q_scalar;
+        let a = Point::decompress(&dalek_a.compress().to_bytes()).unwrap();
+        let q = Point::decompress(&dalek_q.compress().to_bytes()).unwrap();
+        let odd = a.odd_multiples_niels();
+
+        let scale = |d: i8| {
+            let magnitude = Scalar::from(d.unsigned_abs());
+            if d < 0 { -magnitude } else { magnitude }
+        };
+        let digits = |width: i8| (-width..=width).filter(|d| d % 2 != 0).chain([0]);
+        for da in digits(15) {
+            for db in digits(127) {
+                let expected = dalek_q + dalek_a * scale(da) + ED25519_BASEPOINT_POINT * scale(db);
+                let actual = Point::add_digits(q, &odd, da, db);
+                assert_eq!(
+                    actual.compress(),
+                    expected.compress().to_bytes(),
+                    "da {da}, db {db}"
+                );
+            }
+        }
+    }
+
+    /// Doubling, negation, cached and fixed-base addition and the
+    /// double-scalar multiplication agree with dalek on every eight-torsion
+    /// point and on mixed-order points, including the scalar pair `(0, 0)`
+    /// and scalars at the top of the range on a prime-order point.
+    #[test]
+    fn test_torsion_and_mixed_order_operations_match_dalek() {
+        use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+        use curve25519_dalek::edwards::EdwardsPoint;
+        use curve25519_dalek::traits::IsIdentity;
+
+        let mut rng = XorShift64::new(0x2b8c_5fa1_9d4e_7301);
+        let mut rnd_scalar = || Scalar::from_bytes_mod_order(rng.next_bytes32());
+        let prime_order: EdwardsPoint = ED25519_BASEPOINT_TABLE * &rnd_scalar();
+        let mut cases: Vec<EdwardsPoint> = EIGHT_TORSION.to_vec();
+        cases.extend(EIGHT_TORSION.iter().map(|t| prime_order + t));
+        let ours = |p: &EdwardsPoint| Point::decompress(&p.compress().to_bytes()).unwrap();
+        let encoded = |p: &EdwardsPoint| p.compress().to_bytes();
+
+        let scalar_pairs: Vec<(Scalar, Scalar)> = {
+            let mut pairs = vec![
+                (Scalar::ZERO, Scalar::ZERO),
+                (Scalar::ONE, Scalar::ZERO),
+                (Scalar::ZERO, Scalar::ONE),
+                (Scalar::from(7u64), Scalar::from(3u64)),
+                (Scalar::from(8u64), Scalar::ZERO),
+                (Scalar::ZERO - Scalar::ONE, Scalar::ZERO - Scalar::ONE),
+            ];
+            pairs.push((rnd_scalar(), rnd_scalar()));
+            pairs
+        };
+
+        for dalek_point in &cases {
+            let point = ours(dalek_point);
+            let label = encoded(dalek_point);
+            assert_eq!(point.compress(), label);
+            assert_eq!(
+                point.neg().compress(),
+                encoded(&-dalek_point),
+                "neg {label:02x?}"
+            );
+            assert_eq!(
+                point.double().compress(),
+                encoded(&(dalek_point + dalek_point)),
+                "double {label:02x?}"
+            );
+            assert_eq!(
+                point.add_niels(&TABLES.odd[0]).compress(),
+                encoded(&(dalek_point + ED25519_BASEPOINT_POINT)),
+                "add B {label:02x?}"
+            );
+            for other in &cases {
+                assert_eq!(
+                    point
+                        .add_projective_niels(&ours(other).to_projective_niels())
+                        .compress(),
+                    encoded(&(dalek_point + other)),
+                    "add {label:02x?} + {:02x?}",
+                    encoded(other)
+                );
+            }
+            for (a, b) in &scalar_pairs {
+                let expected = EdwardsPoint::vartime_double_scalar_mul_basepoint(a, dalek_point, b);
+                let actual =
+                    point.double_scalar_mul_basepoint_vartime(&a.to_bytes(), &b.to_bytes());
+                assert_eq!(
+                    actual.compress(),
+                    expected.compress().to_bytes(),
+                    "straus {label:02x?}, a {:02x?}, b {:02x?}",
+                    a.to_bytes(),
+                    b.to_bytes()
+                );
+                assert_eq!(actual.is_identity(), expected.is_identity());
+            }
+        }
+
+        // Scalars at the top of the accepted range on a prime-order point,
+        // where reduction modulo L does not change the result: 2^255 - 1,
+        // L, L - 1, and the (0, 0) pair.
+        let point = ours(&prime_order);
+        let top = hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f");
+        let l_minus_1 = (Scalar::ZERO - Scalar::ONE).to_bytes();
+        for (a, b) in [
+            (top, top),
+            (GROUP_ORDER, GROUP_ORDER),
+            (top, [0; 32]),
+            ([0; 32], top),
+            (l_minus_1, GROUP_ORDER),
+            ([0; 32], [0; 32]),
+        ] {
+            let expected = EdwardsPoint::vartime_double_scalar_mul_basepoint(
+                &Scalar::from_bytes_mod_order(a),
+                &prime_order,
+                &Scalar::from_bytes_mod_order(b),
+            );
+            let actual = point.double_scalar_mul_basepoint_vartime(&a, &b);
+            assert_eq!(
+                actual.compress(),
+                expected.compress().to_bytes(),
+                "a {a:02x?}, b {b:02x?}"
+            );
+        }
+        assert!(
+            point
+                .double_scalar_mul_basepoint_vartime(&[0; 32], &[0; 32])
+                .is_identity()
+        );
+        assert!(
+            point
+                .double_scalar_mul_basepoint_vartime(&GROUP_ORDER, &GROUP_ORDER)
+                .is_identity()
         );
     }
 

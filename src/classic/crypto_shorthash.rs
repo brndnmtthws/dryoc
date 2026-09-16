@@ -57,31 +57,45 @@ pub fn crypto_shorthash(output: &mut Hash, input: &[u8], key: &Key) {
     siphash24(output, input, key)
 }
 
-#[cfg(all(test, dryoc_native_tests))]
+#[cfg(test)]
 mod tests {
-    use rand::TryRng;
-
     use super::*;
 
+    /// The SipHash-2-4 reference vectors (key `00..0f`, message `00..n-1`)
+    /// at the word boundaries: 0, 7, 8, 9, 15 and 16 bytes.
     #[test]
-    fn test_shorthash() {
-        use rand::rngs::SysRng;
+    fn test_shorthash_reference_vectors() {
+        let key: Key = std::array::from_fn(|i| i as u8);
+        for (len, expected) in [
+            (0usize, [0x31, 0x0e, 0x0e, 0xdd, 0x47, 0xdb, 0x6f, 0x72]),
+            (7, [0x37, 0xd1, 0x01, 0x8b, 0xf5, 0x00, 0x02, 0xab]),
+            (8, [0x62, 0x24, 0x93, 0x9a, 0x79, 0xf5, 0xf5, 0x93]),
+            (9, [0xb0, 0xe4, 0xa9, 0x0b, 0xdf, 0x82, 0x00, 0x9e]),
+            (15, [0xe5, 0x45, 0xbe, 0x49, 0x61, 0xca, 0x29, 0xa1]),
+            (16, [0xdb, 0x9b, 0xc2, 0x57, 0x7f, 0xcc, 0x2a, 0x3f]),
+        ] {
+            let input: Vec<u8> = (0..len as u8).collect();
+            let mut output = Hash::default();
+            crypto_shorthash(&mut output, &input, &key);
+            assert_eq!(output, expected, "len {len}");
+        }
+    }
+
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_shorthash_matches_libsodium() {
         use sodiumoxide::crypto::shorthash;
 
-        for _ in 0..20 {
-            let key = crypto_shorthash_keygen();
-            let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 69) as usize];
-            copy_randombytes(&mut input);
+        let key: Key = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
+        for len in [0usize, 1, 7, 8, 9, 63, 64, 65] {
+            let input: Vec<u8> = (0..len as u32).map(|i| (i * 31 % 251) as u8).collect();
             let mut output = Hash::default();
-
             crypto_shorthash(&mut output, &input, &key);
-
             let so_output = shorthash::shorthash(
                 &input,
                 &shorthash::Key::from_slice(&key).expect("so key failed"),
             );
-
-            assert_eq!(output, so_output.0);
+            assert_eq!(output, so_output.0, "len {len}");
         }
     }
 }

@@ -341,3 +341,148 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod counter_tests {
+    use super::increment_counter;
+
+    /// The 128-bit byte counter: the low word wraps and carries exactly one
+    /// into the high word, only when it overflows (RFC 7693 §2.3 `t`).
+    #[test]
+    fn test_increment_counter_carries_into_high_word() {
+        let mut t = [u64::MAX - 64, 0];
+        increment_counter(&mut t, 64);
+        assert_eq!(
+            t,
+            [u64::MAX, 0],
+            "filling the low word exactly does not carry"
+        );
+        increment_counter(&mut t, 1);
+        assert_eq!(t, [0, 1], "one more wraps the low word and carries");
+        increment_counter(&mut t, super::BLOCKBYTES);
+        assert_eq!(t, [super::BLOCKBYTES as u64, 1]);
+
+        let mut t = [u64::MAX - 64, 7];
+        increment_counter(&mut t, super::BLOCKBYTES);
+        assert_eq!(t, [63, 8], "a block straddling the wrap carries once");
+
+        let mut t = [u64::MAX, u64::MAX];
+        increment_counter(&mut t, 1);
+        assert_eq!(t, [0, 0], "the full 128-bit counter wraps silently");
+    }
+}
+
+/// The selected backend against libsodium's
+/// `crypto_generichash_blake2b_salt_personal` over every parameter-block field:
+/// output length, key length, salt and personalization, at the block
+/// boundaries.
+#[cfg(all(test, dryoc_native_tests))]
+mod native_tests {
+    use super::*;
+
+    const LENS: [usize; 5] = [0, 127, 128, 129, 256];
+    const OUTLENS: [usize; 6] = [1, 31, 32, 33, 63, 64];
+    const KEYLENS: [usize; 4] = [0, 1, 32, 64];
+
+    fn message(len: usize) -> Vec<u8> {
+        (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()
+    }
+
+    fn libsodium(
+        outlen: usize,
+        message: &[u8],
+        key: Option<&[u8]>,
+        salt: Option<&[u8; SALTBYTES]>,
+        personal: Option<&[u8; PERSONALBYTES]>,
+    ) -> Vec<u8> {
+        let mut out = vec![0u8; outlen];
+        // SAFETY: every pointer is valid for the length passed alongside it
+        // (or null with a zero length for the key; libsodium treats a null
+        // salt or personalization as all zeros).
+        let rc = unsafe {
+            libsodium_sys::crypto_generichash_blake2b_salt_personal(
+                out.as_mut_ptr(),
+                outlen,
+                message.as_ptr(),
+                message.len() as u64,
+                key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                key.map_or(0, <[u8]>::len),
+                salt.map_or(std::ptr::null(), |salt| salt.as_ptr()),
+                personal.map_or(std::ptr::null(), |personal| personal.as_ptr()),
+            )
+        };
+        assert_eq!(rc, 0);
+        out
+    }
+
+    /// `message` through `State`, in one update and cut at `cuts` with an
+    /// empty update after every piece.
+    fn state_paths(
+        outlen: usize,
+        message: &[u8],
+        key: Option<&[u8]>,
+        salt: Option<&[u8; SALTBYTES]>,
+        personal: Option<&[u8; PERSONALBYTES]>,
+        cuts: &[usize],
+    ) -> [Vec<u8>; 2] {
+        let mut one = State::init(outlen as u8, key, salt, personal).expect("init");
+        one.update(message);
+        let mut one_out = vec![0u8; outlen];
+        one.finalize(&mut one_out).expect("finalize");
+
+        let mut chunked = State::init(outlen as u8, key, salt, personal).expect("init");
+        let mut start = 0;
+        for cut in cuts.iter().copied().chain(std::iter::once(message.len())) {
+            let cut = cut.min(message.len()).max(start);
+            chunked.update(&message[start..cut]);
+            chunked.update(&[]);
+            start = cut;
+        }
+        let mut chunked_out = vec![0u8; outlen];
+        chunked.finalize(&mut chunked_out).expect("finalize");
+
+        [one_out, chunked_out]
+    }
+
+    #[test]
+    fn test_parameter_matrix_matches_libsodium() {
+        let key: Vec<u8> = (0..KEYBYTES as u8)
+            .map(|i| i.wrapping_mul(37).wrapping_add(11))
+            .collect();
+        let salt: [u8; SALTBYTES] = std::array::from_fn(|i| 0xa0 + i as u8);
+        let personal: [u8; PERSONALBYTES] = std::array::from_fn(|i| 0x50 + i as u8);
+
+        for len in LENS {
+            let message = message(len);
+            for outlen in OUTLENS {
+                for keylen in KEYLENS {
+                    let key = (keylen > 0).then(|| &key[..keylen]);
+                    for (salt, personal) in [(None, None), (Some(&salt), Some(&personal))] {
+                        let expected = libsodium(outlen, &message, key, salt, personal);
+                        let label = format!(
+                            "len {len}, outlen {outlen}, keylen {keylen}, salted {}",
+                            salt.is_some()
+                        );
+                        for actual in
+                            state_paths(outlen, &message, key, salt, personal, &[1, 128, 129])
+                        {
+                            assert_eq!(actual, expected, "{label}");
+                        }
+                        if salt.is_none() {
+                            let mut actual = vec![0u8; outlen];
+                            hash(&mut actual, &message, key).expect("hash");
+                            assert_eq!(actual, expected, "hash, {label}");
+                        }
+                        if let (0, Some(key), Some(salt), Some(personal)) =
+                            (len, key, salt, personal)
+                        {
+                            let mut actual = vec![0u8; outlen];
+                            hash_key_only(&mut actual, key, salt, personal).expect("keyed");
+                            assert_eq!(actual, expected, "hash_key_only, {label}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
