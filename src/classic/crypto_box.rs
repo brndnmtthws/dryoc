@@ -1,8 +1,12 @@
-//! # Authenticated public-key cryptography functions
+//! # Public-key authenticated encryption
 //!
-//! Implements libsodium's public-key authenticated crypto boxes.
+//! Implements libsodium's `crypto_box_*` functions. A sender encrypts with the
+//! recipient's public key and the sender's secret key. The recipient decrypts
+//! with the sender's public key and the recipient's secret key.
 //!
-//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption).
+//! Nonces are public, but a nonce must never repeat for the same sender and
+//! recipient keypair. See the [libsodium documentation](https://doc.libsodium.org/public-key_cryptography/authenticated_encryption)
+//! for details.
 //!
 //! ## Classic API example
 //!

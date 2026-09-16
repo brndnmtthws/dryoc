@@ -1,14 +1,11 @@
 //! # Key derivation functions
 //!
-//! [`Kdf`] implements libsodium's key derivation functions, based on the
-//! Blake2b hash function.
+//! [`Kdf`] derives separate, context-bound subkeys from one random master key.
+//! It implements libsodium's BLAKE2b-based `crypto_kdf` construction.
 //!
-//! You should use [`Kdf`] when you want to:
-//!
-//! * create many subkeys from a main key, without having to risk leaking the
-//!   main key
-//! * ensure that if a subkey were to become compromised, one could not derive
-//!   the main key
+//! Use [`Kdf`] when an application needs several keys for different purposes.
+//! Assign each purpose a distinct context and subkey ID so that it produces a
+//! different subkey.
 //!
 //! # Rustaceous API example
 //!
@@ -17,8 +14,7 @@
 //! use base64::engine::general_purpose;
 //! use dryoc::kdf::*;
 //!
-//! // Randomly generate a main key and context, using the default stack-allocated
-//! // types
+//! // Generate a random main key with the default stack-allocated type.
 //! let key = StackKdf::generate();
 //! let subkey_id = 0;
 //!
@@ -34,8 +30,8 @@
 //!
 //! ## Additional resources
 //!
-//! * See <https://doc.libsodium.org/key_derivation> for additional details on
-//!   key derivation
+//! * See the [libsodium documentation](https://doc.libsodium.org/key_derivation)
+//!   for more about key derivation
 
 use std::fmt;
 

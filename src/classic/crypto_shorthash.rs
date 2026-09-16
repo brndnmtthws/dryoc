@@ -1,22 +1,17 @@
 //! # Short-input hashing
 //!
-//! This module implements libsodium's short input hashing, based on
-//! SipHash-2-4.
+//! Implements libsodium's SipHash-2-4 function for short inputs. It produces a
+//! compact, keyed hash that can protect hash tables against attacker-chosen
+//! collision patterns.
 //!
-//! You may want to use short input hashing when:
+//! This function is intended for short, keyed inputs. It is not a
+//! general-purpose hash or an encryption primitive. Use
+//! [`crate::classic::crypto_auth`] for message authentication, or
+//! [`crate::classic::crypto_generichash`] for general-purpose hashing.
 //!
-//! * you need to construct hash tables in a fashion that is collision resistant
-//!   (i.e., it's hard for other parties to guess when there may be a hash key
-//!   collision, which could lead to DoS or timing attacks)
-//! * you want to construct probabilistic data structures, such as bloom filters
-//! * you want to perform basic integrity checks on data
-//! * you have relatively short inputs
-//!
-//! The key used with this function should be treated as a secret. If used for
-//! constructing hash tables, it's recommended the table size be a prime number
-//! to ensure all bits from the output are used.
-//!
-//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/hashing/short-input_hashing).
+//! Treat the key as secret and generate it randomly. See the
+//! [libsodium documentation](https://doc.libsodium.org/hashing/short-input_hashing)
+//! for details.
 //!
 //! ## Classic API example
 //!

@@ -1,9 +1,9 @@
-//! # Secret stream functions
+//! # Secret streams
 //!
-//! Implements authenticated encrypted streams as per
-//! <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream>.
-//!
-//! This API is compatible with libsodium's implementation.
+//! Implements libsodium's `crypto_secretstream_xchacha20poly1305_*` functions
+//! for encrypting an ordered sequence of messages with a shared secret key.
+//! See the [libsodium documentation](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+//! for details.
 //!
 //! # Classic API example
 //!

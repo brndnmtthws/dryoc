@@ -4,7 +4,8 @@
 //! key, BLAKE2b acts as a message authentication code (MAC) or pseudorandom
 //! function (PRF); it is not HMAC.
 //!
-//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/hashing/generic_hashing).
+//! See the [libsodium documentation](https://doc.libsodium.org/hashing/generic_hashing)
+//! for details.
 //!
 //! # Classic API example, single-part interface
 //!

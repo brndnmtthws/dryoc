@@ -100,10 +100,10 @@
 //!
 //! ## Additional resources
 //!
-//! * See <https://libsodium.gitbook.io/doc/password_hashing> for additional
-//!   details on password hashing
-//! * Refer to the [protected] module for details on usage with protected
-//!   memory.
+//! * See the [libsodium documentation](https://doc.libsodium.org/password_hashing)
+//!   for more about password hashing
+//! * See the [`protected`] module for examples that keep passwords and keys in
+//!   protected memory
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

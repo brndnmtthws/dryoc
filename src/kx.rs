@@ -1,16 +1,14 @@
 //! # Key exchange functions
 //!
-//! [`Session`] implements libsodium's key exchange functions, which use a
-//! combination of Curve25519, Diffie-Hellman, and Blake2b to generate shared
-//! session keys between two parties who know each other's public keys.
+//! [`Session`] implements libsodium's client/server key-exchange construction.
+//! A client and server use their own secret key and the other party's public
+//! key to derive two shared session keys: one for receiving and one for
+//! sending.
 //!
-//! You should use [`Session`] when you want to:
-//!
-//! * derive shared secrets between two parties
-//! * use public-key cryptography, but do so with another cipher that only
-//!   supports pre-shared secrets
-//! * create a session key or token that can't be used to derive the original
-//!   inputs should it become compromised
+//! Use these session keys with a shared-key encryption API. The exchange does
+//! not encrypt messages by itself. Public keys must be authenticated through a
+//! trusted channel; otherwise an attacker can replace them and sit between the
+//! two parties.
 //!
 //! # Rustaceous API example
 //!
@@ -21,12 +19,12 @@
 //! let client_keypair = KeyPair::generate();
 //! let server_keypair = KeyPair::generate();
 //!
-//! // Compute client session keys, into default stack-allocated byte array
+//! // Compute the client's receive and transmit keys.
 //! let client_session_keys =
 //!     Session::new_client_with_defaults(&client_keypair, &server_keypair.public_key)
 //!         .expect("compute client failed");
 //!
-//! // Compute server session keys, into default stack-allocated byte array
+//! // Compute the server's receive and transmit keys.
 //! let server_session_keys =
 //!     Session::new_server_with_defaults(&server_keypair, &client_keypair.public_key)
 //!         .expect("compute client failed");
@@ -34,16 +32,15 @@
 //! let (client_rx, client_tx) = client_session_keys.into_parts();
 //! let (server_rx, server_tx) = server_session_keys.into_parts();
 //!
-//! // Client Rx should match server Tx keys
+//! // Each transmit key matches the other party's receive key.
 //! assert_eq!(client_rx, server_tx);
-//! // Client Tx should match server Rx keys
 //! assert_eq!(client_tx, server_rx);
 //! ```
 //!
 //! ## Additional resources
 //!
-//! * See <https://doc.libsodium.org/key_exchange> for additional details on key
-//!   exchange
+//! * See the [libsodium documentation](https://doc.libsodium.org/key_exchange)
+//!   for more about key exchange
 
 use std::fmt;
 

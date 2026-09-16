@@ -1,27 +1,18 @@
 //! # Public-key signatures
 //!
-//! This module implements libsodium's public-key signature functions. The
-//! signatures are based on Ed25519 (EdDSA). It provides both a
-//! [single-part](SigningKeyPair::sign) and [multi-part](IncrementalSigner)
-//! interface.
+//! This module provides libsodium-compatible Ed25519 signatures. A signer uses
+//! a secret key to sign a message. Anyone with the corresponding public key can
+//! verify that signature and detect changes to the message. Signatures do not
+//! encrypt the message.
 //!
-//! The single-part interface is convenient for short
-//! messages, such as those small enough to fit in memory. The multi-part
-//! interface may be more appropriate for lengthy messages, those which don't
-//! fit in memory, or those for which the entire message isn't known at once
-//! (i.e., during network communication, or reading a large file).
+//! [`SigningKeyPair::sign`] signs a complete message with Ed25519. Use
+//! [`IncrementalSigner`] when the message is too large to keep in memory or
+//! arrives in parts. The incremental API uses Ed25519ph, so its signatures
+//! cannot be verified by the single-part Ed25519 API, or vice versa.
 //!
-//! The single-part and multi-part variants use slightly different algorithms,
-//! and thus they are not compatible with each other.
-//!
-//! Use this module when you want to:
-//!
-//! * share a message with other parties, and provide a proof that the message
-//!   is authentic
-//! * verify that the message from another party was signed using their secret
-//!   key, without having knowledge of the original secret
-//!
-//! The public key of the signer must be known to the verifier.
+//! The verifier must obtain the signer's public key through a trusted channel.
+//! A signature only proves control of the matching secret key; it does not
+//! establish who owns that key.
 //!
 //! Keep signing and encryption keys separate. Although Ed25519 keys can be
 //! converted to X25519 keys or derived from the same seed, doing so couples two
@@ -86,12 +77,12 @@
 //!
 //! ## Additional resources
 //!
-//! * See <https://libsodium.gitbook.io/doc/public-key_cryptography/public-key_signatures>
-//!   for additional details on public-key signatures
-//! * For secret-key based encryption, see
-//!   [`DryocSecretBox`](crate::dryocsecretbox)
-//! * For stream encryption, see [`DryocStream`](crate::dryocstream)
-//! * See the [protected] mod for an example using the protected memory features
+//! * See the [libsodium documentation](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
+//!   for more about public-key signatures
+//! * For shared-key encryption, see [`DryocSecretBox`](crate::dryocsecretbox)
+//! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
+//! * See the [`protected`] module for examples that store keys in protected
+//!   memory
 
 use std::fmt;
 

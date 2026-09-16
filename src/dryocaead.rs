@@ -1,19 +1,19 @@
 //! # Authenticated encryption with additional data
 //!
-//! [`DryocAead`] implements libsodium's XChaCha20-Poly1305-IETF AEAD
-//! construction. The [`chacha20poly1305_ietf`] module provides the RFC 8439
-//! ChaCha20-Poly1305-IETF variant with 96-bit nonces. Both encrypt messages,
-//! authenticate optional additional data, and use libsodium-compatible wire
-//! formats.
+//! [`DryocAead`] provides libsodium-compatible XChaCha20-Poly1305-IETF
+//! authenticated encryption. The [`chacha20poly1305_ietf`] module provides the
+//! RFC 8439 variant with shorter, 96-bit nonces. Both encrypt a message and can
+//! authenticate unencrypted metadata, called _additional data_. If the
+//! ciphertext or additional data changes, decryption fails.
 //!
-//! Use [`DryocAead`] when you already manage nonces and need libsodium's
-//! `ciphertext || tag` wire format. Use [`DryocAeadEnvelope`] when you want
-//! dryoc to generate a random XChaCha nonce and store it with the ciphertext as
+//! Use [`DryocAead`] when your application manages nonces and needs libsodium's
+//! `ciphertext || tag` wire format. Use [`DryocAeadEnvelope`] to have dryoc
+//! generate a random XChaCha20 nonce and store it as
 //! `nonce || ciphertext || tag`.
 //!
-//! XChaCha20 nonces are public, but a nonce must never repeat with the same
-//! key. [`DryocAeadEnvelope`] generates and stores a nonce for each message;
-//! callers using [`DryocAead`] must manage this uniqueness themselves.
+//! Nonces are public, but a nonce must never repeat with the same key.
+//! [`DryocAeadEnvelope`] generates and stores a nonce for each message. Callers
+//! using [`DryocAead`] must enforce nonce uniqueness themselves.
 //!
 //! If the `serde` feature is enabled,
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and

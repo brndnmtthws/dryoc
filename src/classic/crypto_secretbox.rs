@@ -1,8 +1,11 @@
-//! # Authenticated encryption functions
+//! # Secret-key authenticated encryption
 //!
-//! Implements libsodium's secret-key authenticated crypto boxes.
+//! Implements libsodium's `crypto_secretbox_*` functions. These functions
+//! encrypt a message with a shared secret key and detect tampering.
 //!
-//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox).
+//! Nonces are public, but a nonce must never repeat with the same key. See the
+//! [libsodium documentation](https://doc.libsodium.org/secret-key_cryptography/secretbox)
+//! for details.
 //!
 //! ## Classic API example
 //!
@@ -17,7 +20,7 @@
 //! let key: Key = crypto_secretbox_keygen();
 //! let nonce = Nonce::generate();
 //!
-//! let message = "I Love Doge!";
+//! let message = "A message to encrypt";
 //!
 //! // Encrypt
 //! let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
