@@ -114,6 +114,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
+      # mbx 1.12.0's build-script launcher is not found by nightly Cargo's new
+      # build-dir layout on Windows (it runs `.../out/build_script_build`, which
+      # then falls through to the mbx CLI); keep the rest of mbx enabled there.
+      MBX_BUILD_SCRIPT_EXECUTION: ${{ startsWith(matrix.os, 'windows') && '0' || '1' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Setup ${{ matrix.rust }} Rust toolchain
