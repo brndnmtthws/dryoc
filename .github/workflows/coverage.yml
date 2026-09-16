@@ -35,7 +35,9 @@ jobs:
           packages: cargo-tarpaulin
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: mbx tarpaulin --features serde,nightly,wincode --out Xml
+      # Under ptrace the compute-heavy tests go 40-50s without an event; the
+      # default 60s watchdog is too close to that and has timed out.
+      - run: mbx tarpaulin --timeout 300 --features serde,nightly,wincode --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.repository == 'brndnmtthws/dryoc'
