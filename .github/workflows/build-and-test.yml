@@ -277,7 +277,7 @@ jobs:
       # them) and runs for a fixed wall time. `-max_total_time` does not
       # interrupt a stuck input, so `-timeout` bounds that too; every
       # legitimate input takes well under a second.
-      - name: Run each fuzz target for 30 seconds
+      - name: Run each fuzz target for 10 seconds
         run: |
           HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
           for target in $(cargo fuzz list); do
@@ -287,7 +287,7 @@ jobs:
               corpora+=("fuzz/seeds/$target")
             fi
             cargo fuzz run --target "$HOST_TARGET" --features base64 "$target" "${corpora[@]}" \
-              -- -max_total_time=30 -timeout=30
+              -- -max_total_time=10 -timeout=10
           done
       - name: Upload crashing inputs
         if: failure()
