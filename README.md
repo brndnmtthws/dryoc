@@ -59,10 +59,10 @@ process, using the same buffers, one thread, and `-Ctarget-cpu=native`:
 
 ![dryoc speedup over libsodium by workload](benchmarks/speedup.svg)
 
-None of these results depend on `-Ctarget-cpu=native`: the optimized Poly1305
+These results do not require `-Ctarget-cpu=native`: the optimized Poly1305
 and Salsa20 implementations, and the x86-64 BLAKE2b implementation, are
 selected automatically at runtime, while the AArch64 BLAKE2b rounds use only
-baseline instructions. Omitting that flag changes the results above by no more
+baseline instructions. Omitting the flag changes the results above by no more
 than 6%. Argon2id results vary more with the machine and build flags. See
 [BENCHMARKS.md](BENCHMARKS.md) for the full results, test environment, builds
 without CPU-specific flags, and workloads where libsodium is as fast or faster.
