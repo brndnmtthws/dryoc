@@ -1,26 +1,26 @@
 //! # Encrypted streams
 //!
-//! [`DryocStream`] implements libsodium's secret-key authenticated stream
-//! encryption, also known as a _secretstream_. This implementation uses the
-//! XChaCha20 stream cipher, and Poly1305 for message authentication.
+//! [`DryocStream`] provides libsodium-compatible authenticated encryption for
+//! an ordered sequence of messages, also known as a _secret stream_. It uses a
+//! shared secret key. Each message is encrypted and authenticated separately,
+//! while shared stream state links the messages and requires ordered
+//! processing. A tag can mark ordinary messages, rekeying points, or the
+//! expected end of the stream.
 //!
-//! Use [`DryocStream`] to:
+//! Use [`DryocStream`] to encrypt messages written in order to a file or
+//! network connection. A modified, reordered, or duplicated message is
+//! rejected when it is pulled; a removed message is detected when the next
+//! message is pulled. Removing the end of a stream cannot be detected
+//! automatically: the sender must use [`Tag::FINAL`], and the application must
+//! reject a stream that ends without that tag.
 //!
-//! * encrypt a sequence of messages written to a file or network socket
-//! * exchange messages between two parties
-//! * send messages in a particular sequence, and authenticate the order of
-//!   messages
-//! * provide a way to determine the start and end of a sequence of messages
-//! * use a shared secret, which could be pre-shared, or derived using one or
-//!   more of:
-//!   * [`Kdf`](crate::kdf)
-//!   * [`Kx`](crate::kx)
-//!   * a passphrase with a strong password hashing function, such as
-//!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
+//! The shared key can be generated directly or derived with
+//! [`Kdf`](crate::kdf), [`Session`](crate::kx), or a password-hashing function
+//! such as [`crypto_pwhash`](crate::classic::crypto_pwhash).
 //!
 //! [`DryocStream::init_push`] generates a public header for each stream. Send
-//! that header to the pull side and do not reuse the same key/header pair for a
-//! separate stream, because doing so repeats the stream's initial state.
+//! the header to the receiving side before the ciphertexts. Never reuse the
+//! same key and header for another stream.
 //!
 //! # Rustaceous API example
 //!
@@ -66,13 +66,13 @@
 //!
 //! ## Additional resources
 //!
-//! * See <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream>
-//!   for additional details on secret streams
-//! * For public-key based encryption, see [`DryocBox`](crate::dryocbox)
-//! * For secret-key based encryption, see
+//! * See the [libsodium documentation](https://doc.libsodium.org/secret-key_cryptography/secretstream)
+//!   for more about secret streams
+//! * For public-key encryption, see [`DryocBox`](crate::dryocbox)
+//! * For individual messages encrypted with a shared key, see
 //!   [`DryocSecretBox`](crate::dryocsecretbox)
-//! * See the [protected] mod for an example using the protected memory features
-//!   with [`DryocStream`]
+//! * See the [`protected`] module for an example that stores keys in protected
+//!   memory
 
 use zeroize::Zeroize;
 
@@ -190,13 +190,13 @@ impl<M> Drop for DryocStream<M> {
 }
 
 impl<M> DryocStream<M> {
-    /// Manually rekeys the stream. Both the push and pull sides of the stream
-    /// must rekey at the same position.
+    /// Rekeys the stream immediately. The sender and receiver must rekey at the
+    /// same position.
     ///
-    /// Automatic rekeying normally makes manual rekeying unnecessary.
-    ///
-    /// Refer to the [libsodium
-    /// docs](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream#rekeying)
+    /// Manual rekeying is unnecessary when the sender uses [`Tag::REKEY`] or
+    /// [`Tag::FINAL`], because those tags rekey after the message. The stream
+    /// also rekeys if its internal counter wraps. See the
+    /// [libsodium documentation](https://doc.libsodium.org/secret-key_cryptography/secretstream#rekeying)
     /// for details.
     pub fn rekey(&mut self) {
         crypto_secretstream_xchacha20poly1305_rekey(&mut self.state)

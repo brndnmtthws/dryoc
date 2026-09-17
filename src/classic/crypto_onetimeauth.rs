@@ -3,6 +3,10 @@
 //! Implements one-time authentication using the Poly1305 algorithm, compatible
 //! with libsodium's `crypto_onetimeauth_*` functions.
 //!
+//! A Poly1305 key must be used for only one message. Reusing a key for
+//! different messages can allow forgeries. This primitive authenticates data
+//! but does not encrypt it.
+//!
 //! # Classic API single-part example
 //!
 //! ```

@@ -1,8 +1,8 @@
 //! # Key exchange
 //!
-//! This module implements libsodium's key exchange functions, which uses a
-//! combination of Curve25519, Diffie-Hellman, and Blake2b to generate shared
-//! session keys.
+//! Implements libsodium's client/server key-exchange construction. Each party
+//! derives one key for receiving and another for sending. Applications must
+//! authenticate peer public keys through a trusted channel.
 //!
 //! ## Classic API example
 //!

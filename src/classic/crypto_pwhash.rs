@@ -1,31 +1,34 @@
 //! # Password hashing
 //!
-//! Implements libsodium's `crypto_pwhash_*` functions. This implementation
-//! currently only supports Argon2i and Argon2id algorithms, and does not
-//! support scrypt.
+//! Implements libsodium's `crypto_pwhash_*` functions with Argon2i and
+//! Argon2id. Scrypt is not supported.
 //!
-//! String-based functions are enabled by default. They can be disabled by
-//! building without default features, and re-enabled with the `base64` feature.
+//! String-based password hashes are enabled by default. Disable them by
+//! building without default features, or enable them explicitly with the
+//! `base64` feature.
 //!
-//! For details, refer to [libsodium docs](https://libsodium.gitbook.io/doc/password_hashing/default_phf).
+//! See the [libsodium documentation](https://doc.libsodium.org/password_hashing/default_phf)
+//! for details.
 //!
 //! ## Classic API example, key derivation
 //!
 //! ```
-//! use base64::{Engine as _, engine::general_purpose};
+//! use base64::Engine as _;
+//! use base64::engine::general_purpose;
 //! use dryoc::classic::crypto_pwhash::*;
+//! use dryoc::constants::{
+//!     CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE, CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
+//!     CRYPTO_PWHASH_SALTBYTES, CRYPTO_SECRETBOX_KEYBYTES,
+//! };
 //! use dryoc::rng::copy_randombytes;
-//! use dryoc::constants::{CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
-//!     CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE, CRYPTO_PWHASH_SALTBYTES};
 //!
 //! let mut key = [0u8; CRYPTO_SECRETBOX_KEYBYTES];
 //!
-//! // Randomly generate a salt
+//! // Generate a random salt.
 //! let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
 //! copy_randombytes(&mut salt);
 //!
-//! // Create a really good password
-//! let password = b"It is by riding a bicycle that you learn the contours of a country best, since you have to sweat up the hills and coast down them.";
+//! let password = b"a long, unique passphrase";
 //!
 //! crypto_pwhash(
 //!     &mut key,
@@ -37,7 +40,7 @@
 //! )
 //! .expect("pwhash failed");
 //!
-//! // now `key` can be used as a secret key
+//! // `key` can now be used as a secret key.
 //! println!("key = {}", general_purpose::STANDARD_NO_PAD.encode(&key));
 //! ```
 

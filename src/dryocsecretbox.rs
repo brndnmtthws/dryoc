@@ -1,26 +1,20 @@
 //! # Secret-key authenticated encryption
 //!
-//! [`DryocSecretBox`] implements libsodium's secret-key authenticated
-//! encryption, also known as a _secretbox_. This implementation uses the
-//! XSalsa20 stream cipher, and Poly1305 for message authentication.
+//! [`DryocSecretBox`] provides libsodium-compatible authenticated encryption
+//! with a shared secret key. It uses XSalsa20 to encrypt the message and
+//! Poly1305 to detect tampering.
 //!
-//! You should use a [`DryocSecretBox`] when you want to:
+//! Use a [`DryocSecretBox`] when all parties already share a secret key. The
+//! key can be generated directly or derived with [`Kdf`](crate::kdf),
+//! [`Session`](crate::kx), or a password-hashing function such as
+//! [`crypto_pwhash`](crate::classic::crypto_pwhash).
 //!
-//! * exchange messages between two or more parties
-//! * use a shared secret, which could be pre-shared, or derived using one or
-//!   more of:
-//!   * [`Kdf`](crate::kdf)
-//!   * [`Kx`](crate::kx)
-//!   * a passphrase with a strong password hashing function, such as
-//!     [`crypto_pwhash`](crate::classic::crypto_pwhash)
+//! Anyone who knows the key can create valid messages. In a group, a secretbox
+//! proves that a member created the message, not which member created it.
 //!
-//! Every holder of the shared key can create valid messages. In a group,
-//! secretbox authenticates membership in the group, not which member sent a
-//! message.
-//!
-//! Secretbox nonces are public, but a nonce must never repeat with the same
-//! key. Store each nonce with its ciphertext or use a counter that cannot
-//! repeat for that key.
+//! Nonces are public, but a nonce must never repeat with the same key. Store
+//! each nonce with its ciphertext, or use a counter that cannot repeat for that
+//! key.
 //!
 //! With the `serde` feature,
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
@@ -28,7 +22,7 @@
 //! for [`DryocSecretBox`]. With `wincode`,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
-//! implemented.
+//! implemented for [`VecBox`].
 //!
 //! ## Rustaceous API example
 //!
@@ -40,16 +34,14 @@
 //! let nonce = Nonce::generate();
 //! let message = b"A message to encrypt";
 //!
-//! // Encrypt `message`, into a Vec-based box
+//! // Encrypt the message into a vector-backed box.
 //! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
 //!
-//! // Convert into a libsodium-compatible box
+//! // Serialize the box in libsodium's wire format, then read it back.
 //! let sodium_box = dryocsecretbox.to_vec();
-//!
-//! // Read the same box we just made into a new DryocBox
 //! let dryocsecretbox = DryocSecretBox::from_bytes(&sodium_box).expect("unable to load box");
 //!
-//! // Decrypt the box we previously encrypted,
+//! // Decrypt the box.
 //! let decrypted = dryocsecretbox
 //!     .decrypt_to_vec(&nonce, &secret_key)
 //!     .expect("unable to decrypt");
@@ -59,12 +51,12 @@
 //!
 //! ## Additional resources
 //!
-//! * See <https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox>
-//!   for additional details on secret boxes
-//! * For public-key based encryption, see [`DryocBox`](crate::dryocbox)
-//! * For stream encryption, see [`DryocStream`](crate::dryocstream)
-//! * See the [protected] mod for an example using the protected memory features
-//!   with [`DryocSecretBox`]
+//! * See the [libsodium documentation](https://doc.libsodium.org/secret-key_cryptography/secretbox)
+//!   for more about secret boxes
+//! * For public-key encryption, see [`DryocBox`](crate::dryocbox)
+//! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
+//! * See the [`protected`] module for an example that stores keys in protected
+//!   memory
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

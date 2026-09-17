@@ -1,28 +1,24 @@
 //! # Public-key authenticated encryption
 //!
-//! [`DryocBox`] implements libsodium's public-key authenticated encryption,
-//! also known as a _box_. This implementation uses X25519 for key derivation,
-//! the XSalsa20 stream cipher, and Poly1305 for message authentication.
+//! [`DryocBox`] provides libsodium-compatible public-key authenticated
+//! encryption, also known as a _box_. It uses X25519 to establish a shared
+//! key, XSalsa20 to encrypt the message, and Poly1305 to detect tampering.
 //!
-//! You should use a [`DryocBox`] when you want to:
+//! Use a [`DryocBox`] when a sender and recipient have each other's public keys
+//! and need to exchange encrypted messages. The recipient can verify that a
+//! message was created with the sender's secret key. A box is not a public
+//! signature: the recipient can also create messages that appear to come from
+//! the sender.
 //!
-//! * exchange messages between two parties
-//! * authenticate the messages with public keys, rather than a pre-shared
-//!   secret
-//! * avoid secret sharing between parties
+//! [`DryocBox::seal`] provides anonymous encryption instead. It creates a new
+//! temporary keypair for each message and stores the temporary public key with
+//! the ciphertext. A sealed box proves that the ciphertext was not changed,
+//! but it does not identify the sender.
 //!
-//! [`DryocBox::encrypt`] authenticates the sender, so the sender and recipient
-//! public keys must be known ahead of time. [`DryocBox::seal`] instead sends an
-//! anonymous sealed box: it generates a one-time ephemeral keypair and stores
-//! the ephemeral public key with the ciphertext. Sealed boxes authenticate the
-//! ciphertext for the recipient, but not the sender's identity.
-//!
-//! Box nonces are public, but a nonce must never repeat for the same pair of
-//! keypairs. The two parties share one nonce space across both communication
-//! directions unless they use direction-specific keys. Callers of
-//! [`DryocBox::encrypt`] must coordinate this uniqueness. [`DryocBox::seal`]
-//! derives its nonce from a newly generated ephemeral public key and the
-//! recipient public key.
+//! Nonces are public, but a nonce must never repeat for the same sender and
+//! recipient keypair. The two parties share one nonce space unless they use
+//! separate keys for each direction. Callers of [`DryocBox::encrypt`] must
+//! enforce this rule. [`DryocBox::seal`] handles nonce generation internally.
 //!
 //! With the `serde` feature,
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
@@ -30,20 +26,20 @@
 //! for [`DryocBox`]. With `wincode`,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
-//! implemented.
+//! implemented for [`VecBox`].
 //!
 //! ## Rustaceous API example
 //!
 //! ```
 //! use dryoc::dryocbox::*;
 //!
-//! // Randomly generate sender/recipient keypairs. Under normal circumstances, the
-//! // sender would only know the recipient's public key, and the recipient would
-//! // only know the sender's public key.
+//! // In a real exchange, each party keeps its secret key private and shares
+//! // only its public key.
 //! let sender_keypair = KeyPair::generate();
 //! let recipient_keypair = KeyPair::generate();
 //!
-//! // Randomly generate a nonce
+//! // Generate a random nonce. At 24 bytes, the chance of a random nonce
+//! // repeating is negligible.
 //! let nonce = Nonce::generate();
 //!
 //! let message = b"All that glitters is not gold";
@@ -57,14 +53,11 @@
 //! )
 //! .expect("unable to encrypt");
 //!
-//! // Convert into a libsodium compatible box as a Vec<u8>
+//! // Serialize the box in libsodium's wire format, then read it back.
 //! let sodium_box = dryocbox.to_vec();
-//!
-//! // Load the libsodium box into a DryocBox
 //! let dryocbox = DryocBox::from_bytes(&sodium_box).expect("failed to read box");
 //!
-//! // Decrypt the same box back to the original message, with the sender/recipient
-//! // keypairs flipped.
+//! // Decrypt with the recipient's secret key and the sender's public key.
 //! let decrypted = dryocbox
 //!     .decrypt_to_vec(
 //!         &nonce,
@@ -96,13 +89,12 @@
 //!
 //! ## Additional resources
 //!
-//! * See <https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption>
-//!   for additional details on crypto boxes
-//! * For secret-key based encryption, see
-//!   [`DryocSecretBox`](crate::dryocsecretbox)
-//! * For stream encryption, see [`DryocStream`](crate::dryocstream)
-//! * See the [protected] mod for an example using the protected memory features
-//!   with [`DryocBox`]
+//! * See the [libsodium documentation](https://doc.libsodium.org/public-key_cryptography/authenticated_encryption)
+//!   for more about authenticated public-key encryption
+//! * For shared-key encryption, see [`DryocSecretBox`](crate::dryocsecretbox)
+//! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
+//! * See the [`protected`] module for an example that stores keys in protected
+//!   memory
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

@@ -1,101 +1,67 @@
 //! # dryoc: Don't Roll Your Own Crypto™[^1]
 //!
-//! dryoc is a pure-Rust, general-purpose cryptography library. It implements
-//! many [libsodium](https://libsodium.gitbook.io/doc/)-compatible APIs and wire
-//! formats, so supported operations can interoperate with libsodium across
-//! languages.
+//! dryoc is a general-purpose cryptography library written in pure Rust. It
+//! implements many of the same APIs and wire formats as
+//! [libsodium](https://doc.libsodium.org/), so supported operations can
+//! interoperate with libsodium.
 //!
-//! dryoc provides a libsodium-like Classic API and a typed Rustaceous API. The
-//! Rustaceous types make key, nonce, and output sizes explicit; the Classic API
-//! eases migration from libsodium. Both APIs use the same implementations and
-//! can be used together.
+//! The _Classic_ API closely follows libsodium's functions and types, which
+//! makes it useful when porting existing code. The _Rustaceous_ API provides
+//! typed Rust interfaces that make key, nonce, and output sizes explicit. Both
+//! APIs use the same implementations and can be used together.
 //!
-//! This crate uses the Rust 2024 edition. The minimum supported Rust version
-//! (MSRV) is **Rust 1.89** or newer.
+//! This crate uses the Rust 2024 edition and requires Rust 1.89 or newer.
 //!
 //! ## Features
 //!
 //! * Pure Rust, with no hidden C libraries
 //! * Limited use of unsafe code[^2]
-//! * Typed Rustaceous APIs for keys, nonces, and outputs
-//! * Classic and Rustaceous APIs for many libsodium operations
-//! * WebAssembly support via the `wasm32-unknown-unknown` target
-//! * Protected memory handling (`mprotect()` + `mlock()`, along with Windows
-//!   equivalents) on stable Rust for Unix and Windows targets, enabled by
-//!   default with the `protected` feature
-//! * Password-hash string helpers enabled by default with the `base64` feature
-//! * [Serde](https://serde.rs/) support (with `features = ["serde"]`)
-//! * [wincode](https://crates.io/crates/wincode) support for direct binary
-//!   serialization of Rustaceous box types (with `features = ["wincode"]`)
-//! * [_Portable_ SIMD](https://doc.rust-lang.org/std/simd/index.html)
-//!   implementations on nightly, with `features = ["simd_backend", "nightly"]`:
-//!   * Blake2b (used by generic hashing, password hashing, and key derivation)
-//!   * Argon2 block mixing (used by password hashing), except on x86-64 where
-//!     the runtime-detected AVX2/AVX-512 backend below is used instead
-//!   * Salsa20 (used by XSalsa20-Poly1305 secretbox), except on little-endian
-//!     AArch64 and on x86-64 where the runtime-detected backends below are used
-//!     instead
-//!   * Poly1305 (used by one-time authentication and secret boxes), except on
-//!     AArch64 and x86-64 where dryoc keeps the soft backend with its
-//!     runtime-detected bulk path because the portable-SIMD path is slower
-//! * Runtime-detected AArch64 backends on stable Rust, always built in on that
-//!   architecture: NEON and SVE2 keystream kernels for Salsa20 and ChaCha20, a
-//!   NEON Poly1305, `sha2`/`sha3` instruction SHA-256 and SHA-512 compression,
-//!   and a NEON Ed25519 basepoint table lookup
-//! * AArch64 `asm!` on stable Rust, built in on that architecture: the
-//!   Curve25519 field multiply and square, register-scheduled scalar ChaCha20
-//!   rounds, and (little-endian, default BLAKE2b backend) register-scheduled
-//!   BLAKE2b rounds
-//! * Runtime-detected x86-64 backends on stable Rust, always built in on that
-//!   architecture: AVX2 and AVX-512 keystream kernels for Salsa20 and ChaCha20,
-//!   AVX2, AVX-512 and AVX-512 IFMA Poly1305 bulk paths, AVX2 and AVX-512
-//!   Argon2 block compression, and AVX2 and AVX-512VL BLAKE2b compression; CPUs
-//!   without AVX2 use the portable code
-//! * Curve25519 and Ed25519 group arithmetic implemented in-crate; [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
-//!   supplies the scalar arithmetic modulo the group order
-//! * [SHA2](https://github.com/RustCrypto/hashes/tree/master/sha2) provides the
-//!   portable SHA-256 and SHA-512 compression functions used where no hardware
-//!   path is detected
-//! * [SHA3](https://github.com/RustCrypto/hashes/tree/master/sha3) (used by
-//!   SHA-3 compatibility hashing)
+//! * Classic and typed Rustaceous APIs for many libsodium operations
+//! * WebAssembly support through the `wasm32-unknown-unknown` target
+//! * Protected memory on Unix and Windows, enabled by default with the
+//!   `protected` feature
+//! * Password-hash string helpers, enabled by default with the `base64` feature
+//! * Optional [Serde](https://serde.rs/) and [wincode](https://crates.io/crates/wincode)
+//!   serialization
+//! * Optimized AArch64 and x86-64 implementations; those that need optional CPU
+//!   extensions are selected at runtime, and CPUs without them use portable
+//!   code
+//! * Optional [portable SIMD](https://doc.rust-lang.org/std/simd/index.html)
+//!   implementations on nightly Rust with `features = ["simd_backend",
+//!   "nightly"]`
+//! * Curve25519 and Ed25519 group operations implemented in dryoc; [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
+//!   provides scalar arithmetic modulo the group order
+//! * Portable SHA-256, SHA-512, and SHA-3 building blocks from the [RustCrypto](https://github.com/RustCrypto)
+//!   project
 //!
-//! Dryoc's portable SIMD backends require a nightly Rust toolchain and
-//! `--features simd_backend,nightly`. `simd_backend` selects the SIMD code;
-//! `nightly` enables Rust's unstable `portable_simd` API.
+//! The optional portable SIMD implementations require nightly Rust and
+//! `--features simd_backend,nightly`. The `simd_backend` feature selects those
+//! implementations, while `nightly` enables Rust's unstable `portable_simd`
+//! API.
 //!
-//! The Curve25519 and Ed25519 group arithmetic is dryoc's own (a radix-2^51
-//! field with register-only AArch64 `asm!` products, an X25519 ladder and an
-//! edwards25519 point implementation); `curve25519-dalek` supplies the scalar
-//! arithmetic modulo the group order. None of it is affected by dryoc's
-//! `simd_backend` feature.
-//!
-//! Poly1305, Salsa20 and (on x86-64) Argon2 are special exceptions. Even with
-//! `simd_backend` and `nightly` enabled, dryoc keeps the soft Poly1305 backend
-//! with its runtime-detected bulk path on AArch64 and x86-64 because profiling
-//! shows the portable-SIMD implementation is slower; on AArch64 it uses the
-//! runtime-detected NEON Salsa20 kernels, which run about 2.5x faster than the
-//! portable-SIMD lane set on Neoverse cores, and on x86-64 it uses its
-//! runtime-detected AVX2/AVX-512 Salsa20 and Argon2 kernels. The default (soft)
-//! BLAKE2b backend likewise compresses through a runtime-detected AVX2 or
-//! AVX-512VL kernel on x86-64.
+//! Optimized AArch64 and x86-64 implementations are built in and do not require
+//! the `simd_backend` feature. Implementations that need optional CPU
+//! extensions, such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2,
+//! AVX-512, and BMI2, are selected at runtime when the CPU supports them. The
+//! AArch64 `asm!` implementations of the BLAKE2b rounds, the scalar ChaCha20
+//! rounds, and Curve25519 field multiplication use only baseline instructions
+//! and are always used on that architecture. Curve25519 and Ed25519 group
+//! operations are also unaffected by the `simd_backend` feature.
 //!
 //! ## Performance
 //!
-//! Measured against libsodium 1.0.18 in the same process on the same buffers
-//! (single thread, `-Ctarget-cpu=native`; the Neoverse V3 figures are medians
-//! of three core-pinned runs), dryoc's Poly1305 is `5.85x` (Intel Xeon
-//! 6975P-C) and `3.28x` (Arm Neoverse V3) faster on 1 MiB messages,
-//! XSalsa20-Poly1305 secretbox `3.07x` and
-//! `2.84x`, and BLAKE2b `1.19x` and `1.43x`; Argon2id ranges from `1.06x`
-//! slower to `1.55x` faster depending on the machine and target flags. See
+//! On the optimized workloads measured against libsodium 1.0.18, dryoc's
+//! Poly1305 is `5.85x` faster on an Intel Xeon 6975P-C and `3.28x` faster on an
+//! Arm Neoverse V3 for 1 MiB messages. XSalsa20-Poly1305 secretbox is `3.07x`
+//! and `2.84x` faster, and BLAKE2b is `1.19x` and `1.43x` faster. Argon2id
+//! results vary more with the machine and build flags. See
 //! [BENCHMARKS.md](https://github.com/brndnmtthws/dryoc/blob/main/BENCHMARKS.md)
-//! for the full tables on both machines, the no-flags and portable-SIMD
-//! builds, and the environment.
+//! for the full results and test environment.
 //!
 //! ## APIs
 //!
 //! The _Classic_ API closely follows libsodium's functions and types. The
-//! _Rustaceous_ API wraps the same operations in Rust types.
+//! _Rustaceous_ API provides typed Rust interfaces to the same operations.
 //!
 //! ## Error handling
 //!
@@ -113,11 +79,11 @@
 //!
 //! | Feature | Rustaceous API | Classic API | Reference |
 //! |-|-|-|-|
-//! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/authenticated_encryption) |
-//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretbox) |
+//! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://doc.libsodium.org/public-key_cryptography/authenticated_encryption) |
+//! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://doc.libsodium.org/secret-key_cryptography/secretbox) |
 //! | ChaCha20-Poly1305-IETF authenticated encryption | [`chacha20poly1305_ietf`](dryocaead::chacha20poly1305_ietf) | [`crypto_aead_chacha20poly1305_ietf`](classic::crypto_aead_chacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/ietf_chacha20-poly1305_construction) |
 //! | Authenticated encryption with additional data | [`DryocAead`](dryocaead) | [`crypto_aead_xchacha20poly1305_ietf`](classic::crypto_aead_xchacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction) |
-//! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream) |
+//! | Streaming encryption | [`DryocStream`](dryocstream) | [`crypto_secretstream_xchacha20poly1305`](classic::crypto_secretstream_xchacha20poly1305) | [Link](https://doc.libsodium.org/secret-key_cryptography/secretstream) |
 //! | Generic hashing and keyed hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //! | SHA-2 hashing | [`Sha256`](sha256::Sha256), [`Sha512`](sha512::Sha512) | [`crypto_hash`](classic::crypto_hash) | [Link](https://doc.libsodium.org/advanced/sha-2_hash_function) |
 //! | SHA-3 hashing | [`Sha3256`](sha3::Sha3256), [`Sha3512`](sha3::Sha3512) | [`crypto_hash`](classic::crypto_hash) | [Link](https://nvlpubs.nist.gov/nistpubs/fips/nist.fips.202.pdf) |
@@ -127,29 +93,25 @@
 //! | Key derivation | [`Kdf`](kdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation) |
 //! | HKDF key derivation | [`Hkdf`](hkdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation/hkdf) |
 //! | Key exchange | [`Session`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
-//! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://libsodium.gitbook.io/doc/public-key_cryptography/public-key_signatures) |
-//! | Password hashing | [`PwHash`](pwhash) | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://libsodium.gitbook.io/doc/password_hashing/default_phf) |
+//! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures) |
+//! | Password hashing | [`PwHash`](pwhash) | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://doc.libsodium.org/password_hashing/default_phf) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
-//! | Short-input hashing | N/A | [`crypto_shorthash`](classic::crypto_shorthash) | [Link](https://libsodium.gitbook.io/doc/hashing/short-input_hashing) |
+//! | Short-input hashing | N/A | [`crypto_shorthash`](classic::crypto_shorthash) | [Link](https://doc.libsodium.org/hashing/short-input_hashing) |
 //!
 //! ## Using Serde
 //!
-//! This crate includes optional [Serde](https://serde.rs/) support which can be
-//! enabled with the `serde` feature flag. When enabled, the
+//! Enable the `serde` feature to implement
 //! [`Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) and
-//! [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) traits are provided
-//! for data structures.
+//! [`Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
+//! for supported types.
 //!
 //! ## Using wincode
 //!
-//! This crate includes optional [wincode](https://crates.io/crates/wincode)
-//! support which can be enabled with the `wincode` feature flag. When enabled,
-//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) and
-//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) are
-//! provided for supported Rustaceous box types, including
-//! [`DryocBox`](dryocbox::DryocBox),
-//! [`DryocSecretBox`](dryocsecretbox::DryocSecretBox), and
-//! [`AeadBox`](dryocaead::AeadBox).
+//! Enable the `wincode` feature to implement
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
+//! and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
+//! for the `VecBox` aliases in [`dryocbox`] and [`dryocsecretbox`], and for the
+//! `VecBox` and `VecEnvelope` aliases in [`dryocaead`].
 //!
 //! ## Unsafe code
 //!
