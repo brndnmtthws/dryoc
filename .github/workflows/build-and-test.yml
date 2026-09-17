@@ -296,3 +296,28 @@ jobs:
           name: fuzz-artifacts
           path: fuzz/artifacts/
           if-no-files-found: ignore
+
+  # Single job for branch protection to require. `always()` matters: without
+  # it a failed upstream job skips this one, and GitHub treats a skipped
+  # required check as passing.
+  all-jobs-pass:
+    name: all jobs pass
+    if: always()
+    needs:
+      - semver
+      - audit
+      - wasm
+      - platform
+      - feature-matrix
+      - msrv
+      - all-features
+      - docs
+      - fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that every job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$NEEDS"
+          jq -e 'all(.[]; .result == "success")' <<< "$NEEDS" > /dev/null
