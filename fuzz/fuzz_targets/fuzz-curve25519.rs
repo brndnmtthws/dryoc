@@ -346,7 +346,7 @@ fuzz_target!(|data: &[u8]| {
     // crypto_kx: seed keypairs are BLAKE2b-256(seed) times the basepoint;
     // session keys are BLAKE2b-512(X25519(sk, pk) || client_pk || server_pk)
     // split in two, swapped between the roles. The X25519 step is dalek's;
-    // the hashing is dryoc's own BLAKE2b (checked in `fuzz_hashes`).
+    // the hashing is dryoc's own BLAKE2b (checked in `fuzz-hashes`).
     let (client_pk, client_sk) = crypto_kx_seed_keypair(&seed).expect("client seed keypair");
     let (server_pk, server_sk) = crypto_kx_seed_keypair(&scalar).expect("server seed keypair");
     for (seed, pk, sk) in [
