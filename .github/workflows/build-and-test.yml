@@ -21,18 +21,17 @@ jobs:
     name: semver compatibility
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
           profile: minimal
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: semver
-          version: 1.12.0
       - name: Install cargo-semver-checks
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: --locked cargo-semver-checks
         env:
@@ -43,14 +42,14 @@ jobs:
     name: dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
           profile: minimal
       - name: Install cargo-deny
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: cargo-deny
         env:
@@ -61,19 +60,18 @@ jobs:
     name: wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain with wasm32 target
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
           profile: minimal
           targets: wasm32-unknown-unknown
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: wasm
-          version: 1.12.0
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: --locked cargo-nextest
         env:
@@ -119,19 +117,18 @@ jobs:
       # then falls through to the mbx CLI); keep the rest of mbx enabled there.
       MBX_BUILD_SCRIPT_EXECUTION: ${{ startsWith(matrix.os, 'windows') && '0' || '1' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup ${{ matrix.rust }} Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: ${{ matrix.rust }}
           profile: minimal
           components: clippy rustfmt
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: platform-${{ matrix.features }}
-          version: 1.12.0
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: --locked cargo-nextest
         env:
@@ -165,19 +162,18 @@ jobs:
           - name: serde-protected
             flags: --no-default-features --features serde,protected
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
           profile: minimal
           components: clippy
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: features-${{ matrix.name }}
-          version: 1.12.0
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: --locked cargo-nextest
         env:
@@ -191,18 +187,17 @@ jobs:
     name: Rust 1.89 MSRV
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup MSRV toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: 1.89.0
           profile: minimal
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: msrv
-          version: 1.12.0
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: --locked cargo-nextest
         env:
@@ -213,19 +208,18 @@ jobs:
     name: all features / nightly
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup nightly Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
           profile: minimal
           components: clippy
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: all-features
-          version: 1.12.0
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: --locked cargo-nextest
         env:
@@ -239,16 +233,15 @@ jobs:
     name: documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup nightly Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
           profile: minimal
-      - uses: jdx/mr-boxington-action@867fc530102eec5b756075d70d850dc8330d2272 # v1.4.0
+      - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: docs
-          version: 1.12.0
       - run: mbx test --doc --all-features
         env:
           RUSTDOCFLAGS: -D warnings
@@ -263,14 +256,14 @@ jobs:
     name: fuzz targets compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v7
       - name: Setup nightly Rust toolchain
-        uses: brndnmtthws/rust-action-rustup@913349b802fe843511093e8c2014c94d8168c6b6 # v1.2.0
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
           profile: minimal
       - name: Install cargo-fuzz
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
           packages: cargo-fuzz
         env:
