@@ -252,8 +252,8 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  fuzz-build:
-    name: fuzz targets compile
+  fuzz:
+    name: fuzz targets build & smoke run
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -272,3 +272,27 @@ jobs:
         run: |
           HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
           cargo fuzz build --target "$HOST_TARGET" --features base64
+      # A smoke test, not a fuzzing campaign: each target starts from an empty
+      # corpus (plus the checked-in boundary-length seeds where a target has
+      # them) and runs for a fixed wall time. `-max_total_time` does not
+      # interrupt a stuck input, so `-timeout` bounds that too; every
+      # legitimate input takes well under a second.
+      - name: Run each fuzz target for 30 seconds
+        run: |
+          HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+          for target in $(cargo fuzz list); do
+            corpora=("fuzz/corpus/$target")
+            mkdir -p "${corpora[0]}"
+            if [ -d "fuzz/seeds/$target" ]; then
+              corpora+=("fuzz/seeds/$target")
+            fi
+            cargo fuzz run --target "$HOST_TARGET" --features base64 "$target" "${corpora[@]}" \
+              -- -max_total_time=30 -timeout=30
+          done
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
