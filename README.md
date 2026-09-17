@@ -33,8 +33,8 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Password-hash string helpers, enabled by default with the `base64` feature
 * Optional [Serde](https://serde.rs/) and
   [wincode](https://crates.io/crates/wincode) serialization
-* Optimized implementations selected at runtime on AArch64 and x86-64; CPUs
-  without the required extensions use portable code
+* Optimized AArch64 and x86-64 implementations; those that need optional CPU
+  extensions are selected at runtime, and CPUs without them use portable code
 * Optional [portable SIMD](https://doc.rust-lang.org/std/simd/index.html)
   implementations on nightly Rust with `features = ["simd_backend", "nightly"]`
 * Curve25519 and Ed25519 group arithmetic implemented in dryoc;
@@ -59,12 +59,13 @@ process, using the same buffers, one thread, and `-Ctarget-cpu=native`:
 
 ![dryoc speedup over libsodium by workload](benchmarks/speedup.svg)
 
-The optimized Poly1305, Salsa20, and BLAKE2b implementations are selected
-automatically at runtime. They do not require `-Ctarget-cpu=native`; omitting
-that flag changes the results above by no more than 6%. Argon2id results vary
-more with the machine and build flags. See [BENCHMARKS.md](BENCHMARKS.md) for
-the full results, test environment, builds without CPU-specific flags, and
-workloads where libsodium is as fast or faster.
+None of these results depend on `-Ctarget-cpu=native`: the optimized Poly1305
+and Salsa20 implementations, and the x86-64 BLAKE2b implementation, are
+selected automatically at runtime, while the AArch64 BLAKE2b rounds use only
+baseline instructions. Omitting that flag changes the results above by no more
+than 6%. Argon2id results vary more with the machine and build flags. See
+[BENCHMARKS.md](BENCHMARKS.md) for the full results, test environment, builds
+without CPU-specific flags, and workloads where libsodium is as fast or faster.
 
 ## Rust version
 
@@ -75,10 +76,14 @@ The optional portable SIMD implementations require nightly Rust and
 `--features simd_backend,nightly`. The `simd_backend` feature selects those
 implementations, while `nightly` enables Rust's unstable `portable_simd` API.
 
-Optimized AArch64 and x86-64 implementations are built in and selected at
-runtime when the CPU supports them. They do not require the `simd_backend`
-feature. Curve25519 and Ed25519 group operations are also unaffected by that
-feature.
+Optimized AArch64 and x86-64 implementations are built in and do not require
+the `simd_backend` feature. Implementations that need optional CPU extensions,
+such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,
+are selected at runtime when the CPU supports them. The AArch64 `asm!`
+implementations of the BLAKE2b rounds, the scalar ChaCha20 rounds, and
+Curve25519 field multiplication use only baseline instructions and are always
+used on that architecture. Curve25519 and Ed25519 group operations are also
+unaffected by the `simd_backend` feature.
 
 ## Optional serialization
 
@@ -86,7 +91,7 @@ Enable `serde` to derive [`serde::Serialize`](https://docs.rs/serde/latest/serde
 and [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
 for supported data structures.
 
-Enable `wincode` to derive [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
+Enable `wincode` to implement [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
 and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
 for the `VecBox` aliases in `dryocbox` and `dryocsecretbox`, and for the
 `VecBox` and `VecEnvelope` aliases in `dryocaead`.

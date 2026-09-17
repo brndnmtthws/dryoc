@@ -23,8 +23,9 @@
 //! * Password-hash string helpers, enabled by default with the `base64` feature
 //! * Optional [Serde](https://serde.rs/) and [wincode](https://crates.io/crates/wincode)
 //!   serialization
-//! * Optimized implementations selected at runtime on AArch64 and x86-64; CPUs
-//!   without the required extensions use portable code
+//! * Optimized AArch64 and x86-64 implementations; those that need optional CPU
+//!   extensions are selected at runtime, and CPUs without them use portable
+//!   code
 //! * Optional [portable SIMD](https://doc.rust-lang.org/std/simd/index.html)
 //!   implementations on nightly Rust with `features = ["simd_backend",
 //!   "nightly"]`
@@ -38,10 +39,14 @@
 //! implementations, while `nightly` enables Rust's unstable `portable_simd`
 //! API.
 //!
-//! Optimized AArch64 and x86-64 implementations are built in and selected at
-//! runtime when the CPU supports them. They do not require the `simd_backend`
-//! feature. Curve25519 and Ed25519 group operations are also unaffected by
-//! that feature.
+//! Optimized AArch64 and x86-64 implementations are built in and do not require
+//! the `simd_backend` feature. Implementations that need optional CPU
+//! extensions, such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2,
+//! AVX-512, and BMI2, are selected at runtime when the CPU supports them. The
+//! AArch64 `asm!` implementations of the BLAKE2b rounds, the scalar ChaCha20
+//! rounds, and Curve25519 field multiplication use only baseline instructions
+//! and are always used on that architecture. Curve25519 and Ed25519 group
+//! operations are also unaffected by the `simd_backend` feature.
 //!
 //! ## Performance
 //!

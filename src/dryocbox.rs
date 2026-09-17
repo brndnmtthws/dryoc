@@ -38,7 +38,8 @@
 //! let sender_keypair = KeyPair::generate();
 //! let recipient_keypair = KeyPair::generate();
 //!
-//! // Generate a nonce that will not be reused with this pair of keys.
+//! // Generate a random nonce. At 24 bytes, the chance of a random nonce
+//! // repeating is negligible.
 //! let nonce = Nonce::generate();
 //!
 //! let message = b"All that glitters is not gold";
