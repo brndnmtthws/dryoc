@@ -4,15 +4,15 @@
 //! associated-data lengths up to 4096 bytes: the keystreams come from the
 //! RustCrypto `chacha20`/`salsa20` crates and the tags from the RFC 8439
 //! Poly1305 spelled out below, so nothing is shared with dryoc's Poly1305
-//! (whose one-shot/streamed agreement `fuzz_hashes` covers). Combined,
+//! (whose one-shot/streamed agreement `fuzz-hashes` covers). Combined,
 //! detached and in-place APIs plus the Rustaceous boxes must all agree, and an
 //! input-selected corruption of the ciphertext, tag or associated data must be
 //! rejected without touching the output buffer.
 //!
 //! Boundary-length seeds (0/1/15/16/17/31/32/64/65/255/256/257/4095/4096 for
-//! both message and associated data) live in `seeds/fuzz_aead`; pass that
-//! directory after the corpus: `cargo fuzz run fuzz_aead corpus/fuzz_aead
-//! seeds/fuzz_aead`.
+//! both message and associated data) live in `seeds/fuzz-aead`; pass that
+//! directory after the corpus: `cargo fuzz run fuzz-aead corpus/fuzz-aead
+//! seeds/fuzz-aead`.
 use std::cmp::Ordering;
 
 use chacha20::cipher::{KeyIvInit, StreamCipher};

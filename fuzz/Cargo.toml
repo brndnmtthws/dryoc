@@ -14,7 +14,7 @@ libfuzzer-sys = "0.4"
 # Independent oracles for the differential targets; all already in the dryoc
 # dependency graph (`sha2`, `curve25519-dalek` and `zeroize` as dependencies,
 # `chacha20` and `salsa20` as dev-dependencies). `zeroize` only supplies the
-# trait `fuzz_protected` needs to call `Zeroize::zeroize` on protected values.
+# trait `fuzz-protected` needs to call `Zeroize::zeroize` on protected values.
 chacha20 = { version = "0.10", features = ["xchacha"] }
 curve25519-dalek = "5.0"
 salsa20 = "0.11"
@@ -26,7 +26,7 @@ path = ".."
 
 [features]
 # `dryoc/base64` is on by default in the library; mirror that so
-# `fuzz_pwhash_str` fuzzes the encoded-string parsers without `--features`.
+# `fuzz-pwhash-str` fuzzes the encoded-string parsers without `--features`.
 default = ["base64"]
 base64 = ["dryoc/base64"]
 nightly = ["dryoc/nightly"]
@@ -37,49 +37,49 @@ simd_backend = ["dryoc/simd_backend"]
 members = ["."]
 
 [[bin]]
-name = "fuzz_secretstream_pull"
-path = "fuzz_targets/fuzz_secretstream_pull.rs"
+name = "fuzz-secretstream-pull"
+path = "fuzz_targets/fuzz-secretstream-pull.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_pwhash_str"
-path = "fuzz_targets/fuzz_pwhash_str.rs"
+name = "fuzz-pwhash-str"
+path = "fuzz_targets/fuzz-pwhash-str.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_from_bytes"
-path = "fuzz_targets/fuzz_from_bytes.rs"
+name = "fuzz-from-bytes"
+path = "fuzz_targets/fuzz-from-bytes.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_protected"
-path = "fuzz_targets/fuzz_protected.rs"
+name = "fuzz-protected"
+path = "fuzz_targets/fuzz-protected.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_aead"
-path = "fuzz_targets/fuzz_aead.rs"
+name = "fuzz-aead"
+path = "fuzz_targets/fuzz-aead.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_stream_ciphers"
-path = "fuzz_targets/fuzz_stream_ciphers.rs"
+name = "fuzz-stream-ciphers"
+path = "fuzz_targets/fuzz-stream-ciphers.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_hashes"
-path = "fuzz_targets/fuzz_hashes.rs"
+name = "fuzz-hashes"
+path = "fuzz_targets/fuzz-hashes.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "fuzz_curve25519"
-path = "fuzz_targets/fuzz_curve25519.rs"
+name = "fuzz-curve25519"
+path = "fuzz_targets/fuzz-curve25519.rs"
 test = false
 doc = false
