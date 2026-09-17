@@ -19,16 +19,24 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup nightly Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+        uses: actions/checkout@v7
+      - name: Setup nightly Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
-          cargo-packages: |
-            cargo-tarpaulin
-            cargo-hold
-      - run: cargo hold voyage
-      - run: cargo tarpaulin --features serde,nightly,wincode --out Xml
+          profile: minimal
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: coverage
+      - name: Install cargo-tarpaulin
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: cargo-tarpaulin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      # Under ptrace the compute-heavy tests go 40-50s without an event; the
+      # default 60s watchdog is too close to that and has timed out.
+      - run: mbx tarpaulin --timeout 300 --features serde,nightly,wincode --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.repository == 'brndnmtthws/dryoc'

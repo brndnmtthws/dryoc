@@ -21,39 +21,61 @@ jobs:
     name: semver compatibility
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup stable Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
-          cargo-packages: --locked cargo-semver-checks
-      - run: cargo semver-checks --verbose
+          profile: minimal
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: semver
+      - name: Install cargo-semver-checks
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-semver-checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: mbx semver-checks --verbose
 
   audit:
     name: dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup stable Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
-          cargo-packages: cargo-deny
+          profile: minimal
+      - name: Install cargo-deny
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: cargo-deny
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: cargo deny --all-features check advisories
 
   wasm:
     name: wasm32-unknown-unknown
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup stable Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain with wasm32 target
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
-          cargo-packages: --locked cargo-nextest
+          profile: minimal
+          targets: wasm32-unknown-unknown
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: wasm
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: rustup target add wasm32-unknown-unknown
       - name: Install matching wasm-bindgen test runner
         run: |
           WASM_BINDGEN_VERSION="$(
@@ -62,7 +84,7 @@ jobs:
               | head -n 1
           )"
           cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
-      - run: cargo nextest run --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode
+      - run: mbx nextest run --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
 
@@ -90,31 +112,34 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
+      # mbx 1.12.0's build-script launcher is not found by nightly Cargo's new
+      # build-dir layout on Windows (it runs `.../out/build_script_build`, which
+      # then falls through to the mbx CLI); keep the rest of mbx enabled there.
+      MBX_BUILD_SCRIPT_EXECUTION: ${{ startsWith(matrix.os, 'windows') && '0' || '1' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup ${{ matrix.rust }} Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup ${{ matrix.rust }} Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: ${{ matrix.rust }}
-          cargo-packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-      - name: Install cargo-hold
-        if: runner.os != 'Windows'
-        uses: brndnmtthws/rust-action-cargo-binstall@2c46d38e56ef5653e953c62f9fce2125d568a15c # v1
+          profile: minimal
+          components: clippy rustfmt
+      - uses: jdx/mr-boxington-action@v1
         with:
-          packages: cargo-hold
+          cache-generation: platform-${{ matrix.features }}
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: cargo hold voyage
-        if: runner.os != 'Windows'
-      - run: cargo build --features ${{ env.FEATURES }}
-      - run: cargo nextest run --features ${{ env.FEATURES }}
+      - run: mbx build --features ${{ env.FEATURES }}
+      - run: mbx nextest run --features ${{ env.FEATURES }}
         env:
           RUST_BACKTRACE: 1
       - run: cargo fmt --all -- --check
         if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' && matrix.features == 'default' }}
-      - run: cargo clippy --features ${{ env.FEATURES }} -- -D warnings
+      - run: mbx clippy --features ${{ env.FEATURES }} -- -D warnings
 
   feature-matrix:
     name: features / ${{ matrix.name }}
@@ -137,67 +162,93 @@ jobs:
           - name: serde-protected
             flags: --no-default-features --features serde,protected
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup stable Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: stable
-          cargo-packages: --locked cargo-nextest
+          profile: minimal
+          components: clippy
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: features-${{ matrix.name }}
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: cargo nextest run --all-targets ${{ matrix.flags }}
+      - run: mbx nextest run --all-targets ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: 1
-      - run: cargo clippy --all-targets ${{ matrix.flags }} -- -D warnings
+      - run: mbx clippy --all-targets ${{ matrix.flags }} -- -D warnings
 
   msrv:
     name: Rust 1.89 MSRV
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup MSRV toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup MSRV toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: 1.89.0
-          cargo-packages: --locked cargo-nextest
+          profile: minimal
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: msrv
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: cargo nextest run --all-targets --features serde,wincode
+      - run: mbx nextest run --all-targets --features serde,wincode
 
   all-features:
     name: all features / nightly
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup nightly Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup nightly Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
-          cargo-packages: --locked cargo-nextest
+          profile: minimal
+          components: clippy
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: all-features
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: cargo nextest run --all-targets --all-features
+      - run: mbx nextest run --all-targets --all-features
         env:
           RUST_BACKTRACE: 1
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: mbx clippy --all-targets --all-features -- -D warnings
 
   docs:
     name: documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup nightly Rust toolchain with caching
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup nightly Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
-          cargo-packages: ""
-      - run: cargo test --doc --all-features
+          profile: minimal
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: docs
+      - run: mbx test --doc --all-features
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: cargo doc --no-default-features --no-deps
+      - run: mbx doc --no-default-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: cargo doc --all-features --no-deps
+      - run: mbx doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -205,12 +256,18 @@ jobs:
     name: fuzz targets compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup nightly Rust and cargo-fuzz
-        uses: brndnmtthws/rust-action@1871ec11ecd98fd7c97eccc0042e92c97151e41a # v1
+      - uses: actions/checkout@v7
+      - name: Setup nightly Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
-          cargo-packages: cargo-fuzz
+          profile: minimal
+      - name: Install cargo-fuzz
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: cargo-fuzz
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Build fuzz targets for the Rust host
         run: |
           HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
