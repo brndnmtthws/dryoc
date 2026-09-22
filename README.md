@@ -81,9 +81,9 @@ the `simd_backend` feature. Implementations that need optional CPU extensions,
 such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,
 are selected at runtime when the CPU supports them. The AArch64 `asm!`
 implementations of the BLAKE2b rounds, the scalar ChaCha20 rounds, and
-Curve25519 field multiplication use only baseline instructions and are always
-used on that architecture. Curve25519 and Ed25519 group operations are also
-unaffected by the `simd_backend` feature.
+Curve25519 field multiplication use only baseline instructions and are used on
+that architecture outside Miri. Curve25519 and Ed25519 group operations are
+also unaffected by the `simd_backend` feature.
 
 ## Optional serialization
 
@@ -103,6 +103,41 @@ Rust types, and limited use of unsafe code reduce some classes of defects, but
 do not guarantee that an application is secure. Applications must still follow
 the documented key and nonce rules, protect secret material, handle errors, and
 choose primitives appropriate for their protocol.
+
+## Testing with Miri
+
+CI runs the unit and integration tests with [Miri](https://github.com/rust-lang/miri),
+with strict provenance checking and both minimal and optional-feature builds.
+To run the optional-feature configuration locally:
+
+```sh
+rustup toolchain install nightly --component miri --component rust-src
+cargo install --locked cargo-nextest
+cargo +nightly miri setup --target x86_64-unknown-linux-gnu
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly miri nextest run \
+  --target x86_64-unknown-linux-gnu \
+  --no-default-features --features serde,base64,wincode
+```
+
+Omit `--features serde,base64,wincode` for the minimal build. Miri can interpret
+the x86-64 target on other host architectures without a cross-linker.
+CI partitions each configuration across four jobs; nextest reports failures
+independently and terminates tests that exceed 15 minutes.
+One shard also enables AVX2 and BMI2 explicitly for kernel checks; Miri's
+baseline x86-64 CPU would otherwise leave those paths untested.
+
+Miri cannot call libsodium, execute inline assembly, or enforce the page
+permissions used by protected memory. Native compatibility tests are excluded
+under Miri, and the Miri CI jobs disable `protected`. AArch64 builds select the
+existing portable implementations in place of assembly and unsupported NEON
+kernels. Large randomized loops use fewer cases, and password-hash round-trip
+tests use minimum valid costs, while retaining known-answer and boundary
+checks. The native CI jobs still run the full workloads, hardware backends,
+and protected-memory tests, including the nightly allocator API.
+
+Miri checks the executions covered by these tests; a passing run is not a
+security audit. Its simulated randomness is deterministic: never use keys
+generated under Miri outside tests.
 
 ## Project status
 

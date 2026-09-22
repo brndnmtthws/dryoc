@@ -335,7 +335,9 @@ mod tests {
     #[test]
     fn test_torsion_check_matches_dalek() {
         let mut points = vec![curve25519_dalek::constants::ED25519_BASEPOINT_POINT];
-        for _ in 0..32 {
+        // Every torsion class is retained; fewer generated prime-order
+        // points keep the interpreted cross-product bounded.
+        for _ in 0..if cfg!(miri) { 2 } else { 32 } {
             let (pk, _) = crypto_sign_keypair();
             points.push(CompressedEdwardsY(pk).decompress().unwrap());
         }
@@ -380,7 +382,7 @@ mod tests {
         for torsion in curve25519_dalek::constants::EIGHT_TORSION {
             cases.push(torsion.compress().to_bytes());
         }
-        for _ in 0..64 {
+        for _ in 0..if cfg!(miri) { 4 } else { 64 } {
             cases.push(crypto_sign_keypair().0);
             let mut random = [0u8; CRYPTO_CORE_ED25519_BYTES];
             crate::rng::copy_randombytes(&mut random);

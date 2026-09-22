@@ -561,12 +561,18 @@ mod tests {
     extern crate test;
     use std::sync::LazyLock;
 
+    #[cfg(dryoc_native_tests)]
     use libc::*;
+    #[cfg(dryoc_native_tests)]
     use rand::TryRng;
     use serde::{Deserialize, Serialize};
 
     use super::*;
 
+    static_assertions::assert_impl_all!(State: zeroize::ZeroizeOnDrop);
+    const _: () = assert!(std::mem::needs_drop::<State>());
+
+    #[cfg(dryoc_native_tests)]
     #[repr(C)]
     #[derive(Debug)]
     struct B2state {
@@ -578,6 +584,7 @@ mod tests {
         last_node: u8,
     }
 
+    #[cfg(dryoc_native_tests)]
     unsafe extern "C" {
         fn blake2b_init(S: *mut B2state, outlen: c_uchar);
         fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
@@ -598,14 +605,6 @@ mod tests {
     static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| {
         serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap()
     });
-
-    #[test]
-    fn incremental_state_zeroizes_on_drop() {
-        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
-
-        assert_zeroize_on_drop::<State>();
-        assert!(std::mem::needs_drop::<State>());
-    }
 
     #[test]
     fn test_vectors() {
@@ -657,6 +656,7 @@ mod tests {
         });
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_b2_simd() {
         use crate::rng::copy_randombytes;
@@ -697,6 +697,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_b2_key_simd() {
         use crate::rng::copy_randombytes;
@@ -737,6 +738,7 @@ mod tests {
         assert_eq!(output, so_output);
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_blake2b_long_simd() {
         use crate::rng::copy_randombytes;
@@ -762,6 +764,7 @@ mod tests {
         }
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_blake2b_long_rand_length_simd() {
         use rand::rngs::SysRng;

@@ -1,0 +1,5 @@
+[profile.default-miri]
+# Miri runs each test in a separate interpreter. Report all failures, and
+# terminate stuck tests rather than consuming the entire CI job timeout.
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 15 }

@@ -1048,8 +1048,15 @@ mod tests {
     fn test_pwhash_uses_random_salt() {
         let password = b"super secrit password";
 
-        let pwhash1 = PwHash::hash_with_defaults(password).expect("unable to hash");
-        let pwhash2 = PwHash::hash_with_defaults(password).expect("unable to hash");
+        // Production-cost Argon2 is too expensive to interpret. Salt
+        // generation and verification exercise the same path at minimum cost.
+        let config = if cfg!(miri) {
+            argon2id_min()
+        } else {
+            Config::interactive()
+        };
+        let pwhash1 = VecPwHash::hash(password, config.clone()).expect("unable to hash");
+        let pwhash2 = VecPwHash::hash(password, config).expect("unable to hash");
 
         assert_ne!(pwhash1.salt.as_slice(), pwhash2.salt.as_slice());
 
@@ -1099,7 +1106,12 @@ mod tests {
     fn test_pwhash_str() {
         let password = b"super secrit password";
 
-        let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+        let config = if cfg!(miri) {
+            argon2id_min()
+        } else {
+            Config::interactive()
+        };
+        let pwhash = VecPwHash::hash(password, config).expect("unable to hash");
         let pw_string = pwhash
             .to_encoded_string()
             .expect("couldn't encode password hash");
@@ -1118,6 +1130,9 @@ mod tests {
         );
         let parsed_argon2i =
             VecPwHash::from_string(argon2i).expect("valid Argon2i string should parse");
+        // Miri checks multi-lane Argon2i with the smaller RFC vector in
+        // argon2::tests; retain parsing and re-encoding this 4 MiB vector.
+        #[cfg(not(miri))]
         parsed_argon2i
             .verify(b"password")
             .expect("valid Argon2i string should verify");
@@ -1134,11 +1149,6 @@ mod tests {
             Config::interactive().with_hash_length(64),
         );
         assert!(oversized_encoding.to_encoded_string().is_err());
-
-        let _argon2i_config = Config::interactive()
-            .with_algorithm(PasswordHashAlgorithm::Argon2i13)
-            .with_opslimit(CRYPTO_PWHASH_ARGON2I_OPSLIMIT_INTERACTIVE)
-            .with_memlimit(CRYPTO_PWHASH_ARGON2I_MEMLIMIT_INTERACTIVE);
     }
 
     #[test]

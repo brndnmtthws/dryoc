@@ -13,7 +13,8 @@ pub(crate) use blake2b_soft::*;
 #[cfg(all(
     any(test, not(all(feature = "simd_backend", feature = "nightly"))),
     target_arch = "aarch64",
-    target_endian = "little"
+    target_endian = "little",
+    not(miri)
 ))]
 pub(crate) mod blake2b_aarch64;
 

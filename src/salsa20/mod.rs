@@ -15,9 +15,9 @@ use crate::utils::{SIGMA, load_u32_le, zeroize_bytes};
 
 mod salsa20_soft;
 
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod salsa20_neon;
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 use salsa20_neon as vector;
 
 #[cfg(target_arch = "x86_64")]
@@ -602,7 +602,7 @@ mod tests {
         }
 
         proptest! {
-            #![proptest_config(ProptestConfig::with_cases(256))]
+            #![proptest_config(crate::utils::test_util::proptest_config(256))]
 
             #[test]
             fn test_xsalsa20_chunked_matches_rustcrypto((key, nonce, message, cuts, in_place) in case_strategy()) {
@@ -1167,7 +1167,11 @@ mod tests {
         #[test]
         fn test_driver_every_length_to_a_chunk_across_counter_wraps() {
             fn run<K: Kernel>(kernel: K) {
-                for len in 1..=kernel.chunk() + 64 {
+                // Native tests sweep every byte; Miri keeps both sides of
+                // every block and kernel boundary.
+                for len in (1..=kernel.chunk() + 64)
+                    .filter(|len| !cfg!(miri) || matches!(len % 64, 0 | 1 | 63))
+                {
                     for start in [
                         u64::from(u32::MAX) - 1,
                         u64::MAX - (len + 7).div_ceil(64) as u64,

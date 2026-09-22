@@ -460,6 +460,7 @@ mod tests {
 
     /// The register-scheduled scalar double round equals the portable one
     /// for random states.
+    #[cfg_attr(miri, ignore = "Miri cannot execute inline assembly")]
     #[test]
     fn test_scalar_double_round_matches_portable() {
         let mut rng = crate::utils::test_util::XorShift64::new(0x5a15_a20d_00b1_e000);

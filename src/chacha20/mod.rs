@@ -14,12 +14,12 @@ use crate::utils::{SIGMA, load_u32_le, zeroize_bytes};
 
 mod chacha20_soft;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", not(miri)))]
 mod chacha20_aarch64;
 
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod chacha20_neon;
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 use chacha20_neon as vector;
 #[cfg(target_arch = "x86_64")]
 mod chacha20_x86_64;
@@ -645,7 +645,7 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
-    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    #[cfg(dryoc_native_tests)]
     mod libsodium {
         use libc::c_ulonglong;
 
@@ -1258,6 +1258,23 @@ mod tests {
             let lens: Vec<usize> = threshold_lens()
                 .into_iter()
                 .filter(|&len| len <= 2 * max_chunk + 65)
+                // Other tests cover every dispatch threshold. Under Miri,
+                // combine counter wraps with empty, partial and full blocks,
+                // one kernel chunk and a run that spans two chunks.
+                .filter(|&len| {
+                    !cfg!(miri)
+                        || [
+                            0,
+                            1,
+                            64,
+                            65,
+                            max_chunk - 1,
+                            max_chunk,
+                            max_chunk + 1,
+                            2 * max_chunk + 65,
+                        ]
+                        .contains(&len)
+                })
                 .collect();
             for kernel in drivers() {
                 let blocks = kernel.map_or(1, |kernel| kernel.blocks() as u64);
@@ -1279,7 +1296,11 @@ mod tests {
             for kernel in kernels() {
                 for start in [u64::from(u32::MAX) - 1, u64::MAX - 1] {
                     for layout in [Layout::Legacy, Layout::Ietf] {
-                        for len in 1..=kernel.chunk() + 64 {
+                        // Native tests sweep every byte; Miri keeps both
+                        // sides of every block and kernel boundary.
+                        for len in (1..=kernel.chunk() + 64)
+                            .filter(|len| !cfg!(miri) || matches!(len % 64, 0 | 1 | 63))
+                        {
                             check_driver_across_wrap(Some(kernel), layout, start, len);
                         }
                     }

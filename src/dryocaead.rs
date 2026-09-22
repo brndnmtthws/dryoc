@@ -1517,7 +1517,7 @@ mod tests {
         }
 
         proptest! {
-            #![proptest_config(ProptestConfig::with_cases(96))]
+            #![proptest_config(crate::utils::test_util::proptest_config(96))]
 
             #[test]
             fn proptest_classic_modes_and_rustaceous_layouts_agree(
