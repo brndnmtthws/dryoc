@@ -123,7 +123,7 @@ MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly miri nextest run \
 For the kernel checks, use `--profile miri-kernels` and set
 `RUSTFLAGS="-Ctarget-feature=+avx2,+bmi2"`. Miri can interpret x86-64 on other
 host architectures without a cross-linker. The focused jobs use four workers,
-a five-minute per-test timeout and a 15-minute job timeout.
+a ten-minute per-test timeout and a 30-minute job timeout.
 
 Omit `--profile` to run the full suite locally, or also omit
 `--features serde,base64,wincode` for the minimal build. The full suite retains
