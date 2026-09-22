@@ -106,9 +106,10 @@ choose primitives appropriate for their protocol.
 
 ## Testing with Miri
 
-CI runs the unit and integration tests with [Miri](https://github.com/rust-lang/miri),
-with strict provenance checking and both minimal and optional-feature builds.
-To run the optional-feature configuration locally:
+CI runs focused memory-safety checks with [Miri](https://github.com/rust-lang/miri)
+and strict provenance checking. The two jobs cover portable byte views,
+zeroization, serialization, representative public operations, and AVX2/BMI2
+kernel buffers. To run the portable checks locally:
 
 ```sh
 rustup toolchain install nightly --component miri --component rust-src
@@ -116,15 +117,18 @@ cargo install --locked cargo-nextest
 cargo +nightly miri setup --target x86_64-unknown-linux-gnu
 MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly miri nextest run \
   --target x86_64-unknown-linux-gnu \
-  --no-default-features --features serde,base64,wincode
+  --no-default-features --features serde,base64,wincode --profile miri-smoke
 ```
 
-Omit `--features serde,base64,wincode` for the minimal build. Miri can interpret
-the x86-64 target on other host architectures without a cross-linker.
-CI partitions each configuration across four jobs; nextest reports failures
-independently and terminates tests that exceed 15 minutes.
-One shard also enables AVX2 and BMI2 explicitly for kernel checks; Miri's
-baseline x86-64 CPU would otherwise leave those paths untested.
+For the kernel checks, use `--profile miri-kernels` and set
+`RUSTFLAGS="-Ctarget-feature=+avx2,+bmi2"`. Miri can interpret x86-64 on other
+host architectures without a cross-linker. The focused jobs use four workers,
+a five-minute per-test timeout and a 15-minute job timeout.
+
+Omit `--profile` to run the full suite locally, or also omit
+`--features serde,base64,wincode` for the minimal build. The full suite retains
+its 15-minute per-test timeout; exhaustive arithmetic comparisons run in the
+native CI jobs rather than in every pull request's Miri checks.
 
 Miri cannot call libsodium, execute inline assembly, or enforce the page
 permissions used by protected memory. Native compatibility tests are excluded

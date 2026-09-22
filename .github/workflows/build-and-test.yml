@@ -253,20 +253,22 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
   miri:
-    name: Miri / ${{ matrix.features.name }} / shard ${{ matrix.shard }}
+    name: Miri / ${{ matrix.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        features:
-          - name: minimal
-            flags: ""
-          - name: optional-features
-            flags: --features serde,base64,wincode
-        shard: [1, 2, 3, 4]
+        include:
+          - name: portable and serialization
+            profile: miri-smoke
+            rustflags: ""
+          - name: AVX2 and BMI2 kernels
+            profile: miri-kernels
+            rustflags: -Ctarget-feature=+avx2,+bmi2
     env:
       MIRIFLAGS: -Zmiri-strict-provenance
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v7
       - name: Setup nightly Rust toolchain with Miri
@@ -285,28 +287,13 @@ jobs:
       - run: cargo +nightly miri setup --target x86_64-unknown-linux-gnu
       # Miri cannot enforce protected-memory page permissions or call
       # libsodium. The native jobs above retain that coverage.
-      - name: Run tests under Miri
+      - name: Run focused safety checks under Miri
         run: >-
           cargo +nightly miri nextest run
           --target x86_64-unknown-linux-gnu
-          --no-default-features ${{ matrix.features.flags }}
-          --partition hash:${{ matrix.shard }}/4
-      # Miri's baseline x86-64 CPU has no AVX2. Enable it explicitly for
-      # the load/store kernels so their unsafe memory accesses are checked.
-      - name: Check AVX2 kernels under Miri
-        if: matrix.features.name == 'optional-features' && matrix.shard == 1
-        env:
-          RUSTFLAGS: -Ctarget-feature=+avx2,+bmi2
-        run: >-
-          cargo +nightly miri nextest run
-          --target x86_64-unknown-linux-gnu
-          --no-default-features --features serde,base64,wincode --lib
-          -E 'test(=poly1305::poly1305_soft::tests::avx2_blocks_match_scalar)
-          | test(=blake2b::blake2b_soft::tests::test_x86_64_compress_matches_portable)
-          | test(=argon2::tests::test_fill_block_x86_64_matches_soft)
-          | test(=chacha20::tests::vector_path::test_kernel_chunk_matches_scalar_blocks)
-          | test(=salsa20::tests::vector_path::test_kernel_chunk_matches_scalar_blocks)
-          | test(=scalarmult_curve25519::tests::test_rfc7748_vectors)'
+          --no-default-features --features serde,base64,wincode
+          --profile ${{ matrix.profile }}
+          --test-threads 4
 
   fuzz:
     name: fuzz targets build & smoke run

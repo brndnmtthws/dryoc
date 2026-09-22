@@ -3,3 +3,43 @@
 # terminate stuck tests rather than consuming the entire CI job timeout.
 fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 15 }
+
+# PR coverage targets unsafe views, wiping, schemas and representative public
+# operations. The full suite remains the default for local Miri runs.
+[profile.miri-smoke]
+inherits = "default-miri"
+slow-timeout = { period = "60s", terminate-after = 5 }
+default-filter = '''
+test(/^types::tests::/)
+| test(/^bytes_serde::tests::/)
+| test(/^utils::tests::test_zeroize/)
+| test(=generichash::tests::test_vectors)
+| test(=argon2::tests::test_vector_argon2i)
+| test(=argon2::tests::test_vector_argon2id)
+| test(=scalarmult_curve25519::tests::test_rfc7748_vectors)
+| test(=sign::tests::rfc8032_detached_signatures_and_signed_message_wire_format)
+| test(=poly1305::tests::rfc8439_a3_final_reduction_vectors)
+| test(=classic::crypto_aead_chacha20poly1305_ietf::tests::test_failures_leave_outputs_untouched)
+| test(=classic::crypto_aead_xchacha20poly1305_ietf::tests::test_failures_leave_outputs_untouched)
+| test(=classic::crypto_secretstream_xchacha20poly1305::tests::pull_authenticates_before_mutating_outputs_or_state)
+| test(=dryocaead::tests::kat::chacha_wincode_round_trips_decrypt_with_classic)
+| test(=test_dryocbox_wincode_wire_format)
+| test(=test_dryocsecretbox_wincode_wire_format)
+| test(=test_dryocaead_wincode_wire_format)
+| test(=test_classic_hmac_and_hkdf_public_api)
+| test(=test_sha3_public_api)
+| test(=test_streams)
+'''
+
+# Run with RUSTFLAGS="-Ctarget-feature=+avx2,+bmi2" so these kernels execute
+# instead of returning early on Miri's baseline virtual CPU.
+[profile.miri-kernels]
+inherits = "miri-smoke"
+default-filter = '''
+test(=poly1305::poly1305_soft::tests::avx2_blocks_match_scalar)
+| test(=blake2b::blake2b_soft::tests::test_x86_64_compress_matches_portable)
+| test(=argon2::tests::test_fill_block_x86_64_matches_soft)
+| test(=chacha20::tests::vector_path::test_kernel_chunk_matches_scalar_blocks)
+| test(=salsa20::tests::vector_path::test_kernel_chunk_matches_scalar_blocks)
+| test(=scalarmult_curve25519::tests::test_rfc7748_vectors)
+'''

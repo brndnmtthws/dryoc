@@ -1050,13 +1050,16 @@ mod tests {
 
         // Production-cost Argon2 is too expensive to interpret. Salt
         // generation and verification exercise the same path at minimum cost.
-        let config = if cfg!(miri) {
-            argon2id_min()
-        } else {
-            Config::interactive()
+        let hash = || {
+            if cfg!(miri) {
+                VecPwHash::hash(password, argon2id_min())
+            } else {
+                PwHash::hash_with_defaults(password)
+            }
+            .expect("unable to hash")
         };
-        let pwhash1 = VecPwHash::hash(password, config.clone()).expect("unable to hash");
-        let pwhash2 = VecPwHash::hash(password, config).expect("unable to hash");
+        let pwhash1 = hash();
+        let pwhash2 = hash();
 
         assert_ne!(pwhash1.salt.as_slice(), pwhash2.salt.as_slice());
 
