@@ -73,7 +73,7 @@ pub(super) fn square(a: &[u64; 5]) -> [u64; 5] {
 /// below `2^51 + 2^12` (limb 0 takes 19 times its carry). The dependency
 /// chain is about half of [`carry`]'s,
 /// which is what bounds a long chain of dependent squarings.
-#[cfg(any(not(target_arch = "aarch64"), test))]
+#[cfg(any(not(target_arch = "aarch64"), miri, test))]
 #[inline(always)]
 fn carry_reduced(c0: u128, c1: u128, c2: u128, c3: u128, c4: u128) -> [u64; 5] {
     let low = |c: u128| (c as u64) & MASK51;
@@ -97,7 +97,7 @@ fn carry_reduced(c0: u128, c1: u128, c2: u128, c3: u128, c4: u128) -> [u64; 5] {
 /// [`square`] with the latency-shorter [`carry_reduced`], whose bounds those
 /// inputs satisfy. In a chain of dependent squarings the carry is on the
 /// critical path, and this form runs about a third faster than [`square`].
-#[cfg(any(not(target_arch = "aarch64"), test))]
+#[cfg(any(not(target_arch = "aarch64"), miri, test))]
 #[inline(always)]
 pub(super) fn square_chain(a: &[u64; 5]) -> [u64; 5] {
     debug_assert!(a.iter().all(|&l| l < (1 << 51) + (1 << 13)));

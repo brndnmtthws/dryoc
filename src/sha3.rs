@@ -212,6 +212,9 @@ pub(crate) mod test_vectors {
                 pattern(2 * SHA3_256_RATE),
                 hex("eff96935ef1690d1f7140a486ef18e2d193baa080205e2a69f3b4a184ca03b7f"),
             ),
+            // Rate boundaries above cover buffering under Miri; keep the
+            // million-byte stress vector in the native suite.
+            #[cfg(not(miri))]
             (
                 vec![b'a'; 1_000_000],
                 hex("5c8875ae474a3634ba4fd55ec85bffd661f32aca75c6d699d0cdcb6c115891c1"),
@@ -283,6 +286,7 @@ pub(crate) mod test_vectors {
                     "9c69e8115c641dc8b83e39f7311815a164dc46e0ba2fca344d86d4bc2ef2532c",
                 )),
             ),
+            #[cfg(not(miri))]
             (
                 vec![b'a'; 1_000_000],
                 hex(concat!(

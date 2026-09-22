@@ -328,6 +328,17 @@ mod tests {
 pub(crate) mod test_util {
     use crate::error::{Error, ErrorContext, LengthConstraint};
 
+    /// Bounds Miri runs and disables filesystem-backed failure persistence.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    pub(crate) fn proptest_config(cases: u32) -> proptest::test_runner::Config {
+        let mut config = proptest::test_runner::Config::with_cases(cases);
+        if cfg!(miri) {
+            config.cases = 8;
+            config.failure_persistence = None;
+        }
+        config
+    }
+
     /// Asserts that `result` is `Error::InvalidLength` for a slice of
     /// `actual` bytes where exactly `expected` were required, matching on the
     /// variant rather than its message.

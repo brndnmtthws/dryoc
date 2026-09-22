@@ -252,6 +252,49 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  miri:
+    name: Miri / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: portable and serialization
+            profile: miri-smoke
+            rustflags: ""
+          - name: AVX2 and BMI2 kernels
+            profile: miri-kernels
+            rustflags: -Ctarget-feature=+avx2,+bmi2
+    env:
+      MIRIFLAGS: -Zmiri-strict-provenance
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup nightly Rust toolchain with Miri
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          components: miri rust-src
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      # Miri cannot be wrapped by mbx. It builds its own interpreted sysroot.
+      - run: cargo +nightly miri setup --target x86_64-unknown-linux-gnu
+      # Miri cannot enforce protected-memory page permissions or call
+      # libsodium. The native jobs above retain that coverage.
+      - name: Run focused safety checks under Miri
+        run: >-
+          cargo +nightly miri nextest run
+          --target x86_64-unknown-linux-gnu
+          --no-default-features --features serde,base64,wincode
+          --profile ${{ matrix.profile }}
+          --test-threads 4
+
   fuzz:
     name: fuzz targets build & smoke run
     runs-on: ubuntu-latest
@@ -312,6 +355,7 @@ jobs:
       - msrv
       - all-features
       - docs
+      - miri
       - fuzz
     runs-on: ubuntu-latest
     steps:

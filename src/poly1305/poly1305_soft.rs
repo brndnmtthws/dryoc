@@ -19,7 +19,7 @@ pub struct Poly1305 {
 /// Minimum run of full blocks worth handing to the NEON path; below this the
 /// key-power precomputation and limb conversions cost more than they save.
 /// Must be at least one `poly1305_neon::CHUNK`.
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 const NEON_MIN_BYTES: usize = 480;
 
 #[inline]
@@ -106,7 +106,7 @@ impl Poly1305 {
     /// Processes a whole number of full blocks, using the NEON or x86-64
     /// bulk paths for long runs when available.
     fn full_blocks(&mut self, input: &[u8]) {
-        #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
         if input.len() >= NEON_MIN_BYTES && std::arch::is_aarch64_feature_detected!("neon") {
             let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
             // SAFETY: `poly1305_neon::blocks` requires the `neon` target
@@ -434,7 +434,7 @@ mod tests {
     /// more scalar blocks, for every whole number of chunks in
     /// `chunk_counts`.
     #[cfg(any(
-        all(target_arch = "aarch64", target_endian = "little"),
+        all(target_arch = "aarch64", target_endian = "little", not(miri)),
         target_arch = "x86_64"
     ))]
     fn check_bulk_matches_scalar(
@@ -466,7 +466,7 @@ mod tests {
 
     /// The NEON bulk kernel, for 1 to 4 of its 160-byte chunks and for 8,
     /// 16 and 25 chunks (up to 4 KiB).
-    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
     #[test]
     fn neon_blocks_match_scalar() {
         use super::super::poly1305_neon::{CHUNK, blocks};
@@ -619,7 +619,7 @@ mod tests {
         use super::*;
 
         proptest! {
-            #![proptest_config(ProptestConfig::with_cases(128))]
+            #![proptest_config(crate::utils::test_util::proptest_config(128))]
 
             /// The production driver (buffering, and the NEON bulk path for
             /// long full-block runs on AArch64) must match the scalar block

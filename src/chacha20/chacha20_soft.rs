@@ -7,7 +7,7 @@
 use zeroize::Zeroize;
 
 /// One ChaCha20 quarter round over the four words `$a, $b, $c, $d` of `$x`.
-#[cfg(any(not(target_arch = "aarch64"), test))]
+#[cfg(any(not(target_arch = "aarch64"), miri, test))]
 macro_rules! quarter_round {
     ($x:ident, $a:literal, $b:literal, $c:literal, $d:literal) => {
         $x[$a] = $x[$a].wrapping_add($x[$b]);
@@ -22,7 +22,7 @@ macro_rules! quarter_round {
 }
 
 /// One ChaCha20 double round (a column round followed by a diagonal round).
-#[cfg(any(not(target_arch = "aarch64"), test))]
+#[cfg(any(not(target_arch = "aarch64"), miri, test))]
 #[inline(always)]
 pub(super) fn double_round(x: &mut [u32; 16]) {
     super::chacha20_double_round!(quarter_round, x);
@@ -32,9 +32,9 @@ pub(super) fn double_round(x: &mut [u32; 16]) {
 /// the final feed-forward addition.
 #[inline]
 pub(crate) fn rounds(x: &mut [u32; 16]) {
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
     super::chacha20_aarch64::rounds(x);
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(any(not(target_arch = "aarch64"), miri))]
     for _ in 0..10 {
         double_round(x);
     }

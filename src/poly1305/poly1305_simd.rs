@@ -357,21 +357,17 @@ impl Poly1305 {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
+    #[cfg(dryoc_native_tests)]
     use rand::TryRng;
 
     use super::*;
     use crate::poly1305::poly1305_soft;
 
+    static_assertions::assert_impl_all!(Poly1305: zeroize::ZeroizeOnDrop);
+    const _: () = assert!(std::mem::needs_drop::<Poly1305>());
+
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     extern crate test;
-
-    #[test]
-    fn incremental_state_zeroizes_on_drop() {
-        fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
-
-        assert_zeroize_on_drop::<Poly1305>();
-        assert!(std::mem::needs_drop::<Poly1305>());
-    }
 
     fn simd_mac(key: &[u8; 32], chunks: &[&[u8]]) -> [u8; BLOCK_SIZE] {
         let key = Key::from(key);
@@ -461,6 +457,7 @@ mod tests {
         );
     }
 
+    #[cfg(dryoc_native_tests)]
     #[test]
     fn test_libsodium_varied_lengths_and_chunking() {
         use rand::rngs::SysRng;
@@ -500,7 +497,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(256))]
+        #![proptest_config(crate::utils::test_util::proptest_config(256))]
 
         #[test]
         fn proptest_simd_matches_soft_one_shot(

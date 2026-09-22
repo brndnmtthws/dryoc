@@ -52,10 +52,12 @@ salsa20 = { version = "0.11", features = ["zeroize"] }
 static_assertions = "1.1"
 wincode = "0.6"
 
-[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+[target.'cfg(not(any(miri, all(target_arch = "wasm32", target_os = "unknown"))))'.dev-dependencies]
 libsodium-sys = "0.2"
-proptest = "1"
 sodiumoxide = "0.2"
+
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+proptest = "1"
 
 [features]
 base64 = []

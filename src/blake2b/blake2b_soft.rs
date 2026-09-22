@@ -50,7 +50,11 @@ impl Default for State {
 }
 
 /// One BLAKE2b `G` mixing step on four state words with two message words.
-#[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), test))]
+#[cfg(any(
+    not(all(target_arch = "aarch64", target_endian = "little")),
+    miri,
+    test
+))]
 macro_rules! g {
     ($v:ident, $a:expr, $b:expr, $c:expr, $d:expr, $x:expr, $y:expr) => {
         $v[$a] = $v[$a].wrapping_add($v[$b]).wrapping_add($x);
@@ -66,7 +70,11 @@ macro_rules! g {
 
 /// One full BLAKE2b round; `$s*` are the SIGMA permutation entries for the
 /// round, spelled out as literals so every index is a compile-time constant.
-#[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), test))]
+#[cfg(any(
+    not(all(target_arch = "aarch64", target_endian = "little")),
+    miri,
+    test
+))]
 macro_rules! round {
     (
         $v:ident,
@@ -103,13 +111,17 @@ macro_rules! round {
 /// words of `block`.
 #[inline]
 fn rounds(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
-    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
     super::blake2b_aarch64::rounds(v, block);
-    #[cfg(not(all(target_arch = "aarch64", target_endian = "little")))]
+    #[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), miri))]
     rounds_portable(v, block);
 }
 
-#[cfg(any(not(all(target_arch = "aarch64", target_endian = "little")), test))]
+#[cfg(any(
+    not(all(target_arch = "aarch64", target_endian = "little")),
+    miri,
+    test
+))]
 fn rounds_portable(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
     let mut m = [0u64; 16];
     for (word, chunk) in m.iter_mut().zip(block.as_chunks::<8>().0) {
@@ -390,7 +402,7 @@ mod tests {
 
     /// The register-scheduled AArch64 rounds agree with the portable rounds
     /// on random states and blocks.
-    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
     #[test]
     fn test_rounds_match_portable() {
         let mut seed = 0x243f_6a88_85a3_08d3u64;

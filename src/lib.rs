@@ -45,8 +45,10 @@
 //! AVX-512, and BMI2, are selected at runtime when the CPU supports them. The
 //! AArch64 `asm!` implementations of the BLAKE2b rounds, the scalar ChaCha20
 //! rounds, and Curve25519 field multiplication use only baseline instructions
-//! and are always used on that architecture. Curve25519 and Ed25519 group
-//! operations are also unaffected by the `simd_backend` feature.
+//! and are used on that architecture outside Miri. Miri builds use the existing
+//! portable implementations where assembly or intrinsics are unsupported.
+//! Curve25519 and Ed25519 group operations are also unaffected by the
+//! `simd_backend` feature.
 //!
 //! ## Performance
 //!
@@ -114,6 +116,11 @@
 //! `VecBox` and `VecEnvelope` aliases in [`dryocaead`].
 //!
 //! ## Unsafe code
+//!
+//! Miri uses portable alternatives to the AArch64 assembly and unsupported
+//! NEON kernels below. Protected-memory OS
+//! calls remain native-only test coverage because Miri cannot enforce page
+//! permissions.
 //!
 //! Non-test `unsafe` code is limited to these areas:
 //!
@@ -193,7 +200,7 @@ mod bytes_serde;
 mod chacha20;
 mod edwards25519;
 mod fe25519;
-#[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod neon;
 mod poly1305;
 mod salsa20;

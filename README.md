@@ -81,9 +81,9 @@ the `simd_backend` feature. Implementations that need optional CPU extensions,
 such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,
 are selected at runtime when the CPU supports them. The AArch64 `asm!`
 implementations of the BLAKE2b rounds, the scalar ChaCha20 rounds, and
-Curve25519 field multiplication use only baseline instructions and are always
-used on that architecture. Curve25519 and Ed25519 group operations are also
-unaffected by the `simd_backend` feature.
+Curve25519 field multiplication use only baseline instructions and are used on
+that architecture outside Miri. Curve25519 and Ed25519 group operations are
+also unaffected by the `simd_backend` feature.
 
 ## Optional serialization
 

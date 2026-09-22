@@ -223,7 +223,9 @@ mod tests {
         };
         let mut k = base;
         let mut u = base;
-        for i in 1..=1000 {
+        // Keep the single-iteration vector and DH exchange under Miri; the
+        // 1,000-iteration stress vector runs in the native suite.
+        for i in 1..=if cfg!(miri) { 1 } else { 1000 } {
             let r = x25519(&k, &u);
             u = k;
             k = r;
@@ -234,6 +236,7 @@ mod tests {
                 );
             }
         }
+        #[cfg(not(miri))]
         assert_eq!(
             k,
             hex("684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51")
@@ -266,7 +269,7 @@ mod tests {
     #[test]
     fn test_matches_dalek_on_random_and_boundary_inputs() {
         let mut rng = XorShift64::new(0x9e37_79b9_7f4a_7c15);
-        for i in 0..2000 {
+        for i in 0..if cfg!(miri) { 12 } else { 2000 } {
             let k = rng.next_bytes32();
             let mut u = rng.next_bytes32();
             match i % 4 {
