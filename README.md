@@ -104,45 +104,6 @@ do not guarantee that an application is secure. Applications must still follow
 the documented key and nonce rules, protect secret material, handle errors, and
 choose primitives appropriate for their protocol.
 
-## Testing with Miri
-
-CI runs focused memory-safety checks with [Miri](https://github.com/rust-lang/miri)
-and strict provenance checking. The two jobs cover portable byte views,
-zeroization, serialization, representative public operations, and AVX2/BMI2
-kernel buffers. To run the portable checks locally:
-
-```sh
-rustup toolchain install nightly --component miri --component rust-src
-cargo install --locked cargo-nextest
-cargo +nightly miri setup --target x86_64-unknown-linux-gnu
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly miri nextest run \
-  --target x86_64-unknown-linux-gnu \
-  --no-default-features --features serde,base64,wincode --profile miri-smoke
-```
-
-For the kernel checks, use `--profile miri-kernels` and set
-`RUSTFLAGS="-Ctarget-feature=+avx2,+bmi2"`. Miri can interpret x86-64 on other
-host architectures without a cross-linker. The focused jobs use four workers,
-a ten-minute per-test timeout and a 30-minute job timeout.
-
-Omit `--profile` to run the full suite locally, or also omit
-`--features serde,base64,wincode` for the minimal build. The full suite retains
-its 15-minute per-test timeout; exhaustive arithmetic comparisons run in the
-native CI jobs rather than in every pull request's Miri checks.
-
-Miri cannot call libsodium, execute inline assembly, or enforce the page
-permissions used by protected memory. Native compatibility tests are excluded
-under Miri, and the Miri CI jobs disable `protected`. AArch64 builds select the
-existing portable implementations in place of assembly and unsupported NEON
-kernels. Large randomized loops use fewer cases, and password-hash round-trip
-tests use minimum valid costs, while retaining known-answer and boundary
-checks. The native CI jobs still run the full workloads, hardware backends,
-and protected-memory tests, including the nightly allocator API.
-
-Miri checks the executions covered by these tests; a passing run is not a
-security audit. Its simulated randomness is deterministic: never use keys
-generated under Miri outside tests.
-
 ## Project status
 
 The following features are implemented. Entries that mirror libsodium have
