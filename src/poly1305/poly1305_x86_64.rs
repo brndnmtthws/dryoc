@@ -287,14 +287,14 @@ macro_rules! poly1305_26 {
             /// consecutive blocks in the 64-bit lanes of `0[k]`. Limbs stay
             /// below `2^32` so `vpmuludq`, which multiplies the low 32 bits
             /// of each lane, sees them whole.
-            #[derive(Clone, Copy)]
+            #[derive(Clone, Copy, Zeroize)]
             struct Acc([$vec; 5]);
 
             /// Multiplier words for one `acc * m mod p`: `r[k]` holds limb
             /// `k` of the power, `s[k - 1]` holds `5 * ` limb `k` for `k >=
             /// 1`. Either the same power in every lane (hot loop) or one
             /// power per lane (final chunk).
-            #[derive(Clone, Copy)]
+            #[derive(Clone, Copy, Zeroize)]
             struct Mult {
                 r: [$vec; 5],
                 s: [$vec; 4],
@@ -466,10 +466,11 @@ macro_rules! poly1305_26 {
             /// `h` using the clamped key limbs `r`.
             ///
             /// `h` is the scalar backend's partially reduced 3x44-bit state
-            /// on entry and exit. The 3x44-bit key power limbs are wiped
-            /// before returning; the vector-register copies of the powers
-            /// are plain locals and are not wiped, the same as the
-            /// stream-cipher kernels' register state.
+            /// on entry and exit. The staging arrays, the `r^BLOCKS`
+            /// multiplier and both accumulators (which the out-of-line
+            /// `hot_loop` reaches through memory) are wiped once before
+            /// returning; values that live only in registers and compiler
+            /// spill slots are out of Rust's reach and are not wiped.
             #[target_feature(enable = $feature)]
             pub(crate) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
                 debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
@@ -484,7 +485,7 @@ macro_rules! poly1305_26 {
                 let low = Acc(Mult::descending(&limbs).r);
                 let high = mul_reduce(low, &Mult::broadcast(limbs[LANES - 1]));
                 limbs.zeroize();
-                let top = Mult::from_lane0(high);
+                let mut top = Mult::from_lane0(high);
                 let tail_a = Mult::from_acc(high);
                 let tail_b = Mult::from_acc(low);
 
@@ -493,7 +494,7 @@ macro_rules! poly1305_26 {
                 let mut start = limbs26(canonical(h));
                 let mut lanes = [0u64; LANES];
                 let mut a = Acc([$set1(0); 5]);
-                for (word, limb) in a.0.iter_mut().zip(start) {
+                for (word, &limb) in a.0.iter_mut().zip(&start) {
                     lanes[0] = u64::from(limb);
                     *word = $load_words(&lanes);
                 }
@@ -517,10 +518,13 @@ macro_rules! poly1305_26 {
                 // below 2^27 * BLOCKS <= 2^31) and convert back to 3x44-bit
                 // limbs.
                 let mut l = [0u64; 5];
-                for (limb, (wa, wb)) in l.iter_mut().zip(a.0.into_iter().zip(b.0)) {
-                    *limb = $lane_sum($add_epi64(wa, wb));
+                for (limb, (wa, wb)) in l.iter_mut().zip(a.0.iter().zip(&b.0)) {
+                    *limb = $lane_sum($add_epi64(*wa, *wb));
                 }
                 *h = carry44(pack_limbs26(l));
+                top.zeroize();
+                a.zeroize();
+                b.zeroize();
             }
 
             #[cfg(test)]
@@ -645,7 +649,7 @@ pub(super) const CHUNK_IFMA: usize = 16 * avx512::LANES;
 /// split as the scalar backend's `h`. Every limb handed to
 /// `vpmadd52luq`/`vpmadd52huq`, which multiply the low 52 bits of each
 /// lane, stays far below `2^52`; see [`mul_reduce44`].
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Zeroize)]
 struct Acc44([__m512i; 3]);
 
 /// Canonical 3x44-bit limbs `p` in every lane.
@@ -659,7 +663,7 @@ fn splat44(p: [u64; 3]) -> [__m512i; 3] {
 /// limb `k` of the power and `s[k - 1]` holds `20 *` limb `k` for `k >= 1`,
 /// the scalar backend's `s1`/`s2` (a product wrapped past `2^132` is
 /// multiplied by `2^132 mod p = 20`).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Zeroize)]
 struct Mult44 {
     r: [__m512i; 3],
     s: [__m512i; 2],
@@ -819,12 +823,17 @@ fn descending_powers(r: &[u64; 3]) -> Acc44 {
 /// of `CHUNK_IFMA` bytes. One chain of eight Horner lanes (block `i` of each
 /// chunk in lane `i`), each multiplied by `r^8` per chunk; the final chunk
 /// uses `r^8, r^7, ..., r` so the lane sum is the sequential Horner value.
+///
+/// The multiplier and the accumulator the out-of-line `hot_loop44` reaches
+/// through memory are wiped once before returning; values that live only in
+/// registers and compiler spill slots are out of Rust's reach and are not
+/// wiped.
 #[target_feature(enable = "avx512f,avx512ifma")]
 pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA));
 
     let low = descending_powers(r);
-    let top = Mult44::from_lane0(low);
+    let mut top = Mult44::from_lane0(low);
     let tail = Mult44::from_acc(low);
 
     // `h` goes into lane 0 (block 0 of each chunk), canonical so it meets
@@ -841,10 +850,12 @@ pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     // Sum the eight lanes (each limb below 2^44 + 2^8, so the sums below
     // 2^48) and carry back to the scalar backend's partially reduced form.
     let mut l = [0u64; 3];
-    for (limb, word) in l.iter_mut().zip(a.0) {
-        *limb = lane_sum512(word);
+    for (limb, word) in l.iter_mut().zip(&a.0) {
+        *limb = lane_sum512(*word);
     }
     *h = carry44(l);
+    top.zeroize();
+    a.zeroize();
 }
 
 /// Bytes per iteration of the two-chain AVX-512 IFMA kernel.
@@ -870,13 +881,16 @@ fn hot_loop44x2(a: &mut Acc44, b: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFM
 /// ..., r` on `B`. One chain's iteration is a dependency chain of three
 /// accumulating multiplies and the carries, about as long as the issue time
 /// of its instructions; the second chain fills those gaps.
+///
+/// Wipes the working copies `hot_loop44x2` reaches through memory as
+/// [`blocks_ifma`] does.
 #[target_feature(enable = "avx512f,avx512ifma")]
 pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA2));
 
     let low = descending_powers(r);
     let high = mul_reduce44(low, &Mult44::from_lane0(low));
-    let top = Mult44::from_lane0(high);
+    let mut top = Mult44::from_lane0(high);
     let tail_a = Mult44::from_acc(high);
     let tail_b = Mult44::from_acc(low);
 
@@ -895,10 +909,13 @@ pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     // Sum the sixteen lanes (each limb below 2^44 + 2^8, so the sums below
     // 2^49) and carry back to the scalar backend's partially reduced form.
     let mut l = [0u64; 3];
-    for (limb, (wa, wb)) in l.iter_mut().zip(a.0.into_iter().zip(b.0)) {
-        *limb = lane_sum512(_mm512_add_epi64(wa, wb));
+    for (limb, (wa, wb)) in l.iter_mut().zip(a.0.iter().zip(&b.0)) {
+        *limb = lane_sum512(_mm512_add_epi64(*wa, *wb));
     }
     *h = carry44(l);
+    top.zeroize();
+    a.zeroize();
+    b.zeroize();
 }
 
 #[cfg(test)]

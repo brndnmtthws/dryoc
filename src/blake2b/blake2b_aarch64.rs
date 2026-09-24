@@ -162,6 +162,13 @@ macro_rules! round {
     };
 }
 
+/// The twelve BLAKE2b rounds over the working state `v` with the message
+/// words of `block`.
+///
+/// The state words are `asm!` register operands and the message words are
+/// loaded straight into scratch registers, so the rounds make no memory copy
+/// of either; registers and compiler spill slots are out of Rust's reach and
+/// are not wiped.
 #[inline]
 pub(super) fn rounds(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
     let [

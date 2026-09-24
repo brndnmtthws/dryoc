@@ -245,6 +245,11 @@ fn round(a: &mut [__m256i; 25], rc: u64, bytes: ByteRotations) {
 }
 
 /// Keccak-p[1600, `ROUNDS`] on four states.
+///
+/// The transposed lanes and the staging words are wiped once before
+/// returning; the rounds' column parities, `theta` offsets and `rho`/`pi`
+/// lanes, like every other value that lives only in registers and compiler
+/// spill slots, are out of Rust's reach and are not wiped.
 #[target_feature(enable = "avx2")]
 fn permute4_avx2<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4]) {
     const { assert!(ROUNDS <= 24) };
@@ -276,15 +281,15 @@ fn permute4_avx2<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4]) {
     let (blocks, [last]) = a.as_chunks::<4>() else {
         unreachable!("25 lanes are six blocks of four and one more");
     };
-    for (j, &block) in blocks.iter().enumerate() {
-        for (state, row) in states.iter_mut().zip(transpose_words(block)) {
-            store_words(&mut state.as_chunks_mut::<4>().0[j], row);
+    for (j, block) in blocks.iter().enumerate() {
+        for (state, row) in states.iter_mut().zip(&transpose_words(*block)) {
+            store_words(&mut state.as_chunks_mut::<4>().0[j], *row);
         }
     }
     let mut words = [0; 4];
     store_words(&mut words, *last);
-    for (state, word) in states.iter_mut().zip(words) {
-        state[24] = word;
+    for (state, word) in states.iter_mut().zip(&words) {
+        state[24] = *word;
     }
     // The working copies hold the (possibly secret) states.
     a.zeroize();

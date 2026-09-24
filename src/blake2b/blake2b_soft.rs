@@ -153,6 +153,11 @@ fn compress(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKB
     compress_portable(sh, st, sf, block);
 }
 
+/// One BLAKE2b compression without the x86-64 kernels.
+///
+/// The working state `v` and the message words only flow through inlined
+/// rounds, so they live in registers and compiler spill slots, which are
+/// out of Rust's reach and are not wiped.
 #[inline]
 fn compress_portable(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKBYTES]) {
     let mut v = [

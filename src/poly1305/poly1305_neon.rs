@@ -150,7 +150,7 @@ fn quad(w: [u32; 4]) -> uint32x4_t {
 
 /// One power's nine multiplier words packed for by-element multiplies: word
 /// `W` lives in lane `W % 4` of register `W / 4`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Zeroize)]
 struct LaneMult([uint32x4_t; 3]);
 
 impl LaneMult {
@@ -201,7 +201,7 @@ impl FullMult {
 
 /// Four-lane 5x26-bit accumulator: limb `k` of four consecutive blocks in
 /// `0[k]`. Also used for four key powers, one per lane.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Zeroize)]
 struct Acc([uint32x4_t; 5]);
 
 /// 64-bit products of one output limb: lanes 0, 1 in `lo`, lanes 2, 3 in
@@ -493,10 +493,11 @@ fn hot_loop(
 /// the clamped key limbs `r`.
 ///
 /// `h` is the scalar backend's partially reduced 3x44-bit state on entry and
-/// exit. The 3x44-bit key power limbs are wiped before returning; the
-/// vector-register copies of the powers (multipliers and the power vectors
-/// they are built from) are plain locals and are not wiped, the same as the
-/// XSalsa20 and ChaCha20 NEON kernels' register state.
+/// exit. The working copies the out-of-line [`hot_loop`] reaches through
+/// memory (the scalar key powers, the `r^BLOCKS` multiplier, both
+/// accumulators and the scalar lanes) are wiped once before returning;
+/// values that live only in registers and compiler spill slots are out of
+/// Rust's reach and are not wiped.
 #[target_feature(enable = "neon")]
 pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
@@ -510,13 +511,13 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     let (mut powers, seed) = Powers::new(r);
     let low = mul_reduce_lane(seed, &LaneMult::from_lane::<2>(&seed));
     let high = mul_reduce_lane(low, &LaneMult::from_lane::<0>(&seed));
-    let top = LaneMult::from_lane::<0>(&high);
+    let mut top = LaneMult::from_lane::<0>(&high);
 
     // Convert h into 5x26 limbs in lane 0 of chain A (block 0 of each chunk).
     let start = limbs26(canonical(h));
     let zero = vdupq_n_u32(0);
     let mut a = Acc([zero; 5]);
-    for (lane, limb) in a.0.iter_mut().zip(start) {
+    for (lane, &limb) in a.0.iter_mut().zip(&start) {
         *lane = quad([limb, 0, 0, 0]);
     }
     let mut b = Acc([zero; 5]);
@@ -549,10 +550,14 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     // Add the scalar lanes (each partially reduced: limbs below 2^44, 2^44 +
     // small, 2^42 + small) and carry once more so the result is in the same
     // partially reduced form the scalar backend produces.
-    for lane in lanes {
+    for lane in &lanes {
         h0 += lane[0];
         h1 += lane[1];
         h2 += lane[2];
     }
     *h = carry44([h0, h1, h2]);
+    top.zeroize();
+    a.zeroize();
+    b.zeroize();
+    lanes.zeroize();
 }
