@@ -6,6 +6,13 @@
 //! by host limits, so a refused `mlock` ends the sequence instead of being
 //! reported as an input-dependent crash; protection changes and unlocking of
 //! an existing allocation have no such excuse and must succeed.
+//!
+//! Input: a two-byte little-endian initial length and that many bytes, then
+//! four-byte ops `[op, arg_lo, arg_hi, value]`. Seeds in `seeds/fuzz-protected`
+//! lock models just below, at and above one, two and four 4 KiB pages (four
+//! being one 16 KiB page) and relock them resized across a page boundary, up
+//! to one byte past three 16 KiB pages; pass that directory after the corpus:
+//! `cargo fuzz run fuzz-protected corpus/fuzz-protected seeds/fuzz-protected`.
 
 #[cfg(any(unix, windows))]
 use dryoc::protected::*;
@@ -15,8 +22,16 @@ use zeroize::Zeroize;
 
 #[cfg(any(unix, windows))]
 const MAX_HEAP_BYTES_LEN: usize = 32 * 1024;
+/// Longest relocked length: one byte past three 16 KiB pages (twelve 4 KiB
+/// pages), so resize-and-relock reaches multi-page regions and every page
+/// boundary on 4 KiB and 16 KiB page hosts. The two-byte length argument
+/// tops out at 65535, just below one 64 KiB page. Every model (at most
+/// `MAX_HEAP_BYTES_LEN` bytes) can be locked, and one locked region at a time
+/// stays well under the usual 8 MiB `RLIMIT_MEMLOCK`.
 #[cfg(any(unix, windows))]
-const MAX_LOCKED_LEN: usize = 4096;
+const MAX_LOCKED_LEN: usize = 3 * 16 * 1024 + 1;
+#[cfg(any(unix, windows))]
+const _: () = assert!(MAX_HEAP_BYTES_LEN <= MAX_LOCKED_LEN);
 #[cfg(any(unix, windows))]
 const MAX_OPS: usize = 64;
 
@@ -67,13 +82,10 @@ fn exercise_heapbytearray(model: &[u8], byte: u8) {
 }
 
 /// Walks a copy of `model` through the protected-memory typestate transitions.
-/// `raw_len` chooses the resized length (anywhere in `0..=MAX_LOCKED_LEN`, so
-/// across the page boundary) and `byte` the fill byte.
+/// `raw_len` chooses the resized length (in `0..=MAX_LOCKED_LEN`, across page
+/// boundaries) and `byte` the fill byte.
 #[cfg(any(unix, windows))]
 fn exercise_locked(model: &[u8], raw_len: usize, byte: u8) {
-    if model.len() > MAX_LOCKED_LEN {
-        return;
-    }
     let new_len = raw_len % (MAX_LOCKED_LEN + 1);
 
     // Lock an already-sized value so lock refusal remains a fallible operation;
