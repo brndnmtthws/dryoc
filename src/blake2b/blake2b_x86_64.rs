@@ -185,6 +185,10 @@ macro_rules! kernel {
 
             /// One BLAKE2b compression of `block` into the chaining state
             /// `h` with the byte counter `t` and finalization flags `f`.
+            ///
+            /// The working rows and message vectors live only in registers
+            /// and compiler spill slots, which are out of Rust's reach and
+            /// are not wiped.
             #[target_feature(enable = $features)]
             pub(super) fn compress(
                 h: &mut [u64; 8],

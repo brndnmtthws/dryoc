@@ -274,6 +274,10 @@ impl Poly1305 {
         }
     }
 
+    /// Four-lane block loop over `self.h` with the stored key powers. Its
+    /// working values live only in registers and compiler spill slots, which
+    /// are out of Rust's reach and are not wiped; the state itself is wiped
+    /// by `finalize` and on drop.
     fn blocks(&mut self, input: &[u8], partial: bool) {
         if input.is_empty() {
             return;

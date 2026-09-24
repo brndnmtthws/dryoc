@@ -120,6 +120,10 @@ impl Poly1305 {
         self.blocks(input, false);
     }
 
+    /// Scalar block loop over `self.h` with `self.r`. Its working values
+    /// live only in registers and compiler spill slots, which are out of
+    /// Rust's reach and are not wiped; the state itself is wiped by
+    /// `finalize` and on drop.
     fn blocks(&mut self, input: &[u8], partial: bool) {
         let hibit = if partial {
             0u64
