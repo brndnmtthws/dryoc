@@ -336,45 +336,65 @@ pub(crate) fn transpose_words(r: [__m256i; 4]) -> [__m256i; 4] {
     ]
 }
 
-/// XORs the two 32-byte halves of `keystream` into block `index` of `dest`.
-#[inline]
-#[target_feature(enable = "avx2")]
-pub(crate) fn xor_block(keystream: [__m256i; 2], index: usize, dest: &mut Dest<'_>) {
-    let Some((source, out)) = dest.block(index) else {
-        return;
+/// XORs the two 32-byte keystream halves `$lo`, `$hi` into block `$index`
+/// of `$dest`. A macro for the same reason as [`finish_lanes`]: out of line,
+/// the halves would be passed through the stack.
+macro_rules! xor_block {
+    ($lo:expr, $hi:expr, $index:expr, $dest:expr) => {
+        if let Some((source, out)) = $dest.block($index) {
+            let out = out.as_chunks_mut::<32>().0;
+            let (data_lo, data_hi) = match source {
+                Some(source) => {
+                    let source = source.as_chunks::<32>().0;
+                    (
+                        $crate::x86_64::load(&source[0]),
+                        $crate::x86_64::load(&source[1]),
+                    )
+                }
+                None => ($crate::x86_64::load(&out[0]), $crate::x86_64::load(&out[1])),
+            };
+            $crate::x86_64::store(
+                &mut out[0],
+                ::std::arch::x86_64::_mm256_xor_si256(data_lo, $lo),
+            );
+            $crate::x86_64::store(
+                &mut out[1],
+                ::std::arch::x86_64::_mm256_xor_si256(data_hi, $hi),
+            );
+        }
     };
-    let source = source.map(|source| source.as_chunks::<32>().0);
-    let out = out.as_chunks_mut::<32>().0;
-    for (half, keystream) in keystream.iter().enumerate() {
-        let data = match source {
-            Some(source) => _mm256_xor_si256(load(&source[half]), *keystream),
-            None => _mm256_xor_si256(load(&out[half]), *keystream),
-        };
-        store(&mut out[half], data);
-    }
 }
+pub(crate) use xor_block;
 
-/// Finalises an 8-block lane set held in the 16 vectors `x` (lane = block):
-/// adds the input `initial` back, transposes into block order and XORs the
-/// keystream into blocks `0..8` of `dest`.
-#[inline]
-#[target_feature(enable = "avx2")]
-pub(crate) fn finish_lanes(mut x: [__m256i; 16], initial: &[__m256i; 16], dest: &mut Dest<'_>) {
-    for (word, init) in x.iter_mut().zip(initial) {
-        *word = _mm256_add_epi32(*word, *init);
-    }
-    // `lo[block]` holds words `0..8` of `block`, `hi[block]` words `8..16`.
-    let lo = transpose([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
-    let hi = transpose([x[8], x[9], x[10], x[11], x[12], x[13], x[14], x[15]]);
-    xor_block([lo[0], hi[0]], 0, dest);
-    xor_block([lo[1], hi[1]], 1, dest);
-    xor_block([lo[2], hi[2]], 2, dest);
-    xor_block([lo[3], hi[3]], 3, dest);
-    xor_block([lo[4], hi[4]], 4, dest);
-    xor_block([lo[5], hi[5]], 5, dest);
-    xor_block([lo[6], hi[6]], 6, dest);
-    xor_block([lo[7], hi[7]], 7, dest);
+/// Finalises an 8-block lane set held in the 16 vectors `$x` (lane = block):
+/// adds the input `$initial` back, transposes into block order and XORs the
+/// keystream into blocks `0..8` of `$dest`.
+///
+/// A macro rather than a function so it expands inside each kernel: a
+/// `#[target_feature]` function cannot be `#[inline(always)]`, and as an
+/// `#[inline]` function the compiler kept it out of line, so every kernel
+/// handed it stack copies of the lane state and the input words.
+macro_rules! finish_lanes {
+    ($x:expr, $initial:expr, $dest:expr) => {{
+        let mut x: [::std::arch::x86_64::__m256i; 16] = $x;
+        for (word, init) in x.iter_mut().zip($initial) {
+            *word = ::std::arch::x86_64::_mm256_add_epi32(*word, *init);
+        }
+        // `lo[block]` holds words `0..8` of `block`, `hi[block]` words
+        // `8..16`.
+        let lo = $crate::x86_64::transpose([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
+        let hi = $crate::x86_64::transpose([x[8], x[9], x[10], x[11], x[12], x[13], x[14], x[15]]);
+        $crate::x86_64::xor_block!(lo[0], hi[0], 0, $dest);
+        $crate::x86_64::xor_block!(lo[1], hi[1], 1, $dest);
+        $crate::x86_64::xor_block!(lo[2], hi[2], 2, $dest);
+        $crate::x86_64::xor_block!(lo[3], hi[3], 3, $dest);
+        $crate::x86_64::xor_block!(lo[4], hi[4], 4, $dest);
+        $crate::x86_64::xor_block!(lo[5], hi[5], 5, $dest);
+        $crate::x86_64::xor_block!(lo[6], hi[6], 6, $dest);
+        $crate::x86_64::xor_block!(lo[7], hi[7], 7, $dest);
+    }};
 }
+pub(crate) use finish_lanes;
 
 /// Loads 64 bytes as a vector.
 #[inline]
@@ -482,20 +502,23 @@ pub(crate) fn xor_block512(keystream: __m512i, index: usize, dest: &mut Dest<'_>
     store512(out, data);
 }
 
-/// Finalises a 16-block lane set held in the 16 vectors `x` (lane = block):
-/// adds the input `initial` back, transposes into block order and XORs the
-/// keystream into blocks `0..16` of `dest`.
-#[inline]
-#[target_feature(enable = "avx512f")]
-pub(crate) fn finish_lanes512(mut x: [__m512i; 16], initial: &[__m512i; 16], dest: &mut Dest<'_>) {
-    for (word, init) in x.iter_mut().zip(initial) {
-        *word = _mm512_add_epi32(*word, *init);
-    }
-    let blocks = transpose512(x);
-    for (index, keystream) in blocks.iter().enumerate() {
-        xor_block512(*keystream, index, dest);
-    }
+/// Finalises a 16-block lane set held in the 16 vectors `$x` (lane =
+/// block): adds the input `$initial` back, transposes into block order and
+/// XORs the keystream into blocks `0..16` of `$dest`. A macro for the same
+/// reason as [`finish_lanes`].
+macro_rules! finish_lanes512 {
+    ($x:expr, $initial:expr, $dest:expr) => {{
+        let mut x: [::std::arch::x86_64::__m512i; 16] = $x;
+        for (word, init) in x.iter_mut().zip($initial) {
+            *word = ::std::arch::x86_64::_mm512_add_epi32(*word, *init);
+        }
+        let blocks = $crate::x86_64::transpose512(x);
+        for (index, keystream) in blocks.iter().enumerate() {
+            $crate::x86_64::xor_block512(*keystream, index, $dest);
+        }
+    }};
 }
+pub(crate) use finish_lanes512;
 
 /// XORs the keystream of a finished scalar block into `extra`: `x` holds
 /// the words after the rounds and `initial` the block's input, added back

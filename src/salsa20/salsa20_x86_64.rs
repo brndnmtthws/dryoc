@@ -5,12 +5,14 @@
 //! be transposed once at the end, right before being XORed into the data.
 //! Control flow and memory access are independent of the key and nonce.
 //!
-//! Wiping: the lane sets and scalar words only flow through registers and
-//! inlined helpers, so they live in registers or compiler spill slots, which
-//! are out of Rust's reach and not wiped (a wipe would only force them into
-//! stack slots). The one addressable copy, the memory-resident words of the
-//! scalar companion block (an `asm!` memory operand), is zeroized once per
-//! kernel call.
+//! Wiping: the lane sets and scalar words stay inside each kernel (the finish
+//! and XOR helpers are macros; as `#[inline]` functions they were kept out
+//! of line and received stack copies of the lane state and input), so they
+//! live in registers or compiler spill slots (the AVX2 set does not fit the
+//! 16 `ymm` registers), which are out of Rust's reach and not wiped: a wipe
+//! would only force them into stack slots. The one addressable copy, the
+//! memory-resident words of the scalar companion block (an `asm!` memory
+//! operand), is zeroized once per kernel call.
 
 use std::arch::asm;
 use std::arch::x86_64::{
@@ -182,7 +184,7 @@ fn xor_chunk_avx2(
     for _ in 0..10 {
         super::salsa20_double_round!(step_avx2, x);
     }
-    finish_lanes(x, &initial, &mut dest);
+    finish_lanes!(x, &initial, &mut dest);
 }
 
 /// One Salsa20 quarter-round step `x[$b] ^= (x[$a] + x[$c]) <<< $r` on
@@ -217,7 +219,7 @@ fn xor_chunk_avx512vl(
     for _ in 0..10 {
         super::salsa20_double_round!(step_avx512vl, x);
     }
-    finish_lanes(x, &initial, &mut dest);
+    finish_lanes!(x, &initial, &mut dest);
 }
 
 /// One Salsa20 quarter-round step `x[$b] ^= (x[$a] + x[$c]) <<< $r` with an
@@ -252,7 +254,7 @@ fn xor_chunk_avx512(
     for _ in 0..10 {
         super::salsa20_double_round!(step_avx512, x);
     }
-    finish_lanes512(x, &initial, &mut dest);
+    finish_lanes512!(x, &initial, &mut dest);
 }
 
 /// One Salsa20 quarter round in the `asm!` template of
@@ -453,7 +455,7 @@ fn xor_chunk_avx512_with_block(
         super::salsa20_double_round!(step_avx512, x);
         scalar_double_round(&mut regs, &mut mem);
     }
-    finish_lanes512(x, &initial, &mut dest);
+    finish_lanes512!(x, &initial, &mut dest);
     let s = join_words(&regs, &mem);
     xor_scalar_words(&s, &scalar_initial, extra);
     mem.zeroize();
