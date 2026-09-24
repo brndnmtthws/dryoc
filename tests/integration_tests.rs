@@ -401,6 +401,226 @@ fn test_kem_protected() {
     assert_eq!(received.as_slice(), sent.as_slice());
 }
 
+/// `bytes` as a JSON array of numbers, the encoding of the crate's byte
+/// types and of `Vec<u8>`.
+#[cfg(feature = "serde")]
+fn json_bytes(bytes: &[u8]) -> String {
+    let items: Vec<String> = bytes.iter().map(u8::to_string).collect();
+    format!("[{}]", items.join(","))
+}
+
+/// The JSON encoding of a KEM key pair.
+#[cfg(feature = "serde")]
+fn kem_keypair_json(public_key: &[u8], secret_key: &[u8]) -> String {
+    format!(
+        r#"{{"public_key":{},"secret_key":{}}}"#,
+        json_bytes(public_key),
+        json_bytes(secret_key)
+    )
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_kem_serde_json() {
+    use dryoc::kem::{self, Ciphertext, PublicKey, SecretKey, Seed, SharedSecret, StackKeyPair};
+    use dryoc::types::Bytes;
+
+    // draft-connolly-cfrg-xwing-kem Appendix C, first vector: the decoded
+    // key pair and ciphertext reproduce the draft's shared secret.
+    let vectors = include_str!("../src/mlkem/test-vectors/xwing_draft.txt");
+    let seed = first_record_field(vectors, "seed");
+    let pk = first_record_field(vectors, "pk");
+    let ct = first_record_field(vectors, "ct");
+    let ss = first_record_field(vectors, "ss");
+    let keypair = StackKeyPair::from_seed(&Seed::try_from(seed.as_slice()).expect("seed"));
+
+    let json = serde_json::to_string(&keypair).expect("serialize");
+    assert_eq!(json, kem_keypair_json(&pk, &seed));
+    let decoded: StackKeyPair = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(decoded.public_key.as_slice(), pk);
+    assert_eq!(decoded.secret_key.as_slice(), seed);
+
+    let ciphertext = Ciphertext::try_from(ct.as_slice()).expect("ciphertext");
+    assert_eq!(
+        serde_json::to_string(&ciphertext).expect("serialize"),
+        json_bytes(&ct)
+    );
+    let ciphertext: Ciphertext = serde_json::from_str(&json_bytes(&ct)).expect("deserialize");
+    let received: SharedSecret = decoded.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(
+        serde_json::to_string(&received).expect("serialize"),
+        json_bytes(&ss)
+    );
+    let decoded_secret: SharedSecret = serde_json::from_str(&json_bytes(&ss)).expect("deserialize");
+    assert_eq!(decoded_secret, received);
+    let public_key: PublicKey = serde_json::from_str(&json_bytes(&pk)).expect("deserialize");
+    assert_eq!(public_key, keypair.public_key);
+    let secret_key: SecretKey = serde_json::from_str(&json_bytes(&seed)).expect("deserialize");
+    assert_eq!(secret_key, keypair.secret_key);
+
+    // Swapped or missing fields and wrong lengths are rejected.
+    for invalid in [
+        kem_keypair_json(&seed, &pk),
+        format!(r#"{{"public_key":{}}}"#, json_bytes(&pk)),
+        kem_keypair_json(&pk, &seed[1..]),
+    ] {
+        assert!(serde_json::from_str::<StackKeyPair>(&invalid).is_err());
+    }
+    assert!(serde_json::from_str::<Ciphertext>(&json_bytes(&ct[1..])).is_err());
+    assert!(
+        serde_json::from_str::<PublicKey>(&json_bytes(&[pk.as_slice(), &[0]].concat())).is_err()
+    );
+    assert!(serde_json::from_str::<SharedSecret>(&json_bytes(&ss[1..])).is_err());
+
+    // ML-KEM-768 (NIST ACVP decapsulation, first case): the public key is
+    // the encapsulation key embedded in the expanded secret key after the
+    // 1152-byte secret vector.
+    let vectors = include_str!("../src/mlkem/test-vectors/mlkem768_acvp_decap.txt");
+    let dk = first_record_field(vectors, "dk");
+    let c = first_record_field(vectors, "c");
+    let k = first_record_field(vectors, "k");
+    let keypair = kem::mlkem768::StackKeyPair::from_secret_key(
+        kem::mlkem768::SecretKey::try_from(dk.as_slice()).expect("secret key"),
+    );
+    let mlkem_json = serde_json::to_string(&keypair).expect("serialize");
+    assert_eq!(mlkem_json, kem_keypair_json(&dk[1152..1152 + 1184], &dk));
+    let decoded: kem::mlkem768::StackKeyPair =
+        serde_json::from_str(&mlkem_json).expect("deserialize");
+    let ciphertext: kem::mlkem768::Ciphertext =
+        serde_json::from_str(&json_bytes(&c)).expect("deserialize");
+    let received: kem::mlkem768::SharedSecret =
+        decoded.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(received.as_slice(), k);
+    // The two algorithms' encodings are not interchangeable.
+    assert!(serde_json::from_str::<kem::mlkem768::StackKeyPair>(&json).is_err());
+    assert!(serde_json::from_str::<StackKeyPair>(&mlkem_json).is_err());
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn test_dryocsealedbox_serde_json() {
+    use dryoc::Error;
+    use dryoc::dryocsealedbox::{StackKeyPair, VecBox};
+    use dryoc::types::Bytes;
+
+    let keypair = StackKeyPair::generate();
+    let message = b"Now is the winter of our discontent";
+    let sealed = VecBox::seal_to_vecbox(message, &keypair.public_key).expect("seal");
+
+    // The fields are encoded separately, in wire order but with the tag
+    // before the data.
+    let json = serde_json::to_string(&sealed).expect("serialize");
+    let (enc, tag, data) = sealed.clone().into_parts();
+    assert_eq!(
+        json,
+        format!(
+            r#"{{"enc":{},"tag":{},"data":{}}}"#,
+            json_bytes(enc.as_slice()),
+            json_bytes(tag.as_slice()),
+            json_bytes(&data)
+        )
+    );
+    let decoded: VecBox = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(decoded.to_vec(), sealed.to_vec());
+    assert_eq!(decoded.unseal_to_vec(&keypair).expect("unseal"), message);
+
+    let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+    // A changed byte in any field decodes but fails to open.
+    for field in ["enc", "tag", "data"] {
+        let mut tampered = value.clone();
+        let byte = tampered[field][0].as_u64().expect("byte");
+        tampered[field][0] = (byte ^ 1).into();
+        let tampered: VecBox = serde_json::from_value(tampered).expect("deserialize");
+        assert!(
+            matches!(
+                tampered.unseal_to_vec(&keypair),
+                Err(Error::AuthenticationFailed)
+            ),
+            "{field}"
+        );
+    }
+    // The fixed-size fields must have their exact length and every field
+    // must be present; a shortened message decodes but fails to open.
+    for field in ["enc", "tag", "data"] {
+        let mut truncated = value.clone();
+        truncated[field].as_array_mut().expect("array").pop();
+        let decoded = serde_json::from_value::<VecBox>(truncated);
+        if field == "data" {
+            assert!(matches!(
+                decoded.expect("deserialize").unseal_to_vec(&keypair),
+                Err(Error::AuthenticationFailed)
+            ));
+        } else {
+            assert!(decoded.is_err(), "{field}");
+        }
+        let mut missing = value.clone();
+        missing.as_object_mut().expect("object").remove(field);
+        assert!(
+            serde_json::from_value::<VecBox>(missing).is_err(),
+            "{field}"
+        );
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "protected", any(unix, windows)))]
+#[test]
+fn test_kem_and_sealed_box_protected_serde_json() {
+    use dryoc::dryocsealedbox::VecBox;
+    use dryoc::dryocsealedbox::protected::LockedBox;
+    use dryoc::kem::protected::*;
+    use dryoc::kem::{self, Ciphertext, StackKeyPair};
+
+    let vectors = include_str!("../src/mlkem/test-vectors/xwing_draft.txt");
+    let seed = first_record_field(vectors, "seed");
+    let pk = first_record_field(vectors, "pk");
+    let ct = first_record_field(vectors, "ct");
+    let ss = first_record_field(vectors, "ss");
+    let json = kem_keypair_json(&pk, &seed);
+
+    // Locked key pairs use the stack encoding in both directions.
+    let keypair: LockedKeyPair = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(keypair.public_key.as_slice(), pk);
+    assert_eq!(keypair.secret_key.as_slice(), seed);
+    assert_eq!(serde_json::to_string(&keypair).expect("serialize"), json);
+    let ciphertext = Ciphertext::try_from(ct.as_slice()).expect("ciphertext");
+    let received: Locked<SharedSecret> = keypair.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(received.as_slice(), ss);
+    assert_eq!(
+        serde_json::to_string(&received).expect("serialize"),
+        json_bytes(&ss)
+    );
+    assert!(serde_json::from_str::<LockedKeyPair>(&kem_keypair_json(&seed, &pk)).is_err());
+
+    // A stack box's encoding decodes into a locked box that opens with the
+    // locked key pair, and encodes back unchanged.
+    let stack_keypair: StackKeyPair = serde_json::from_str(&json).expect("deserialize");
+    let message = b"to the recipient";
+    let sealed = VecBox::seal_to_vecbox(message, &stack_keypair.public_key).expect("seal");
+    let box_json = serde_json::to_string(&sealed).expect("serialize");
+    let locked: LockedBox = serde_json::from_str(&box_json).expect("deserialize");
+    let opened: LockedBytes = locked.unseal(&keypair).expect("unseal");
+    assert_eq!(opened.as_slice(), message);
+    assert_eq!(serde_json::to_string(&locked).expect("serialize"), box_json);
+    let bytes: Vec<u8> = locked.to_bytes();
+    assert_eq!(bytes, sealed.to_vec());
+
+    // ML-KEM-768 locked key pairs encode like stack ones.
+    let mlkem =
+        kem::mlkem768::protected::LockedKeyPair::generate_locked_keypair().expect("keypair");
+    let mlkem_json = serde_json::to_string(&mlkem).expect("serialize");
+    assert_eq!(
+        mlkem_json,
+        kem_keypair_json(mlkem.public_key.as_slice(), mlkem.secret_key.as_slice())
+    );
+    let decoded: kem::mlkem768::StackKeyPair =
+        serde_json::from_str(&mlkem_json).expect("deserialize");
+    let (ciphertext, sent): (kem::mlkem768::Ciphertext, kem::mlkem768::SharedSecret) =
+        kem::mlkem768::encapsulate(&decoded.public_key).expect("encapsulate");
+    let received: Locked<kem::mlkem768::protected::SharedSecret> =
+        mlkem.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(received.as_slice(), sent.as_slice());
+}
+
 #[test]
 fn test_classic_hmac_and_hkdf_public_api() {
     use dryoc::classic::crypto_auth_hmacsha256::{
