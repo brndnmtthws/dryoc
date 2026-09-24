@@ -143,6 +143,35 @@ fn state_inonce(nonce: &mut Nonce) -> &mut [u8] {
             + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_COUNTERBYTES]
 }
 
+/// The ciphertext length for a `message_len`-byte message, which must not
+/// exceed [`CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX`].
+pub(crate) fn ciphertext_len_from_message_len(message_len: usize) -> Result<usize, Error> {
+    validate_length!(
+        max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
+        message_len,
+        crate::ErrorContext::Message
+    );
+    Ok(message_len + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES)
+}
+
+/// The message length carried by a `ciphertext_len`-byte ciphertext, which
+/// must hold the overhead and at most
+/// [`CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX`] message bytes.
+pub(crate) fn message_len_from_ciphertext_len(ciphertext_len: usize) -> Result<usize, Error> {
+    validate_length!(
+        min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+        ciphertext_len,
+        crate::ErrorContext::Ciphertext
+    );
+    validate_length!(
+        max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
+            + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+        ciphertext_len,
+        crate::ErrorContext::Ciphertext
+    );
+    Ok(ciphertext_len - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES)
+}
+
 fn secretstream_length_block(associated_data_len: usize, message_len: usize) -> [u8; 16] {
     let mut lengths = [0u8; 16];
     lengths[..8].copy_from_slice(&(associated_data_len as u64).to_le_bytes());
@@ -297,13 +326,7 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
     associated_data: Option<&[u8]>,
     tag: u8,
 ) -> Result<(), Error> {
-    validate_length!(
-        max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
-        message.len(),
-        crate::ErrorContext::Message
-    );
-
-    let expected_ciphertext_len = message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+    let expected_ciphertext_len = ciphertext_len_from_message_len(message.len())?;
     validate_length!(
         exact expected_ciphertext_len,
         ciphertext.len(),
@@ -368,20 +391,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 ) -> Result<usize, Error> {
     let _pad0 = [0u8; 16];
 
-    validate_length!(
-        min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-        ciphertext.len(),
-        crate::ErrorContext::Ciphertext
-    );
-
-    let mlen = ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-
-    validate_length!(
-        max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-            + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-        ciphertext.len(),
-        crate::ErrorContext::Ciphertext
-    );
+    let mlen = message_len_from_ciphertext_len(ciphertext.len())?;
 
     validate_length!(min mlen, message.len(), crate::ErrorContext::Message);
 
@@ -423,6 +433,62 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 mod tests {
     use super::*;
     use crate::dryocstream::Tag;
+
+    /// The length checks shared by Classic and Rustaceous push and pull
+    /// accept exactly `MESSAGEBYTES_MAX` message bytes (libsodium's
+    /// `64 * (2^32 - 2)`, capped so the ciphertext length fits a `usize`) and
+    /// reject one more, checked on lengths since no test can allocate such a
+    /// buffer.
+    #[test]
+    fn length_checks_accept_exactly_messagebytes_max() {
+        const MAX: usize = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX;
+        const ABYTES: usize = CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
+
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(MAX, 64 * ((1 << 32) - 2));
+        #[cfg(not(target_pointer_width = "64"))]
+        assert_eq!(MAX, usize::MAX - ABYTES);
+
+        assert!(matches!(ciphertext_len_from_message_len(0), Ok(ABYTES)));
+        assert!(matches!(
+            ciphertext_len_from_message_len(MAX),
+            Ok(len) if len == MAX + ABYTES
+        ));
+        assert!(matches!(
+            ciphertext_len_from_message_len(MAX + 1),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Message,
+                actual,
+                constraint: LengthConstraint::AtMost(max),
+            }) if actual == MAX + 1 && max == MAX
+        ));
+
+        assert!(matches!(
+            message_len_from_ciphertext_len(ABYTES - 1),
+            Err(Error::InvalidLength {
+                context: crate::ErrorContext::Ciphertext,
+                actual,
+                constraint: LengthConstraint::AtLeast(ABYTES),
+            }) if actual == ABYTES - 1
+        ));
+        assert!(matches!(message_len_from_ciphertext_len(ABYTES), Ok(0)));
+        assert!(matches!(
+            message_len_from_ciphertext_len(MAX + ABYTES),
+            Ok(len) if len == MAX
+        ));
+        // On 32-bit targets `MAX + ABYTES` is `usize::MAX`, so no longer
+        // ciphertext length exists.
+        if let Some(too_long) = (MAX + ABYTES).checked_add(1) {
+            assert!(matches!(
+                message_len_from_ciphertext_len(too_long),
+                Err(Error::InvalidLength {
+                    context: crate::ErrorContext::Ciphertext,
+                    actual,
+                    constraint: LengthConstraint::AtMost(max),
+                }) if actual == too_long && max == MAX + ABYTES
+            ));
+        }
+    }
 
     /// Push and pull must reject wrong buffer lengths with the right error
     /// and leave the sentinel output, the tag and the (cloned) state exactly

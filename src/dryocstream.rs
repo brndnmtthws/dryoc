@@ -77,9 +77,10 @@
 use zeroize::Zeroize;
 
 use crate::classic::crypto_secretstream_xchacha20poly1305::{
-    State, crypto_secretstream_xchacha20poly1305_init_pull,
+    State, ciphertext_len_from_message_len, crypto_secretstream_xchacha20poly1305_init_pull,
     crypto_secretstream_xchacha20poly1305_init_push, crypto_secretstream_xchacha20poly1305_pull,
     crypto_secretstream_xchacha20poly1305_push, crypto_secretstream_xchacha20poly1305_rekey,
+    message_len_from_ciphertext_len,
 };
 use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,
@@ -241,24 +242,11 @@ impl DryocStream<Push> {
         associated_data: Option<&Input>,
         tag: Tag,
     ) -> Result<Output, Error> {
-        use crate::constants::{
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
-        };
         Tag::try_from(tag.bits())?;
-
-        let message_len = message.as_slice().len();
-        if message_len > CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX {
-            return Err(length_error!(
-                crate::ErrorContext::Message,
-                message_len,
-                max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX
-            ));
-        }
 
         let mut ciphertext = Output::new_bytes();
         ciphertext.resize(
-            message_len + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
+            ciphertext_len_from_message_len(message.as_slice().len())?,
             0,
         );
         crypto_secretstream_xchacha20poly1305_push(
@@ -325,23 +313,7 @@ impl DryocStream<Pull> {
         ciphertext: &Input,
         associated_data: Option<&Input>,
     ) -> Result<(Output, Tag), Error> {
-        use crate::constants::{
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-            CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX,
-        };
-        validate_length!(
-            min CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-            ciphertext.as_slice().len(),
-            crate::ErrorContext::Ciphertext
-        );
-
-        let message_len =
-            ciphertext.as_slice().len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
-        validate_length!(
-            max CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_MESSAGEBYTES_MAX + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES,
-            ciphertext.as_slice().len(),
-            crate::ErrorContext::Ciphertext
-        );
+        let message_len = message_len_from_ciphertext_len(ciphertext.as_slice().len())?;
 
         let mut message = Output::default();
         message.resize(message_len, 0);

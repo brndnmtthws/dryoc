@@ -3,9 +3,11 @@
 //! points, seeds and messages, plus one structured edge case per input (a
 //! blacklisted low-order X25519 point, a noncanonical field encoding, an
 //! `S >= L` signature, a small-order or noncanonical `A`, a small-order `R`),
-//! `crypto_sign`/`crypto_sign_open` atomicity and `crypto_kx` against a dalek
-//! shared secret. On AArch64 this drives the register-only field arithmetic
-//! and the NEON table lookup of the fixed-base multiplication.
+//! `crypto_sign`/`crypto_sign_open` atomicity, streamed Ed25519ph signatures
+//! recomputed from RFC 8032, the Ed25519 to X25519 key conversions against
+//! dalek's birational map, and `crypto_kx` against a dalek shared secret. On
+//! AArch64 this drives the register-only field arithmetic and the NEON table
+//! lookup of the fixed-base multiplication.
 use curve25519_dalek::constants::EIGHT_TORSION;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::montgomery::MontgomeryPoint;
@@ -18,8 +20,12 @@ use dryoc::classic::crypto_kx::{
     crypto_kx_client_session_keys, crypto_kx_seed_keypair, crypto_kx_server_session_keys,
 };
 use dryoc::classic::crypto_sign::{
-    crypto_sign, crypto_sign_detached, crypto_sign_ed25519_sk_to_pk, crypto_sign_open,
-    crypto_sign_seed_keypair, crypto_sign_verify_detached,
+    SignerState, crypto_sign, crypto_sign_detached, crypto_sign_ed25519_sk_to_pk,
+    crypto_sign_final_create, crypto_sign_final_verify, crypto_sign_init, crypto_sign_open,
+    crypto_sign_seed_keypair, crypto_sign_update, crypto_sign_verify_detached,
+};
+use dryoc::classic::crypto_sign_ed25519::{
+    crypto_sign_ed25519_pk_to_curve25519, crypto_sign_ed25519_sk_to_curve25519,
 };
 use dryoc::constants::{CRYPTO_KX_SESSIONKEYBYTES, CRYPTO_SIGN_BYTES};
 use libfuzzer_sys::fuzz_target;
@@ -37,6 +43,34 @@ const L: [u8; 32] = [
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
+
+/// RFC 8032 §5.1 `dom2(1, "")`, the Ed25519ph domain separator for the empty
+/// context libsodium signs with.
+const DOM2_PH: &[u8] = b"SigEd25519 no Ed25519 collisions\x01\x00";
+
+/// An Ed25519ph state that has absorbed `message`, split at `cut`.
+fn ph_state(message: &[u8], cut: usize) -> SignerState {
+    let mut state = crypto_sign_init();
+    crypto_sign_update(&mut state, &message[..cut]);
+    crypto_sign_update(&mut state, &message[cut..]);
+    state
+}
+
+/// Asserts `crypto_sign_ed25519_pk_to_curve25519` accepts `encoding` exactly
+/// when `valid` (a canonical prime-order point), mapping it to dalek's
+/// Montgomery `u`, and otherwise fails without touching the output.
+fn check_pk_to_curve25519(encoding: &[u8; 32], valid: bool) {
+    let mut u = [0xa5u8; 32];
+    let result = crypto_sign_ed25519_pk_to_curve25519(&mut u, encoding);
+    if valid {
+        result.expect("prime-order point converts");
+        let point = CompressedEdwardsY(*encoding).decompress().expect("decodes");
+        assert_eq!(u, point.to_montgomery().to_bytes(), "{encoding:02x?}");
+    } else {
+        assert!(result.is_err(), "converted {encoding:02x?}");
+        assert_eq!(u, [0xa5u8; 32], "failed conversion wrote output");
+    }
+}
 
 /// Noncanonical Ed25519 encodings: `y` in `{p, p + 1, 2^255 - 1}` with either
 /// sign bit.
@@ -149,25 +183,28 @@ fn edge_case(
             signed.extend_from_slice(message);
             assert_open_rejected(&signed, public_key);
         }
-        // Small-order `A`: rejected whatever the signature says.
+        // Small-order `A`: rejected whatever the signature says, and not
+        // converted to X25519.
         3 => {
             let torsion = EIGHT_TORSION[index % EIGHT_TORSION.len()];
             assert!(torsion.is_small_order());
             let small_a = torsion.compress().to_bytes();
             assert!(!crypto_core_ed25519_is_valid_point(&small_a));
             assert!(crypto_sign_verify_detached(signature, message, &small_a).is_err());
+            check_pk_to_curve25519(&small_a, false);
             let mut signed = signature.to_vec();
             signed.extend_from_slice(message);
             assert_open_rejected(&signed, &small_a);
         }
-        // Noncanonical `A`: rejected, and dalek confirms the encoding does
-        // not round-trip.
+        // Noncanonical `A`: rejected and not converted, and dalek confirms
+        // the encoding does not round-trip.
         4 => {
             let encodings = noncanonical_encodings();
             let bad_a = encodings[index % encodings.len()];
             assert!(!dalek_canonical(&bad_a));
             assert!(!crypto_core_ed25519_is_valid_point(&bad_a));
             assert!(crypto_sign_verify_detached(signature, message, &bad_a).is_err());
+            check_pk_to_curve25519(&bad_a, false);
         }
         // Small-order or noncanonical `R`: rejected before any arithmetic.
         _ => {
@@ -234,6 +271,25 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(extracted, public_key);
     assert!(crypto_core_ed25519_is_valid_point(&public_key));
 
+    // Ed25519 to X25519 key conversion: the secret key is the seed's SHA-512
+    // prefix with RFC 7748 clamping, and the public key is dalek's birational
+    // map of `A`, which must also be the X25519 base multiple of the
+    // converted secret key.
+    let mut x25519_sk = [0u8; 32];
+    crypto_sign_ed25519_sk_to_curve25519(&mut x25519_sk, &secret_key);
+    let mut clamped = [0u8; 32];
+    clamped.copy_from_slice(&hash[..32]);
+    clamped[0] &= 248;
+    clamped[31] &= 127;
+    clamped[31] |= 64;
+    assert_eq!(x25519_sk, clamped);
+    let mut x25519_pk = [0u8; 32];
+    crypto_sign_ed25519_pk_to_curve25519(&mut x25519_pk, &public_key).expect("valid A");
+    assert_eq!(
+        x25519_pk,
+        MontgomeryPoint::mul_base_clamped(x25519_sk).to_bytes()
+    );
+
     // Ed25519 signature: R = [r]B with r = H(prefix || M), S = r + H(R || A
     // || M) a mod l, computed independently with dalek's scalar arithmetic.
     let mut signature = [0u8; 64];
@@ -297,12 +353,68 @@ fuzz_target!(|data: &[u8]| {
     tampered[usize::from(scalar[0]) % 64] ^= 1 << (scalar[1] % 8);
     assert!(crypto_sign_verify_detached(&tampered, message, &public_key).is_err());
 
+    // Ed25519ph (RFC 8032 §5.1 with an empty context, libsodium's
+    // `crypto_sign_init`/`_update`/`_final_*`), fed in two fuzz-chosen chunks:
+    // with PH = SHA-512 and dom2 = "SigEd25519 no Ed25519 collisions" || 1
+    // || 0, r = H(dom2 || prefix || PH(M)) and S = r + H(dom2 || R || A ||
+    // PH(M)) a mod l, recomputed with dalek.
+    let cut = usize::from(u16::from_le_bytes([scalar[4], scalar[5]])) % (message.len() + 1);
+    let mut ph_signature = [0u8; 64];
+    crypto_sign_final_create(ph_state(message, cut), &mut ph_signature, &secret_key)
+        .expect("Ed25519ph sign");
+    let prehash = Sha512::digest(message);
+    wide.copy_from_slice(
+        &Sha512::new()
+            .chain_update(DOM2_PH)
+            .chain_update(&hash[32..])
+            .chain_update(prehash)
+            .finalize(),
+    );
+    let r = Scalar::from_bytes_mod_order_wide(&wide);
+    let big_r = EdwardsPoint::mul_base(&r).compress().to_bytes();
+    assert_eq!(&ph_signature[..32], &big_r);
+    wide.copy_from_slice(
+        &Sha512::new()
+            .chain_update(DOM2_PH)
+            .chain_update(big_r)
+            .chain_update(public_key)
+            .chain_update(prehash)
+            .finalize(),
+    );
+    let s = r + Scalar::from_bytes_mod_order_wide(&wide) * a;
+    assert_eq!(&ph_signature[32..], &s.to_bytes());
+    crypto_sign_final_verify(ph_state(message, cut), &ph_signature, &public_key)
+        .expect("Ed25519ph verify");
+    // Rejected: a flipped signature bit, a changed (or extended, if empty)
+    // message, a wrong key, and either signature under the other scheme.
+    let mut tampered = ph_signature;
+    tampered[usize::from(scalar[0]) % 64] ^= 1 << (scalar[1] % 8);
+    assert!(crypto_sign_final_verify(ph_state(message, cut), &tampered, &public_key).is_err());
+    let mut other_message = message.to_vec();
+    match other_message.get_mut(usize::from(scalar[2]) % message.len().max(1)) {
+        Some(byte) => *byte ^= 1 << (scalar[3] % 8),
+        None => other_message.push(0),
+    }
+    let other_cut = cut.min(other_message.len());
+    assert!(
+        crypto_sign_final_verify(
+            ph_state(&other_message, other_cut),
+            &ph_signature,
+            &public_key
+        )
+        .is_err()
+    );
+    assert!(crypto_sign_final_verify(ph_state(message, cut), &ph_signature, &wrong_key).is_err());
+    assert!(crypto_sign_verify_detached(&ph_signature, message, &public_key).is_err());
+    assert!(crypto_sign_final_verify(ph_state(message, cut), &signature, &public_key).is_err());
+
     edge_case(selector, &scalar, message, &signature, &public_key);
 
     // Point validation (canonical encoding, on the curve, prime order) agrees
-    // with dalek's decoding for the fuzzed encoding. The seed doubles as the
-    // candidate; a random encoding decodes about half the time, and the
-    // public key is a known-valid one.
+    // with dalek's decoding for the fuzzed encoding, and so does the Ed25519
+    // to X25519 public key conversion. The seed doubles as the candidate; a
+    // random encoding decodes about half the time, and the public key is a
+    // known-valid one.
     for candidate in [seed, public_key] {
         let expected = CompressedEdwardsY(candidate).decompress().is_some_and(|p| {
             p.compress().to_bytes() == candidate && !p.is_small_order() && p.is_torsion_free()
@@ -312,6 +424,7 @@ fuzz_target!(|data: &[u8]| {
             expected,
             "{candidate:02x?}"
         );
+        check_pk_to_curve25519(&candidate, expected);
     }
 
     // crypto_kx: seed keypairs are BLAKE2b-256(seed) times the basepoint;

@@ -30,6 +30,15 @@
 //! `mlkem768::encapsulate`'s random ciphertext against the oracle's
 //! decapsulation.
 //!
+//! The post-quantum sealed box (`dryoc::dryocsealedbox`, HPKE base mode with
+//! X-Wing, HKDF-SHA256 and ChaCha20-Poly1305) seals the input's trailing bytes
+//! to the X-Wing key pair. The box must be `enc || ciphertext || tag`, and
+//! RFC 9180's key schedule, written out below over the reference X-Wing
+//! decapsulation of `enc` and an HMAC-SHA256 built on `sha2`, must give the
+//! key and nonce that open it. The final ChaCha20-Poly1305 step is dryoc's,
+//! which `fuzz-aead` checks against its own oracle. Flipping any byte of the
+//! box, or truncating it, must make it fail to open.
+//!
 //! `ml-kem` hashes with `sha3` 0.11, whose Keccak-f permutation is the
 //! `keccak` 0.2 crate dryoc also builds on; `fuzz-hashes` covers dryoc's
 //! permutation against `sha3` 0.10's `keccak` 0.1, which the X-Wing reference
@@ -42,6 +51,7 @@
 //! take only slowly: `cargo fuzz run fuzz-kem corpus/fuzz-kem seeds/fuzz-kem`.
 use curve25519_dalek::montgomery::MontgomeryPoint;
 use dryoc::Error;
+use dryoc::classic::crypto_aead_chacha20poly1305_ietf::crypto_aead_chacha20poly1305_ietf_decrypt_detached;
 use dryoc::classic::crypto_kem_mlkem768::{
     crypto_kem_mlkem768_dec, crypto_kem_mlkem768_enc_deterministic,
     crypto_kem_mlkem768_seed_keypair,
@@ -53,12 +63,14 @@ use dryoc::constants::{
     CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES, CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES,
     CRYPTO_KEM_XWING_CIPHERTEXTBYTES, CRYPTO_KEM_XWING_PUBLICKEYBYTES,
 };
+use dryoc::dryocsealedbox::{SEALBYTES, VecBox};
 use dryoc::kem::{self, mlkem768};
 use dryoc::types::ByteArray;
 use libfuzzer_sys::fuzz_target;
 use ml_kem::array::Array;
 use ml_kem::ml_kem_768::{DecapsulationKey, EncapsulationKey};
 use ml_kem::{B32, Decapsulate, KeyExport, Seed};
+use sha2::{Digest as _, Sha256};
 use sha3::digest::{ExtendableOutput, Update, XofReader};
 use sha3::{Digest, Sha3_256, Shake256};
 
@@ -78,6 +90,9 @@ const MLKEM_CT: usize = CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES;
 const MLKEM_PK: usize = CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES;
 /// X-Wing's combiner label, `\.//^\` (draft §5.3).
 const XWING_LABEL: &[u8; 6] = &[0x5c, 0x2e, 0x2f, 0x2f, 0x5e, 0x5c];
+/// HPKE's `suite_id` for X-Wing (`0x647a`), HKDF-SHA256 (`0x0001`) and
+/// ChaCha20-Poly1305 (`0x0003`), RFC 9180 §5.1.
+const HPKE_SUITE_ID: &[u8; 10] = b"HPKE\x64\x7a\x00\x01\x00\x03";
 
 fn sha3_256(parts: &[&[u8]]) -> [u8; 32] {
     let mut hasher = Sha3_256::new();
@@ -95,6 +110,51 @@ fn shake256<const N: usize>(parts: &[&[u8]]) -> [u8; N] {
     let mut out = [0u8; N];
     hasher.finalize_xof().read(&mut out);
     out
+}
+
+/// HMAC-SHA256 (RFC 2104) of the concatenated `parts` under a key of at most
+/// one block.
+fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    let mut block = [0u8; 64];
+    block[..key.len()].copy_from_slice(key);
+    let mut inner = Sha256::new().chain_update(block.map(|b| b ^ 0x36));
+    for part in parts {
+        inner = inner.chain_update(part);
+    }
+    Sha256::new()
+        .chain_update(block.map(|b| b ^ 0x5c))
+        .chain_update(inner.finalize())
+        .finalize()
+        .into()
+}
+
+/// RFC 9180 §4 `LabeledExtract`: HKDF-Extract is `HMAC(salt, ikm)`.
+fn labeled_extract(salt: &[u8], label: &[u8], ikm: &[u8]) -> [u8; 32] {
+    hmac_sha256(salt, &[b"HPKE-v1", HPKE_SUITE_ID, label, ikm])
+}
+
+/// RFC 9180 §4 `LabeledExpand` to `N <= 32` bytes: the first HKDF-Expand
+/// block, `HMAC(prk, labeled_info || 0x01)`.
+fn labeled_expand<const N: usize>(prk: &[u8; 32], label: &[u8], info: &[u8]) -> [u8; N] {
+    let length = u16::try_from(N).expect("short output").to_be_bytes();
+    let block = hmac_sha256(
+        prk,
+        &[&length, b"HPKE-v1", HPKE_SUITE_ID, label, info, &[1]],
+    );
+    block[..N].try_into().expect("N <= 32")
+}
+
+/// RFC 9180 §5.1 `KeySchedule` in base mode with an empty `info`: the AEAD
+/// key and the base nonce (the nonce of the first and only message).
+fn hpke_key_schedule(shared_secret: &[u8; 32]) -> ([u8; 32], [u8; 12]) {
+    let psk_id_hash = labeled_extract(b"", b"psk_id_hash", b"");
+    let info_hash = labeled_extract(b"", b"info_hash", b"");
+    let context = [&[0u8][..], &psk_id_hash, &info_hash].concat();
+    let secret = labeled_extract(shared_secret, b"secret", b"");
+    (
+        labeled_expand(&secret, b"key", &context),
+        labeled_expand(&secret, b"base_nonce", &context),
+    )
 }
 
 fn oracle_decapsulate(dk: &DecapsulationKey, ciphertext: &[u8]) -> [u8; 32] {
@@ -389,5 +449,60 @@ fuzz_target!(|data: &[u8]| {
             ),
             None => assert!(result.is_err(), "accepted an unreduced ML-KEM coefficient"),
         }
+    }
+
+    // Sealed box of the trailing input bytes to the X-Wing key pair, opened
+    // through the reference decapsulation and key schedule and by `unseal`.
+    let message = data;
+    let sealed = VecBox::seal_to_vecbox(message, &keypair.public_key).expect("seal to honest key");
+    let wire = sealed.to_vec();
+    assert_eq!(wire.len(), message.len() + SEALBYTES);
+    let (enc, rest) = wire.split_at(CRYPTO_KEM_XWING_CIPHERTEXTBYTES);
+    let (ciphertext, tag) = rest.split_at(message.len());
+    let (shared_secret, ss_x) = reference.decapsulate(enc);
+    assert_ne!(
+        ss_x, [0u8; 32],
+        "honest encapsulation gave a zero X25519 secret"
+    );
+    let (key, nonce) = hpke_key_schedule(&shared_secret);
+    let mut opened = vec![0xa5u8; message.len()];
+    crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+        &mut opened,
+        ciphertext,
+        tag.try_into().expect("16-byte tag"),
+        None,
+        &nonce,
+        &key,
+    )
+    .expect("the reference key schedule opens the box");
+    assert_eq!(opened, message);
+    let parsed = VecBox::from_bytes(&wire).expect("parse sealed box");
+    assert_eq!(parsed.to_vec(), wire);
+    assert_eq!(parsed.unseal_to_vec(&keypair).expect("unseal"), message);
+
+    // One flipped byte anywhere (enc, ciphertext or tag) fails to open, and
+    // so does every truncation: too short to parse, or a shifted tag.
+    let mut tampered = wire.clone();
+    let index = usize::from(u16::from_le_bytes([flips[0], flips[1]])) % wire.len();
+    tampered[index] ^= flips[2] | 1;
+    let tampered = VecBox::from_bytes(&tampered).expect("same length parses");
+    assert!(
+        tampered.unseal_to_vec(&keypair).is_err(),
+        "opened a box with byte {index} flipped"
+    );
+    let removed = 1 + usize::from(u16::from_le_bytes([flips[3], flips[4]])) % wire.len();
+    let truncated = &wire[..wire.len() - removed];
+    match VecBox::from_bytes(truncated) {
+        Ok(truncated_box) => {
+            assert!(
+                truncated.len() >= SEALBYTES,
+                "parsed a {removed}-byte-short box"
+            );
+            assert!(
+                truncated_box.unseal_to_vec(&keypair).is_err(),
+                "opened a box {removed} bytes short"
+            );
+        }
+        Err(_) => assert!(truncated.len() < SEALBYTES, "rejected a parseable length"),
     }
 });

@@ -6,6 +6,13 @@
 //! by host limits, so a refused `mlock` ends the sequence instead of being
 //! reported as an input-dependent crash; protection changes and unlocking of
 //! an existing allocation have no such excuse and must succeed.
+//!
+//! Input: a two-byte little-endian initial length and that many bytes, then
+//! four-byte ops `[op, arg_lo, arg_hi, value]`. Seeds in `seeds/fuzz-protected`
+//! lock models just below, at and above one, two and four 4 KiB pages (four
+//! being one 16 KiB page) and relock them resized across a page boundary, up
+//! to one byte past three 16 KiB pages; pass that directory after the corpus:
+//! `cargo fuzz run fuzz-protected corpus/fuzz-protected seeds/fuzz-protected`.
 
 #[cfg(any(unix, windows))]
 use dryoc::protected::*;
@@ -15,8 +22,16 @@ use zeroize::Zeroize;
 
 #[cfg(any(unix, windows))]
 const MAX_HEAP_BYTES_LEN: usize = 32 * 1024;
+/// Longest relocked length: one byte past three 16 KiB pages (twelve 4 KiB
+/// pages), so resize-and-relock reaches multi-page regions and every page
+/// boundary on 4 KiB and 16 KiB page hosts. The two-byte length argument
+/// tops out at 65535, just below one 64 KiB page. Every model (at most
+/// `MAX_HEAP_BYTES_LEN` bytes) can be locked, and one locked region at a time
+/// stays well under the usual 8 MiB `RLIMIT_MEMLOCK`.
 #[cfg(any(unix, windows))]
-const MAX_LOCKED_LEN: usize = 4096;
+const MAX_LOCKED_LEN: usize = 3 * 16 * 1024 + 1;
+#[cfg(any(unix, windows))]
+const _: () = assert!(MAX_HEAP_BYTES_LEN <= MAX_LOCKED_LEN);
 #[cfg(any(unix, windows))]
 const MAX_OPS: usize = 64;
 
@@ -67,13 +82,11 @@ fn exercise_heapbytearray(model: &[u8], byte: u8) {
 }
 
 /// Walks a copy of `model` through the protected-memory typestate transitions.
-/// `byte` chooses the resized length and fill byte.
+/// `raw_len` chooses the resized length (in `0..=MAX_LOCKED_LEN`, across page
+/// boundaries) and `byte` the fill byte.
 #[cfg(any(unix, windows))]
-fn exercise_locked(model: &[u8], byte: u8) {
-    if model.len() > MAX_LOCKED_LEN {
-        return;
-    }
-    let new_len = usize::from(byte) % (MAX_LOCKED_LEN + 1);
+fn exercise_locked(model: &[u8], raw_len: usize, byte: u8) {
+    let new_len = raw_len % (MAX_LOCKED_LEN + 1);
 
     // Lock an already-sized value so lock refusal remains a fallible operation;
     // locked `Clone` and `resize` allocate internally and panic on host limits.
@@ -142,13 +155,15 @@ fn exercise(data: &[u8]) {
     for chunk in cursor.chunks(4).take(MAX_OPS) {
         let op = chunk.first().copied().unwrap_or(0) % 5;
         let arg = chunk.get(1).copied().unwrap_or(0);
+        let wide_arg = usize::from(u16::from_le_bytes([
+            arg,
+            chunk.get(2).copied().unwrap_or(0),
+        ]));
         let value = chunk.get(3).copied().unwrap_or(0);
 
         match op {
             0 => {
-                let raw_len =
-                    u16::from_le_bytes([arg, chunk.get(2).copied().unwrap_or(0)]) as usize;
-                let new_len = raw_len % (MAX_HEAP_BYTES_LEN + 1);
+                let new_len = wide_arg % (MAX_HEAP_BYTES_LEN + 1);
                 bytes.resize(new_len, value);
                 model.resize(new_len, value);
                 assert_eq!(bytes.as_slice(), model.as_slice());
@@ -166,15 +181,13 @@ fn exercise(data: &[u8]) {
             }
             2 => {
                 if !model.is_empty() {
-                    let raw_idx =
-                        u16::from_le_bytes([arg, chunk.get(2).copied().unwrap_or(0)]) as usize;
-                    let idx = raw_idx % model.len();
+                    let idx = wide_arg % model.len();
                     bytes[idx] = value;
                     model[idx] = value;
                     assert_eq!(bytes.as_slice(), model.as_slice());
                 }
             }
-            3 => exercise_locked(model.as_slice(), value),
+            3 => exercise_locked(model.as_slice(), wide_arg, value),
             _ => exercise_heapbytearray(model.as_slice(), value),
         }
     }
