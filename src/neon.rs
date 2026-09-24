@@ -96,10 +96,10 @@ pub(crate) fn xor_block(keystream: [uint8x16_t; 4], index: usize, dest: &mut Des
     };
     let source = source.map(|source| source.as_chunks::<16>().0);
     let out = out.as_chunks_mut::<16>().0;
-    for (row, keystream) in keystream.into_iter().enumerate() {
+    for (row, keystream) in keystream.iter().enumerate() {
         let data = match source {
-            Some(source) => veorq_u8(load(&source[row]), keystream),
-            None => veorq_u8(load(&out[row]), keystream),
+            Some(source) => veorq_u8(load(&source[row]), *keystream),
+            None => veorq_u8(load(&out[row]), *keystream),
         };
         store(&mut out[row], data);
     }

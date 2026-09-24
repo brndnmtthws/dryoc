@@ -6,6 +6,15 @@
 //! the blocks only have to be transposed once at the end, right before being
 //! XORed into the data. Control flow and memory access are independent of the
 //! key and nonce.
+//!
+//! Wiping: the lane sets stay inside each kernel (the finish and XOR helpers
+//! are macros; as `#[inline]` functions they were kept out of line and
+//! received stack copies of the lane state and input), so they live in
+//! registers or compiler spill slots (the AVX2 set does not fit the 16 `ymm`
+//! registers), which are out of Rust's reach and not wiped: a wipe would
+//! only force them into stack slots. The one addressable copy, the scalar
+//! companion block whose words `10..16` are an `asm!` memory operand, is
+//! zeroized once per kernel call.
 
 use std::arch::asm;
 use std::arch::x86_64::{
@@ -211,7 +220,7 @@ fn xor_chunk_avx2(
     for _ in 0..10 {
         super::chacha20_double_round!(quarter_round, x, rot16, rot8);
     }
-    finish_lanes(x, &initial, &mut dest);
+    finish_lanes!(x, &initial, &mut dest);
 }
 
 /// One ChaCha20 quarter round over the four `ymm` vectors `$a, $b, $c, $d`
@@ -250,7 +259,7 @@ fn xor_chunk_avx512vl(
     for _ in 0..10 {
         super::chacha20_double_round!(quarter_round_vl, x);
     }
-    finish_lanes(x, &initial, &mut dest);
+    finish_lanes!(x, &initial, &mut dest);
 }
 
 /// One ChaCha20 quarter round over the four vectors `$a, $b, $c, $d` of
@@ -291,7 +300,7 @@ fn xor_chunk_avx512(
     for _ in 0..10 {
         super::chacha20_double_round!(quarter_round512, x);
     }
-    finish_lanes512(x, &initial, &mut dest);
+    finish_lanes512!(x, &initial, &mut dest);
 }
 
 /// One scalar ChaCha20 quarter round in the `asm!` template of
@@ -482,7 +491,7 @@ fn xor_chunk_avx512_with_block(
         super::chacha20_double_round!(quarter_round512, x);
         scalar_double_round(&mut s);
     }
-    finish_lanes512(x, &initial, &mut dest);
+    finish_lanes512!(x, &initial, &mut dest);
     xor_scalar_words(&s, &scalar_initial, extra);
     s.zeroize();
 }

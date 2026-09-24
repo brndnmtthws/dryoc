@@ -4,6 +4,12 @@
 //! Salsa20 rounds are plain lane-wise arithmetic and the blocks only have to
 //! be transposed once at the end, right before being XORed into the data.
 //! Control flow and memory access are independent of the key and nonce.
+//!
+//! Wiping: the vector set and scalar blocks only flow through registers,
+//! register-only `asm!` operands and inlined helpers, so they live in
+//! registers or compiler spill slots, which are out of Rust's reach and not
+//! wiped; a wipe would only force them into stack slots. The keystream goes
+//! straight into the caller's buffers, which the drivers wipe.
 
 use std::arch::aarch64::{
     uint32x4_t, vaddq_u32, veor3q_u32, veorq_u32, vshlq_n_u32, vshrq_n_u32, vsliq_n_u32,
