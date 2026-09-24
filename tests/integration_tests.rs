@@ -294,6 +294,89 @@ fn test_xof_public_api() {
     );
 }
 
+/// Field `key` of the first record in a `key = value` vector file.
+fn first_record_field(text: &str, key: &str) -> Vec<u8> {
+    let prefix = format!("{key} = ");
+    let line = text
+        .lines()
+        .find(|line| line.starts_with(&prefix))
+        .expect("field present");
+    hex::decode(&line[prefix.len()..]).expect("hex")
+}
+
+#[test]
+fn test_kem_public_api() {
+    use dryoc::classic::crypto_kem::{crypto_kem_dec, crypto_kem_enc};
+    use dryoc::constants::CRYPTO_KEM_CIPHERTEXTBYTES;
+    use dryoc::kem::{self, Ciphertext, KeyPair, Seed, SharedSecret, StackKeyPair};
+    use dryoc::types::{ByteArray, Bytes};
+
+    // draft-connolly-cfrg-xwing-kem Appendix C, first vector.
+    let vectors = include_str!("../src/mlkem/test-vectors/xwing_draft.txt");
+    let seed = Seed::try_from(first_record_field(vectors, "seed").as_slice()).expect("seed");
+    let keypair = StackKeyPair::from_seed(&seed);
+    assert_eq!(
+        keypair.public_key.as_slice(),
+        first_record_field(vectors, "pk")
+    );
+    let restored = StackKeyPair::from_secret_key(keypair.secret_key.clone());
+    assert_eq!(restored.public_key, keypair.public_key);
+
+    // Rustaceous encapsulation opens with the Classic API, and the reverse.
+    let (ciphertext, sent): (Ciphertext, SharedSecret) =
+        kem::encapsulate(&keypair.public_key).expect("encapsulate");
+    let mut received = [0u8; 32];
+    crypto_kem_dec(
+        &mut received,
+        ciphertext.as_array(),
+        keypair.secret_key.as_array(),
+    )
+    .expect("dec");
+    assert_eq!(received, *sent.as_array());
+
+    let mut ciphertext = [0u8; CRYPTO_KEM_CIPHERTEXTBYTES];
+    let mut sent = [0u8; 32];
+    crypto_kem_enc(&mut ciphertext, &mut sent, keypair.public_key.as_array()).expect("enc");
+    let received: Vec<u8> = KeyPair::decapsulate(&restored, &ciphertext).expect("decapsulate");
+    assert_eq!(received, sent);
+
+    // ML-KEM-768 alone: the public key is recoverable from the secret key.
+    let keypair = kem::mlkem768::StackKeyPair::generate();
+    let restored = kem::mlkem768::StackKeyPair::from_secret_key(keypair.secret_key.clone());
+    assert_eq!(restored.public_key, keypair.public_key);
+    let (ciphertext, sent): (kem::mlkem768::Ciphertext, kem::mlkem768::SharedSecret) =
+        kem::mlkem768::encapsulate(&keypair.public_key).expect("encapsulate");
+    let received: kem::mlkem768::SharedSecret =
+        restored.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(received, sent);
+}
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn test_kem_protected() {
+    use dryoc::kem;
+    use dryoc::kem::protected::*;
+
+    let keypair = LockedROKeyPair::generate_readonly_locked_keypair().expect("keypair");
+    // A read-only secret key is enough to rebuild the key pair.
+    let secret_key = SecretKey::from_slice_into_readonly_locked(keypair.secret_key.as_slice())
+        .expect("secret key");
+    let rebuilt = kem::KeyPair::<kem::PublicKey, _>::from_secret_key(secret_key);
+    assert_eq!(rebuilt.public_key.as_slice(), keypair.public_key.as_slice());
+    let (ciphertext, sent): (kem::Ciphertext, Locked<SharedSecret>) =
+        kem::encapsulate(&keypair.public_key).expect("encapsulate");
+    let received: Locked<SharedSecret> = keypair.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(received.as_slice(), sent.as_slice());
+
+    let keypair =
+        kem::mlkem768::protected::LockedKeyPair::generate_locked_keypair().expect("keypair");
+    let (ciphertext, sent): (kem::mlkem768::Ciphertext, kem::mlkem768::SharedSecret) =
+        kem::mlkem768::encapsulate(&keypair.public_key).expect("encapsulate");
+    let received: Locked<kem::mlkem768::protected::SharedSecret> =
+        keypair.decapsulate(&ciphertext).expect("decapsulate");
+    assert_eq!(received.as_slice(), sent.as_slice());
+}
+
 #[test]
 fn test_classic_hmac_and_hkdf_public_api() {
     use dryoc::classic::crypto_auth_hmacsha256::{

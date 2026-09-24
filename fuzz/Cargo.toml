@@ -16,9 +16,13 @@ libfuzzer-sys = "0.4"
 # dev-dependencies; `sha3` 0.10 (its own sponge over `keccak` 0.1, and the last
 # release with SHAKE and TurboSHAKE) checks dryoc's Keccak sponge. `zeroize`
 # only supplies the trait `fuzz-protected` needs to call `Zeroize::zeroize` on
-# protected values.
+# protected values. `ml-kem` 0.3 (RustCrypto's FIPS 203 implementation, with
+# its own NTT, sampling, compression and encodings; `hazmat` documents the
+# deterministic encapsulation) is the ML-KEM-768 oracle for `fuzz-kem`, which
+# builds X-Wing from the draft on top of it, dalek and `sha3` 0.10.
 chacha20 = { version = "0.10", features = ["xchacha"] }
 curve25519-dalek = "5.0"
+ml-kem = { version = "0.3", default-features = false, features = ["hazmat"] }
 salsa20 = "0.11"
 sha2 = "0.11"
 sha3 = "0.10"
@@ -84,5 +88,11 @@ doc = false
 [[bin]]
 name = "fuzz-curve25519"
 path = "fuzz_targets/fuzz-curve25519.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz-kem"
+path = "fuzz_targets/fuzz-kem.rs"
 test = false
 doc = false

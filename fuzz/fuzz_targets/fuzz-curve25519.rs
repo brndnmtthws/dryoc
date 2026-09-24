@@ -28,44 +28,15 @@ use sha2::{Digest, Sha512};
 #[path = "common.rs"]
 mod common;
 use common::fill;
+#[path = "x25519.rs"]
+mod x25519;
+use x25519::{low_order_points, p_plus};
 
 /// The Ed25519 group order `L`, little-endian (RFC 8032 §5.1).
 const L: [u8; 32] = [
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
-
-/// `p + k` for `p = 2^255 - 19` and a small `k`, little-endian.
-fn p_plus(k: i8) -> [u8; 32] {
-    let mut bytes = [0xffu8; 32];
-    bytes[0] = (0xedi16 + i16::from(k)) as u8;
-    bytes[31] = 0x7f;
-    bytes
-}
-
-/// Every X25519 input libsodium blacklists: the Montgomery `u` of each
-/// Ed25519 torsion point (0, 1 and the two order-8 values, from dalek) and the
-/// noncanonical `p - 1`, `p`, `p + 1` encodings, each with and without bit
-/// 255.
-fn low_order_points() -> Vec<[u8; 32]> {
-    let mut points: Vec<[u8; 32]> = EIGHT_TORSION
-        .iter()
-        .map(|point| point.to_montgomery().to_bytes())
-        .collect();
-    points.extend([p_plus(-1), p_plus(0), p_plus(1)]);
-    points.sort_unstable();
-    points.dedup();
-    let flipped: Vec<[u8; 32]> = points
-        .iter()
-        .map(|point| {
-            let mut flipped = *point;
-            flipped[31] ^= 0x80;
-            flipped
-        })
-        .collect();
-    points.extend(flipped);
-    points
-}
 
 /// Noncanonical Ed25519 encodings: `y` in `{p, p + 1, 2^255 - 1}` with either
 /// sign bit.

@@ -42,4 +42,6 @@ test(=poly1305::poly1305_soft::tests::avx2_blocks_match_scalar)
 | test(=chacha20::tests::vector_path::test_kernel_chunk_matches_scalar_blocks)
 | test(=salsa20::tests::vector_path::test_kernel_chunk_matches_scalar_blocks)
 | test(=scalarmult_curve25519::tests::test_rfc7748_vectors)
+| test(=mlkem::tests::test_backends_match_soft)
+| test(=keccak::tests::test_x86_64_permute4_matches_scalar)
 '''

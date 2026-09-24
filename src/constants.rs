@@ -143,6 +143,31 @@ pub const CRYPTO_HASH_SHA3512_BYTES: usize = 64;
 pub const CRYPTO_HASH_BYTES: usize = CRYPTO_HASH_SHA512_BYTES;
 pub const CRYPTO_HASH_PRIMITIVE: &str = "sha512";
 
+pub const CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES: usize = 1184;
+pub const CRYPTO_KEM_MLKEM768_SECRETKEYBYTES: usize = 2400;
+pub const CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES: usize = 1088;
+pub const CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES: usize = 32;
+pub const CRYPTO_KEM_MLKEM768_SEEDBYTES: usize = 64;
+/// Length of the `crypto_kem_mlkem768_enc_deterministic` seed (the ML-KEM
+/// message `m`). libsodium has no named constant for it.
+pub const CRYPTO_KEM_MLKEM768_ENCSEEDBYTES: usize = 32;
+
+pub const CRYPTO_KEM_XWING_PUBLICKEYBYTES: usize = 1216;
+pub const CRYPTO_KEM_XWING_SECRETKEYBYTES: usize = 32;
+pub const CRYPTO_KEM_XWING_CIPHERTEXTBYTES: usize = 1120;
+pub const CRYPTO_KEM_XWING_SHAREDSECRETBYTES: usize = 32;
+pub const CRYPTO_KEM_XWING_SEEDBYTES: usize = 32;
+/// Length of the `crypto_kem_xwing_enc_deterministic` seed. libsodium has no
+/// named constant for it.
+pub const CRYPTO_KEM_XWING_ENCSEEDBYTES: usize = 64;
+
+pub const CRYPTO_KEM_PUBLICKEYBYTES: usize = CRYPTO_KEM_XWING_PUBLICKEYBYTES;
+pub const CRYPTO_KEM_SECRETKEYBYTES: usize = CRYPTO_KEM_XWING_SECRETKEYBYTES;
+pub const CRYPTO_KEM_CIPHERTEXTBYTES: usize = CRYPTO_KEM_XWING_CIPHERTEXTBYTES;
+pub const CRYPTO_KEM_SHAREDSECRETBYTES: usize = CRYPTO_KEM_XWING_SHAREDSECRETBYTES;
+pub const CRYPTO_KEM_SEEDBYTES: usize = CRYPTO_KEM_XWING_SEEDBYTES;
+pub const CRYPTO_KEM_PRIMITIVE: &str = "xwing";
+
 pub const CRYPTO_XOF_SHAKE128_BLOCKBYTES: usize = 168;
 pub const CRYPTO_XOF_SHAKE128_DOMAIN_STANDARD: u8 = 0x1f;
 pub const CRYPTO_XOF_SHAKE256_BLOCKBYTES: usize = 136;

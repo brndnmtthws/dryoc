@@ -130,9 +130,15 @@ cargo fuzz run fuzz-hashes
   `*_neon.rs` kernels.
 - `src/x86_64.rs`: AVX2/AVX-512 load/store/transpose/XOR helpers shared by the
   `*_x86_64.rs` kernels.
-- `src/keccak.rs`: the Keccak sponge behind SHA-3 (`src/sha3.rs`) and the
-  SHAKE/TurboSHAKE XOFs (`src/xof.rs`); the permutation comes from the
-  `keccak` crate.
+- `src/keccak/`: the Keccak sponge behind SHA-3 (`src/sha3.rs`) and the
+  SHAKE/TurboSHAKE XOFs (`src/xof.rs`), and the multi-state `ParSponge`
+  behind ML-KEM sampling; the permutation comes from the `keccak` crate,
+  with a runtime-detected 4-way AVX2 kernel (`keccak_x86_64.rs`) for
+  multi-state permutations.
+- `src/mlkem/`: ML-KEM-768 (FIPS 203) with runtime-selected polynomial
+  arithmetic backends (`Arith`); `test-vectors/` holds the ML-KEM and X-Wing
+  known answers. X-Wing is in `src/classic/crypto_kem_xwing.rs`; `src/kem.rs`
+  is the Rustaceous API for both.
 - `src/sha2_impl.rs`: the `sha2_hasher!` macro that generates the SHA-256 and
   SHA-512 hasher types; each `sha*/mod.rs` supplies its IV and `compress`.
 - `src/classic/crypto_*_impl.rs`: shared bodies behind pairs of classic

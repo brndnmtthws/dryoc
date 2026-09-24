@@ -1,9 +1,9 @@
 //! AVX2 and AVX-512 helpers shared by the x86-64 kernels (`chacha20`,
-//! `salsa20`, `blake2b`, `argon2`): the kernel variants and their detection,
-//! vector loads and stores, the lane-set input, counter and transpose, the
-//! keystream XOR into a [`Dest`], the feed-forward XOR of a scalar block, the
-//! 64-bit lane rotations, and the BMI2 check behind the Curve25519
-//! field-arithmetic roots.
+//! `salsa20`, `blake2b`, `argon2`, `mlkem`, `keccak`): the kernel variants
+//! and their detection, vector loads and stores, the lane-set input, counter
+//! and transposes, the keystream XOR into a [`Dest`], the feed-forward XOR
+//! of a scalar block, the 64-bit lane rotations, and the BMI2 check behind
+//! the Curve25519 field-arithmetic roots.
 
 use std::arch::x86_64::{
     __m256i, __m512i, _mm256_add_epi32, _mm256_add_epi64, _mm256_cmpgt_epi32, _mm256_loadu_si256,
@@ -209,6 +209,24 @@ pub(crate) fn store_words(words: &mut [u64; 4], v: __m256i) {
     unsafe { _mm256_storeu_si256(words.as_mut_ptr().cast(), v) }
 }
 
+/// Loads sixteen `i16` lanes as a vector, element 0 in lane 0.
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn load_i16s(lanes: &[i16; 16]) -> __m256i {
+    // SAFETY: `lanes` is a valid reference to exactly 32 readable bytes;
+    // `_mm256_loadu_si256` has no alignment requirement.
+    unsafe { _mm256_loadu_si256(lanes.as_ptr().cast()) }
+}
+
+/// Stores a vector as sixteen `i16` lanes, lane 0 in element 0.
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn store_i16s(lanes: &mut [i16; 16], v: __m256i) {
+    // SAFETY: `lanes` is a valid exclusive reference to exactly 32 writable
+    // bytes; `_mm256_storeu_si256` has no alignment requirement.
+    unsafe { _mm256_storeu_si256(lanes.as_mut_ptr().cast(), v) }
+}
+
 /// Loads eight `u64` words as a vector, word 0 in lane 0.
 #[inline]
 #[target_feature(enable = "avx512f")]
@@ -296,6 +314,25 @@ pub(crate) fn transpose(r: [__m256i; 8]) -> [__m256i; 8] {
         _mm256_permute2x128_si256::<0x31>(u1, u5),
         _mm256_permute2x128_si256::<0x31>(u2, u6),
         _mm256_permute2x128_si256::<0x31>(u3, u7),
+    ]
+}
+
+/// Transposes the 4x4 matrix of 64-bit words held in `r`: word `j` of
+/// vector `i` becomes word `i` of vector `j`. The transpose is its own
+/// inverse.
+#[inline]
+#[target_feature(enable = "avx2")]
+pub(crate) fn transpose_words(r: [__m256i; 4]) -> [__m256i; 4] {
+    // Words `0` and `2` (`lo`) or `1` and `3` (`hi`) of two vectors.
+    let t0 = _mm256_unpacklo_epi64(r[0], r[1]);
+    let t1 = _mm256_unpackhi_epi64(r[0], r[1]);
+    let t2 = _mm256_unpacklo_epi64(r[2], r[3]);
+    let t3 = _mm256_unpackhi_epi64(r[2], r[3]);
+    [
+        _mm256_permute2x128_si256::<0x20>(t0, t2),
+        _mm256_permute2x128_si256::<0x20>(t1, t3),
+        _mm256_permute2x128_si256::<0x31>(t0, t2),
+        _mm256_permute2x128_si256::<0x31>(t1, t3),
     ]
 }
 
