@@ -130,6 +130,9 @@ cargo fuzz run fuzz-hashes
   `*_neon.rs` kernels.
 - `src/x86_64.rs`: AVX2/AVX-512 load/store/transpose/XOR helpers shared by the
   `*_x86_64.rs` kernels.
+- `src/keccak.rs`: the Keccak sponge behind SHA-3 (`src/sha3.rs`) and the
+  SHAKE/TurboSHAKE XOFs (`src/xof.rs`); the permutation comes from the
+  `keccak` crate.
 - `src/sha2_impl.rs`: the `sha2_hasher!` macro that generates the SHA-256 and
   SHA-512 hasher types; each `sha*/mod.rs` supplies its IV and `compress`.
 - `src/classic/crypto_*_impl.rs`: shared bodies behind pairs of classic

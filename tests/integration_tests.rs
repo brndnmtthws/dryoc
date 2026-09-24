@@ -261,6 +261,40 @@ fn test_sha3_public_api() {
 }
 
 #[test]
+fn test_xof_public_api() {
+    use dryoc::classic::crypto_xof::{
+        crypto_xof_turboshake128, crypto_xof_turboshake128_init_with_domain,
+        crypto_xof_turboshake128_squeeze, crypto_xof_turboshake128_update,
+    };
+    use dryoc::xof::TurboShake128;
+
+    // RFC 9861: TurboSHAKE128(M = `FF FF FF`, D = `07`, 32).
+    let expected = hex::decode("b658576001cad9b1e5f399a9f77723bba05458042d68206f7252682dba3663ed")
+        .expect("hex");
+
+    let mut state = crypto_xof_turboshake128_init_with_domain(0x07).expect("domain");
+    crypto_xof_turboshake128_update(&mut state, &[0xff]).expect("update");
+    crypto_xof_turboshake128_update(&mut state, &[0xff, 0xff]).expect("update");
+    let mut classic = [0u8; 32];
+    crypto_xof_turboshake128_squeeze(&mut state, &mut classic[..10]);
+    crypto_xof_turboshake128_squeeze(&mut state, &mut classic[10..]);
+    assert_eq!(classic.to_vec(), expected);
+
+    let mut xof = TurboShake128::with_domain(0x07).expect("domain");
+    xof.update(&[0xff, 0xff, 0xff]);
+    let mut reader = xof.finalize();
+    assert_eq!(reader.squeeze_to_vec(32), expected);
+
+    // The standard-domain one-shot functions agree across both APIs.
+    let mut one_shot = [0u8; 100];
+    crypto_xof_turboshake128(&mut one_shot, b"public API message");
+    assert_eq!(
+        TurboShake128::compute_to_vec(b"public API message", 100),
+        one_shot
+    );
+}
+
+#[test]
 fn test_classic_hmac_and_hkdf_public_api() {
     use dryoc::classic::crypto_auth_hmacsha256::{
         Mac as HmacSha256Mac, crypto_auth_hmacsha256, crypto_auth_hmacsha256_final,
