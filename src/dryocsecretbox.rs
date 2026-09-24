@@ -317,7 +317,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
-        concat_bytes(self.tag.as_slice(), self.data.as_slice())
+        concat_bytes(self.tag.as_array(), self.data.as_slice())
     }
 }
 
@@ -469,6 +469,20 @@ mod tests {
         assert_eq!(with_data.tag, Mac::default());
         with_data.tag = Mac::try_from(tag).expect("mac");
         assert_eq!(with_data.to_vec(), boxed);
+    }
+
+    /// A tag backed by a longer buffer is its first
+    /// [`CRYPTO_SECRETBOX_MACBYTES`] bytes (the `ByteArray` view), so a box
+    /// built from it serializes to the canonical wire format and still opens.
+    #[test]
+    fn oversized_tag_storage_serializes_canonically() {
+        let (key, nonce, message, boxed) = nacl_vector();
+        let (tag, data) = boxed.split_at(CRYPTO_SECRETBOX_MACBYTES);
+        let oversized =
+            DryocSecretBox::<Vec<u8>, Vec<u8>>::from_parts([tag, &[0xa5]].concat(), data.to_vec());
+        assert_eq!(oversized.to_vec(), boxed);
+        let decrypted: Vec<u8> = oversized.decrypt(&nonce, &key).expect("decrypt");
+        assert_eq!(decrypted, message);
     }
 
     #[test]

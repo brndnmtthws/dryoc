@@ -328,9 +328,9 @@ impl<
             .as_mut_slice()
             .split_at_mut(CRYPTO_KEM_XWING_CIPHERTEXTBYTES);
         let (data, tag) = rest.split_at_mut(self.data.len());
-        enc.copy_from_slice(self.enc.as_slice());
+        enc.copy_from_slice(self.enc.as_array());
         data.copy_from_slice(self.data.as_slice());
-        tag.copy_from_slice(self.tag.as_slice());
+        tag.copy_from_slice(self.tag.as_array());
         bytes
     }
 
@@ -503,5 +503,30 @@ mod tests {
         let empty = VecBox::seal_to_vecbox(b"", &keypair.public_key).expect("seal");
         let empty = VecBox::from_bytes(&empty.to_vec()).expect("parse");
         assert!(empty.unseal_to_vec(&keypair).expect("unseal").is_empty());
+    }
+
+    /// A fixed-size field backed by a longer buffer is its first `N` bytes
+    /// (the `ByteArray` view), so a box built from such parts serializes to
+    /// the canonical wire format and still unseals.
+    #[test]
+    fn test_oversized_field_storage_serializes_canonically() {
+        let keypair = StackKeyPair::generate();
+        let message = b"The quality of mercy is not strained";
+        let sealed = VecBox::seal_to_vecbox(message, &keypair.public_key).expect("seal");
+        let (enc, tag, data) = sealed.into_parts();
+        let canonical = [enc.as_slice(), &data, tag.as_slice()].concat();
+        let padded = |field: &[u8], extra: usize| [field, &vec![0xa5; extra]].concat();
+
+        for (enc_extra, tag_extra) in [(1, 0), (0, 1)] {
+            let oversized = DryocSealedBox::from_parts(
+                padded(enc.as_slice(), enc_extra),
+                padded(tag.as_slice(), tag_extra),
+                data.clone(),
+            );
+            let row = format!("enc +{enc_extra}, tag +{tag_extra}");
+            assert_eq!(oversized.to_vec(), canonical, "{row}");
+            let unsealed: Vec<u8> = oversized.unseal(&keypair).expect(&row);
+            assert_eq!(unsealed, message, "{row}");
+        }
     }
 }
