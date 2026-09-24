@@ -13,18 +13,24 @@ use super::*;
 use crate::keccak::Sponge;
 
 /// Parses a vector file: `#` comments, then blank-line-separated records of
-/// `key = value` lines.
+/// `key = value` lines. Works line by line, so a CRLF checkout (Windows)
+/// parses the same; a repeated key within a record is an error rather than
+/// a silent merge of two records.
 pub(crate) fn records(text: &str) -> Vec<BTreeMap<&str, &str>> {
-    text.split("\n\n")
-        .map(|record| {
-            record
-                .lines()
-                .filter(|line| !line.starts_with('#') && !line.is_empty())
-                .map(|line| line.split_once(" = ").expect("key = value"))
-                .collect::<BTreeMap<_, _>>()
-        })
-        .filter(|record| !record.is_empty())
-        .collect()
+    let mut records = vec![BTreeMap::new()];
+    for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let record = records.last_mut().expect("at least one record");
+        if line.is_empty() {
+            if !record.is_empty() {
+                records.push(BTreeMap::new());
+            }
+        } else {
+            let (key, value) = line.split_once(" = ").expect("key = value");
+            assert!(record.insert(key, value).is_none(), "repeated key {key}");
+        }
+    }
+    records.retain(|record| !record.is_empty());
+    records
 }
 
 /// Decodes the hex field `key` of `record` into a fixed-size array.
@@ -64,6 +70,20 @@ fn decapsulate_vec(
     let mut ss = [0u8; 32];
     decapsulate(arith, &mut ss, ct, sk);
     ss
+}
+
+/// LF and CRLF copies of a vector file parse to the same records, not one
+/// merged record. The file itself is normalized first, since a Windows
+/// checkout already has CRLF endings.
+#[test]
+fn test_records_ignore_line_endings() {
+    let text = include_str!("test-vectors/mlkem768_acvp_keygen.txt");
+    let lf_text = text.replace("\r\n", "\n");
+    let crlf_text = lf_text.replace('\n', "\r\n");
+    let lf = records(&lf_text);
+    assert!(lf.len() > 1);
+    assert_eq!(records(&crlf_text), lf);
+    assert_eq!(records(text), lf);
 }
 
 #[test]

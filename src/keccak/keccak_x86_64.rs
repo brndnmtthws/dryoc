@@ -14,6 +14,8 @@ use std::arch::x86_64::{
     _mm256_srli_epi64, _mm256_xor_si256,
 };
 
+use zeroize::Zeroize;
+
 use crate::x86_64::{load_words, store_words, transpose_words};
 
 /// A vector kernel the running CPU has been verified to support.
@@ -284,4 +286,7 @@ fn permute4_avx2<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4]) {
     for (state, word) in states.iter_mut().zip(words) {
         state[24] = word;
     }
+    // The working copies hold the (possibly secret) states.
+    a.zeroize();
+    words.zeroize();
 }

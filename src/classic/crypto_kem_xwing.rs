@@ -180,7 +180,8 @@ pub fn crypto_kem_xwing_keypair() -> (PublicKey, SecretKey) {
 ///
 /// Returns [`Error::InvalidKey`] if the ML-KEM-768 part of `public_key` is
 /// not a valid encapsulation key, or if its X25519 part is a low-order point
-/// that gives an all-zero X25519 shared secret.
+/// that gives an all-zero X25519 shared secret. `ciphertext` and
+/// `shared_secret` are then left unchanged.
 pub fn crypto_kem_xwing_enc(
     ciphertext: &mut Ciphertext,
     shared_secret: &mut SharedSecret,
@@ -216,6 +217,11 @@ pub fn crypto_kem_xwing_enc_deterministic(
     let (mlkem_ciphertext, x25519_ciphertext) =
         ciphertext.split_at_mut(CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES);
 
+    // Both fallible steps run before `ciphertext` is written, so a rejected
+    // key leaves it unchanged, as in libsodium: the X25519 exchange first,
+    // then ML-KEM, which checks the key before encrypting.
+    let mut x25519_secret = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
+    crypto_scalarmult(&mut x25519_secret, x25519_ephemeral, x25519_public_key)?;
     let mut mlkem_secret = Zeroizing::new([0u8; 32]);
     mlkem::encapsulate(
         Arith::detect(),
@@ -227,8 +233,6 @@ pub fn crypto_kem_xwing_enc_deterministic(
     let x25519_ciphertext: &mut [u8; CRYPTO_SCALARMULT_BYTES] =
         x25519_ciphertext.try_into().expect("32-byte X25519 key");
     crypto_scalarmult_base(x25519_ciphertext, x25519_ephemeral);
-    let mut x25519_secret = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
-    crypto_scalarmult(&mut x25519_secret, x25519_ephemeral, x25519_public_key)?;
 
     combine(
         shared_secret,
@@ -321,7 +325,8 @@ mod tests {
 
     /// libsodium's return codes for low-order X25519 inputs and an invalid
     /// ML-KEM key, and its shared secret for an X25519 ciphertext with the
-    /// top bit set (hashed as given, not masked).
+    /// top bit set (hashed as given, not masked). Like libsodium, a failed
+    /// call leaves its output buffers unchanged.
     #[test]
     fn test_libsodium_edge_cases() {
         for record in records(include_str!(
@@ -329,10 +334,11 @@ mod tests {
         )) {
             let name = record["name"];
             let success = record["rc"] == "0";
-            let mut shared_secret = [0u8; 32];
+            let mut ciphertext = [0xa5u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+            let mut shared_secret = [0xa5u8; 32];
             let result = match record["op"] {
                 "enc_deterministic" => crypto_kem_xwing_enc_deterministic(
-                    &mut [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES],
+                    &mut ciphertext,
                     &mut shared_secret,
                     &field(&record, "pk"),
                     &field(&record, "eseed"),
@@ -345,6 +351,13 @@ mod tests {
                 op => panic!("unknown op {op}"),
             };
             assert_eq!(result.is_ok(), success, "{name}");
+            if !success {
+                assert_eq!(
+                    ciphertext, [0xa5; CRYPTO_KEM_XWING_CIPHERTEXTBYTES],
+                    "{name}"
+                );
+                assert_eq!(shared_secret, [0xa5; 32], "{name}");
+            }
             if let Some(ss) = record.get("ss") {
                 assert_eq!(hex::encode(shared_secret), *ss, "{name}");
             }
