@@ -461,6 +461,77 @@ mod tests {
         assert_eq!(canonical_secret, high_bit_secret);
     }
 
+    /// Non-default constants that differ in every word, so a constant in the
+    /// wrong position or order changes the output.
+    const CUSTOM_CONSTANTS: Constants = (0x0123_4567, 0x89ab_cdef, 0xfedc_ba98, 0x7654_3210);
+
+    /// The default constants passed explicitly.
+    const SIGMA_CONSTANTS: Constants = (SIGMA[0], SIGMA[1], SIGMA[2], SIGMA[3]);
+
+    /// The `constants` argument of the HChaCha20 and HSalsa20 functions.
+    type Constants = (u32, u32, u32, u32);
+
+    /// HChaCha20 test vector of draft-irtf-cfrg-xchacha-03 section 2.2.1 with
+    /// the default constants, implied and explicit, and the same key and
+    /// input with [`CUSTOM_CONSTANTS`] (expected output from libsodium
+    /// 1.0.22's `crypto_core_hchacha20`).
+    #[test]
+    fn test_crypto_core_hchacha20_known_answers() {
+        let key: HChaCha20Key = std::array::from_fn(|i| i as u8);
+        let input: HChaCha20Input = hex::decode("000000090000004a0000000031415927")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let default = "82413b4227b27bfed30e42508a877d73a0f9e4d58a74a853c12ec41326d3ecdc";
+        for (constants, expected) in [
+            (None, default),
+            (Some(SIGMA_CONSTANTS), default),
+            (
+                Some(CUSTOM_CONSTANTS),
+                "e887f97849587bad0f41aa2b5596fe9967e2785acc6ecc13c7c4e4a02016bd76",
+            ),
+        ] {
+            let mut output = HChaCha20Output::default();
+            crypto_core_hchacha20(&mut output, &input, &key, constants);
+            assert_eq!(hex::encode(output), expected, "{constants:x?}");
+        }
+    }
+
+    /// HSalsa20 test vectors of NaCl's `tests/core1.c` and `tests/core2.c`
+    /// (the XSalsa20 subkeys of the crypto_box example) with the default
+    /// constants, implied and explicit, and the `core1` key and input with
+    /// [`CUSTOM_CONSTANTS`] (expected output from libsodium 1.0.22's
+    /// `crypto_core_hsalsa20`).
+    #[test]
+    fn test_crypto_core_hsalsa20_known_answers() {
+        let shared = "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742";
+        let firstkey = "1b27556473e985d462cd51197a9a46c76009549eac6474f206c4ee0844f68389";
+        let nonce_prefix = "69696ee955b62b73cd62bda875fc73d6";
+        let zero = "00000000000000000000000000000000";
+        for (key, input, constants, expected) in [
+            (shared, zero, None, firstkey),
+            (shared, zero, Some(SIGMA_CONSTANTS), firstkey),
+            (
+                firstkey,
+                nonce_prefix,
+                None,
+                "dc908dda0b9344a953629b733820778880f3ceb421bb61b91cbd4c3e66256ce4",
+            ),
+            (
+                shared,
+                zero,
+                Some(CUSTOM_CONSTANTS),
+                "7ee2bcfe4eec7e4e59e64a4e7b0a97a001f2ad95c10247115f0d261afa7c092c",
+            ),
+        ] {
+            let key: HSalsa20Key = hex::decode(key).unwrap().try_into().unwrap();
+            let input: HSalsa20Input = hex::decode(input).unwrap().try_into().unwrap();
+            let mut output = HSalsa20Output::default();
+            crypto_core_hsalsa20(&mut output, &input, &key, constants);
+            assert_eq!(hex::encode(output), expected, "{constants:x?}");
+        }
+    }
+
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
@@ -637,10 +708,37 @@ mod tests {
             }
         }
 
+        /// Constants for the libsodium comparisons: the defaults implied
+        /// (`None`, a null `c`), the defaults passed explicitly, and random
+        /// ones, each with the 16 little-endian bytes libsodium's `c` takes.
+        fn constant_cases() -> [(Option<Constants>, Option<[u8; 16]>); 3] {
+            fn le_bytes((c0, c1, c2, c3): Constants) -> [u8; 16] {
+                let mut bytes = [0u8; 16];
+                for (chunk, word) in bytes
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip([c0, c1, c2, c3])
+                {
+                    *chunk = word.to_le_bytes();
+                }
+                bytes
+            }
+
+            let mut random = [0u8; 16];
+            crate::rng::copy_randombytes(&mut random);
+            let word = |i: usize| load_u32_le(&random[4 * i..4 * i + 4]);
+            let random = (word(0), word(1), word(2), word(3));
+            let sigma = (SIGMA[0], SIGMA[1], SIGMA[2], SIGMA[3]);
+            [
+                (None, None),
+                (Some(sigma), Some(le_bytes(sigma))),
+                (Some(random), Some(le_bytes(random))),
+            ]
+        }
+
         #[test]
         fn test_crypto_core_hchacha20() {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
             use libsodium_sys::crypto_core_hchacha20 as so_crypto_core_hchacha20;
 
             use crate::rng::copy_randombytes;
@@ -648,35 +746,32 @@ mod tests {
             crate::native_test_util::init();
 
             for _ in 0..10 {
-                let mut key = [0u8; 32];
-                let mut data = [0u8; 16];
+                let mut key = [0u8; CRYPTO_CORE_HCHACHA20_KEYBYTES];
+                let mut data = [0u8; CRYPTO_CORE_HCHACHA20_INPUTBYTES];
                 copy_randombytes(&mut key);
                 copy_randombytes(&mut data);
 
-                let mut out = [0u8; CRYPTO_CORE_HCHACHA20_OUTPUTBYTES];
-                crypto_core_hchacha20(&mut out, &data, &key, None);
+                for (constants, c) in constant_cases() {
+                    let mut out = [0u8; CRYPTO_CORE_HCHACHA20_OUTPUTBYTES];
+                    crypto_core_hchacha20(&mut out, &data, &key, constants);
 
-                let mut so_out = [0u8; 32];
-                unsafe {
-                    let ret = so_crypto_core_hchacha20(
-                        so_out.as_mut_ptr(),
-                        data.as_ptr(),
-                        key.as_ptr(),
-                        std::ptr::null(),
-                    );
+                    let mut so_out = [0u8; CRYPTO_CORE_HCHACHA20_OUTPUTBYTES];
+                    let ret = unsafe {
+                        so_crypto_core_hchacha20(
+                            so_out.as_mut_ptr(),
+                            data.as_ptr(),
+                            key.as_ptr(),
+                            c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+                        )
+                    };
                     assert_eq!(ret, 0);
+                    assert_eq!(out, so_out, "{constants:x?}");
                 }
-                assert_eq!(
-                    general_purpose::STANDARD.encode(out),
-                    general_purpose::STANDARD.encode(so_out)
-                );
             }
         }
 
         #[test]
         fn test_crypto_core_hsalsa20() {
-            use base64::Engine as _;
-            use base64::engine::general_purpose;
             use libsodium_sys::crypto_core_hsalsa20 as so_crypto_core_hsalsa20;
 
             use crate::rng::copy_randombytes;
@@ -689,23 +784,22 @@ mod tests {
                 copy_randombytes(&mut key);
                 copy_randombytes(&mut data);
 
-                let mut out = [0u8; CRYPTO_CORE_HSALSA20_OUTPUTBYTES];
-                crypto_core_hsalsa20(&mut out, &data, &key, None);
+                for (constants, c) in constant_cases() {
+                    let mut out = [0u8; CRYPTO_CORE_HSALSA20_OUTPUTBYTES];
+                    crypto_core_hsalsa20(&mut out, &data, &key, constants);
 
-                let mut so_out = [0u8; 32];
-                unsafe {
-                    let ret = so_crypto_core_hsalsa20(
-                        so_out.as_mut_ptr(),
-                        data.as_ptr(),
-                        key.as_ptr(),
-                        std::ptr::null(),
-                    );
+                    let mut so_out = [0u8; CRYPTO_CORE_HSALSA20_OUTPUTBYTES];
+                    let ret = unsafe {
+                        so_crypto_core_hsalsa20(
+                            so_out.as_mut_ptr(),
+                            data.as_ptr(),
+                            key.as_ptr(),
+                            c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+                        )
+                    };
                     assert_eq!(ret, 0);
+                    assert_eq!(out, so_out, "{constants:x?}");
                 }
-                assert_eq!(
-                    general_purpose::STANDARD.encode(out),
-                    general_purpose::STANDARD.encode(so_out)
-                );
             }
         }
     }
