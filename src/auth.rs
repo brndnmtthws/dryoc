@@ -326,15 +326,14 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn rfc4231_keys_match_sodiumoxide() {
-        use sodiumoxide::crypto::auth;
+    fn rfc4231_keys_match_libsodium() {
+        use crate::native_test_util::auth_hmacsha512256;
 
         for (key, message, _) in CASES {
             let key = padded_key(key);
-            let so_tag =
-                auth::authenticate(message, &auth::Key::from_slice(key.as_slice()).unwrap());
-            assert_eq!(Auth::compute_to_vec(key.clone(), &message), so_tag.as_ref());
-            Auth::compute_and_verify(&so_tag.0, key, &message).expect("verify sodium tag");
+            let so_tag = auth_hmacsha512256(message, key.as_slice());
+            assert_eq!(Auth::compute_to_vec(key.clone(), &message), so_tag);
+            Auth::compute_and_verify(&so_tag, key, &message).expect("verify sodium tag");
         }
     }
 

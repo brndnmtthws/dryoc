@@ -741,12 +741,12 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_pwhash() {
-        use sodiumoxide::crypto::pwhash;
-
+        use crate::native_test_util::pwhash_argon2id;
         use crate::rng::copy_randombytes;
 
+        crate::native_test_util::init();
+
         let mut hash = [0u8; 32];
-        let mut so_hash = [0u8; 32];
         let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
 
         copy_randombytes(&mut salt);
@@ -763,14 +763,12 @@ mod tests {
         )
         .expect("pwhash failed");
 
-        let _ = pwhash::argon2id13::derive_key(
-            &mut so_hash,
+        let so_hash: [u8; 32] = pwhash_argon2id(
             password,
-            &pwhash::argon2id13::Salt::from_slice(&salt).expect("salt failed"),
-            pwhash::argon2id13::OPSLIMIT_INTERACTIVE,
-            pwhash::argon2id13::MEMLIMIT_INTERACTIVE,
-        )
-        .expect("so pwhash failed");
+            &salt,
+            libsodium_sys::crypto_pwhash_argon2id_OPSLIMIT_INTERACTIVE.into(),
+            libsodium_sys::crypto_pwhash_argon2id_MEMLIMIT_INTERACTIVE as usize,
+        );
 
         assert_eq!(hash, so_hash);
     }
@@ -1083,7 +1081,7 @@ mod tests {
     #[cfg(feature = "base64")]
     #[test]
     fn test_crypto_pwhash_str() {
-        use sodiumoxide::crypto::pwhash;
+        use crate::native_test_util::pwhash_argon2id_str_verify;
 
         let password = b"donkey kong";
 
@@ -1112,11 +1110,7 @@ mod tests {
         let mut pwhash_bytes = [0u8; CRYPTO_PWHASH_STRBYTES];
         pwhash_bytes[..pwhash.len()].copy_from_slice(pwhash.as_bytes());
 
-        assert!(pwhash::argon2id13::pwhash_verify(
-            &pwhash::argon2id13::HashedPassword::from_slice(&pwhash_bytes)
-                .expect("hashed password failed"),
-            password,
-        ));
+        assert!(pwhash_argon2id_str_verify(&pwhash_bytes, password));
 
         let argon2i = crypto_pwhash_str_alg(
             password,
@@ -1133,18 +1127,19 @@ mod tests {
     #[cfg(feature = "base64")]
     #[test]
     fn test_crypto_pwhash_str_verify() {
-        use sodiumoxide::crypto::pwhash;
+        use crate::native_test_util::pwhash_argon2id_str;
+
+        crate::native_test_util::init();
 
         let password = b"donkey kong";
 
-        let pwhash = pwhash::argon2id13::pwhash(
+        let pwhash = pwhash_argon2id_str(
             password,
-            pwhash::argon2id13::OPSLIMIT_INTERACTIVE,
-            pwhash::argon2id13::MEMLIMIT_INTERACTIVE,
-        )
-        .expect("so pwhash failed");
+            libsodium_sys::crypto_pwhash_argon2id_OPSLIMIT_INTERACTIVE.into(),
+            libsodium_sys::crypto_pwhash_argon2id_MEMLIMIT_INTERACTIVE as usize,
+        );
 
-        let pw_str = std::str::from_utf8(&pwhash.0)
+        let pw_str = std::str::from_utf8(&pwhash)
             .expect("from ut8 failed")
             .trim_end_matches('\x00');
 
@@ -1334,6 +1329,8 @@ mod tests {
     fn mutation_matrix_matches_libsodium() {
         use std::ffi::CString;
 
+        crate::native_test_util::init();
+
         for (name, encoded, _) in mutated_password_hashes() {
             let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
             let sodium_verify = unsafe {
@@ -1367,6 +1364,8 @@ mod tests {
     #[test]
     fn algorithm_and_parallelism_mutations_match_libsodium() {
         use std::ffi::CString;
+
+        crate::native_test_util::init();
 
         for (encoded, memlimit) in [
             (
@@ -1402,6 +1401,8 @@ mod tests {
     #[test]
     fn exact_maximum_encoded_length_matches_libsodium() {
         use std::ffi::CString;
+
+        crate::native_test_util::init();
 
         let encoded = exact_max_password_hash();
         let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");

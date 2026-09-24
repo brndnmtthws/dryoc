@@ -396,6 +396,7 @@ mod native_tests {
         salt: Option<&[u8; SALTBYTES]>,
         personal: Option<&[u8; PERSONALBYTES]>,
     ) -> Vec<u8> {
+        crate::native_test_util::init();
         let mut out = vec![0u8; outlen];
         // SAFETY: every pointer is valid for the length passed alongside it
         // (or null with a zero length for the key; libsodium treats a null

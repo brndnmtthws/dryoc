@@ -149,6 +149,7 @@ mod tests {
     }
 
     fn sodium_hash(input: &[u8], key: Option<&[u8]>, outlen: usize) -> Vec<u8> {
+        crate::native_test_util::init();
         let mut output = vec![0u8; outlen];
         let rc = unsafe {
             libsodium_sys::crypto_generichash(
@@ -169,6 +170,7 @@ mod tests {
     /// maxima that the former `% (max-min)` random tests could never select.
     #[test]
     fn test_generichash_parameter_boundaries_match_libsodium() {
+        crate::native_test_util::init();
         let key: Vec<u8> = (0..CRYPTO_GENERICHASH_KEYBYTES_MAX as u8)
             .map(|i| i.wrapping_mul(37).wrapping_add(11))
             .collect();

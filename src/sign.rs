@@ -1007,68 +1007,8 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
+        use crate::native_test_util as sodium;
         use crate::utils::test_util::XorShift64;
-
-        fn libsodium_ph_signature(parts: &[&[u8]], secret_key: &SecretKey) -> Signature {
-            let mut state =
-                std::mem::MaybeUninit::<libsodium_sys::crypto_sign_ed25519ph_state>::uninit();
-            let mut signature = Signature::default();
-            let mut signature_len = 0u64;
-            unsafe {
-                assert_eq!(
-                    libsodium_sys::crypto_sign_ed25519ph_init(state.as_mut_ptr()),
-                    0
-                );
-                for part in parts {
-                    assert_eq!(
-                        libsodium_sys::crypto_sign_ed25519ph_update(
-                            state.as_mut_ptr(),
-                            part.as_ptr(),
-                            part.len() as u64,
-                        ),
-                        0
-                    );
-                }
-                assert_eq!(
-                    libsodium_sys::crypto_sign_ed25519ph_final_create(
-                        state.as_mut_ptr(),
-                        signature.as_mut_ptr(),
-                        &mut signature_len,
-                        secret_key.as_ptr(),
-                    ),
-                    0
-                );
-            }
-            assert_eq!(signature_len as usize, CRYPTO_SIGN_BYTES);
-            signature
-        }
-
-        fn libsodium_ph_verify(
-            parts: &[&[u8]],
-            signature: &Signature,
-            public_key: &PublicKey,
-        ) -> bool {
-            let mut state =
-                std::mem::MaybeUninit::<libsodium_sys::crypto_sign_ed25519ph_state>::uninit();
-            unsafe {
-                assert_eq!(
-                    libsodium_sys::crypto_sign_ed25519ph_init(state.as_mut_ptr()),
-                    0
-                );
-                for part in parts {
-                    libsodium_sys::crypto_sign_ed25519ph_update(
-                        state.as_mut_ptr(),
-                        part.as_ptr(),
-                        part.len() as u64,
-                    );
-                }
-                libsodium_sys::crypto_sign_ed25519ph_final_verify(
-                    state.as_mut_ptr(),
-                    signature.as_ptr(),
-                    public_key.as_ptr(),
-                ) == 0
-            }
-        }
 
         #[test]
         fn incremental_signer_matches_libsodium_ed25519ph_for_split_updates() {
@@ -1094,10 +1034,10 @@ mod tests {
                     .finalize(&keypair.secret_key)
                     .expect("signing failed");
                 assert_eq!(
-                    signature,
-                    libsodium_ph_signature(&parts, &keypair.secret_key)
+                    signature.as_array(),
+                    &sodium::sign_ed25519ph(&parts, &keypair.secret_key)
                 );
-                assert!(libsodium_ph_verify(
+                assert!(sodium::sign_ed25519ph_verify(
                     &[&message],
                     &signature,
                     &keypair.public_key
@@ -1112,15 +1052,13 @@ mod tests {
         }
 
         #[test]
-        fn detached_signatures_interoperate_with_sodiumoxide() {
-            use sodiumoxide::crypto::sign::ed25519;
-
+        fn detached_signatures_interoperate_with_libsodium() {
             let (seed, public_key, _, _) = RFC8032_ED25519PH;
             let keypair = rfc_keypair(seed, public_key);
-            let so_seed = ed25519::Seed::from_slice(&hex::decode(seed).expect("hex")).unwrap();
-            let (so_pk, so_sk) = ed25519::keypair_from_seed(&so_seed);
-            assert_eq!(so_pk.as_ref(), keypair.public_key.as_slice());
-            assert_eq!(so_sk.as_ref(), keypair.secret_key.as_slice());
+            let (so_pk, so_sk) =
+                sodium::sign_ed25519_seed_keypair(&hex::decode(seed).expect("hex"));
+            assert_eq!(so_pk.as_slice(), keypair.public_key.as_slice());
+            assert_eq!(so_sk.as_slice(), keypair.secret_key.as_slice());
 
             let mut rng = XorShift64::new(0x7369_676e_6564_2121);
             for len in [0, 1, 63, 64, 65, 1023] {
@@ -1128,20 +1066,21 @@ mod tests {
                 let signed = keypair
                     .sign_with_defaults(message.as_slice())
                     .expect("signing failed");
-                let so_signature = ed25519::sign_detached(&message, &so_sk);
-                assert_eq!(signed.signature.as_slice(), so_signature.as_ref());
-                assert!(ed25519::verify_detached(
-                    &ed25519::Signature::from_bytes(signed.signature.as_slice()).unwrap(),
+                let so_signature = sodium::sign_ed25519_detached(&message, &so_sk);
+                assert_eq!(signed.signature.as_slice(), so_signature.as_slice());
+                assert!(sodium::sign_ed25519_verify_detached(
+                    signed.signature.as_slice(),
                     &message,
                     &so_pk
                 ));
 
-                let so_signed = ed25519::sign(&message, &so_sk);
+                let so_signed = sodium::sign_ed25519(&message, &so_sk);
                 let parsed = VecSignedMessage::from_bytes(&so_signed).expect("parse");
                 assert_eq!(parsed, signed);
                 parsed.verify(&keypair.public_key).expect("verify failed");
                 assert_eq!(
-                    ed25519::verify(&signed.to_vec(), &so_pk).expect("sodium verify failed"),
+                    sodium::sign_ed25519_open(&signed.to_vec(), &so_pk)
+                        .expect("sodium verify failed"),
                     message
                 );
             }

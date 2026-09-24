@@ -1023,6 +1023,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn hash_with_salt_matches_libsodium_for_both_algorithms() {
+        crate::native_test_util::init();
         for config in [argon2id_min(), argon2i_min()] {
             let pwhash: VecPwHash =
                 PwHash::hash_with_salt(PASSWORD, SALT.to_vec(), config.clone()).expect("hash");

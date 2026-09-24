@@ -800,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_keypair_seed() {
-        use sodiumoxide::crypto::sign;
+        use crate::native_test_util::sign_ed25519_seed_keypair;
 
         for _ in 0..10 {
             let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
@@ -808,16 +808,15 @@ mod tests {
 
             let (pk, sk) = crypto_sign_ed25519_seed_keypair(&seed);
 
-            let (so_pk, so_sk) =
-                sign::keypair_from_seed(&sign::Seed::from_slice(&seed).expect("seed failed"));
+            let (so_pk, so_sk) = sign_ed25519_seed_keypair(&seed);
 
             assert_eq!(
                 general_purpose::STANDARD.encode(pk),
-                general_purpose::STANDARD.encode(so_pk.0)
+                general_purpose::STANDARD.encode(so_pk)
             );
             assert_eq!(
                 general_purpose::STANDARD.encode(sk),
-                general_purpose::STANDARD.encode(so_sk.0)
+                general_purpose::STANDARD.encode(so_sk)
             );
         }
     }
@@ -828,6 +827,8 @@ mod tests {
             crypto_sign_ed25519_pk_to_curve25519 as so_crypto_sign_ed25519_pk_to_curve25519,
             crypto_sign_ed25519_sk_to_curve25519 as so_crypto_sign_ed25519_sk_to_curve25519,
         };
+
+        crate::native_test_util::init();
 
         for _ in 0..10 {
             let (pk, sk) = crypto_sign_ed25519_keypair();
@@ -859,6 +860,8 @@ mod tests {
     fn test_invalid_public_key_conversion_compatibility() {
         use libsodium_sys::crypto_sign_ed25519_pk_to_curve25519 as sodium_convert;
 
+        crate::native_test_util::init();
+
         let identity = {
             let mut point = [0u8; 32];
             point[0] = 1;
@@ -889,6 +892,8 @@ mod tests {
     fn test_noncanonical_signature_scalar_compatibility() {
         use libsodium_sys::crypto_sign_verify_detached as sodium_verify;
 
+        crate::native_test_util::init();
+
         let message = b"malleability regression";
         let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[7u8; 32]);
         let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
@@ -912,6 +917,7 @@ mod tests {
         message: &[u8],
         public_key: &PublicKey,
     ) -> bool {
+        crate::native_test_util::init();
         let result = unsafe {
             libsodium_sys::crypto_sign_verify_detached(
                 signature.as_ptr(),
@@ -1026,6 +1032,8 @@ mod tests {
             crypto_sign_ed25519_sk_to_pk as so_crypto_sign_ed25519_sk_to_pk,
             crypto_sign_ed25519_sk_to_seed as so_crypto_sign_ed25519_sk_to_seed,
         };
+
+        crate::native_test_util::init();
 
         for _ in 0..10 {
             let (pk, sk) = crypto_sign_ed25519_keypair();

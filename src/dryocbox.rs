@@ -1236,29 +1236,19 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     mod native_tests {
         use super::*;
+        use crate::native_test_util as sodium;
 
         #[test]
-        fn nacl_vector_matches_sodiumoxide_and_libsodium_beforenm() {
-            use sodiumoxide::crypto::box_;
-            use sodiumoxide::crypto::box_::{
-                Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
-            };
-
+        fn nacl_vector_matches_libsodium_box_and_beforenm() {
+            crate::native_test_util::init();
             let v = nacl_vector();
-            let so_boxed = box_::seal(
-                &v.message,
-                &SONonce::from_slice(&v.nonce).unwrap(),
-                &SOPublicKey::from_slice(&v.bob.public_key).unwrap(),
-                &SOSecretKey::from_slice(&v.alice.secret_key).unwrap(),
-            );
+            let so_boxed =
+                sodium::box_easy(&v.message, &v.nonce, &v.bob.public_key, &v.alice.secret_key);
             assert_eq!(so_boxed, v.boxed);
 
             let precalc = v.alice.precalculate(&v.bob.public_key).expect("precalc");
-            let so_precalc = box_::precompute(
-                &SOPublicKey::from_slice(&v.bob.public_key).unwrap(),
-                &SOSecretKey::from_slice(&v.alice.secret_key).unwrap(),
-            );
-            assert_eq!(precalc.as_slice(), so_precalc.as_ref());
+            let so_precalc = sodium::box_beforenm(&v.bob.public_key, &v.alice.secret_key);
+            assert_eq!(precalc.as_slice(), so_precalc.as_slice());
 
             let mut sodium_key = [0u8; CRYPTO_BOX_BEFORENMBYTES];
             let rc = unsafe {
@@ -1273,25 +1263,16 @@ mod tests {
         }
 
         #[test]
-        fn sodiumoxide_regular_and_precomputed_boxes_decrypt_with_rustaceous() {
-            use sodiumoxide::crypto::box_;
-            use sodiumoxide::crypto::box_::{
-                Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
-            };
-
+        fn libsodium_regular_and_precomputed_boxes_decrypt_with_rustaceous() {
             let v = nacl_vector();
-            let so_nonce = SONonce::from_slice(&v.nonce).unwrap();
-            let so_bob_pk = SOPublicKey::from_slice(&v.bob.public_key).unwrap();
-            let so_alice_sk = SOSecretKey::from_slice(&v.alice.secret_key).unwrap();
-            let so_alice_pk = SOPublicKey::from_slice(&v.alice.public_key).unwrap();
-            let so_bob_sk = SOSecretKey::from_slice(&v.bob.secret_key).unwrap();
-            let so_precalc = box_::precompute(&so_bob_pk, &so_alice_sk);
+            let so_precalc = sodium::box_beforenm(&v.bob.public_key, &v.alice.secret_key);
             let precalc = v.bob.precalculate(&v.alice.public_key).expect("precalc");
 
             for len in [0, 1, 15, 16, 17, 63, 64, 65, v.message.len()] {
                 let plaintext = &v.message[..len];
 
-                let so_boxed = box_::seal(plaintext, &so_nonce, &so_bob_pk, &so_alice_sk);
+                let so_boxed =
+                    sodium::box_easy(plaintext, &v.nonce, &v.bob.public_key, &v.alice.secret_key);
                 let dryocbox = VecBox::from_bytes(&so_boxed).expect("sodium box should parse");
                 assert_eq!(
                     dryocbox
@@ -1306,7 +1287,7 @@ mod tests {
                     plaintext
                 );
 
-                let so_afternm = box_::seal_precomputed(plaintext, &so_nonce, &so_precalc);
+                let so_afternm = sodium::box_easy_afternm(plaintext, &v.nonce, &so_precalc);
                 assert_eq!(so_afternm, so_boxed);
                 let dryocbox =
                     VecBox::from_bytes(&so_afternm).expect("sodium afternm box should parse");
@@ -1321,28 +1302,27 @@ mod tests {
                     DryocBox::precalc_encrypt_to_vecbox(plaintext, &v.nonce, &precalc)
                         .expect("precalc encrypt failed");
                 assert_eq!(
-                    box_::open_precomputed(&precalc_box.to_vec(), &so_nonce, &so_precalc)
+                    sodium::box_open_easy_afternm(&precalc_box.to_vec(), &v.nonce, &so_precalc)
                         .expect("sodium open_precomputed failed"),
                     plaintext
                 );
                 assert_eq!(
-                    box_::open(&precalc_box.to_vec(), &so_nonce, &so_alice_pk, &so_bob_sk)
-                        .expect("sodium open failed"),
+                    sodium::box_open_easy(
+                        &precalc_box.to_vec(),
+                        &v.nonce,
+                        &v.alice.public_key,
+                        &v.bob.secret_key
+                    )
+                    .expect("sodium open failed"),
                     plaintext
                 );
             }
         }
 
         #[test]
-        fn sodiumoxide_sealed_box_rejects_wrong_recipient_and_modification() {
-            use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
-            use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
-
+        fn libsodium_sealed_box_rejects_wrong_recipient_and_modification() {
             let v = nacl_vector();
-            let ciphertext = curve25519blake2bxsalsa20poly1305::seal(
-                &v.message,
-                &SOPublicKey::from_slice(&v.bob.public_key).unwrap(),
-            );
+            let ciphertext = sodium::box_seal(&v.message, &v.bob.public_key);
             let sealed = VecBox::from_sealed_bytes(&ciphertext).expect("parse");
             assert_eq!(sealed.unseal_to_vec(&v.bob).expect("unseal"), v.message);
             assert!(matches!(
@@ -1367,8 +1347,6 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::box_;
-                use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
 
                 let keypair_sender = KeyPair::generate();
                 let keypair_recipient = KeyPair::generate();
@@ -1388,11 +1366,11 @@ mod tests {
 
                 let ciphertext = dryocbox.to_vec();
 
-                let so_ciphertext = box_::seal(
+                let so_ciphertext = sodium::box_easy(
                     message_copy.as_bytes(),
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &PublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
-                    &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
+                    &nonce,
+                    &keypair_recipient_copy.public_key,
+                    &keypair_sender_copy.secret_key,
                 );
 
                 assert_eq!(
@@ -1410,11 +1388,11 @@ mod tests {
                         &keypair_recipient.secret_key,
                     )
                     .expect("hmm");
-                let so_m = box_::open(
+                let so_m = sodium::box_open_easy(
                     &ciphertext,
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &PublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
-                    &SecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
+                    &nonce,
+                    &keypair_recipient_copy.public_key,
+                    &keypair_sender_copy.secret_key,
                 )
                 .expect("HMMM");
 
@@ -1428,10 +1406,6 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::box_;
-                use sodiumoxide::crypto::box_::{
-                    Nonce as SONonce, PublicKey as SOPublicKey, SecretKey as SOSecretKey,
-                };
 
                 let keypair_sender = KeyPair::generate();
                 let keypair_recipient = KeyPair::generate();
@@ -1451,11 +1425,11 @@ mod tests {
 
                 let ciphertext = dryocbox.to_vec();
 
-                let so_ciphertext = box_::seal(
+                let so_ciphertext = sodium::box_easy(
                     message_copy.as_bytes(),
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &SOPublicKey::from_slice(&keypair_recipient_copy.public_key).unwrap(),
-                    &SOSecretKey::from_slice(&keypair_sender_copy.secret_key).unwrap(),
+                    &nonce,
+                    &keypair_recipient_copy.public_key,
+                    &keypair_sender_copy.secret_key,
                 );
 
                 assert_eq!(
@@ -1474,11 +1448,11 @@ mod tests {
                     &invalid_key_copy_2.secret_key,
                 )
                 .expect_err("hmm");
-                box_::open(
+                sodium::box_open_easy(
                     &ciphertext,
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &SOPublicKey::from_slice(&invalid_key.public_key).unwrap(),
-                    &SOSecretKey::from_slice(&invalid_key.secret_key).unwrap(),
+                    &nonce,
+                    &invalid_key.public_key,
+                    &invalid_key.secret_key,
                 )
                 .expect_err("HMMM");
             }
@@ -1487,11 +1461,6 @@ mod tests {
         #[test]
         fn test_dryocbox_seal_vecbox() {
             for i in 0..20 {
-                use sodiumoxide::crypto::box_::{
-                    PublicKey as SOPublicKey, SecretKey as SOSecretKey,
-                };
-                use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
-
                 let keypair_recipient = KeyPair::generate();
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ");
@@ -1503,10 +1472,10 @@ mod tests {
                 let ciphertext = dryocbox.to_vec();
 
                 let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
-                let so_m = curve25519blake2bxsalsa20poly1305::open(
+                let so_m = sodium::box_seal_open(
                     ciphertext.as_slice(),
-                    &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
-                    &SOSecretKey::from_slice(keypair_recipient.secret_key.as_slice()).unwrap(),
+                    keypair_recipient.public_key.as_slice(),
+                    keypair_recipient.secret_key.as_slice(),
                 )
                 .unwrap();
 
@@ -1518,17 +1487,12 @@ mod tests {
         #[test]
         fn test_dryocbox_unseal_vecbox() {
             for i in 0..20 {
-                use sodiumoxide::crypto::box_::PublicKey as SOPublicKey;
-                use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
-
                 let keypair_recipient = KeyPair::generate();
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ");
 
-                let ciphertext = curve25519blake2bxsalsa20poly1305::seal(
-                    message.as_bytes(),
-                    &SOPublicKey::from_slice(keypair_recipient.public_key.as_slice()).unwrap(),
-                );
+                let ciphertext =
+                    sodium::box_seal(message.as_bytes(), keypair_recipient.public_key.as_slice());
 
                 let dryocbox =
                     DryocBox::from_sealed_bytes(&ciphertext).expect("from sealed bytes failed");

@@ -410,16 +410,16 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_hash_sha512_matches_libsodium() {
-        use sodiumoxide::crypto::hash;
+        use crate::native_test_util::{self as sodium, HashSha512State};
 
         for len in sha2_lengths(128, 16) {
             let message = pattern(len);
-            let expected = hash::hash(&message);
+            let expected = sodium::crypto_hash_sha512(&message);
             let mut digest = [0u8; CRYPTO_HASH_SHA512_BYTES];
             crypto_hash(&mut digest, &message);
-            assert_eq!(digest, expected.0, "one-shot len {len}");
+            assert_eq!(digest, expected, "one-shot len {len}");
 
-            let mut theirs = hash::State::new();
+            let mut theirs = HashSha512State::new();
             let mut ours = crypto_hash_sha512_init();
             for chunk in message.chunks(127) {
                 theirs.update(chunk);
@@ -428,7 +428,92 @@ mod tests {
                 crypto_hash_sha512_update(&mut ours, b"");
             }
             crypto_hash_sha512_final(ours, &mut digest);
-            assert_eq!(digest, theirs.finalize().0, "streamed len {len}");
+            assert_eq!(digest, theirs.finalize(), "streamed len {len}");
         }
+    }
+
+    /// Message lengths around the SHA-3 padding and permutation boundaries
+    /// for a sponge with `rate`-byte blocks: `rate - 1` is the last length
+    /// whose domain byte and final padding bit share a byte.
+    #[cfg(dryoc_native_tests)]
+    fn sha3_lengths(rate: usize) -> impl Iterator<Item = usize> {
+        [
+            0,
+            1,
+            rate - 2,
+            rate - 1,
+            rate,
+            rate + 1,
+            2 * rate - 1,
+            2 * rate,
+            2 * rate + 1,
+            3 * rate + 17,
+        ]
+        .into_iter()
+    }
+
+    /// libsodium's `crypto_hash_sha3256` and `crypto_hash_sha3512` at the
+    /// rate boundaries, one-shot and streamed with the same cuts on both
+    /// sides (single bytes, an odd size, and exactly one rate).
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_crypto_hash_sha3_matches_libsodium() {
+        use crate::native_test_util::{self as sodium, HashSha3256State, HashSha3512State};
+
+        macro_rules! check {
+            (
+                $rate:expr,
+                $bytes:expr,
+                $oneshot:ident,
+                $init:ident,
+                $update:ident,
+                $final:ident,
+                $theirs:ident
+            ) => {
+                for len in sha3_lengths($rate) {
+                    let message = pattern(len);
+                    let expected = sodium::$oneshot(&message);
+                    let mut digest = [0u8; $bytes];
+                    $oneshot(&mut digest, &message);
+                    assert_eq!(digest, expected, "one-shot len {len}");
+
+                    for chunk_len in [1, 67, $rate] {
+                        let mut theirs = $theirs::new();
+                        let mut ours = $init();
+                        for chunk in message.chunks(chunk_len) {
+                            theirs.update(chunk);
+                            $update(&mut ours, chunk);
+                            theirs.update(b"");
+                            $update(&mut ours, b"");
+                        }
+                        $final(ours, &mut digest);
+                        assert_eq!(
+                            digest,
+                            theirs.finalize(),
+                            "streamed len {len}, chunks of {chunk_len}"
+                        );
+                    }
+                }
+            };
+        }
+
+        check!(
+            SHA3_256_RATE,
+            CRYPTO_HASH_SHA3256_BYTES,
+            crypto_hash_sha3256,
+            crypto_hash_sha3256_init,
+            crypto_hash_sha3256_update,
+            crypto_hash_sha3256_final,
+            HashSha3256State
+        );
+        check!(
+            SHA3_512_RATE,
+            CRYPTO_HASH_SHA3512_BYTES,
+            crypto_hash_sha3512,
+            crypto_hash_sha3512_init,
+            crypto_hash_sha3512_update,
+            crypto_hash_sha3512_final,
+            HashSha3512State
+        );
     }
 }

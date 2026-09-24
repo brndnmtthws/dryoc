@@ -647,39 +647,21 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn rfc4231_keys_match_sodiumoxide() {
-        use sodiumoxide::crypto::auth::{hmacsha256, hmacsha512, hmacsha512256};
+    fn rfc4231_keys_match_libsodium() {
+        use crate::native_test_util::{auth_hmacsha256, auth_hmacsha512, auth_hmacsha512256};
 
         for case in &CASES {
             let key: HmacSha256Key = padded_key(case.key);
-            let so_tag = hmacsha256::authenticate(
-                case.message,
-                &hmacsha256::Key::from_slice(key.as_slice()).unwrap(),
-            );
-            assert_eq!(
-                HmacSha256::compute_to_vec(key, case.message),
-                so_tag.as_ref()
-            );
+            let so_tag = auth_hmacsha256(case.message, key.as_slice());
+            assert_eq!(HmacSha256::compute_to_vec(key, case.message), so_tag);
 
             let key: HmacSha512Key = padded_key(case.key);
-            let so_tag = hmacsha512::authenticate(
-                case.message,
-                &hmacsha512::Key::from_slice(key.as_slice()).unwrap(),
-            );
-            assert_eq!(
-                HmacSha512::compute_to_vec(key, case.message),
-                so_tag.as_ref()
-            );
+            let so_tag = auth_hmacsha512(case.message, key.as_slice());
+            assert_eq!(HmacSha512::compute_to_vec(key, case.message), so_tag);
 
             let key: HmacSha512256Key = padded_key(case.key);
-            let so_tag = hmacsha512256::authenticate(
-                case.message,
-                &hmacsha512256::Key::from_slice(key.as_slice()).unwrap(),
-            );
-            assert_eq!(
-                HmacSha512256::compute_to_vec(key, case.message),
-                so_tag.as_ref()
-            );
+            let so_tag = auth_hmacsha512256(case.message, key.as_slice());
+            assert_eq!(HmacSha512256::compute_to_vec(key, case.message), so_tag);
         }
     }
 }

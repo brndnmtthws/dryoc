@@ -258,4 +258,125 @@ mod tests {
         assert!(crypto_xof_shake128_init_with_domain(0x80).is_err());
         assert!(crypto_xof_shake128_init_with_domain(0x00).is_err());
     }
+
+    /// Each XOF against libsodium: the one-shot function over input lengths
+    /// around the rate for output lengths up to past two blocks; the same
+    /// input absorbed in odd-sized chunks (with empty updates between) and
+    /// squeezed in uneven pieces on both sides; and custom domains through
+    /// `init_with_domain`. (libsodium accepts any domain byte, where this
+    /// crate rejects those outside `0x01..=0x7f`, so only valid domains are
+    /// compared.)
+    #[cfg(dryoc_native_tests)]
+    #[test]
+    fn test_crypto_xof_matches_libsodium() {
+        use crate::keccak::{RATE_128, RATE_256};
+        use crate::native_test_util as sodium;
+
+        fn pattern(len: usize) -> Vec<u8> {
+            (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()
+        }
+
+        macro_rules! check {
+            (
+                $rate:expr,
+                $oneshot:ident,
+                $init:ident,
+                $init_with_domain:ident,
+                $update:ident,
+                $squeeze:ident,
+                $theirs:ident
+            ) => {
+                let rate = $rate;
+                let input_lens = [0, 1, rate - 1, rate, rate + 1, 2 * rate + 3];
+                let output_lens = [1, 32, rate - 1, rate, rate + 1, 2 * rate + 5, 3 * rate + 1];
+                for len in input_lens {
+                    let message = pattern(len);
+                    for out_len in output_lens {
+                        let mut ours = vec![0u8; out_len];
+                        $oneshot(&mut ours, &message);
+                        assert_eq!(
+                            ours,
+                            sodium::$oneshot(&message, out_len),
+                            "one-shot len {len}, output {out_len}"
+                        );
+                    }
+
+                    let squeezes = [1, 7, rate - 1, rate + 3, 2 * rate + 1];
+                    for domain in [None, Some(0x01), Some(0x07), Some(0x7f)] {
+                        let (mut ours, mut theirs) = match domain {
+                            None => ($init(), sodium::$theirs::new()),
+                            Some(domain) => (
+                                $init_with_domain(domain).expect("valid domain"),
+                                sodium::$theirs::with_domain(domain).expect("valid domain"),
+                            ),
+                        };
+                        // Pieces of 7 bytes, and 5 at the end of every 61.
+                        for chunk in message.chunks(61) {
+                            for piece in chunk.chunks(7) {
+                                $update(&mut ours, piece).expect("update failed");
+                                theirs.update(piece);
+                                $update(&mut ours, b"").expect("update failed");
+                                theirs.update(b"");
+                            }
+                        }
+                        let mut stream = Vec::new();
+                        for squeeze_len in squeezes {
+                            let mut piece = vec![0u8; squeeze_len];
+                            $squeeze(&mut ours, &mut piece);
+                            assert_eq!(
+                                piece,
+                                theirs.squeeze(squeeze_len),
+                                "len {len}, domain {domain:?}, squeeze {squeeze_len}"
+                            );
+                            stream.extend_from_slice(&piece);
+                        }
+                        if domain.is_none() {
+                            assert_eq!(
+                                stream,
+                                sodium::$oneshot(&message, stream.len()),
+                                "len {len}: squeezes continue the one-shot stream"
+                            );
+                        }
+                    }
+                }
+            };
+        }
+
+        check!(
+            RATE_128,
+            crypto_xof_shake128,
+            crypto_xof_shake128_init,
+            crypto_xof_shake128_init_with_domain,
+            crypto_xof_shake128_update,
+            crypto_xof_shake128_squeeze,
+            XofShake128State
+        );
+        check!(
+            RATE_256,
+            crypto_xof_shake256,
+            crypto_xof_shake256_init,
+            crypto_xof_shake256_init_with_domain,
+            crypto_xof_shake256_update,
+            crypto_xof_shake256_squeeze,
+            XofShake256State
+        );
+        check!(
+            RATE_128,
+            crypto_xof_turboshake128,
+            crypto_xof_turboshake128_init,
+            crypto_xof_turboshake128_init_with_domain,
+            crypto_xof_turboshake128_update,
+            crypto_xof_turboshake128_squeeze,
+            XofTurboShake128State
+        );
+        check!(
+            RATE_256,
+            crypto_xof_turboshake256,
+            crypto_xof_turboshake256_init,
+            crypto_xof_turboshake256_init_with_domain,
+            crypto_xof_turboshake256_update,
+            crypto_xof_turboshake256_squeeze,
+            XofTurboShake256State
+        );
+    }
 }

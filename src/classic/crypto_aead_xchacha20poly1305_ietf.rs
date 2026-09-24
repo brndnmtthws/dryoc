@@ -394,13 +394,11 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_sodiumoxide_interop() {
-            use sodiumoxide::crypto::aead::xchacha20poly1305_ietf::{
-                Key as SOKey, Nonce as SONonce, open, seal,
+        fn test_libsodium_interop() {
+            use crate::native_test_util::{
+                crypto_aead_xchacha20poly1305_ietf_decrypt as open,
+                crypto_aead_xchacha20poly1305_ietf_encrypt as seal,
             };
-
-            let so_key = SOKey::from_slice(&KEY).expect("key");
-            let so_nonce = SONonce::from_slice(&NONCE).expect("nonce");
 
             let mut ciphertext =
                 vec![0u8; MESSAGE.len() + CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES];
@@ -412,11 +410,10 @@ mod tests {
                 &KEY,
             )
             .expect("encrypt");
-            let so_plaintext =
-                open(&ciphertext, Some(AD), &so_nonce, &so_key).expect("sodiumoxide open");
+            let so_plaintext = open(&ciphertext, Some(AD), &NONCE, &KEY).expect("libsodium open");
             assert_eq!(so_plaintext, MESSAGE);
 
-            let so_ciphertext = seal(MESSAGE, Some(AD), &so_nonce, &so_key);
+            let so_ciphertext = seal(MESSAGE, Some(AD), &NONCE, &KEY);
             let mut plaintext = vec![0u8; MESSAGE.len()];
             crypto_aead_xchacha20poly1305_ietf_decrypt(
                 &mut plaintext,
@@ -435,6 +432,8 @@ mod tests {
         #[test]
         fn test_counter_boundaries_match_libsodium_xchacha_stream() {
             use libsodium_sys::crypto_stream_xchacha20_xor_ic;
+
+            crate::native_test_util::init();
 
             for start in [u64::from(u32::MAX), u64::MAX] {
                 let input = [0u8; 128];
@@ -464,6 +463,7 @@ mod tests {
 
         #[test]
         fn test_matches_libsodium_detached_and_combined() {
+            crate::native_test_util::init();
             check_matches_libsodium(
                 &aead(),
                 libsodium_sys::crypto_aead_xchacha20poly1305_ietf_encrypt_detached,

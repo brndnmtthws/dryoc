@@ -369,6 +369,8 @@ mod tests {
         use libc::c_ulonglong;
         use libsodium_sys::{crypto_stream_chacha20_ietf_xor_ic, crypto_stream_chacha20_xor_ic};
 
+        crate::native_test_util::init();
+
         for nonce in [NONCE, [0xffu8; 12]] {
             let mut stream = [0u8; 128];
             ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut stream);
@@ -415,6 +417,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_matches_libsodium_detached_and_combined() {
+        crate::native_test_util::init();
         check_matches_libsodium(
             &aead(),
             libsodium_sys::crypto_aead_chacha20poly1305_ietf_encrypt_detached,
@@ -434,6 +437,8 @@ mod tests {
         };
 
         use crate::constants::CRYPTO_AEAD_CHACHA20POLY1305_IETF_NSECBYTES;
+
+        crate::native_test_util::init();
 
         // SAFETY: These parameter-free libsodium functions only return
         // compile-time constants.
@@ -463,20 +468,19 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn test_sodiumoxide_interop() {
-        use sodiumoxide::crypto::aead::chacha20poly1305_ietf::{
-            Key as SodiumKey, Nonce as SodiumNonce, open, seal,
+    fn test_libsodium_interop() {
+        use crate::native_test_util::{
+            crypto_aead_chacha20poly1305_ietf_decrypt as open,
+            crypto_aead_chacha20poly1305_ietf_encrypt as seal,
         };
 
-        let sodium_key = SodiumKey::from_slice(&KEY).expect("key");
-        let sodium_nonce = SodiumNonce::from_slice(&NONCE).expect("nonce");
         let ciphertext = expected();
         assert_eq!(
-            open(&ciphertext, Some(AD), &sodium_nonce, &sodium_key).expect("sodiumoxide open"),
+            open(&ciphertext, Some(AD), &NONCE, &KEY).expect("libsodium open"),
             MESSAGE
         );
 
-        let sodium_ciphertext = seal(MESSAGE, Some(AD), &sodium_nonce, &sodium_key);
+        let sodium_ciphertext = seal(MESSAGE, Some(AD), &NONCE, &KEY);
         let mut plaintext = vec![0u8; MESSAGE.len()];
         crypto_aead_chacha20poly1305_ietf_decrypt(
             &mut plaintext,

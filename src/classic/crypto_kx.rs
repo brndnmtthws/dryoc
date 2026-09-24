@@ -162,6 +162,7 @@ mod tests {
     use crate::utils::test_util::XorShift64;
 
     fn sodium_kx_seed_keypair(seed: &[u8; CRYPTO_KX_SEEDBYTES]) -> (PublicKey, SecretKey) {
+        crate::native_test_util::init();
         let mut pk = PublicKey::default();
         let mut sk = SecretKey::default();
         let result = unsafe {
@@ -192,6 +193,7 @@ mod tests {
     /// and each side's rx is the other's tx.
     #[test]
     fn test_kx_session_keys_match_libsodium_for_seeded_pair() {
+        crate::native_test_util::init();
         let (client_pk, client_sk) = crypto_kx_seed_keypair(&[0x11; CRYPTO_KX_SEEDBYTES]).unwrap();
         let (server_pk, server_sk) = crypto_kx_seed_keypair(&[0x22; CRYPTO_KX_SEEDBYTES]).unwrap();
 
@@ -245,6 +247,7 @@ mod tests {
     /// libsodium does.
     #[test]
     fn test_kx_rejects_low_order_public_keys() {
+        crate::native_test_util::init();
         let (pk, sk) = crypto_kx_seed_keypair(&[0x33; CRYPTO_KX_SEEDBYTES]).unwrap();
 
         for peer_pk in low_order_u_encodings() {
@@ -308,28 +311,23 @@ mod tests {
             assert_eq!(crx, stx);
             assert_eq!(ctx, srx);
 
-            use sodiumoxide::crypto::kx;
+            use crate::native_test_util::{kx_client_session_keys, kx_server_session_keys};
 
-            let client_pk = kx::PublicKey::from_slice(&client_pk).expect("client pk failed");
-            let client_sk = kx::SecretKey::from_slice(&client_sk).expect("client sk failed");
-            let server_pk = kx::PublicKey::from_slice(&server_pk).expect("server pk failed");
-            let server_sk = kx::SecretKey::from_slice(&server_sk).expect("server sk failed");
-
-            let (rx1, tx1) = match kx::client_session_keys(&client_pk, &client_sk, &server_pk) {
+            let (rx1, tx1) = match kx_client_session_keys(&client_pk, &client_sk, &server_pk) {
                 Ok((rx, tx)) => (rx, tx),
                 Err(()) => panic!("bad server signature"),
             };
 
             // server performs the same operation
-            let (rx2, tx2) = match kx::server_session_keys(&server_pk, &server_sk, &client_pk) {
+            let (rx2, tx2) = match kx_server_session_keys(&server_pk, &server_sk, &client_pk) {
                 Ok((rx, tx)) => (rx, tx),
                 Err(()) => panic!("bad client signature"),
             };
 
-            assert_eq!(rx1.as_ref(), crx);
-            assert_eq!(rx2.as_ref(), srx);
-            assert_eq!(tx1.as_ref(), ctx);
-            assert_eq!(tx2.as_ref(), stx);
+            assert_eq!(rx1, crx);
+            assert_eq!(rx2, srx);
+            assert_eq!(tx1, ctx);
+            assert_eq!(tx2, stx);
         }
     }
 }

@@ -58,7 +58,10 @@
 //! Poly1305 is `5.85x` faster on an Intel Xeon 6975P-C and `3.28x` faster on an
 //! Arm Neoverse V3 for 1 MiB messages. XSalsa20-Poly1305 secretbox is `3.07x`
 //! and `2.84x` faster, and BLAKE2b is `1.19x` and `1.43x` faster. Argon2id
-//! results vary more with the machine and build flags. See
+//! results vary more with the machine and build flags. Against libsodium
+//! 1.0.22 on the Neoverse V3, ML-KEM-768 key generation, encapsulation and
+//! decapsulation are `1.87x`, `1.89x` and `1.93x` faster, and X-Wing is
+//! `1.33x`–`1.45x` faster. See
 //! [BENCHMARKS.md](https://github.com/brndnmtthws/dryoc/blob/main/BENCHMARKS.md)
 //! for the full results and test environment.
 //!
@@ -209,6 +212,8 @@ mod edwards25519;
 mod fe25519;
 mod keccak;
 mod mlkem;
+#[cfg(all(test, dryoc_native_tests))]
+mod native_test_util;
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod neon;
 mod poly1305;

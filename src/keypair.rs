@@ -834,9 +834,8 @@ mod tests {
 
         #[test]
         fn test_gen_keypair() {
-            use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
-
             use crate::classic::crypto_core::crypto_scalarmult_base;
+            use crate::native_test_util::scalarmult_curve25519_base;
 
             let keypair = KeyPair::<
                 StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
@@ -848,9 +847,9 @@ mod tests {
 
             assert_eq!(keypair.public_key.as_array(), &public_key);
 
-            let ge = scalarmult_base(&Scalar::from_slice(&keypair.secret_key).unwrap());
+            let ge = scalarmult_curve25519_base(&keypair.secret_key);
 
-            assert_eq!(ge.as_ref(), public_key);
+            assert_eq!(ge, public_key);
         }
     }
 }

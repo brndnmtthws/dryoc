@@ -323,6 +323,8 @@ mod tests {
     fn precalculate_matches_libsodium_beforenm() {
         use crate::utils::test_util::XorShift64;
 
+        crate::native_test_util::init();
+
         let mut rng = XorShift64::new(0x7072_6563_616c_6321);
         for _ in 0..16 {
             let secret_key = StackByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::from(rng.next_bytes32());

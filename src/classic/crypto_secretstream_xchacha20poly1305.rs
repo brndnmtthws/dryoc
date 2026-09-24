@@ -812,6 +812,7 @@ mod tests {
             ad: &[u8],
             tag: u8,
         ) -> Vec<u8> {
+            crate::native_test_util::init();
             let mut ciphertext =
                 vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
             let mut clen: libc::c_ulonglong = 0;
@@ -840,6 +841,7 @@ mod tests {
             ciphertext: &[u8],
             ad: &[u8],
         ) -> (Vec<u8>, u8) {
+            crate::native_test_util::init();
             let mut message =
                 vec![0u8; ciphertext.len() - CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
             let mut mlen: libc::c_ulonglong = 0;
@@ -1066,6 +1068,8 @@ mod tests {
             use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
             use crate::dryocstream::Tag;
 
+            crate::native_test_util::init();
+
             let mut key = Key::default();
             crypto_secretstream_xchacha20poly1305_keygen(&mut key);
 
@@ -1210,6 +1214,8 @@ mod tests {
 
             use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
 
+            crate::native_test_util::init();
+
             let mut key = Key::default();
             crypto_secretstream_xchacha20poly1305_keygen(&mut key);
 
@@ -1257,6 +1263,8 @@ mod tests {
 
             use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
             use crate::dryocstream::Tag;
+
+            crate::native_test_util::init();
 
             let mut key = Key::default();
             crypto_secretstream_xchacha20poly1305_keygen(&mut key);
@@ -1384,6 +1392,8 @@ mod tests {
 
             use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
 
+            crate::native_test_util::init();
+
             let mut key = Key::default();
             crypto_secretstream_xchacha20poly1305_keygen(&mut key);
 
@@ -1457,6 +1467,8 @@ mod tests {
 
             use crate::constants::CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES;
             use crate::dryocstream::Tag;
+
+            crate::native_test_util::init();
 
             let mut key = Key::default();
             crypto_secretstream_xchacha20poly1305_keygen(&mut key);

@@ -160,15 +160,14 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_auth_matches_libsodium() {
-        use sodiumoxide::crypto::auth;
+        use crate::native_test_util::auth_hmacsha512256;
 
         for len in [0usize, 127, 128, 129] {
             let message: Vec<u8> = (0..len as u32).map(|i| (i * 31 % 251) as u8).collect();
-            let so_tag =
-                auth::authenticate(&message, &auth::Key::from_slice(&KEY).expect("key failed"));
+            let so_tag = auth_hmacsha512256(&message, &KEY);
             let mut mac = Mac::default();
             crypto_auth(&mut mac, &message, &KEY);
-            assert_eq!(mac, so_tag.0, "len {len}");
+            assert_eq!(mac, so_tag, "len {len}");
         }
     }
 }

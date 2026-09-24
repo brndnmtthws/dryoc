@@ -422,6 +422,8 @@ mod tests {
     fn matches_libsodium_derive_from_key() {
         use crate::utils::test_util::XorShift64;
 
+        crate::native_test_util::init();
+
         let mut rng = XorShift64::new(0x6b64_665f_7465_7374);
         for _ in 0..8 {
             let key = Key::from(rng.next_bytes32());

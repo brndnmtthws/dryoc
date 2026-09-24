@@ -131,6 +131,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn last_blocks_match_libsodium() {
+        crate::native_test_util::init();
         let key: [u8; 32] = std::array::from_fn(|i| (i * 7 + 1) as u8);
         let nonce: [u8; 8] = std::array::from_fn(|i| (i * 5 + 3) as u8);
         let mut expected = [0u8; 128];

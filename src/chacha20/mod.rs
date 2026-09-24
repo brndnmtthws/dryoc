@@ -652,6 +652,7 @@ mod tests {
         use super::*;
 
         fn sodium_ietf(key: &[u8; 32], nonce: &[u8; 12], counter: u32, data: &mut [u8]) {
+            crate::native_test_util::init();
             // SAFETY: the buffers are valid for the given lengths and libsodium
             // permits `c == m`.
             let rc = unsafe {
@@ -668,6 +669,7 @@ mod tests {
         }
 
         fn sodium_legacy(key: &[u8; 32], nonce: &[u8; 8], counter: u64, data: &mut [u8]) {
+            crate::native_test_util::init();
             // SAFETY: the buffers are valid for the given lengths and libsodium
             // permits `c == m`.
             let rc = unsafe {

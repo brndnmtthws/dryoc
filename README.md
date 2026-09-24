@@ -65,7 +65,11 @@ These results do not require `-Ctarget-cpu=native`: the optimized Poly1305
 and Salsa20 implementations, and the x86-64 BLAKE2b implementation, are
 selected automatically at runtime, while the AArch64 BLAKE2b rounds use only
 baseline instructions. Omitting the flag changes the results above by no more
-than 6%. Argon2id results vary more with the machine and build flags. See
+than 6%. Argon2id results vary more with the machine and build flags.
+
+Against libsodium 1.0.22, ML-KEM-768 key generation, encapsulation and
+decapsulation are `1.87x`, `1.89x` and `1.93x` faster on the Neoverse V3,
+and X-Wing is `1.33x`–`1.45x` faster. See
 [BENCHMARKS.md](BENCHMARKS.md) for the full results, test environment, builds
 without CPU-specific flags, and workloads where libsodium is as fast or faster.
 

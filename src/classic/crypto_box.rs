@@ -937,6 +937,7 @@ mod tests {
         /// bit 255) is refused by the precomputation, as libsodium does.
         #[test]
         fn test_crypto_box_beforenm_low_order_compatibility() {
+            crate::native_test_util::init();
             let (_, secret_key) = crypto_box_seed_keypair(&[0x54; CRYPTO_BOX_SEEDBYTES]);
 
             for public_key in crate::scalarmult_curve25519::test_vectors::low_order_u_encodings() {
@@ -963,6 +964,7 @@ mod tests {
         /// same fixed keys and nonce.
         #[test]
         fn test_crypto_box_detached_matches_libsodium() {
+            crate::native_test_util::init();
             let (sender_pk, sender_sk) = crypto_box_seed_keypair(&[0x51; CRYPTO_BOX_SEEDBYTES]);
             let (recipient_pk, recipient_sk) =
                 crypto_box_seed_keypair(&[0x52; CRYPTO_BOX_SEEDBYTES]);
@@ -1147,8 +1149,8 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::box_;
-                use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+
+                use crate::native_test_util::{box_easy, box_open_easy};
 
                 let (sender_pk, sender_sk) = crypto_box_keypair();
                 let (recipient_pk, recipient_sk) = crypto_box_keypair();
@@ -1165,12 +1167,7 @@ mod tests {
                 )
                 .expect("encrypt failed");
 
-                let so_ciphertext = box_::seal(
-                    message.as_bytes(),
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                    &SecretKey::from_slice(&sender_sk).unwrap(),
-                );
+                let so_ciphertext = box_easy(message.as_bytes(), &nonce, &recipient_pk, &sender_sk);
 
                 assert_eq!(
                     general_purpose::STANDARD_NO_PAD.encode(&ciphertext),
@@ -1186,13 +1183,8 @@ mod tests {
                     &recipient_sk,
                 )
                 .expect("decrypt failed");
-                let so_m = box_::open(
-                    ciphertext.as_slice(),
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                    &SecretKey::from_slice(&sender_sk).unwrap(),
-                )
-                .unwrap();
+                let so_m = box_open_easy(ciphertext.as_slice(), &nonce, &recipient_pk, &sender_sk)
+                    .unwrap();
 
                 assert_eq!(m, message.as_bytes());
                 assert_eq!(m, so_m);
@@ -1204,8 +1196,8 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::box_;
-                use sodiumoxide::crypto::box_::{Nonce as SONonce, PublicKey, SecretKey};
+
+                use crate::native_test_util::{box_easy, box_open_easy};
 
                 let (sender_pk, sender_sk) = crypto_box_keypair();
                 let (recipient_pk, recipient_sk) = crypto_box_keypair();
@@ -1218,12 +1210,8 @@ mod tests {
                 ciphertext.resize(message.len() + CRYPTO_BOX_MACBYTES, 0);
                 crypto_box_easy_inplace(&mut ciphertext, &nonce, &recipient_pk, &sender_sk)
                     .expect("encrypt failed");
-                let so_ciphertext = box_::seal(
-                    message_copy.as_slice(),
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                    &SecretKey::from_slice(&sender_sk).unwrap(),
-                );
+                let so_ciphertext =
+                    box_easy(message_copy.as_slice(), &nonce, &recipient_pk, &sender_sk);
 
                 assert_eq!(
                     general_purpose::STANDARD_NO_PAD.encode(&ciphertext),
@@ -1240,13 +1228,8 @@ mod tests {
                 .expect("decrypt failed");
                 ciphertext_clone.resize(message.len(), 0);
 
-                let so_m = box_::open(
-                    ciphertext.as_slice(),
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                    &SecretKey::from_slice(&sender_sk).unwrap(),
-                )
-                .expect("decrypt failed");
+                let so_m = box_open_easy(ciphertext.as_slice(), &nonce, &recipient_pk, &sender_sk)
+                    .expect("decrypt failed");
 
                 assert_eq!(
                     general_purpose::STANDARD_NO_PAD.encode(&ciphertext_clone),
@@ -1263,7 +1246,8 @@ mod tests {
         fn test_crypto_box_seed_keypair() {
             use base64::Engine as _;
             use base64::engine::general_purpose;
-            use sodiumoxide::crypto::box_::{Seed, keypair_from_seed};
+
+            use crate::native_test_util::box_seed_keypair;
 
             for _ in 0..10 {
                 let seed: [u8; CRYPTO_BOX_SEEDBYTES] = randombytes_buf(CRYPTO_BOX_SEEDBYTES)
@@ -1271,15 +1255,15 @@ mod tests {
                     .expect("seed length");
 
                 let (pk, sk) = crypto_box_seed_keypair(&seed);
-                let (so_pk, so_sk) = keypair_from_seed(&Seed::from_slice(&seed).unwrap());
+                let (so_pk, so_sk) = box_seed_keypair(&seed);
 
                 assert_eq!(
                     general_purpose::STANDARD_NO_PAD.encode(pk),
-                    general_purpose::STANDARD_NO_PAD.encode(so_pk.as_ref())
+                    general_purpose::STANDARD_NO_PAD.encode(so_pk)
                 );
                 assert_eq!(
                     general_purpose::STANDARD_NO_PAD.encode(sk),
-                    general_purpose::STANDARD_NO_PAD.encode(so_sk.as_ref())
+                    general_purpose::STANDARD_NO_PAD.encode(so_sk)
                 );
             }
         }
@@ -1287,8 +1271,7 @@ mod tests {
         #[test]
         fn test_crypto_box_seal() {
             for i in 0..20 {
-                use sodiumoxide::crypto::box_::{PublicKey, SecretKey};
-                use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+                use crate::native_test_util::box_seal_open;
 
                 let (recipient_pk, recipient_sk) = crypto_box_keypair();
                 let words = vec!["hello1".to_string(); i];
@@ -1300,12 +1283,8 @@ mod tests {
                 let mut m = vec![0u8; ciphertext.len() - CRYPTO_BOX_SEALBYTES];
                 crypto_box_seal_open(&mut m, ciphertext.as_slice(), &recipient_pk, &recipient_sk)
                     .expect("decrypt failed");
-                let so_m = curve25519blake2bxsalsa20poly1305::open(
-                    ciphertext.as_slice(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                    &SecretKey::from_slice(&recipient_sk).unwrap(),
-                )
-                .unwrap();
+                let so_m =
+                    box_seal_open(ciphertext.as_slice(), &recipient_pk, &recipient_sk).unwrap();
 
                 assert_eq!(m, message.as_bytes());
                 assert_eq!(m, so_m);
@@ -1315,16 +1294,12 @@ mod tests {
         #[test]
         fn test_crypto_box_seal_open() {
             for i in 0..20 {
-                use sodiumoxide::crypto::box_::{PublicKey, SecretKey};
-                use sodiumoxide::crypto::sealedbox::curve25519blake2bxsalsa20poly1305;
+                use crate::native_test_util::{box_seal, box_seal_open};
 
                 let (recipient_pk, recipient_sk) = crypto_box_keypair();
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ");
-                let so_ciphertext = curve25519blake2bxsalsa20poly1305::seal(
-                    message.as_bytes(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                );
+                let so_ciphertext = box_seal(message.as_bytes(), &recipient_pk);
 
                 let mut m = vec![0u8; so_ciphertext.len() - CRYPTO_BOX_SEALBYTES];
                 crypto_box_seal_open(
@@ -1334,12 +1309,8 @@ mod tests {
                     &recipient_sk,
                 )
                 .expect("decrypt failed");
-                let so_m = curve25519blake2bxsalsa20poly1305::open(
-                    so_ciphertext.as_slice(),
-                    &PublicKey::from_slice(&recipient_pk).unwrap(),
-                    &SecretKey::from_slice(&recipient_sk).unwrap(),
-                )
-                .unwrap();
+                let so_m =
+                    box_seal_open(so_ciphertext.as_slice(), &recipient_pk, &recipient_sk).unwrap();
 
                 assert_eq!(m, message.as_bytes());
                 assert_eq!(m, so_m);

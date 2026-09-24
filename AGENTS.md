@@ -94,6 +94,11 @@ cargo fuzz run fuzz-hashes
 - For protected memory changes, test the default `protected` feature on
   Unix/Windows; also test with `+nightly --features nightly` when touching
   nightly-only allocator APIs.
+- Native compatibility tests run in parallel threads, and libsodium's lazy
+  RNG setup and `sodium_init`'s dispatch selection are unsynchronized
+  globals. Prefer the `src/native_test_util.rs` wrappers, which call
+  `native_test_util::init()`; any test that calls `libsodium_sys` (or a
+  libsodium symbol declared in `extern "C"`) directly must call it first.
 
 ## Crypto-Specific Rules
 
@@ -156,6 +161,9 @@ cargo fuzz run fuzz-hashes
   the runtime-detected `sha2`/`sha3` extensions).
 - `BENCHMARKS.md` and `benchmarks/`: libsodium comparison results per machine
   (`results-<arch>.dat`) and the gnuplot script that renders the charts.
+- `src/native_test_util.rs`: safe wrappers over the libsodium FFI calls
+  (from the `libsodium-sys-stable` dev-dependency, currently libsodium
+  1.0.22) shared by the `dryoc_native_tests` compatibility tests.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
 

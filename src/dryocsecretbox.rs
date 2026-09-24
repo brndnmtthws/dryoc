@@ -589,31 +589,23 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     mod native_tests {
-        use sodiumoxide::crypto::secretbox;
-        use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
-
         use super::*;
+        use crate::native_test_util as sodium;
 
         #[test]
-        fn nacl_vector_matches_sodiumoxide() {
+        fn nacl_vector_matches_libsodium() {
             let (key, nonce, message, boxed) = nacl_vector();
-            let so_ciphertext = secretbox::seal(
-                &message,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&key).unwrap(),
-            );
+            let so_ciphertext = sodium::secretbox_easy(&message, &nonce, &key);
             assert_eq!(so_ciphertext, boxed);
         }
 
         #[test]
-        fn sodiumoxide_ciphertext_parses_and_decrypts() {
+        fn libsodium_ciphertext_parses_and_decrypts() {
             let (key, nonce, message, _) = nacl_vector();
-            let so_key = SOKey::from_slice(&key).unwrap();
-            let so_nonce = SONonce::from_slice(&nonce).unwrap();
 
             for len in [0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, message.len()] {
                 let plaintext = &message[..len];
-                let so_ciphertext = secretbox::seal(plaintext, &so_nonce, &so_key);
+                let so_ciphertext = sodium::secretbox_easy(plaintext, &nonce, &key);
 
                 let dryocsecretbox =
                     VecBox::from_bytes(&so_ciphertext).expect("sodium box should parse");
@@ -633,7 +625,7 @@ mod tests {
 
         #[cfg(all(feature = "protected", any(unix, windows)))]
         #[test]
-        fn sodiumoxide_ciphertext_decrypts_into_locked_box() {
+        fn libsodium_ciphertext_decrypts_into_locked_box() {
             use crate::protected::*;
 
             let (key, nonce, message, boxed) = nacl_vector();
@@ -646,12 +638,8 @@ mod tests {
             let decrypted: LockedBytes = locked.decrypt(&nonce, &key).expect("decrypt failed");
             assert_eq!(decrypted.as_slice(), message.as_slice());
 
-            let so_decrypted = secretbox::open(
-                &locked.to_vec(),
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&key).unwrap(),
-            )
-            .expect("sodium open failed");
+            let so_decrypted = sodium::secretbox_open_easy(&locked.to_vec(), &nonce, &key)
+                .expect("sodium open failed");
             assert_eq!(so_decrypted, message);
         }
 
@@ -660,8 +648,6 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::secretbox;
-                use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
                 use crate::dryocsecretbox::*;
 
@@ -677,22 +663,15 @@ mod tests {
 
                 let ciphertext_copy = ciphertext.clone();
 
-                let so_ciphertext = secretbox::seal(
-                    &message_copy,
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &SOKey::from_slice(&secret_key).unwrap(),
-                );
+                let so_ciphertext = sodium::secretbox_easy(&message_copy, &nonce, &secret_key);
                 assert_eq!(
                     general_purpose::STANDARD.encode(&ciphertext),
                     general_purpose::STANDARD.encode(&so_ciphertext)
                 );
 
-                let so_decrypted = secretbox::open(
-                    &ciphertext_copy,
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &SOKey::from_slice(&secret_key).unwrap(),
-                )
-                .expect("decrypt failed");
+                let so_decrypted =
+                    sodium::secretbox_open_easy(&ciphertext_copy, &nonce, &secret_key)
+                        .expect("decrypt failed");
 
                 let m = DryocSecretBox::decrypt::<Vec<u8>, Nonce, Key>(
                     &dryocsecretbox,
@@ -710,8 +689,6 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::secretbox;
-                use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
                 use crate::dryocsecretbox::*;
 
@@ -728,22 +705,15 @@ mod tests {
 
                 let ciphertext_copy = ciphertext.clone();
 
-                let so_ciphertext = secretbox::seal(
-                    &message_copy,
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &SOKey::from_slice(&secret_key).unwrap(),
-                );
+                let so_ciphertext = sodium::secretbox_easy(&message_copy, &nonce, &secret_key);
                 assert_eq!(
                     general_purpose::STANDARD.encode(&ciphertext),
                     general_purpose::STANDARD.encode(&so_ciphertext)
                 );
 
-                let so_decrypted = secretbox::open(
-                    &ciphertext_copy,
-                    &SONonce::from_slice(&nonce).unwrap(),
-                    &SOKey::from_slice(&secret_key).unwrap(),
-                )
-                .expect("decrypt failed");
+                let so_decrypted =
+                    sodium::secretbox_open_easy(&ciphertext_copy, &nonce, &secret_key)
+                        .expect("decrypt failed");
 
                 let m = dryocsecretbox
                     .decrypt_to_vec(&nonce, &secret_key)
@@ -760,8 +730,6 @@ mod tests {
             for i in 0..20 {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
-                use sodiumoxide::crypto::secretbox;
-                use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
 
                 use crate::dryocsecretbox::*;
                 use crate::protected::*;
@@ -778,20 +746,20 @@ mod tests {
 
                 let ciphertext_copy = ciphertext.clone();
 
-                let so_ciphertext = secretbox::seal(
+                let so_ciphertext = sodium::secretbox_easy(
                     message_copy.as_bytes(),
-                    &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                    &SOKey::from_slice(secret_key.as_slice()).unwrap(),
+                    nonce.as_slice(),
+                    secret_key.as_slice(),
                 );
                 assert_eq!(
                     general_purpose::STANDARD.encode(&ciphertext),
                     general_purpose::STANDARD.encode(&so_ciphertext)
                 );
 
-                let so_decrypted = secretbox::open(
+                let so_decrypted = sodium::secretbox_open_easy(
                     &ciphertext_copy,
-                    &SONonce::from_slice(nonce.as_slice()).unwrap(),
-                    &SOKey::from_slice(secret_key.as_slice()).unwrap(),
+                    nonce.as_slice(),
+                    secret_key.as_slice(),
                 )
                 .expect("decrypt failed");
 

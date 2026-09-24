@@ -289,6 +289,8 @@ mod tests {
 
             use crate::utils::test_util::XorShift64;
 
+            crate::native_test_util::init();
+
             fn assert_matches_libsodium(input: &[u8]) {
                 let mut ours = input.to_vec();
                 let mut theirs = input.to_vec();
