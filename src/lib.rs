@@ -17,6 +17,8 @@
 //! * Pure Rust, with no hidden C libraries
 //! * Limited use of unsafe code[^2]
 //! * Classic and typed Rustaceous APIs for many libsodium operations
+//! * Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
+//!   ML-KEM-768 and X25519
 //! * WebAssembly support through the `wasm32-unknown-unknown` target
 //! * Protected memory on Unix and Windows, enabled by default with the
 //!   `protected` feature
@@ -96,6 +98,7 @@
 //! | Key derivation | [`Kdf`](kdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation) |
 //! | HKDF key derivation | [`Hkdf`](hkdf) | [`crypto_kdf`](classic::crypto_kdf) | [Link](https://doc.libsodium.org/key_derivation/hkdf) |
 //! | Key exchange | [`Session`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
+//! | Post-quantum key encapsulation | [`kem`], [`kem::mlkem768`] | [`crypto_kem`](classic::crypto_kem), [`crypto_kem_xwing`](classic::crypto_kem_xwing), [`crypto_kem_mlkem768`](classic::crypto_kem_mlkem768) | [Link](https://doc.libsodium.org/public-key_cryptography/key_encapsulation) |
 //! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures) |
 //! | Password hashing | [`PwHash`](pwhash) | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://doc.libsodium.org/password_hashing/default_phf) |
 //! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
@@ -138,6 +141,8 @@
 //! | `src/scalarmult_curve25519.rs`, `src/edwards25519/mod.rs` and `src/fe25519/mod.rs` Curve25519 BMI2 roots | Always available on `x86_64` | The X25519 ladder, `mul_base`, `double_scalar_mul_basepoint_vartime`, `Fe::invert` and `Fe::sqrt_ratio_i` each call a `#[target_feature(enable = "bmi2")]` copy of the same safe, inlined arithmetic after `is_x86_feature_detected!("bmi2")` succeeds at runtime, so the `u128` field products compile to `mulx`. These functions contain no intrinsics or `asm!`; the only unsafe operation is the call itself. |
 //! | `src/chacha20/chacha20_x86_64.rs` and `src/salsa20/salsa20_x86_64.rs` scalar double rounds beside the AVX-512 lane sets | Always available on `x86_64` | Each `scalar_double_round` is an `asm!` block of base x86-64 `add`/`xor`/`rol`/`mov` instructions: ten (ChaCha20) or nine (Salsa20) state words are `inout` registers and the rest are 4-byte loads and stores at fixed offsets within a `&mut [u32; 6]` / `&mut [u32; 7]` whose pointer is passed in (`nostack`). They keep the companion block of `xor_chunk_avx512_with_block` on the integer ports, where the compiler would otherwise SLP-vectorise it onto the ports the lane set occupies; called only from that `#[target_feature(enable = "avx512f")]` kernel, which the AVX-512 `Kernel` handle reaches after `is_x86_feature_detected!("avx512f")`. |
 //! | `src/argon2/argon2_x86_64.rs` Argon2 AVX2 and AVX-512 block compression | Always available on `x86_64` | Calls a `#[target_feature(enable = "avx2")]` or `#[target_feature(enable = "avx512f")]` `fill_block` through a `Kernel` handle that can only be constructed after `is_x86_feature_detected!` confirms that feature at runtime. The kernels use safe value intrinsics; block words are loaded and stored through `x86_64::load_words`/`store_words`/`load_words512`/`store_words512` (`_mm256_loadu_si256`/`_mm256_storeu_si256`/`_mm512_loadu_si512`/`_mm512_storeu_si512` on `&[u64; 4]`/`&[u64; 8]` references, shared or exclusive as the operation needs, which guarantee exactly 32 or 64 readable or writable bytes and need no alignment). |
+//! | `src/mlkem/mlkem_x86_64.rs` ML-KEM AVX2 polynomial arithmetic | Always available on `x86_64` | Calls the `#[target_feature(enable = "avx2")]` NTT, inverse NTT and base-multiplication kernels through a `Kernel` handle that can only be constructed after `is_x86_feature_detected!("avx2")` succeeds at runtime. The kernels use safe value intrinsics; coefficients and twiddle tables are loaded and stored through `x86_64::load_i16s`/`store_i16s` (`_mm256_loadu_si256`/`_mm256_storeu_si256` on `&[i16; 16]` references, shared or exclusive as the operation needs, which guarantee exactly 32 readable or writable bytes and need no alignment). |
+//! | `src/keccak/keccak_x86_64.rs` 4-way Keccak-p\[1600\] AVX2 permutation | Always available on `x86_64` | `permute_lanes` (behind `ParSponge`) calls the `#[target_feature(enable = "avx2")]` function `permute4_avx2` through a `Kernel` handle that can only be constructed after `is_x86_feature_detected!("avx2")` succeeds at runtime. The kernel uses safe value intrinsics; the four states (disjoint `&mut [u64; 25]` references from `get_disjoint_mut`) are loaded and stored through `x86_64::load_words`/`store_words` (`_mm256_loadu_si256`/`_mm256_storeu_si256` on `&[u64; 4]` references, which guarantee exactly 32 readable or writable bytes and need no alignment). |
 //! | `src/blake2b/blake2b_x86_64.rs` BLAKE2b AVX2 and AVX-512VL compression | Always available on `x86_64` (soft backend) | Calls a `#[target_feature(enable = "avx2")]` or `#[target_feature(enable = "avx2,avx512f,avx512vl")]` `compress` through a `Kernel` handle that can only be constructed after `is_x86_feature_detected!` confirms those features at runtime. The kernels use safe value intrinsics; the block and chaining state are loaded and stored through `x86_64::load`/`load_words`/`store_words` (`_mm256_loadu_si256`/`_mm256_storeu_si256` on `&[u8; 32]`/`&[u64; 4]` references, which guarantee exactly 32 readable or writable bytes and need no alignment). |
 //! | `src/blake2b/blake2b_aarch64.rs` BLAKE2b rounds | Always available on little-endian `aarch64` (soft backend) | `rounds` is an `asm!` block of base A64 `ldr`/`add`/`ror`/`eor` instructions: the sixteen working-state words are `inout` registers, and the only memory accesses are 192 8-byte loads (two per `G`) at immediate offsets within the 128-byte block whose pointer is passed in (`readonly`, `nostack`, `preserves_flags`). It pins the two-instruction-deep `G` step schedule that LLVM folds back into three. |
 //! | `src/chacha20/chacha20_aarch64.rs` scalar ChaCha20 rounds | Always available on `aarch64` | `rounds` is a register-only `asm!` block of base A64 `add`/`ror`/`eor` instructions over the 16 state words, bound as `inout` operands with no memory access (`nomem`, `nostack`); it exists to pin the two-instruction-deep quarter-round schedule that LLVM folds back into three. Used by HChaCha20 and the scalar block function. |
@@ -146,6 +151,7 @@
 //! | `src/sha512/sha512_aarch64.rs` SHA-512 two-state hardware compression | Always available on little-endian `aarch64` | `Sha512::from_blocks` calls the `#[target_feature(enable = "sha3")]` function `compress2` only after `is_aarch64_feature_detected!("sha3")` succeeds. Its single `asm!` block compresses one block into each of two independent states with the two round sequences interleaved (the HMAC inner and outer key blocks); it reads the two `&[u8; 128]` blocks and the `K64` table, reads and writes both eight-word states through their `&mut` pointers, clobbers every vector register and `x3`, and touches no stack. |
 //! | `src/edwards25519/edwards25519_x86_64.rs` basepoint table lookup | Always available on `x86_64` | `select_row` calls the `#[target_feature(enable = "avx512f")]` function `edwards25519_x86_64::select_row` only after `is_x86_feature_detected!("avx512f")` succeeds; the function uses safe value intrinsics (a vector compare of the digit and masked blends over every entry) and writes its result through `x86_64::store_words512`, reading every table entry regardless of the digit. |
 //! | `src/edwards25519/edwards25519_neon.rs` basepoint table lookup | Always available on `aarch64` | `select_row` calls the `#[target_feature(enable = "neon")]` function `edwards25519_neon::select_row` only after `is_aarch64_feature_detected!("neon")` succeeds; the function uses only safe value intrinsics (`and`/`orr` on vectors built from limbs) and reads every table entry regardless of the digit. |
+//! | `src/mlkem/mlkem_neon.rs` ML-KEM NEON polynomial arithmetic | Always available on little-endian `aarch64` | Calls the `#[target_feature(enable = "neon")]` forward NTT, inverse NTT and NTT-domain multiply-add kernels through a `Kernel` handle that can only be constructed after `is_aarch64_feature_detected!("neon")` succeeds at runtime. The kernels use safe value intrinsics; the only pointer intrinsics are `vld1q_s16`/`vst1q_s16` in `load`/`store` on `&[i16; 8]`/`&mut [i16; 8]` rows of the polynomials and twiddle tables, which guarantee exactly 16 readable or writable bytes and need no alignment beyond `i16`'s. |
 //! | `src/fe25519/fe25519_aarch64.rs` Curve25519 field multiply and square | Always available on `aarch64` | `mul`, `square`, `square_chain` and `mul_121666` are register-only `asm!` blocks of base A64 integer instructions (`mul`, `umulh`, `adds`/`adc`, `extr`, `madd`, `and`) computing one radix-2^51 field product; every written register is a declared output or scratch operand and the blocks are `pure`, `nomem`, `nostack`. |
 //! | `src/utils.rs` word-wise zeroization | Always available | `zeroize_bytes` and `zeroize_u64s` view the 16-byte-aligned middle of a byte or `u64` slice as `u128`s (`align_to_mut`) and clear each with a volatile store, so wiping a buffer costs one store per sixteen bytes instead of one per byte or word. Unaligned ends use the `zeroize` crate. |
 //!
@@ -202,6 +208,7 @@ mod chacha20;
 mod edwards25519;
 mod fe25519;
 mod keccak;
+mod mlkem;
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod neon;
 mod poly1305;
@@ -238,6 +245,9 @@ pub mod classic {
     /// Hash functions
     pub mod crypto_hash;
     pub mod crypto_kdf;
+    pub mod crypto_kem;
+    pub mod crypto_kem_mlkem768;
+    pub mod crypto_kem_xwing;
     pub mod crypto_kx;
     pub mod crypto_onetimeauth;
     pub mod crypto_pwhash;
@@ -260,6 +270,7 @@ pub mod generichash;
 pub mod hkdf;
 pub mod hmac;
 pub mod kdf;
+pub mod kem;
 pub mod keypair;
 pub mod kx;
 pub mod onetimeauth;

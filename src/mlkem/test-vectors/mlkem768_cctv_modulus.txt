@@ -1,0 +1,2352 @@
+# ML-KEM-768 invalid encapsulation keys (FIPS 203 §7.2 modulus check) from C2SP/CCTV modulus/ML-KEM-768.txt.gz,
+# losslessly compressed: all 780 CCTV keys share one base key and differ from it in exactly one coefficient.
+# First record: base_ek (a VALID key: all coefficients < q; libsodium enc returns 0).
+# Every following record is one invalid key = base_ek with flat coefficient index `coeff` (0..767; polynomial
+# coeff / 256, position coeff % 256, ByteEncode12 over ek[0..1152]) replaced by `value` (3329..4095). The 32-byte
+# rho suffix is unchanged. Records are in CCTV file order; the first 12 are CCTV's `-short` subset.
+# Check: joining the reconstructed keys as lowercase hex, one per line with trailing '\n', gives SHA-256
+# 1070efdae5c268a57935a33097316990831e7d4bb45d59abf0bfe4812535839a (the uncompressed CCTV file).
+# Source: https://github.com/C2SP/CCTV/tree/main/ML-KEM/modulus
+# libsodium: crypto_kem_mlkem768_enc_deterministic returns -1 for every invalid key (0 for base_ek).
+
+base_ek = 56e45aa4427cd3d4b1db277c6322b268627ce708cb397c8a5dd714959a5e0eabba5958b23950c2ccf386b18a8539ec79c408a61002206e68a063304f607941cc904a85d639c772850dc995d1e618e3fc28880b4506187157c005e7c0bc5f23136020cb8a4007c0ac177b1151f6426f7ec32441384aa96a316dd3850b3a13d0b3a81bd32378c34e015c6a86dc7fb7cc398b86c1ee8a687329a80b9b83ad787e5e2a6f0369698de64bb17c63600a78007a82f98ca301502b5247c379434aa0b19a9b7b0b8d88b39dec4eb9b6622c89895468111c19a03ffba837e5a17c7a4465372679b60ccbc27fab0231ad8b677852c628d64d5c9b0c0215b0d67253dea0b0b4e00baa4a8f89165a3aa8431ce980d2898934cc2f32dbbf146a636a623416947acb518c2d6990212c949ce9400f7c68ced4c233168c9b27a11157bd4c1627ebfa8af1fb117cfc02ff193ba3133f73fa8000802532fcb42dc490cc128009f2b2ab4110eb77b04bd27716d0649b49ae4e28a9782506eb517e9be514e5caabffe65772a6b671163f56e42e56852357dc123f1b8226f94cd35754e096517ef228e34a95f2386cc9396765dc9e0cb323fde4072992a51c645bc592749bf1403dc7b62e63a5e9bb31ffb00c8dcab168714b845c11e2163f99d3924809746c403608a26c7a282d02f8a622277ebc8c957b89409d7b6781d042fb3bab68e1a868d0b4ead82864831d40a95d68da0ca813adcaf6bd1b02a100f5a0ea8c642485785d65c0c31696d839b7fc6190ae73be1732aa1a8190801c9a781103b303b2626c03b2c9522c32b499babf5bea0aa4a5ae527b410be2a52d54c58ac978d38b8c4d249a20f410294c938e0b22ff627649f68fef880825faa57207401bf9aefb07542fa6bcfac494cd1b77133034e8ac481224059d486ff640bce7111013f38177db64fef789c205a4bb0a3fd54635dbc14f5cdb2ca9d9baba657fc1bb83847c0144981dc3d28f9ed3760a13a5d61c3ae8294f8750c5b8e26faf51c3ff7c39986381862533f7d8ce3c791781a895e683c08384af211b4c57753d84e39f64606d4151338362138256b6be73ad6faa2c902c684b8a794690a1a7dc39770c2739cb0e0dd653aa26a334fc21506c44716ccbe5cba74d78cab1759e6b98c24320c8d5380592579adfc91e59398f785b9a0103cdcd1c140040cb7b0bc1f67c50ee356ab40c5b4096237283758bb171596c7ed028c6d226475928a7485644895936acfb41e5800b5959b10a5b3877645f4b8c9b2275bbd8906b9631972b70c240f9406c850668a154ac77672890c6f3444efed9418e3ac79facc1da036b5cb18442ea9c195353b47486c78ca67bf30f4fd1a1a8946efa352ce02336f4332c1e4abbbd19610acca1eba2255de14121c1878e7704236720a84874d391302b305e3d859237532f00f8727536921289c4a9d48dcb5261b5ea03faac113c3391a4f8005deb4999fcb10f81b88b2b53adc771130724d376079616736d125c8509933174638884c5a9fcc9a2d62ce1fccb98856824f4bff36739e8a3c0b6b32daa222f6932840fc5526d866e4a772daa10aab13896b0138fee6430e769ce475a418b653fbbec4954a400d44323b18a1fc09e8d8e659c09c820a9f01b67bf9c0ed59f7f83d130821ba275165a86
+
+coeff = 0
+value = 3329
+
+coeff = 255
+value = 3329
+
+coeff = 0
+value = 4095
+
+coeff = 255
+value = 4095
+
+coeff = 256
+value = 3329
+
+coeff = 511
+value = 3329
+
+coeff = 256
+value = 4095
+
+coeff = 511
+value = 4095
+
+coeff = 512
+value = 3329
+
+coeff = 767
+value = 3329
+
+coeff = 512
+value = 4095
+
+coeff = 767
+value = 4095
+
+coeff = 0
+value = 3329
+
+coeff = 1
+value = 3330
+
+coeff = 2
+value = 3331
+
+coeff = 3
+value = 3332
+
+coeff = 4
+value = 3333
+
+coeff = 5
+value = 3334
+
+coeff = 6
+value = 3335
+
+coeff = 7
+value = 3336
+
+coeff = 8
+value = 3337
+
+coeff = 9
+value = 3338
+
+coeff = 10
+value = 3339
+
+coeff = 11
+value = 3340
+
+coeff = 12
+value = 3341
+
+coeff = 13
+value = 3342
+
+coeff = 14
+value = 3343
+
+coeff = 15
+value = 3344
+
+coeff = 16
+value = 3345
+
+coeff = 17
+value = 3346
+
+coeff = 18
+value = 3347
+
+coeff = 19
+value = 3348
+
+coeff = 20
+value = 3349
+
+coeff = 21
+value = 3350
+
+coeff = 22
+value = 3351
+
+coeff = 23
+value = 3352
+
+coeff = 24
+value = 3353
+
+coeff = 25
+value = 3354
+
+coeff = 26
+value = 3355
+
+coeff = 27
+value = 3356
+
+coeff = 28
+value = 3357
+
+coeff = 29
+value = 3358
+
+coeff = 30
+value = 3359
+
+coeff = 31
+value = 3360
+
+coeff = 32
+value = 3361
+
+coeff = 33
+value = 3362
+
+coeff = 34
+value = 3363
+
+coeff = 35
+value = 3364
+
+coeff = 36
+value = 3365
+
+coeff = 37
+value = 3366
+
+coeff = 38
+value = 3367
+
+coeff = 39
+value = 3368
+
+coeff = 40
+value = 3369
+
+coeff = 41
+value = 3370
+
+coeff = 42
+value = 3371
+
+coeff = 43
+value = 3372
+
+coeff = 44
+value = 3373
+
+coeff = 45
+value = 3374
+
+coeff = 46
+value = 3375
+
+coeff = 47
+value = 3376
+
+coeff = 48
+value = 3377
+
+coeff = 49
+value = 3378
+
+coeff = 50
+value = 3379
+
+coeff = 51
+value = 3380
+
+coeff = 52
+value = 3381
+
+coeff = 53
+value = 3382
+
+coeff = 54
+value = 3383
+
+coeff = 55
+value = 3384
+
+coeff = 56
+value = 3385
+
+coeff = 57
+value = 3386
+
+coeff = 58
+value = 3387
+
+coeff = 59
+value = 3388
+
+coeff = 60
+value = 3389
+
+coeff = 61
+value = 3390
+
+coeff = 62
+value = 3391
+
+coeff = 63
+value = 3392
+
+coeff = 64
+value = 3393
+
+coeff = 65
+value = 3394
+
+coeff = 66
+value = 3395
+
+coeff = 67
+value = 3396
+
+coeff = 68
+value = 3397
+
+coeff = 69
+value = 3398
+
+coeff = 70
+value = 3399
+
+coeff = 71
+value = 3400
+
+coeff = 72
+value = 3401
+
+coeff = 73
+value = 3402
+
+coeff = 74
+value = 3403
+
+coeff = 75
+value = 3404
+
+coeff = 76
+value = 3405
+
+coeff = 77
+value = 3406
+
+coeff = 78
+value = 3407
+
+coeff = 79
+value = 3408
+
+coeff = 80
+value = 3409
+
+coeff = 81
+value = 3410
+
+coeff = 82
+value = 3411
+
+coeff = 83
+value = 3412
+
+coeff = 84
+value = 3413
+
+coeff = 85
+value = 3414
+
+coeff = 86
+value = 3415
+
+coeff = 87
+value = 3416
+
+coeff = 88
+value = 3417
+
+coeff = 89
+value = 3418
+
+coeff = 90
+value = 3419
+
+coeff = 91
+value = 3420
+
+coeff = 92
+value = 3421
+
+coeff = 93
+value = 3422
+
+coeff = 94
+value = 3423
+
+coeff = 95
+value = 3424
+
+coeff = 96
+value = 3425
+
+coeff = 97
+value = 3426
+
+coeff = 98
+value = 3427
+
+coeff = 99
+value = 3428
+
+coeff = 100
+value = 3429
+
+coeff = 101
+value = 3430
+
+coeff = 102
+value = 3431
+
+coeff = 103
+value = 3432
+
+coeff = 104
+value = 3433
+
+coeff = 105
+value = 3434
+
+coeff = 106
+value = 3435
+
+coeff = 107
+value = 3436
+
+coeff = 108
+value = 3437
+
+coeff = 109
+value = 3438
+
+coeff = 110
+value = 3439
+
+coeff = 111
+value = 3440
+
+coeff = 112
+value = 3441
+
+coeff = 113
+value = 3442
+
+coeff = 114
+value = 3443
+
+coeff = 115
+value = 3444
+
+coeff = 116
+value = 3445
+
+coeff = 117
+value = 3446
+
+coeff = 118
+value = 3447
+
+coeff = 119
+value = 3448
+
+coeff = 120
+value = 3449
+
+coeff = 121
+value = 3450
+
+coeff = 122
+value = 3451
+
+coeff = 123
+value = 3452
+
+coeff = 124
+value = 3453
+
+coeff = 125
+value = 3454
+
+coeff = 126
+value = 3455
+
+coeff = 127
+value = 3456
+
+coeff = 128
+value = 3457
+
+coeff = 129
+value = 3458
+
+coeff = 130
+value = 3459
+
+coeff = 131
+value = 3460
+
+coeff = 132
+value = 3461
+
+coeff = 133
+value = 3462
+
+coeff = 134
+value = 3463
+
+coeff = 135
+value = 3464
+
+coeff = 136
+value = 3465
+
+coeff = 137
+value = 3466
+
+coeff = 138
+value = 3467
+
+coeff = 139
+value = 3468
+
+coeff = 140
+value = 3469
+
+coeff = 141
+value = 3470
+
+coeff = 142
+value = 3471
+
+coeff = 143
+value = 3472
+
+coeff = 144
+value = 3473
+
+coeff = 145
+value = 3474
+
+coeff = 146
+value = 3475
+
+coeff = 147
+value = 3476
+
+coeff = 148
+value = 3477
+
+coeff = 149
+value = 3478
+
+coeff = 150
+value = 3479
+
+coeff = 151
+value = 3480
+
+coeff = 152
+value = 3481
+
+coeff = 153
+value = 3482
+
+coeff = 154
+value = 3483
+
+coeff = 155
+value = 3484
+
+coeff = 156
+value = 3485
+
+coeff = 157
+value = 3486
+
+coeff = 158
+value = 3487
+
+coeff = 159
+value = 3488
+
+coeff = 160
+value = 3489
+
+coeff = 161
+value = 3490
+
+coeff = 162
+value = 3491
+
+coeff = 163
+value = 3492
+
+coeff = 164
+value = 3493
+
+coeff = 165
+value = 3494
+
+coeff = 166
+value = 3495
+
+coeff = 167
+value = 3496
+
+coeff = 168
+value = 3497
+
+coeff = 169
+value = 3498
+
+coeff = 170
+value = 3499
+
+coeff = 171
+value = 3500
+
+coeff = 172
+value = 3501
+
+coeff = 173
+value = 3502
+
+coeff = 174
+value = 3503
+
+coeff = 175
+value = 3504
+
+coeff = 176
+value = 3505
+
+coeff = 177
+value = 3506
+
+coeff = 178
+value = 3507
+
+coeff = 179
+value = 3508
+
+coeff = 180
+value = 3509
+
+coeff = 181
+value = 3510
+
+coeff = 182
+value = 3511
+
+coeff = 183
+value = 3512
+
+coeff = 184
+value = 3513
+
+coeff = 185
+value = 3514
+
+coeff = 186
+value = 3515
+
+coeff = 187
+value = 3516
+
+coeff = 188
+value = 3517
+
+coeff = 189
+value = 3518
+
+coeff = 190
+value = 3519
+
+coeff = 191
+value = 3520
+
+coeff = 192
+value = 3521
+
+coeff = 193
+value = 3522
+
+coeff = 194
+value = 3523
+
+coeff = 195
+value = 3524
+
+coeff = 196
+value = 3525
+
+coeff = 197
+value = 3526
+
+coeff = 198
+value = 3527
+
+coeff = 199
+value = 3528
+
+coeff = 200
+value = 3529
+
+coeff = 201
+value = 3530
+
+coeff = 202
+value = 3531
+
+coeff = 203
+value = 3532
+
+coeff = 204
+value = 3533
+
+coeff = 205
+value = 3534
+
+coeff = 206
+value = 3535
+
+coeff = 207
+value = 3536
+
+coeff = 208
+value = 3537
+
+coeff = 209
+value = 3538
+
+coeff = 210
+value = 3539
+
+coeff = 211
+value = 3540
+
+coeff = 212
+value = 3541
+
+coeff = 213
+value = 3542
+
+coeff = 214
+value = 3543
+
+coeff = 215
+value = 3544
+
+coeff = 216
+value = 3545
+
+coeff = 217
+value = 3546
+
+coeff = 218
+value = 3547
+
+coeff = 219
+value = 3548
+
+coeff = 220
+value = 3549
+
+coeff = 221
+value = 3550
+
+coeff = 222
+value = 3551
+
+coeff = 223
+value = 3552
+
+coeff = 224
+value = 3553
+
+coeff = 225
+value = 3554
+
+coeff = 226
+value = 3555
+
+coeff = 227
+value = 3556
+
+coeff = 228
+value = 3557
+
+coeff = 229
+value = 3558
+
+coeff = 230
+value = 3559
+
+coeff = 231
+value = 3560
+
+coeff = 232
+value = 3561
+
+coeff = 233
+value = 3562
+
+coeff = 234
+value = 3563
+
+coeff = 235
+value = 3564
+
+coeff = 236
+value = 3565
+
+coeff = 237
+value = 3566
+
+coeff = 238
+value = 3567
+
+coeff = 239
+value = 3568
+
+coeff = 240
+value = 3569
+
+coeff = 241
+value = 3570
+
+coeff = 242
+value = 3571
+
+coeff = 243
+value = 3572
+
+coeff = 244
+value = 3573
+
+coeff = 245
+value = 3574
+
+coeff = 246
+value = 3575
+
+coeff = 247
+value = 3576
+
+coeff = 248
+value = 3577
+
+coeff = 249
+value = 3578
+
+coeff = 250
+value = 3579
+
+coeff = 251
+value = 3580
+
+coeff = 252
+value = 3581
+
+coeff = 253
+value = 3582
+
+coeff = 254
+value = 3583
+
+coeff = 255
+value = 3584
+
+coeff = 256
+value = 3585
+
+coeff = 257
+value = 3586
+
+coeff = 258
+value = 3587
+
+coeff = 259
+value = 3588
+
+coeff = 260
+value = 3589
+
+coeff = 261
+value = 3590
+
+coeff = 262
+value = 3591
+
+coeff = 263
+value = 3592
+
+coeff = 264
+value = 3593
+
+coeff = 265
+value = 3594
+
+coeff = 266
+value = 3595
+
+coeff = 267
+value = 3596
+
+coeff = 268
+value = 3597
+
+coeff = 269
+value = 3598
+
+coeff = 270
+value = 3599
+
+coeff = 271
+value = 3600
+
+coeff = 272
+value = 3601
+
+coeff = 273
+value = 3602
+
+coeff = 274
+value = 3603
+
+coeff = 275
+value = 3604
+
+coeff = 276
+value = 3605
+
+coeff = 277
+value = 3606
+
+coeff = 278
+value = 3607
+
+coeff = 279
+value = 3608
+
+coeff = 280
+value = 3609
+
+coeff = 281
+value = 3610
+
+coeff = 282
+value = 3611
+
+coeff = 283
+value = 3612
+
+coeff = 284
+value = 3613
+
+coeff = 285
+value = 3614
+
+coeff = 286
+value = 3615
+
+coeff = 287
+value = 3616
+
+coeff = 288
+value = 3617
+
+coeff = 289
+value = 3618
+
+coeff = 290
+value = 3619
+
+coeff = 291
+value = 3620
+
+coeff = 292
+value = 3621
+
+coeff = 293
+value = 3622
+
+coeff = 294
+value = 3623
+
+coeff = 295
+value = 3624
+
+coeff = 296
+value = 3625
+
+coeff = 297
+value = 3626
+
+coeff = 298
+value = 3627
+
+coeff = 299
+value = 3628
+
+coeff = 300
+value = 3629
+
+coeff = 301
+value = 3630
+
+coeff = 302
+value = 3631
+
+coeff = 303
+value = 3632
+
+coeff = 304
+value = 3633
+
+coeff = 305
+value = 3634
+
+coeff = 306
+value = 3635
+
+coeff = 307
+value = 3636
+
+coeff = 308
+value = 3637
+
+coeff = 309
+value = 3638
+
+coeff = 310
+value = 3639
+
+coeff = 311
+value = 3640
+
+coeff = 312
+value = 3641
+
+coeff = 313
+value = 3642
+
+coeff = 314
+value = 3643
+
+coeff = 315
+value = 3644
+
+coeff = 316
+value = 3645
+
+coeff = 317
+value = 3646
+
+coeff = 318
+value = 3647
+
+coeff = 319
+value = 3648
+
+coeff = 320
+value = 3649
+
+coeff = 321
+value = 3650
+
+coeff = 322
+value = 3651
+
+coeff = 323
+value = 3652
+
+coeff = 324
+value = 3653
+
+coeff = 325
+value = 3654
+
+coeff = 326
+value = 3655
+
+coeff = 327
+value = 3656
+
+coeff = 328
+value = 3657
+
+coeff = 329
+value = 3658
+
+coeff = 330
+value = 3659
+
+coeff = 331
+value = 3660
+
+coeff = 332
+value = 3661
+
+coeff = 333
+value = 3662
+
+coeff = 334
+value = 3663
+
+coeff = 335
+value = 3664
+
+coeff = 336
+value = 3665
+
+coeff = 337
+value = 3666
+
+coeff = 338
+value = 3667
+
+coeff = 339
+value = 3668
+
+coeff = 340
+value = 3669
+
+coeff = 341
+value = 3670
+
+coeff = 342
+value = 3671
+
+coeff = 343
+value = 3672
+
+coeff = 344
+value = 3673
+
+coeff = 345
+value = 3674
+
+coeff = 346
+value = 3675
+
+coeff = 347
+value = 3676
+
+coeff = 348
+value = 3677
+
+coeff = 349
+value = 3678
+
+coeff = 350
+value = 3679
+
+coeff = 351
+value = 3680
+
+coeff = 352
+value = 3681
+
+coeff = 353
+value = 3682
+
+coeff = 354
+value = 3683
+
+coeff = 355
+value = 3684
+
+coeff = 356
+value = 3685
+
+coeff = 357
+value = 3686
+
+coeff = 358
+value = 3687
+
+coeff = 359
+value = 3688
+
+coeff = 360
+value = 3689
+
+coeff = 361
+value = 3690
+
+coeff = 362
+value = 3691
+
+coeff = 363
+value = 3692
+
+coeff = 364
+value = 3693
+
+coeff = 365
+value = 3694
+
+coeff = 366
+value = 3695
+
+coeff = 367
+value = 3696
+
+coeff = 368
+value = 3697
+
+coeff = 369
+value = 3698
+
+coeff = 370
+value = 3699
+
+coeff = 371
+value = 3700
+
+coeff = 372
+value = 3701
+
+coeff = 373
+value = 3702
+
+coeff = 374
+value = 3703
+
+coeff = 375
+value = 3704
+
+coeff = 376
+value = 3705
+
+coeff = 377
+value = 3706
+
+coeff = 378
+value = 3707
+
+coeff = 379
+value = 3708
+
+coeff = 380
+value = 3709
+
+coeff = 381
+value = 3710
+
+coeff = 382
+value = 3711
+
+coeff = 383
+value = 3712
+
+coeff = 384
+value = 3713
+
+coeff = 385
+value = 3714
+
+coeff = 386
+value = 3715
+
+coeff = 387
+value = 3716
+
+coeff = 388
+value = 3717
+
+coeff = 389
+value = 3718
+
+coeff = 390
+value = 3719
+
+coeff = 391
+value = 3720
+
+coeff = 392
+value = 3721
+
+coeff = 393
+value = 3722
+
+coeff = 394
+value = 3723
+
+coeff = 395
+value = 3724
+
+coeff = 396
+value = 3725
+
+coeff = 397
+value = 3726
+
+coeff = 398
+value = 3727
+
+coeff = 399
+value = 3728
+
+coeff = 400
+value = 3729
+
+coeff = 401
+value = 3730
+
+coeff = 402
+value = 3731
+
+coeff = 403
+value = 3732
+
+coeff = 404
+value = 3733
+
+coeff = 405
+value = 3734
+
+coeff = 406
+value = 3735
+
+coeff = 407
+value = 3736
+
+coeff = 408
+value = 3737
+
+coeff = 409
+value = 3738
+
+coeff = 410
+value = 3739
+
+coeff = 411
+value = 3740
+
+coeff = 412
+value = 3741
+
+coeff = 413
+value = 3742
+
+coeff = 414
+value = 3743
+
+coeff = 415
+value = 3744
+
+coeff = 416
+value = 3745
+
+coeff = 417
+value = 3746
+
+coeff = 418
+value = 3747
+
+coeff = 419
+value = 3748
+
+coeff = 420
+value = 3749
+
+coeff = 421
+value = 3750
+
+coeff = 422
+value = 3751
+
+coeff = 423
+value = 3752
+
+coeff = 424
+value = 3753
+
+coeff = 425
+value = 3754
+
+coeff = 426
+value = 3755
+
+coeff = 427
+value = 3756
+
+coeff = 428
+value = 3757
+
+coeff = 429
+value = 3758
+
+coeff = 430
+value = 3759
+
+coeff = 431
+value = 3760
+
+coeff = 432
+value = 3761
+
+coeff = 433
+value = 3762
+
+coeff = 434
+value = 3763
+
+coeff = 435
+value = 3764
+
+coeff = 436
+value = 3765
+
+coeff = 437
+value = 3766
+
+coeff = 438
+value = 3767
+
+coeff = 439
+value = 3768
+
+coeff = 440
+value = 3769
+
+coeff = 441
+value = 3770
+
+coeff = 442
+value = 3771
+
+coeff = 443
+value = 3772
+
+coeff = 444
+value = 3773
+
+coeff = 445
+value = 3774
+
+coeff = 446
+value = 3775
+
+coeff = 447
+value = 3776
+
+coeff = 448
+value = 3777
+
+coeff = 449
+value = 3778
+
+coeff = 450
+value = 3779
+
+coeff = 451
+value = 3780
+
+coeff = 452
+value = 3781
+
+coeff = 453
+value = 3782
+
+coeff = 454
+value = 3783
+
+coeff = 455
+value = 3784
+
+coeff = 456
+value = 3785
+
+coeff = 457
+value = 3786
+
+coeff = 458
+value = 3787
+
+coeff = 459
+value = 3788
+
+coeff = 460
+value = 3789
+
+coeff = 461
+value = 3790
+
+coeff = 462
+value = 3791
+
+coeff = 463
+value = 3792
+
+coeff = 464
+value = 3793
+
+coeff = 465
+value = 3794
+
+coeff = 466
+value = 3795
+
+coeff = 467
+value = 3796
+
+coeff = 468
+value = 3797
+
+coeff = 469
+value = 3798
+
+coeff = 470
+value = 3799
+
+coeff = 471
+value = 3800
+
+coeff = 472
+value = 3801
+
+coeff = 473
+value = 3802
+
+coeff = 474
+value = 3803
+
+coeff = 475
+value = 3804
+
+coeff = 476
+value = 3805
+
+coeff = 477
+value = 3806
+
+coeff = 478
+value = 3807
+
+coeff = 479
+value = 3808
+
+coeff = 480
+value = 3809
+
+coeff = 481
+value = 3810
+
+coeff = 482
+value = 3811
+
+coeff = 483
+value = 3812
+
+coeff = 484
+value = 3813
+
+coeff = 485
+value = 3814
+
+coeff = 486
+value = 3815
+
+coeff = 487
+value = 3816
+
+coeff = 488
+value = 3817
+
+coeff = 489
+value = 3818
+
+coeff = 490
+value = 3819
+
+coeff = 491
+value = 3820
+
+coeff = 492
+value = 3821
+
+coeff = 493
+value = 3822
+
+coeff = 494
+value = 3823
+
+coeff = 495
+value = 3824
+
+coeff = 496
+value = 3825
+
+coeff = 497
+value = 3826
+
+coeff = 498
+value = 3827
+
+coeff = 499
+value = 3828
+
+coeff = 500
+value = 3829
+
+coeff = 501
+value = 3830
+
+coeff = 502
+value = 3831
+
+coeff = 503
+value = 3832
+
+coeff = 504
+value = 3833
+
+coeff = 505
+value = 3834
+
+coeff = 506
+value = 3835
+
+coeff = 507
+value = 3836
+
+coeff = 508
+value = 3837
+
+coeff = 509
+value = 3838
+
+coeff = 510
+value = 3839
+
+coeff = 511
+value = 3840
+
+coeff = 512
+value = 3841
+
+coeff = 513
+value = 3842
+
+coeff = 514
+value = 3843
+
+coeff = 515
+value = 3844
+
+coeff = 516
+value = 3845
+
+coeff = 517
+value = 3846
+
+coeff = 518
+value = 3847
+
+coeff = 519
+value = 3848
+
+coeff = 520
+value = 3849
+
+coeff = 521
+value = 3850
+
+coeff = 522
+value = 3851
+
+coeff = 523
+value = 3852
+
+coeff = 524
+value = 3853
+
+coeff = 525
+value = 3854
+
+coeff = 526
+value = 3855
+
+coeff = 527
+value = 3856
+
+coeff = 528
+value = 3857
+
+coeff = 529
+value = 3858
+
+coeff = 530
+value = 3859
+
+coeff = 531
+value = 3860
+
+coeff = 532
+value = 3861
+
+coeff = 533
+value = 3862
+
+coeff = 534
+value = 3863
+
+coeff = 535
+value = 3864
+
+coeff = 536
+value = 3865
+
+coeff = 537
+value = 3866
+
+coeff = 538
+value = 3867
+
+coeff = 539
+value = 3868
+
+coeff = 540
+value = 3869
+
+coeff = 541
+value = 3870
+
+coeff = 542
+value = 3871
+
+coeff = 543
+value = 3872
+
+coeff = 544
+value = 3873
+
+coeff = 545
+value = 3874
+
+coeff = 546
+value = 3875
+
+coeff = 547
+value = 3876
+
+coeff = 548
+value = 3877
+
+coeff = 549
+value = 3878
+
+coeff = 550
+value = 3879
+
+coeff = 551
+value = 3880
+
+coeff = 552
+value = 3881
+
+coeff = 553
+value = 3882
+
+coeff = 554
+value = 3883
+
+coeff = 555
+value = 3884
+
+coeff = 556
+value = 3885
+
+coeff = 557
+value = 3886
+
+coeff = 558
+value = 3887
+
+coeff = 559
+value = 3888
+
+coeff = 560
+value = 3889
+
+coeff = 561
+value = 3890
+
+coeff = 562
+value = 3891
+
+coeff = 563
+value = 3892
+
+coeff = 564
+value = 3893
+
+coeff = 565
+value = 3894
+
+coeff = 566
+value = 3895
+
+coeff = 567
+value = 3896
+
+coeff = 568
+value = 3897
+
+coeff = 569
+value = 3898
+
+coeff = 570
+value = 3899
+
+coeff = 571
+value = 3900
+
+coeff = 572
+value = 3901
+
+coeff = 573
+value = 3902
+
+coeff = 574
+value = 3903
+
+coeff = 575
+value = 3904
+
+coeff = 576
+value = 3905
+
+coeff = 577
+value = 3906
+
+coeff = 578
+value = 3907
+
+coeff = 579
+value = 3908
+
+coeff = 580
+value = 3909
+
+coeff = 581
+value = 3910
+
+coeff = 582
+value = 3911
+
+coeff = 583
+value = 3912
+
+coeff = 584
+value = 3913
+
+coeff = 585
+value = 3914
+
+coeff = 586
+value = 3915
+
+coeff = 587
+value = 3916
+
+coeff = 588
+value = 3917
+
+coeff = 589
+value = 3918
+
+coeff = 590
+value = 3919
+
+coeff = 591
+value = 3920
+
+coeff = 592
+value = 3921
+
+coeff = 593
+value = 3922
+
+coeff = 594
+value = 3923
+
+coeff = 595
+value = 3924
+
+coeff = 596
+value = 3925
+
+coeff = 597
+value = 3926
+
+coeff = 598
+value = 3927
+
+coeff = 599
+value = 3928
+
+coeff = 600
+value = 3929
+
+coeff = 601
+value = 3930
+
+coeff = 602
+value = 3931
+
+coeff = 603
+value = 3932
+
+coeff = 604
+value = 3933
+
+coeff = 605
+value = 3934
+
+coeff = 606
+value = 3935
+
+coeff = 607
+value = 3936
+
+coeff = 608
+value = 3937
+
+coeff = 609
+value = 3938
+
+coeff = 610
+value = 3939
+
+coeff = 611
+value = 3940
+
+coeff = 612
+value = 3941
+
+coeff = 613
+value = 3942
+
+coeff = 614
+value = 3943
+
+coeff = 615
+value = 3944
+
+coeff = 616
+value = 3945
+
+coeff = 617
+value = 3946
+
+coeff = 618
+value = 3947
+
+coeff = 619
+value = 3948
+
+coeff = 620
+value = 3949
+
+coeff = 621
+value = 3950
+
+coeff = 622
+value = 3951
+
+coeff = 623
+value = 3952
+
+coeff = 624
+value = 3953
+
+coeff = 625
+value = 3954
+
+coeff = 626
+value = 3955
+
+coeff = 627
+value = 3956
+
+coeff = 628
+value = 3957
+
+coeff = 629
+value = 3958
+
+coeff = 630
+value = 3959
+
+coeff = 631
+value = 3960
+
+coeff = 632
+value = 3961
+
+coeff = 633
+value = 3962
+
+coeff = 634
+value = 3963
+
+coeff = 635
+value = 3964
+
+coeff = 636
+value = 3965
+
+coeff = 637
+value = 3966
+
+coeff = 638
+value = 3967
+
+coeff = 639
+value = 3968
+
+coeff = 640
+value = 3969
+
+coeff = 641
+value = 3970
+
+coeff = 642
+value = 3971
+
+coeff = 643
+value = 3972
+
+coeff = 644
+value = 3973
+
+coeff = 645
+value = 3974
+
+coeff = 646
+value = 3975
+
+coeff = 647
+value = 3976
+
+coeff = 648
+value = 3977
+
+coeff = 649
+value = 3978
+
+coeff = 650
+value = 3979
+
+coeff = 651
+value = 3980
+
+coeff = 652
+value = 3981
+
+coeff = 653
+value = 3982
+
+coeff = 654
+value = 3983
+
+coeff = 655
+value = 3984
+
+coeff = 656
+value = 3985
+
+coeff = 657
+value = 3986
+
+coeff = 658
+value = 3987
+
+coeff = 659
+value = 3988
+
+coeff = 660
+value = 3989
+
+coeff = 661
+value = 3990
+
+coeff = 662
+value = 3991
+
+coeff = 663
+value = 3992
+
+coeff = 664
+value = 3993
+
+coeff = 665
+value = 3994
+
+coeff = 666
+value = 3995
+
+coeff = 667
+value = 3996
+
+coeff = 668
+value = 3997
+
+coeff = 669
+value = 3998
+
+coeff = 670
+value = 3999
+
+coeff = 671
+value = 4000
+
+coeff = 672
+value = 4001
+
+coeff = 673
+value = 4002
+
+coeff = 674
+value = 4003
+
+coeff = 675
+value = 4004
+
+coeff = 676
+value = 4005
+
+coeff = 677
+value = 4006
+
+coeff = 678
+value = 4007
+
+coeff = 679
+value = 4008
+
+coeff = 680
+value = 4009
+
+coeff = 681
+value = 4010
+
+coeff = 682
+value = 4011
+
+coeff = 683
+value = 4012
+
+coeff = 684
+value = 4013
+
+coeff = 685
+value = 4014
+
+coeff = 686
+value = 4015
+
+coeff = 687
+value = 4016
+
+coeff = 688
+value = 4017
+
+coeff = 689
+value = 4018
+
+coeff = 690
+value = 4019
+
+coeff = 691
+value = 4020
+
+coeff = 692
+value = 4021
+
+coeff = 693
+value = 4022
+
+coeff = 694
+value = 4023
+
+coeff = 695
+value = 4024
+
+coeff = 696
+value = 4025
+
+coeff = 697
+value = 4026
+
+coeff = 698
+value = 4027
+
+coeff = 699
+value = 4028
+
+coeff = 700
+value = 4029
+
+coeff = 701
+value = 4030
+
+coeff = 702
+value = 4031
+
+coeff = 703
+value = 4032
+
+coeff = 704
+value = 4033
+
+coeff = 705
+value = 4034
+
+coeff = 706
+value = 4035
+
+coeff = 707
+value = 4036
+
+coeff = 708
+value = 4037
+
+coeff = 709
+value = 4038
+
+coeff = 710
+value = 4039
+
+coeff = 711
+value = 4040
+
+coeff = 712
+value = 4041
+
+coeff = 713
+value = 4042
+
+coeff = 714
+value = 4043
+
+coeff = 715
+value = 4044
+
+coeff = 716
+value = 4045
+
+coeff = 717
+value = 4046
+
+coeff = 718
+value = 4047
+
+coeff = 719
+value = 4048
+
+coeff = 720
+value = 4049
+
+coeff = 721
+value = 4050
+
+coeff = 722
+value = 4051
+
+coeff = 723
+value = 4052
+
+coeff = 724
+value = 4053
+
+coeff = 725
+value = 4054
+
+coeff = 726
+value = 4055
+
+coeff = 727
+value = 4056
+
+coeff = 728
+value = 4057
+
+coeff = 729
+value = 4058
+
+coeff = 730
+value = 4059
+
+coeff = 731
+value = 4060
+
+coeff = 732
+value = 4061
+
+coeff = 733
+value = 4062
+
+coeff = 734
+value = 4063
+
+coeff = 735
+value = 4064
+
+coeff = 736
+value = 4065
+
+coeff = 737
+value = 4066
+
+coeff = 738
+value = 4067
+
+coeff = 739
+value = 4068
+
+coeff = 740
+value = 4069
+
+coeff = 741
+value = 4070
+
+coeff = 742
+value = 4071
+
+coeff = 743
+value = 4072
+
+coeff = 744
+value = 4073
+
+coeff = 745
+value = 4074
+
+coeff = 746
+value = 4075
+
+coeff = 747
+value = 4076
+
+coeff = 748
+value = 4077
+
+coeff = 749
+value = 4078
+
+coeff = 750
+value = 4079
+
+coeff = 751
+value = 4080
+
+coeff = 752
+value = 4081
+
+coeff = 753
+value = 4082
+
+coeff = 754
+value = 4083
+
+coeff = 755
+value = 4084
+
+coeff = 756
+value = 4085
+
+coeff = 757
+value = 4086
+
+coeff = 758
+value = 4087
+
+coeff = 759
+value = 4088
+
+coeff = 760
+value = 4089
+
+coeff = 761
+value = 4090
+
+coeff = 762
+value = 4091
+
+coeff = 763
+value = 4092
+
+coeff = 764
+value = 4093
+
+coeff = 765
+value = 4094
+
+coeff = 766
+value = 4095
+
+coeff = 767
+value = 3329

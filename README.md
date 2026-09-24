@@ -27,6 +27,8 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Pure Rust, with no hidden C libraries
 * Limited use of unsafe code[^2]
 * Classic and typed Rustaceous APIs for many libsodium operations
+* Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
+  ML-KEM-768 and X25519
 * WebAssembly support through the `wasm32-unknown-unknown` target
 * Protected memory on Unix and Windows, enabled by default with the
   `protected` feature
@@ -125,6 +127,7 @@ been checked against [libsodium 1.0.22](https://github.com/jedisct1/libsodium/re
 * [x] [Sealed boxes](https://docs.rs/dryoc/latest/dryoc/dryocbox/struct.DryocBox.html#method.seal) (`crypto_box_seal*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/sealed_boxes)
 * [x] [Key derivation](https://docs.rs/dryoc/latest/dryoc/kdf/index.html) (`crypto_kdf_*`) [libsodium link](https://doc.libsodium.org/key_derivation)
 * [x] [Key exchange](https://docs.rs/dryoc/latest/dryoc/kx/index.html) (`crypto_kx_*`) [libsodium link](https://doc.libsodium.org/key_exchange)
+* [x] [Post-quantum key encapsulation](https://docs.rs/dryoc/latest/dryoc/kem/index.html) with X-Wing and ML-KEM-768 (`crypto_kem_*`, `crypto_kem_xwing_*`, `crypto_kem_mlkem768_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/key_encapsulation)
 * [x] [Public-key signatures](https://docs.rs/dryoc/latest/dryoc/sign/index.html) (`crypto_sign_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [x] [Ed25519 to Curve25519](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_*`) [libsodium link](https://doc.libsodium.org/advanced/ed25519-curve25519)
 * [x] [Signature secret-key extraction helpers](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_sk_to_seed`, `crypto_sign_ed25519_sk_to_pk`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
@@ -141,7 +144,6 @@ implemented. Other crates may provide equivalent functionality:
 
 * [ ] [AEAD constructions](https://doc.libsodium.org/secret-key_cryptography/aead) beyond the ChaCha20-Poly1305-IETF variants, including AEGIS-128L/256, AES256-GCM, and the legacy 64-bit-nonce ChaCha20-Poly1305 construction
 * [ ] XChaCha20-Poly1305 box and secretbox variants (`crypto_box_curve25519xchacha20poly1305_*`, `crypto_secretbox_xchacha20poly1305_*`)
-* [ ] [Key encapsulation](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE) (`crypto_kem_*`, `crypto_kem_mlkem768_*`, `crypto_kem_xwing_*`), added in libsodium 1.0.22
 * [ ] Deterministic random data for reproducible tests (`randombytes_buf_deterministic`)
 * [ ] Short-input hash variants beyond SipHash-2-4 with 64-bit output (`crypto_shorthash_siphashx24_*`)
 * [ ] [IP address encryption](https://doc.libsodium.org/secret-key_cryptography/ip_address_encryption) (`crypto_ipcrypt_*`, `sodium_ip2bin`, `sodium_bin2ip`), added in libsodium 1.0.21
@@ -169,13 +171,15 @@ and AEAD envelopes, BLAKE2b
 parameter byte views, protected memory guarded heap buffers and OS protection
 calls, 16-byte volatile zeroization of secret buffers, the x86-64 backends
 (runtime-detected AVX2, AVX-512 and AVX-512 IFMA entry points for ChaCha20,
-XSalsa20, Poly1305, the Argon2 block compression and the BLAKE2b compression,
+XSalsa20, Poly1305, the Argon2 block compression, the BLAKE2b compression,
+the ML-KEM polynomial arithmetic and the 4-way Keccak permutation,
 `asm!` scalar ChaCha20 and Salsa20 double rounds that run beside the AVX-512
 lane sets, an AVX-512
 Ed25519 basepoint table lookup, and BMI2-compiled copies of the Curve25519
 scalar multiplication, inversion and square-root loops), and the AArch64
 backends: runtime-detected NEON entry points for Poly1305, XSalsa20, ChaCha20,
-and the Ed25519 basepoint table lookup, register-only SVE2 `asm!` blocks for
+the Ed25519 basepoint table lookup and the ML-KEM polynomial arithmetic (with
+16-byte coefficient-row loads and stores), register-only SVE2 `asm!` blocks for
 the ChaCha20 and XSalsa20 rounds, scalar `asm!` blocks for the ChaCha20 and
 BLAKE2b rounds and the Curve25519 field products, and runtime-detected
 `sha2`/`sha3` instruction `asm!` loops for the SHA-256 and SHA-512
