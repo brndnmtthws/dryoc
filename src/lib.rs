@@ -18,7 +18,7 @@
 //! * Limited use of unsafe code[^2]
 //! * Classic and typed Rustaceous APIs for many libsodium operations
 //! * Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
-//!   ML-KEM-768 and X25519
+//!   ML-KEM-768 and X25519, and post-quantum sealed boxes built on X-Wing
 //! * WebAssembly support through the `wasm32-unknown-unknown` target
 //! * Protected memory on Unix and Windows, enabled by default with the
 //!   `protected` feature
@@ -87,6 +87,7 @@
 //! | Feature | Rustaceous API | Classic API | Reference |
 //! |-|-|-|-|
 //! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://doc.libsodium.org/public-key_cryptography/authenticated_encryption) |
+//! | Post-quantum sealed boxes (HPKE with X-Wing) | [`DryocSealedBox`](dryocsealedbox) | N/A | [Link](https://www.rfc-editor.org/rfc/rfc9180.html) |
 //! | Secret-key authenticated boxes | [`DryocSecretBox`](dryocsecretbox) | [`crypto_secretbox`](classic::crypto_secretbox) | [Link](https://doc.libsodium.org/secret-key_cryptography/secretbox) |
 //! | ChaCha20-Poly1305-IETF authenticated encryption | [`chacha20poly1305_ietf`](dryocaead::chacha20poly1305_ietf) | [`crypto_aead_chacha20poly1305_ietf`](classic::crypto_aead_chacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/ietf_chacha20-poly1305_construction) |
 //! | Authenticated encryption with additional data | [`DryocAead`](dryocaead) | [`crypto_aead_xchacha20poly1305_ietf`](classic::crypto_aead_xchacha20poly1305_ietf) | [Link](https://doc.libsodium.org/secret-key_cryptography/aead/chacha20-poly1305/xchacha20-poly1305_construction) |
@@ -269,6 +270,7 @@ pub mod auth;
 pub mod constants;
 pub mod dryocaead;
 pub mod dryocbox;
+pub mod dryocsealedbox;
 pub mod dryocsecretbox;
 pub mod dryocstream;
 pub mod generichash;

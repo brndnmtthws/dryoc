@@ -353,6 +353,30 @@ fn test_kem_public_api() {
 
 #[cfg(all(feature = "protected", any(unix, windows)))]
 #[test]
+fn test_sealed_box_protected_keys() {
+    use dryoc::dryocsealedbox::protected::{LockedBox, PublicKey, SecretKey};
+    use dryoc::dryocsealedbox::{DryocSealedBox, KeyPair};
+    use dryoc::protected::*;
+
+    let stack = dryoc::dryocsealedbox::StackKeyPair::generate();
+    let keypair = KeyPair::<Locked<PublicKey>, LockedRO<SecretKey>>::from_secret_key(
+        SecretKey::from_slice_into_readonly_locked(stack.secret_key.as_slice()).expect("key"),
+    );
+    let message = HeapBytes::from_slice_into_readonly_locked(b"to the recipient").expect("message");
+    let sealed: LockedBox = DryocSealedBox::seal(&message, &keypair.public_key).expect("seal");
+    let opened: LockedBytes = sealed.unseal(&keypair).expect("unseal");
+    assert_eq!(opened.as_slice(), message.as_slice());
+    // The locked box has the same wire format as a stack one.
+    let bytes: Vec<u8> = sealed.to_bytes();
+    let parsed = dryoc::dryocsealedbox::VecBox::from_bytes(&bytes).expect("parse");
+    assert_eq!(
+        parsed.unseal_to_vec(&stack).expect("unseal"),
+        b"to the recipient"
+    );
+}
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
 fn test_kem_protected() {
     use dryoc::kem;
     use dryoc::kem::protected::*;

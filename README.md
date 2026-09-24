@@ -28,7 +28,7 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Limited use of unsafe code[^2]
 * Classic and typed Rustaceous APIs for many libsodium operations
 * Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
-  ML-KEM-768 and X25519
+  ML-KEM-768 and X25519, and post-quantum sealed boxes built on X-Wing
 * WebAssembly support through the `wasm32-unknown-unknown` target
 * Protected memory on Unix and Windows, enabled by default with the
   `protected` feature
@@ -132,6 +132,7 @@ been checked against [libsodium 1.0.22](https://github.com/jedisct1/libsodium/re
 * [x] [Key derivation](https://docs.rs/dryoc/latest/dryoc/kdf/index.html) (`crypto_kdf_*`) [libsodium link](https://doc.libsodium.org/key_derivation)
 * [x] [Key exchange](https://docs.rs/dryoc/latest/dryoc/kx/index.html) (`crypto_kx_*`) [libsodium link](https://doc.libsodium.org/key_exchange)
 * [x] [Post-quantum key encapsulation](https://docs.rs/dryoc/latest/dryoc/kem/index.html) with X-Wing and ML-KEM-768 (`crypto_kem_*`, `crypto_kem_xwing_*`, `crypto_kem_mlkem768_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/key_encapsulation)
+* [x] [Post-quantum sealed boxes](https://docs.rs/dryoc/latest/dryoc/dryocsealedbox/index.html): HPKE (RFC 9180) with X-Wing, HKDF-SHA256 and ChaCha20-Poly1305 (dryoc extension) [RFC 9180 link](https://www.rfc-editor.org/rfc/rfc9180.html)
 * [x] [Public-key signatures](https://docs.rs/dryoc/latest/dryoc/sign/index.html) (`crypto_sign_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
 * [x] [Ed25519 to Curve25519](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_*`) [libsodium link](https://doc.libsodium.org/advanced/ed25519-curve25519)
 * [x] [Signature secret-key extraction helpers](https://docs.rs/dryoc/latest/dryoc/classic/crypto_sign_ed25519/index.html) (`crypto_sign_ed25519_sk_to_seed`, `crypto_sign_ed25519_sk_to_pk`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures)
