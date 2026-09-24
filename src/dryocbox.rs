@@ -13,7 +13,10 @@
 //! [`DryocBox::seal`] provides anonymous encryption instead. It creates a new
 //! temporary keypair for each message and stores the temporary public key with
 //! the ciphertext. A sealed box proves that the ciphertext was not changed,
-//! but it does not identify the sender.
+//! but it does not identify the sender. For sealed boxes that stay
+//! confidential against future quantum computers, use
+//! [`DryocSealedBox`](crate::dryocsealedbox::DryocSealedBox), which has the
+//! same `seal`/`unseal` methods.
 //!
 //! Nonces are public, but a nonce must never repeat for the same sender and
 //! recipient keypair. The two parties share one nonce space unless they use
