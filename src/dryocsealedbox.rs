@@ -63,7 +63,7 @@ use crate::classic::crypto_kdf::{
     crypto_kdf_hkdf_sha256_expand, crypto_kdf_hkdf_sha256_extract_final,
     crypto_kdf_hkdf_sha256_extract_init, crypto_kdf_hkdf_sha256_extract_update,
 };
-use crate::classic::crypto_kem_xwing::{crypto_kem_xwing_dec, crypto_kem_xwing_enc_deterministic};
+use crate::classic::crypto_kem_xwing;
 use crate::constants::{
     CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
     CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES, CRYPTO_KDF_HKDF_SHA256_KEYBYTES,
@@ -73,6 +73,7 @@ use crate::constants::{
 };
 use crate::error::{Error, ErrorContext};
 pub use crate::kem::xwing::{KeyPair, PublicKey, SecretKey, StackKeyPair};
+use crate::mlkem::Arith;
 use crate::rng::copy_randombytes;
 pub use crate::types::*;
 
@@ -191,29 +192,32 @@ impl Context {
     }
 
     /// HPKE `SetupBaseS`: encapsulates to `public_key` with the randomness
-    /// `seed`, writing `enc`.
+    /// `seed`, writing `enc`. ML-KEM arithmetic comes from `arith`.
     fn setup_sender(
         &mut self,
+        arith: Arith,
         enc: &mut [u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES],
         public_key: &[u8; CRYPTO_KEM_XWING_PUBLICKEYBYTES],
         info: &[u8],
         seed: &[u8; CRYPTO_KEM_XWING_ENCSEEDBYTES],
     ) -> Result<(), Error> {
         let mut shared_secret = Zeroizing::new([0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES]);
-        crypto_kem_xwing_enc_deterministic(enc, &mut shared_secret, public_key, seed)?;
+        crypto_kem_xwing::enc_deterministic(arith, enc, &mut shared_secret, public_key, seed)?;
         self.schedule(&*shared_secret, info);
         Ok(())
     }
 
-    /// HPKE `SetupBaseR`: decapsulates `enc`.
+    /// HPKE `SetupBaseR`: decapsulates `enc`. ML-KEM arithmetic comes from
+    /// `arith`.
     fn setup_receiver(
         &mut self,
+        arith: Arith,
         enc: &[u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES],
         secret_key: &[u8; CRYPTO_KEM_XWING_SECRETKEYBYTES],
         info: &[u8],
     ) -> Result<(), Error> {
         let mut shared_secret = Zeroizing::new([0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES]);
-        crypto_kem_xwing_dec(&mut shared_secret, enc, secret_key)?;
+        crypto_kem_xwing::dec(arith, &mut shared_secret, enc, secret_key)?;
         self.schedule(&*shared_secret, info);
         Ok(())
     }
@@ -253,6 +257,7 @@ impl<
         sealed.data.resize(message.as_slice().len(), 0);
         let mut context = Context::new();
         context.setup_sender(
+            Arith::detect(),
             sealed.enc.as_mut_array(),
             recipient_public_key.as_array(),
             b"",
@@ -328,9 +333,9 @@ impl<
             .as_mut_slice()
             .split_at_mut(CRYPTO_KEM_XWING_CIPHERTEXTBYTES);
         let (data, tag) = rest.split_at_mut(self.data.len());
-        enc.copy_from_slice(self.enc.as_slice());
+        enc.copy_from_slice(self.enc.as_array());
         data.copy_from_slice(self.data.as_slice());
-        tag.copy_from_slice(self.tag.as_slice());
+        tag.copy_from_slice(self.tag.as_array());
         bytes
     }
 
@@ -353,6 +358,7 @@ impl<
         message.resize(self.data.len(), 0);
         let mut context = Context::new();
         context.setup_receiver(
+            Arith::detect(),
             self.enc.as_array(),
             recipient_keypair.secret_key.as_array(),
             b"",
@@ -405,9 +411,9 @@ mod tests {
     use super::*;
     use crate::mlkem::tests::{field, records};
 
-    /// draft-ietf-hpke-pq Appendix A.5: the X-Wing encapsulation, the key
-    /// schedule and the first encryption, through the sender and receiver
-    /// setups.
+    /// draft-ietf-hpke-pq Appendix A.5: the X-Wing encapsulation and
+    /// decapsulation, the key schedule and the first encryption, through the
+    /// sender and receiver setups, on every ML-KEM backend the CPU supports.
     #[test]
     fn test_hpke_known_answer() {
         use crate::classic::crypto_aead_chacha20poly1305_ietf::{
@@ -419,47 +425,70 @@ mod tests {
         ))[0];
         let bytes = |key| hex::decode(record[key]).expect("hex");
         let (info, aad, message) = (bytes("info"), bytes("aad"), bytes("pt"));
+        let (public_key, secret_key, seed) = (
+            field(record, "pkRm"),
+            field(record, "skRm"),
+            field(record, "ikmE"),
+        );
+        let expected_enc: [u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES] = field(record, "enc");
+        let expected_secret: [u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES] =
+            field(record, "shared_secret");
 
-        let mut enc = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
-        let mut sender = Context::new();
-        sender
-            .setup_sender(
+        for arith in Arith::all() {
+            let mut enc = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+            let mut shared_secret = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+            crypto_kem_xwing::enc_deterministic(
+                arith,
                 &mut enc,
-                &field(record, "pkRm"),
-                &info,
-                &field(record, "ikmE"),
+                &mut shared_secret,
+                &public_key,
+                &seed,
             )
-            .expect("sender");
-        assert_eq!(enc, field(record, "enc"));
-        assert_eq!(sender.key, field::<32>(record, "key"));
-        assert_eq!(sender.nonce, field::<12>(record, "base_nonce"));
-        let mut ciphertext = vec![0u8; message.len() + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES];
-        crypto_aead_chacha20poly1305_ietf_encrypt(
-            &mut ciphertext,
-            &message,
-            Some(&aad),
-            &sender.nonce,
-            &sender.key,
-        )
-        .expect("encrypt");
-        assert_eq!(ciphertext, bytes("ct"));
+            .expect("enc");
+            assert_eq!(enc, expected_enc, "{arith:?}");
+            assert_eq!(shared_secret, expected_secret, "{arith:?}");
+            let mut shared_secret = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+            crypto_kem_xwing::dec(arith, &mut shared_secret, &expected_enc, &secret_key)
+                .expect("dec");
+            assert_eq!(shared_secret, expected_secret, "{arith:?}");
 
-        let mut receiver = Context::new();
-        receiver
-            .setup_receiver(&enc, &field(record, "skRm"), &info)
-            .expect("receiver");
-        assert_eq!(receiver.key, sender.key);
-        assert_eq!(receiver.nonce, sender.nonce);
-        let mut opened = vec![0u8; message.len()];
-        crypto_aead_chacha20poly1305_ietf_decrypt(
-            &mut opened,
-            &ciphertext,
-            Some(&aad),
-            &receiver.nonce,
-            &receiver.key,
-        )
-        .expect("decrypt");
-        assert_eq!(opened, message);
+            let mut enc = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+            let mut sender = Context::new();
+            sender
+                .setup_sender(arith, &mut enc, &public_key, &info, &seed)
+                .expect("sender");
+            assert_eq!(enc, expected_enc, "{arith:?}");
+            assert_eq!(sender.key, field::<32>(record, "key"), "{arith:?}");
+            assert_eq!(sender.nonce, field::<12>(record, "base_nonce"), "{arith:?}");
+            let mut ciphertext =
+                vec![0u8; message.len() + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES];
+            crypto_aead_chacha20poly1305_ietf_encrypt(
+                &mut ciphertext,
+                &message,
+                Some(&aad),
+                &sender.nonce,
+                &sender.key,
+            )
+            .expect("encrypt");
+            assert_eq!(ciphertext, bytes("ct"), "{arith:?}");
+
+            let mut receiver = Context::new();
+            receiver
+                .setup_receiver(arith, &expected_enc, &secret_key, &info)
+                .expect("receiver");
+            assert_eq!(receiver.key, sender.key, "{arith:?}");
+            assert_eq!(receiver.nonce, sender.nonce, "{arith:?}");
+            let mut opened = vec![0u8; message.len()];
+            crypto_aead_chacha20poly1305_ietf_decrypt(
+                &mut opened,
+                &ciphertext,
+                Some(&aad),
+                &receiver.nonce,
+                &receiver.key,
+            )
+            .expect("decrypt");
+            assert_eq!(opened, message, "{arith:?}");
+        }
     }
 
     /// The wire format is `enc || ciphertext || tag`, a box for another key
@@ -503,5 +532,30 @@ mod tests {
         let empty = VecBox::seal_to_vecbox(b"", &keypair.public_key).expect("seal");
         let empty = VecBox::from_bytes(&empty.to_vec()).expect("parse");
         assert!(empty.unseal_to_vec(&keypair).expect("unseal").is_empty());
+    }
+
+    /// A fixed-size field backed by a longer buffer is its first `N` bytes
+    /// (the `ByteArray` view), so a box built from such parts serializes to
+    /// the canonical wire format and still unseals.
+    #[test]
+    fn test_oversized_field_storage_serializes_canonically() {
+        let keypair = StackKeyPair::generate();
+        let message = b"The quality of mercy is not strained";
+        let sealed = VecBox::seal_to_vecbox(message, &keypair.public_key).expect("seal");
+        let (enc, tag, data) = sealed.into_parts();
+        let canonical = [enc.as_slice(), &data, tag.as_slice()].concat();
+        let padded = |field: &[u8], extra: usize| [field, &vec![0xa5; extra]].concat();
+
+        for (enc_extra, tag_extra) in [(1, 0), (0, 1)] {
+            let oversized = DryocSealedBox::from_parts(
+                padded(enc.as_slice(), enc_extra),
+                padded(tag.as_slice(), tag_extra),
+                data.clone(),
+            );
+            let row = format!("enc +{enc_extra}, tag +{tag_extra}");
+            assert_eq!(oversized.to_vec(), canonical, "{row}");
+            let unsealed: Vec<u8> = oversized.unseal(&keypair).expect(&row);
+            assert_eq!(unsealed, message, "{row}");
+        }
     }
 }

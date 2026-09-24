@@ -78,7 +78,13 @@ pub use crate::types::*;
 use crate::utils::{ct_eq_bytes, split_suffix};
 
 mod sealed {
-    pub trait Sealed {}
+    /// The construction's nonce and tag sizes, private to dryoc. `AeadBox`
+    /// and `AeadEnvelope` accept any `Bytes` nonce and tag, so serialization
+    /// uses these to write the same fixed-size prefix the construction reads.
+    pub trait Sealed {
+        const NPUBBYTES: usize;
+        const ABYTES: usize;
+    }
 }
 
 /// Marker trait for AEAD algorithms supported by dryoc.
@@ -95,14 +101,20 @@ pub trait AeadAlgorithm:
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct XChaCha20Poly1305Ietf;
 
-impl sealed::Sealed for XChaCha20Poly1305Ietf {}
+impl sealed::Sealed for XChaCha20Poly1305Ietf {
+    const ABYTES: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES;
+    const NPUBBYTES: usize = CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
+}
 impl AeadAlgorithm for XChaCha20Poly1305Ietf {}
 
 /// ChaCha20-Poly1305-IETF AEAD algorithm marker.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ChaCha20Poly1305Ietf;
 
-impl sealed::Sealed for ChaCha20Poly1305Ietf {}
+impl sealed::Sealed for ChaCha20Poly1305Ietf {
+    const ABYTES: usize = CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
+    const NPUBBYTES: usize = CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES;
+}
 impl AeadAlgorithm for ChaCha20Poly1305Ietf {}
 
 /// Stack-allocated secret key for XChaCha20-Poly1305-IETF AEAD.
@@ -789,9 +801,17 @@ impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, 
         self.to_bytes()
     }
 
-    /// Copies `self` into the target as `ciphertext || tag`.
+    /// Copies `self` into the target as `ciphertext || tag`, where the tag is
+    /// the first tag-size bytes of `Mac`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tag is shorter than the algorithm's tag size.
     pub fn to_bytes<Output: NewBytes + ResizableBytes>(&self) -> Output {
-        concat_bytes(self.data.as_slice(), self.tag.as_slice())
+        concat_bytes(
+            self.data.as_slice(),
+            &self.tag.as_slice()[..Algorithm::ABYTES],
+        )
     }
 }
 
@@ -835,15 +855,22 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
         self.to_bytes()
     }
 
-    /// Copies `self` into the target as `nonce || ciphertext || tag`.
+    /// Copies `self` into the target as `nonce || ciphertext || tag`, where
+    /// the nonce and tag are the first nonce-size and tag-size bytes of
+    /// `Nonce` and `Mac`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the nonce or tag is shorter than the algorithm's size.
     pub fn to_bytes<Output: NewBytes + ResizableBytes>(&self) -> Output {
+        let nonce = &self.nonce.as_slice()[..Algorithm::NPUBBYTES];
+        let tag = &self.tag.as_slice()[..Algorithm::ABYTES];
         let mut data = Output::new_bytes();
-        data.resize(self.nonce.len() + self.data.len() + self.tag.len(), 0);
+        data.resize(nonce.len() + self.data.len() + tag.len(), 0);
         let s = data.as_mut_slice();
-        s[..self.nonce.len()].copy_from_slice(self.nonce.as_slice());
-        s[self.nonce.len()..self.nonce.len() + self.data.len()]
-            .copy_from_slice(self.data.as_slice());
-        s[self.nonce.len() + self.data.len()..].copy_from_slice(self.tag.as_slice());
+        s[..nonce.len()].copy_from_slice(nonce);
+        s[nonce.len()..nonce.len() + self.data.len()].copy_from_slice(self.data.as_slice());
+        s[nonce.len() + self.data.len()..].copy_from_slice(tag);
         data
     }
 }
@@ -1246,6 +1273,48 @@ mod tests {
                 VecEnvelope::with_nonce_data_and_mac(parsed_nonce, tag, &data).into_vec(),
                 envelope_bytes
             );
+        }
+
+        /// A nonce or tag backed by a longer buffer is its first `N` bytes
+        /// (the `ByteArray` view), so a box or envelope built from such parts
+        /// serializes to the canonical wire format and still opens. The nonce
+        /// rows cover both algorithms' nonce sizes.
+        #[test]
+        fn oversized_field_storage_serializes_canonically() {
+            type ChaChaEnvelope = AeadEnvelope<ChaCha20Poly1305Ietf, Vec<u8>, Vec<u8>, Vec<u8>>;
+            type XChaChaEnvelope = AeadEnvelope<XChaCha20Poly1305Ietf, Vec<u8>, Vec<u8>, Vec<u8>>;
+            let padded = |field: &[u8]| [field, &[0xa5]].concat();
+            let expected = chacha_expected();
+            let (data, tag) = expected.split_at(MESSAGE.len());
+
+            let aead = AeadBox::<ChaCha20Poly1305Ietf, Vec<u8>, Vec<u8>>::from_parts(
+                padded(tag),
+                data.to_vec(),
+            );
+            assert_eq!(aead.to_vec(), expected);
+            let decrypted: Vec<u8> = aead
+                .decrypt(Some(AD), &CHACHA_NONCE, &KEY)
+                .expect("decrypt");
+            assert_eq!(decrypted, MESSAGE);
+
+            let envelope_bytes = [&CHACHA_NONCE[..], &expected].concat();
+            for (row, nonce, mac) in [
+                ("nonce", padded(&CHACHA_NONCE), tag.to_vec()),
+                ("tag", CHACHA_NONCE.to_vec(), padded(tag)),
+            ] {
+                let envelope = ChaChaEnvelope::from_parts(nonce, mac, data.to_vec());
+                assert_eq!(envelope.to_vec(), envelope_bytes, "{row}");
+                let opened: Vec<u8> = envelope.open(Some(AD), &KEY).expect(row);
+                assert_eq!(opened, MESSAGE, "{row}");
+            }
+
+            let expected = xchacha_expected();
+            let (data, tag) = expected.split_at(MESSAGE.len());
+            let envelope =
+                XChaChaEnvelope::from_parts(padded(&XCHACHA_NONCE), tag.to_vec(), data.to_vec());
+            assert_eq!(envelope.to_vec(), [&XCHACHA_NONCE[..], &expected].concat());
+            let opened: Vec<u8> = envelope.open(Some(AD), &KEY).expect("open");
+            assert_eq!(opened, MESSAGE);
         }
 
         #[test]

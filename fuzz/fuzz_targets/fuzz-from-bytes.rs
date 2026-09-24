@@ -1,13 +1,22 @@
 #![no_main]
 //! The Rustaceous `from_bytes` parsers: each accepts exactly the inputs at
-//! least as long as its fixed prefix (a `CRYPTO_*` constant), and on success
-//! the parts it hands back are the corresponding byte splits of the input,
-//! which `to_vec` reassembles verbatim.
+//! least as long as its fixed prefix (a `CRYPTO_*` constant or
+//! `dryocsealedbox::SEALBYTES`), and on success the parts it hands back are
+//! the corresponding byte splits of the input, which `to_vec` reassembles
+//! verbatim.
+//!
+//! Boundary-length seeds around `SEALBYTES` (1135/1136/1137) live in
+//! `seeds/fuzz-from-bytes`; pass that directory after the corpus, since
+//! libFuzzer otherwise grows inputs towards post-quantum sealed-box sizes
+//! only slowly: `cargo fuzz run fuzz-from-bytes corpus/fuzz-from-bytes
+//! seeds/fuzz-from-bytes`.
 use dryoc::constants::{
-    CRYPTO_BOX_MACBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES,
-    CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SIGN_BYTES,
+    CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_BOX_MACBYTES, CRYPTO_BOX_PUBLICKEYBYTES,
+    CRYPTO_BOX_SEALBYTES, CRYPTO_KEM_XWING_CIPHERTEXTBYTES, CRYPTO_SECRETBOX_MACBYTES,
+    CRYPTO_SIGN_BYTES,
 };
 use dryoc::dryocbox::VecBox as VecDryocBox;
+use dryoc::dryocsealedbox::{SEALBYTES, VecBox as VecSealedBox};
 use dryoc::dryocsecretbox::VecBox as VecSecretBox;
 use dryoc::sign::VecSignedMessage;
 use dryoc::types::Bytes;
@@ -46,6 +55,22 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(ciphertext, expected_ciphertext);
         }
         Err(_) => assert!(data.len() < CRYPTO_BOX_SEALBYTES),
+    }
+
+    // Post-quantum DryocSealedBox: `enc || ciphertext || tag`.
+    match VecSealedBox::from_bytes(data) {
+        Ok(sealed) => {
+            assert!(data.len() >= SEALBYTES);
+            assert_eq!(sealed.to_vec(), data);
+            let (enc, tag, ciphertext) = sealed.into_parts();
+            let (expected_enc, rest) = data.split_at(CRYPTO_KEM_XWING_CIPHERTEXTBYTES);
+            let (expected_ciphertext, expected_tag) =
+                rest.split_at(rest.len() - CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES);
+            assert_eq!(enc.as_slice(), expected_enc);
+            assert_eq!(ciphertext, expected_ciphertext);
+            assert_eq!(tag.as_slice(), expected_tag);
+        }
+        Err(_) => assert!(data.len() < SEALBYTES),
     }
 
     // DryocSecretBox: `tag || ciphertext`.

@@ -88,8 +88,9 @@ impl Expanded {
     }
 
     /// Expands `seed` with SHAKE256 into the ML-KEM-768 seed `d || z` and the
-    /// X25519 secret key, then derives both key pairs into `self`.
-    fn derive(&mut self, seed: &SecretKey) {
+    /// X25519 secret key, then derives both key pairs into `self`, with
+    /// ML-KEM arithmetic from `arith`.
+    fn derive(&mut self, arith: Arith, seed: &SecretKey) {
         let keys = self;
         let mut mlkem_seed = Zeroizing::new([0u8; 64]);
         let mut sponge = Sponge::<RATE_256, ROUNDS_FULL>::new();
@@ -98,7 +99,7 @@ impl Expanded {
         sponge.squeeze(&mut *mlkem_seed);
         sponge.squeeze(&mut keys.x25519_secret_key);
         mlkem::keypair(
-            Arith::detect(),
+            arith,
             &mut keys.mlkem_public_key,
             &mut keys.mlkem_secret_key,
             &mlkem_seed,
@@ -135,7 +136,7 @@ pub fn crypto_kem_xwing_seed_keypair_inplace(
     seed: &Seed,
 ) {
     let mut keys = Expanded::zeroed();
-    keys.derive(seed);
+    keys.derive(Arith::detect(), seed);
     let (mlkem_public_key, x25519_public_key) =
         public_key.split_at_mut(CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES);
     mlkem_public_key.copy_from_slice(&keys.mlkem_public_key);
@@ -207,6 +208,18 @@ pub fn crypto_kem_xwing_enc_deterministic(
     public_key: &PublicKey,
     seed: &EncSeed,
 ) -> Result<(), Error> {
+    enc_deterministic(Arith::detect(), ciphertext, shared_secret, public_key, seed)
+}
+
+/// [`crypto_kem_xwing_enc_deterministic`] with ML-KEM arithmetic from
+/// `arith`, so tests can run each backend through this driver.
+pub(crate) fn enc_deterministic(
+    arith: Arith,
+    ciphertext: &mut Ciphertext,
+    shared_secret: &mut SharedSecret,
+    public_key: &PublicKey,
+    seed: &EncSeed,
+) -> Result<(), Error> {
     let (mlkem_public_key, x25519_public_key) =
         public_key.split_at(CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES);
     let (mlkem_seed, x25519_ephemeral) = seed.split_at(32);
@@ -224,7 +237,7 @@ pub fn crypto_kem_xwing_enc_deterministic(
     crypto_scalarmult(&mut x25519_secret, x25519_ephemeral, x25519_public_key)?;
     let mut mlkem_secret = Zeroizing::new([0u8; 32]);
     mlkem::encapsulate(
-        Arith::detect(),
+        arith,
         mlkem_ciphertext.try_into().expect("sized ciphertext"),
         &mut mlkem_secret,
         mlkem_public_key.try_into().expect("sized public key"),
@@ -259,8 +272,19 @@ pub fn crypto_kem_xwing_dec(
     ciphertext: &Ciphertext,
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
+    dec(Arith::detect(), shared_secret, ciphertext, secret_key)
+}
+
+/// [`crypto_kem_xwing_dec`] with ML-KEM arithmetic from `arith`, so tests
+/// can run each backend through this driver.
+pub(crate) fn dec(
+    arith: Arith,
+    shared_secret: &mut SharedSecret,
+    ciphertext: &Ciphertext,
+    secret_key: &SecretKey,
+) -> Result<(), Error> {
     let mut keys = Expanded::zeroed();
-    keys.derive(secret_key);
+    keys.derive(arith, secret_key);
     let (mlkem_ciphertext, x25519_ciphertext) =
         ciphertext.split_at(CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES);
     let x25519_ciphertext: &[u8; CRYPTO_SCALARMULT_BYTES] =
@@ -274,7 +298,7 @@ pub fn crypto_kem_xwing_dec(
     )?;
     let mut mlkem_secret = Zeroizing::new([0u8; 32]);
     mlkem::decapsulate(
-        Arith::detect(),
+        arith,
         &mut mlkem_secret,
         mlkem_ciphertext.try_into().expect("sized ciphertext"),
         &keys.mlkem_secret_key,

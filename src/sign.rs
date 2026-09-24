@@ -620,7 +620,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 
     /// Copies `self` into the target. Can be used with protected memory.
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
-        concat_bytes(self.signature.as_slice(), self.message.as_slice())
+        concat_bytes(self.signature.as_array(), self.message.as_slice())
     }
 }
 
@@ -790,6 +790,26 @@ mod tests {
                 keypair
             );
         }
+    }
+
+    /// A signature backed by a longer buffer is its first
+    /// [`CRYPTO_SIGN_BYTES`] bytes (the `ByteArray` view), so a signed
+    /// message built from it serializes to the canonical wire format and
+    /// still verifies.
+    #[test]
+    fn oversized_signature_storage_serializes_canonically() {
+        let (seed, public_key, message, signature) = RFC8032_ED25519[2];
+        let keypair = rfc_keypair(seed, public_key);
+        let message = hex::decode(message).expect("hex");
+        let signature = hex::decode(signature).expect("hex");
+        let wire = [signature.as_slice(), &message].concat();
+
+        let oversized = SignedMessage::<Vec<u8>, Vec<u8>>::from_parts(
+            [signature.as_slice(), &[0xa5]].concat(),
+            message,
+        );
+        assert_eq!(oversized.to_vec(), wire);
+        oversized.verify(&keypair.public_key).expect("verify");
     }
 
     #[test]
