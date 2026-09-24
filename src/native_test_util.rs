@@ -53,12 +53,20 @@ fn zeroed_state<T: PlainState>() -> T {
     unsafe { std::mem::zeroed() }
 }
 
-/// `sodium_init`, so libsodium selects its runtime-dispatched
-/// implementations before a benchmark measures them.
-#[cfg(feature = "nightly")]
+/// Runs `sodium_init` once per process; every call returns after it has
+/// completed. libsodium lazily sets up its random number generator and, in
+/// `sodium_init`, writes the global pointers that select its
+/// runtime-dispatched implementations, all without synchronizing with
+/// threads that did not call it. Parallel tests therefore race unless each
+/// one passes through this [`Once`](std::sync::Once) before calling into
+/// libsodium: every wrapper here calls it, and so must any test that calls
+/// `libsodium_sys` directly.
 pub(crate) fn init() {
-    // SAFETY: `sodium_init` takes no arguments and may be called repeatedly.
-    assert!(unsafe { ffi::sodium_init() } >= 0, "sodium_init failed");
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        // SAFETY: `sodium_init` takes no arguments.
+        assert!(unsafe { ffi::sodium_init() } >= 0, "sodium_init failed");
+    });
 }
 
 const BOX_MACBYTES: usize = ffi::crypto_box_MACBYTES as usize;
@@ -66,6 +74,7 @@ const BOX_SEALBYTES: usize = ffi::crypto_box_SEALBYTES as usize;
 
 /// `crypto_box_curve25519xsalsa20poly1305_seed_keypair`.
 pub(crate) fn box_seed_keypair(seed: &[u8]) -> ([u8; 32], [u8; 32]) {
+    init();
     let seed = fixed::<32>(seed);
     let (mut pk, mut sk) = ([0u8; 32], [0u8; 32]);
     // SAFETY: `pk` and `sk` are writable 32-byte arrays and `seed` is 32
@@ -83,6 +92,7 @@ pub(crate) fn box_seed_keypair(seed: &[u8]) -> ([u8; 32], [u8; 32]) {
 
 /// `crypto_box_easy`: the MAC followed by the ciphertext.
 pub(crate) fn box_easy(message: &[u8], nonce: &[u8], pk: &[u8], sk: &[u8]) -> Vec<u8> {
+    init();
     let (nonce, pk, sk) = (fixed::<24>(nonce), fixed::<32>(pk), fixed::<32>(sk));
     let mut ciphertext = vec![0u8; message.len() + BOX_MACBYTES];
     // SAFETY: `ciphertext` has room for the message plus the MAC, and the
@@ -108,6 +118,7 @@ pub(crate) fn box_open_easy(
     pk: &[u8],
     sk: &[u8],
 ) -> Result<Vec<u8>, ()> {
+    init();
     let (nonce, pk, sk) = (fixed::<24>(nonce), fixed::<32>(pk), fixed::<32>(sk));
     let len = ciphertext.len().checked_sub(BOX_MACBYTES).ok_or(())?;
     let mut message = vec![0u8; len];
@@ -128,6 +139,7 @@ pub(crate) fn box_open_easy(
 
 /// `crypto_box_curve25519xsalsa20poly1305_beforenm`.
 pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> [u8; 32] {
+    init();
     let (pk, sk) = (fixed::<32>(pk), fixed::<32>(sk));
     let mut key = [0u8; 32];
     // SAFETY: `key` is a writable 32-byte array and both keys are 32 bytes.
@@ -144,6 +156,7 @@ pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> [u8; 32] {
 
 /// `crypto_box_easy_afternm`.
 pub(crate) fn box_easy_afternm(message: &[u8], nonce: &[u8], key: &[u8]) -> Vec<u8> {
+    init();
     let (nonce, key) = (fixed::<24>(nonce), fixed::<32>(key));
     let mut ciphertext = vec![0u8; message.len() + BOX_MACBYTES];
     // SAFETY: as in `box_easy`, with the precomputed key in place of the
@@ -167,6 +180,7 @@ pub(crate) fn box_open_easy_afternm(
     nonce: &[u8],
     key: &[u8],
 ) -> Result<Vec<u8>, ()> {
+    init();
     let (nonce, key) = (fixed::<24>(nonce), fixed::<32>(key));
     let len = ciphertext.len().checked_sub(BOX_MACBYTES).ok_or(())?;
     let mut message = vec![0u8; len];
@@ -186,6 +200,7 @@ pub(crate) fn box_open_easy_afternm(
 
 /// `crypto_box_seal`.
 pub(crate) fn box_seal(message: &[u8], pk: &[u8]) -> Vec<u8> {
+    init();
     let pk = fixed::<32>(pk);
     let mut ciphertext = vec![0u8; message.len() + BOX_SEALBYTES];
     // SAFETY: `ciphertext` has room for the message plus the ephemeral key
@@ -204,6 +219,7 @@ pub(crate) fn box_seal(message: &[u8], pk: &[u8]) -> Vec<u8> {
 
 /// `crypto_box_seal_open`.
 pub(crate) fn box_seal_open(ciphertext: &[u8], pk: &[u8], sk: &[u8]) -> Result<Vec<u8>, ()> {
+    init();
     let (pk, sk) = (fixed::<32>(pk), fixed::<32>(sk));
     let len = ciphertext.len().checked_sub(BOX_SEALBYTES).ok_or(())?;
     let mut message = vec![0u8; len];
@@ -225,6 +241,7 @@ const SECRETBOX_MACBYTES: usize = ffi::crypto_secretbox_MACBYTES as usize;
 
 /// `crypto_secretbox_easy`: the MAC followed by the ciphertext.
 pub(crate) fn secretbox_easy(message: &[u8], nonce: &[u8], key: &[u8]) -> Vec<u8> {
+    init();
     let (nonce, key) = (fixed::<24>(nonce), fixed::<32>(key));
     let mut ciphertext = vec![0u8; message.len() + SECRETBOX_MACBYTES];
     // SAFETY: `ciphertext` has room for the message plus the MAC, and the
@@ -248,6 +265,7 @@ pub(crate) fn secretbox_open_easy(
     nonce: &[u8],
     key: &[u8],
 ) -> Result<Vec<u8>, ()> {
+    init();
     let (nonce, key) = (fixed::<24>(nonce), fixed::<32>(key));
     let len = ciphertext.len().checked_sub(SECRETBOX_MACBYTES).ok_or(())?;
     let mut message = vec![0u8; len];
@@ -276,6 +294,7 @@ macro_rules! aead_wrappers {
             nonce: &[u8],
             key: &[u8],
         ) -> Vec<u8> {
+            init();
             let (nonce, key) = (fixed::<$nonce_bytes>(nonce), fixed::<32>(key));
             let (ad_ptr, ad_len) = ad_parts(ad);
             let mut ciphertext = vec![0u8; message.len() + ffi::$abytes as usize];
@@ -307,6 +326,7 @@ macro_rules! aead_wrappers {
             nonce: &[u8],
             key: &[u8],
         ) -> Result<Vec<u8>, ()> {
+            init();
             let (nonce, key) = (fixed::<$nonce_bytes>(nonce), fixed::<32>(key));
             let (ad_ptr, ad_len) = ad_parts(ad);
             let len = ciphertext
@@ -356,6 +376,7 @@ macro_rules! mac_wrapper {
     ($name:ident, $ffi:ident, $key_bytes:literal, $tag_bytes:literal) => {
         #[doc = concat!("`", stringify!($ffi), "`.")]
         pub(crate) fn $name(message: &[u8], key: &[u8]) -> [u8; $tag_bytes] {
+            init();
             let key = fixed::<$key_bytes>(key);
             let mut tag = [0u8; $tag_bytes];
             // SAFETY: `tag` and `key` are arrays of libsodium's tag and key
@@ -393,6 +414,7 @@ macro_rules! hash_wrappers {
     ) => {
         #[doc = concat!("`", stringify!($oneshot), "`.")]
         pub(crate) fn $oneshot(message: &[u8]) -> [u8; $bytes] {
+            init();
             let mut digest = [0u8; $bytes];
             // SAFETY: `digest` is writable for the digest size and `message`
             // is live for its length.
@@ -413,6 +435,7 @@ macro_rules! hash_wrappers {
         impl $state {
             #[doc = concat!("`", stringify!($final), "`.")]
             pub(crate) fn finalize(mut self) -> [u8; $bytes] {
+                init();
                 let mut digest = [0u8; $bytes];
                 // SAFETY: the state was set up by `new`, and `digest` is
                 // writable for the digest size.
@@ -423,6 +446,7 @@ macro_rules! hash_wrappers {
 
             #[doc = concat!("`", stringify!($init), "`.")]
             pub(crate) fn new() -> Self {
+                init();
                 let mut state = zeroed_state::<ffi::$ffi_state>();
                 // SAFETY: `state` is a live, fully initialized state value.
                 let rc = unsafe { ffi::$init(&mut state) };
@@ -432,6 +456,7 @@ macro_rules! hash_wrappers {
 
             #[doc = concat!("`", stringify!($update), "`.")]
             pub(crate) fn update(&mut self, message: &[u8]) {
+                init();
                 // SAFETY: the state was set up by `new`, and `message` is
                 // live for its length.
                 let rc = unsafe {
@@ -481,6 +506,7 @@ macro_rules! xof_wrappers {
     ) => {
         #[doc = concat!("`", stringify!($oneshot), "`: `len` bytes of output.")]
         pub(crate) fn $oneshot(message: &[u8], len: usize) -> Vec<u8> {
+            init();
             let mut output = vec![0u8; len];
             // SAFETY: `output` is writable for `len` bytes and `message` is
             // live for its length.
@@ -502,6 +528,7 @@ macro_rules! xof_wrappers {
         impl $state {
             #[doc = concat!("`", stringify!($init), "`.")]
             pub(crate) fn new() -> Self {
+                init();
                 let mut state = zeroed_state::<ffi::$ffi_state>();
                 // SAFETY: `state` is a live, fully initialized state value.
                 let rc = unsafe { ffi::$init(&mut state) };
@@ -511,6 +538,7 @@ macro_rules! xof_wrappers {
 
             #[doc = concat!("`", stringify!($squeeze), "`: the next `len` output bytes.")]
             pub(crate) fn squeeze(&mut self, len: usize) -> Vec<u8> {
+                init();
                 let mut output = vec![0u8; len];
                 // SAFETY: the state is initialized and `output` is writable
                 // for `len` bytes.
@@ -521,6 +549,7 @@ macro_rules! xof_wrappers {
 
             #[doc = concat!("`", stringify!($update), "`.")]
             pub(crate) fn update(&mut self, message: &[u8]) {
+                init();
                 // SAFETY: the state is initialized and `message` is live for
                 // its length.
                 let rc = unsafe {
@@ -534,6 +563,7 @@ macro_rules! xof_wrappers {
                                 "every domain byte; `Err` means it reported failure."
                             )]
             pub(crate) fn with_domain(domain: u8) -> Result<Self, ()> {
+                init();
                 let mut state = zeroed_state::<ffi::$ffi_state>();
                 // SAFETY: `state` is a live, fully initialized state value.
                 let rc = unsafe { ffi::$init_with_domain(&mut state, domain) };
@@ -587,6 +617,7 @@ macro_rules! kem_wrappers {
     ) => {
         #[doc = concat!("`", stringify!($seed_keypair), "`.")]
         pub(crate) fn $seed_keypair(seed: &[u8]) -> ([u8; $pk], [u8; $sk]) {
+            init();
             let seed = fixed::<$seed>(seed);
             let (mut pk, mut sk) = ([0u8; $pk], [0u8; $sk]);
             // SAFETY: `pk`, `sk` and `seed` are arrays of libsodium's sizes.
@@ -597,6 +628,7 @@ macro_rules! kem_wrappers {
 
         #[doc = concat!("`", stringify!($enc), "`, returning the ciphertext and shared secret.")]
         pub(crate) fn $enc(pk: &[u8]) -> Result<([u8; $ct], [u8; 32]), ()> {
+            init();
             let pk = fixed::<$pk>(pk);
             let (mut ct, mut ss) = ([0u8; $ct], [0u8; 32]);
             // SAFETY: `ct`, `ss` and `pk` are arrays of libsodium's sizes.
@@ -606,6 +638,7 @@ macro_rules! kem_wrappers {
 
         #[doc = concat!("`", stringify!($dec), "`, returning the shared secret.")]
         pub(crate) fn $dec(ct: &[u8], sk: &[u8]) -> Result<[u8; 32], ()> {
+            init();
             let (ct, sk) = (fixed::<$ct>(ct), fixed::<$sk>(sk));
             let mut ss = [0u8; 32];
             // SAFETY: `ss`, `ct` and `sk` are arrays of libsodium's sizes.
@@ -622,6 +655,7 @@ macro_rules! kem_wrappers {
                 pk: &[u8],
                 seed: &[u8],
             ) -> Result<([u8; $ct], [u8; 32]), ()> {
+                init();
                 let (pk, seed) = (fixed::<$pk>(pk), fixed::<$enc_seed>(seed));
                 let (mut ct, mut ss) = ([0u8; $ct], [0u8; 32]);
                 // SAFETY: `ct`, `ss`, `pk` and `seed` are arrays of the sizes
@@ -667,6 +701,7 @@ pub(crate) fn kdf_blake2b_derive_from_key<const N: usize>(
     context: &[u8],
     key: &[u8],
 ) -> [u8; N] {
+    init();
     let (context, key) = (fixed::<8>(context), fixed::<32>(key));
     let mut subkey = [0u8; N];
     // SAFETY: `subkey` is writable for `N` bytes, `context` is 8 bytes and
@@ -693,6 +728,7 @@ macro_rules! kx_wrapper {
             sk: &[u8],
             peer_pk: &[u8],
         ) -> Result<([u8; 32], [u8; 32]), ()> {
+            init();
             let (pk, sk, peer_pk) = (fixed::<32>(pk), fixed::<32>(sk), fixed::<32>(peer_pk));
             let (mut rx, mut tx) = ([0u8; 32], [0u8; 32]);
             // SAFETY: `rx` and `tx` are writable 32-byte arrays and all three
@@ -716,6 +752,7 @@ kx_wrapper!(kx_server_session_keys, crypto_kx_server_session_keys);
 
 /// `crypto_scalarmult_curve25519_base`.
 pub(crate) fn scalarmult_curve25519_base(scalar: &[u8]) -> [u8; 32] {
+    init();
     let scalar = fixed::<32>(scalar);
     let mut point = [0u8; 32];
     // SAFETY: `point` is a writable 32-byte array and `scalar` is 32 bytes.
@@ -726,6 +763,7 @@ pub(crate) fn scalarmult_curve25519_base(scalar: &[u8]) -> [u8; 32] {
 
 /// `crypto_scalarmult_curve25519`; libsodium rejects low-order points.
 pub(crate) fn scalarmult_curve25519(scalar: &[u8], point: &[u8]) -> Result<[u8; 32], ()> {
+    init();
     let (scalar, point) = (fixed::<32>(scalar), fixed::<32>(point));
     let mut shared = [0u8; 32];
     // SAFETY: `shared` is a writable 32-byte array and both inputs are 32
@@ -747,6 +785,7 @@ pub(crate) fn pwhash_argon2id<const N: usize>(
     opslimit: u64,
     memlimit: usize,
 ) -> [u8; N] {
+    init();
     let salt = fixed::<16>(salt);
     let mut hash = [0u8; N];
     // SAFETY: `hash` is writable for `N` bytes, `password` is live for its
@@ -774,6 +813,7 @@ pub(crate) fn pwhash_argon2id_str(
     opslimit: u64,
     memlimit: usize,
 ) -> [u8; PWHASH_ARGON2ID_STRBYTES] {
+    init();
     let mut encoded = [0u8; PWHASH_ARGON2ID_STRBYTES];
     // SAFETY: `encoded` is writable for the `STRBYTES` libsodium fills, and
     // `password` is live for its length.
@@ -793,6 +833,7 @@ pub(crate) fn pwhash_argon2id_str(
 /// `crypto_pwhash_argon2id_str_verify` for a NUL-padded encoded hash.
 #[cfg(feature = "base64")]
 pub(crate) fn pwhash_argon2id_str_verify(encoded: &[u8], password: &[u8]) -> bool {
+    init();
     let encoded = fixed::<PWHASH_ARGON2ID_STRBYTES>(encoded);
     assert!(encoded.contains(&0), "encoded hash is not NUL-terminated");
     // SAFETY: `encoded` holds a NUL within its bounds, so libsodium's C
@@ -810,6 +851,7 @@ const SIGN_BYTES: usize = ffi::crypto_sign_ed25519_BYTES as usize;
 
 /// `crypto_sign_ed25519_seed_keypair`.
 pub(crate) fn sign_ed25519_seed_keypair(seed: &[u8]) -> ([u8; 32], [u8; 64]) {
+    init();
     let seed = fixed::<32>(seed);
     let (mut pk, mut sk) = ([0u8; 32], [0u8; 64]);
     // SAFETY: `pk` and `sk` are writable arrays of libsodium's key sizes and
@@ -823,6 +865,7 @@ pub(crate) fn sign_ed25519_seed_keypair(seed: &[u8]) -> ([u8; 32], [u8; 64]) {
 
 /// `crypto_sign_ed25519`: the signature followed by the message.
 pub(crate) fn sign_ed25519(message: &[u8], sk: &[u8]) -> Vec<u8> {
+    init();
     let sk = fixed::<64>(sk);
     let mut signed = vec![0u8; message.len() + SIGN_BYTES];
     let mut signed_len: c_ulonglong = 0;
@@ -843,6 +886,7 @@ pub(crate) fn sign_ed25519(message: &[u8], sk: &[u8]) -> Vec<u8> {
 
 /// `crypto_sign_ed25519_open`, returning the message.
 pub(crate) fn sign_ed25519_open(signed: &[u8], pk: &[u8]) -> Result<Vec<u8>, ()> {
+    init();
     let pk = fixed::<32>(pk);
     let mut message = vec![0u8; signed.len()];
     let mut message_len: c_ulonglong = 0;
@@ -863,6 +907,7 @@ pub(crate) fn sign_ed25519_open(signed: &[u8], pk: &[u8]) -> Result<Vec<u8>, ()>
 
 /// `crypto_sign_ed25519_detached`.
 pub(crate) fn sign_ed25519_detached(message: &[u8], sk: &[u8]) -> [u8; 64] {
+    init();
     let sk = fixed::<64>(sk);
     let mut signature = [0u8; 64];
     let mut signature_len: c_ulonglong = 0;
@@ -883,6 +928,7 @@ pub(crate) fn sign_ed25519_detached(message: &[u8], sk: &[u8]) -> [u8; 64] {
 
 /// `crypto_sign_ed25519_verify_detached`.
 pub(crate) fn sign_ed25519_verify_detached(signature: &[u8], message: &[u8], pk: &[u8]) -> bool {
+    init();
     let (signature, pk) = (fixed::<64>(signature), fixed::<32>(pk));
     // SAFETY: `signature` is 64 bytes, `pk` is 32 bytes and `message` is live
     // for its length.
@@ -898,6 +944,7 @@ pub(crate) fn sign_ed25519_verify_detached(signature: &[u8], message: &[u8], pk:
 
 /// A `crypto_sign_ed25519ph` state that has absorbed `parts` in order.
 fn sign_ed25519ph_state(parts: &[&[u8]]) -> ffi::crypto_sign_ed25519ph_state {
+    init();
     let mut state = zeroed_state::<ffi::crypto_sign_ed25519ph_state>();
     // SAFETY: `state` is a live, fully initialized state value.
     assert_eq!(unsafe { ffi::crypto_sign_ed25519ph_init(&mut state) }, 0);
@@ -913,6 +960,7 @@ fn sign_ed25519ph_state(parts: &[&[u8]]) -> ffi::crypto_sign_ed25519ph_state {
 
 /// `crypto_sign_ed25519ph_final_create` over the concatenation of `parts`.
 pub(crate) fn sign_ed25519ph(parts: &[&[u8]], sk: &[u8]) -> [u8; 64] {
+    init();
     let sk = fixed::<64>(sk);
     let mut state = sign_ed25519ph_state(parts);
     let mut signature = [0u8; 64];
@@ -933,6 +981,7 @@ pub(crate) fn sign_ed25519ph(parts: &[&[u8]], sk: &[u8]) -> [u8; 64] {
 
 /// `crypto_sign_ed25519ph_final_verify` over the concatenation of `parts`.
 pub(crate) fn sign_ed25519ph_verify(parts: &[&[u8]], signature: &[u8], pk: &[u8]) -> bool {
+    init();
     let (signature, pk) = (fixed::<64>(signature), fixed::<32>(pk));
     let mut state = sign_ed25519ph_state(parts);
     // SAFETY: the state is initialized, `signature` is 64 bytes and `pk` is
@@ -965,6 +1014,7 @@ pub(crate) struct SecretStream {
 impl SecretStream {
     /// `crypto_secretstream_xchacha20poly1305_init_pull`.
     pub(crate) fn init_pull(header: &[u8], key: &[u8]) -> Result<Self, ()> {
+        init();
         let (header, key) = (fixed::<24>(header), fixed::<32>(key));
         let mut state = zeroed_state::<ffi::crypto_secretstream_xchacha20poly1305_state>();
         // SAFETY: `state` is a live, fully initialized state value, `header`
@@ -988,6 +1038,7 @@ impl SecretStream {
     /// `crypto_secretstream_xchacha20poly1305_init_push`, returning the
     /// stream and its header.
     pub(crate) fn init_push(key: &[u8]) -> (Self, [u8; 24]) {
+        init();
         let key = fixed::<32>(key);
         let mut state = zeroed_state::<ffi::crypto_secretstream_xchacha20poly1305_state>();
         let mut header = [0u8; 24];
@@ -1019,6 +1070,7 @@ impl SecretStream {
         ciphertext: &[u8],
         ad: Option<&[u8]>,
     ) -> Result<(Vec<u8>, u8), ()> {
+        init();
         if self.finalized {
             return Err(());
         }
@@ -1060,6 +1112,7 @@ impl SecretStream {
         ad: Option<&[u8]>,
         tag: u8,
     ) -> Result<Vec<u8>, ()> {
+        init();
         if self.finalized {
             return Err(());
         }
@@ -1091,6 +1144,7 @@ impl SecretStream {
 
     /// `crypto_secretstream_xchacha20poly1305_rekey`.
     pub(crate) fn rekey(&mut self) -> Result<(), ()> {
+        init();
         if self.finalized {
             return Err(());
         }

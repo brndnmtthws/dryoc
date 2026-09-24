@@ -532,6 +532,8 @@ mod tests {
     fn test_matches_libsodium_at_boundary_lengths() {
         use libc::c_ulonglong;
 
+        crate::native_test_util::init();
+
         for len in boundary_lens() {
             let (key, nonce, message) = fixture(len);
             let mut expected = vec![0u8; len];

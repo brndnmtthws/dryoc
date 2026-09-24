@@ -433,6 +433,8 @@ mod tests {
         fn test_counter_boundaries_match_libsodium_xchacha_stream() {
             use libsodium_sys::crypto_stream_xchacha20_xor_ic;
 
+            crate::native_test_util::init();
+
             for start in [u64::from(u32::MAX), u64::MAX] {
                 let input = [0u8; 128];
                 let mut expected = [0u8; 128];
@@ -461,6 +463,7 @@ mod tests {
 
         #[test]
         fn test_matches_libsodium_detached_and_combined() {
+            crate::native_test_util::init();
             check_matches_libsodium(
                 &aead(),
                 libsodium_sys::crypto_aead_xchacha20poly1305_ietf_encrypt_detached,

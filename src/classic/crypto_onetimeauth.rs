@@ -267,6 +267,8 @@ mod tests {
     fn test_matches_libsodium_at_block_boundaries() {
         use crate::utils::test_util::XorShift64;
 
+        crate::native_test_util::init();
+
         let mut rng = XorShift64::new(0x0a3e_71c9_5b2d_f804);
         for len in [0usize, 1, 15, 16, 17, 31, 32, 33, 1023, 1024, 1025] {
             let key: Key = rng.next_bytes32();

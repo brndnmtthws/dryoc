@@ -937,6 +937,7 @@ mod tests {
         /// bit 255) is refused by the precomputation, as libsodium does.
         #[test]
         fn test_crypto_box_beforenm_low_order_compatibility() {
+            crate::native_test_util::init();
             let (_, secret_key) = crypto_box_seed_keypair(&[0x54; CRYPTO_BOX_SEEDBYTES]);
 
             for public_key in crate::scalarmult_curve25519::test_vectors::low_order_u_encodings() {
@@ -963,6 +964,7 @@ mod tests {
         /// same fixed keys and nonce.
         #[test]
         fn test_crypto_box_detached_matches_libsodium() {
+            crate::native_test_util::init();
             let (sender_pk, sender_sk) = crypto_box_seed_keypair(&[0x51; CRYPTO_BOX_SEEDBYTES]);
             let (recipient_pk, recipient_sk) =
                 crypto_box_seed_keypair(&[0x52; CRYPTO_BOX_SEEDBYTES]);

@@ -604,6 +604,7 @@ mod tests {
 
         #[test]
         fn test_b2() {
+            crate::native_test_util::init();
             use crate::rng::copy_randombytes;
 
             let mut s = B2state {
@@ -644,6 +645,7 @@ mod tests {
 
         #[test]
         fn test_b2_key() {
+            crate::native_test_util::init();
             use crate::rng::copy_randombytes;
 
             let mut s = B2state {
@@ -684,6 +686,7 @@ mod tests {
 
         #[test]
         fn test_blake2b_long() {
+            crate::native_test_util::init();
             use crate::rng::copy_randombytes;
 
             for i in 5..320 {
@@ -709,6 +712,7 @@ mod tests {
 
         #[test]
         fn test_blake2b_long_rand_length() {
+            crate::native_test_util::init();
             use rand::TryRng;
             use rand::rngs::SysRng;
 
@@ -742,6 +746,7 @@ mod tests {
         /// here and nowhere in the ordinary vectors.
         #[test]
         fn test_counter_carry_matches_libsodium() {
+            crate::native_test_util::init();
             let message: Vec<u8> = (0..3 * BLOCKBYTES as u32)
                 .map(|i| (i * 31 % 251) as u8)
                 .collect();

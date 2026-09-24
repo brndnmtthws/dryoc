@@ -744,6 +744,8 @@ mod tests {
         use crate::native_test_util::pwhash_argon2id;
         use crate::rng::copy_randombytes;
 
+        crate::native_test_util::init();
+
         let mut hash = [0u8; 32];
         let mut salt = [0u8; CRYPTO_PWHASH_SALTBYTES];
 
@@ -1127,6 +1129,8 @@ mod tests {
     fn test_crypto_pwhash_str_verify() {
         use crate::native_test_util::pwhash_argon2id_str;
 
+        crate::native_test_util::init();
+
         let password = b"donkey kong";
 
         let pwhash = pwhash_argon2id_str(
@@ -1325,6 +1329,8 @@ mod tests {
     fn mutation_matrix_matches_libsodium() {
         use std::ffi::CString;
 
+        crate::native_test_util::init();
+
         for (name, encoded, _) in mutated_password_hashes() {
             let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
             let sodium_verify = unsafe {
@@ -1358,6 +1364,8 @@ mod tests {
     #[test]
     fn algorithm_and_parallelism_mutations_match_libsodium() {
         use std::ffi::CString;
+
+        crate::native_test_util::init();
 
         for (encoded, memlimit) in [
             (
@@ -1393,6 +1401,8 @@ mod tests {
     #[test]
     fn exact_maximum_encoded_length_matches_libsodium() {
         use std::ffi::CString;
+
+        crate::native_test_util::init();
 
         let encoded = exact_max_password_hash();
         let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");

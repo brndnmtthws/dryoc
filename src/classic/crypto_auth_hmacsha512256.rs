@@ -202,6 +202,7 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     fn sodium_hmac(key: &[u8], message: &[u8]) -> Mac {
+        crate::native_test_util::init();
         let mut state = unsafe { std::mem::zeroed() };
         assert_eq!(
             unsafe {

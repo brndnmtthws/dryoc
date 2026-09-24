@@ -517,6 +517,7 @@ mod tests {
     #[test]
     fn keyed_and_unkeyed_hashes_match_libsodium_at_length_bounds() {
         fn sodium_hash(input: &[u8], key: Option<&[u8]>, outlen: usize) -> Vec<u8> {
+            crate::native_test_util::init();
             let mut output = vec![0u8; outlen];
             let rc = unsafe {
                 libsodium_sys::crypto_generichash(

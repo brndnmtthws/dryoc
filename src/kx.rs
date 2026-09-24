@@ -481,6 +481,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn sessions_match_libsodium_session_keys() {
+        crate::native_test_util::init();
         let mut rng = XorShift64::new(0x6c69_6273_6f64_6b78);
         for _ in 0..8 {
             let client = KeyPair::from_seed(&rng.next_bytes32());

@@ -309,6 +309,8 @@ mod tests {
 
         use super::*;
 
+        crate::native_test_util::init();
+
         // SAFETY: These parameter-free libsodium functions only return
         // compile-time constants.
         macro_rules! check_numeric {

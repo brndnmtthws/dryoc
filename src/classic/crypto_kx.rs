@@ -162,6 +162,7 @@ mod tests {
     use crate::utils::test_util::XorShift64;
 
     fn sodium_kx_seed_keypair(seed: &[u8; CRYPTO_KX_SEEDBYTES]) -> (PublicKey, SecretKey) {
+        crate::native_test_util::init();
         let mut pk = PublicKey::default();
         let mut sk = SecretKey::default();
         let result = unsafe {
@@ -192,6 +193,7 @@ mod tests {
     /// and each side's rx is the other's tx.
     #[test]
     fn test_kx_session_keys_match_libsodium_for_seeded_pair() {
+        crate::native_test_util::init();
         let (client_pk, client_sk) = crypto_kx_seed_keypair(&[0x11; CRYPTO_KX_SEEDBYTES]).unwrap();
         let (server_pk, server_sk) = crypto_kx_seed_keypair(&[0x22; CRYPTO_KX_SEEDBYTES]).unwrap();
 
@@ -245,6 +247,7 @@ mod tests {
     /// libsodium does.
     #[test]
     fn test_kx_rejects_low_order_public_keys() {
+        crate::native_test_util::init();
         let (pk, sk) = crypto_kx_seed_keypair(&[0x33; CRYPTO_KX_SEEDBYTES]).unwrap();
 
         for peer_pk in low_order_u_encodings() {

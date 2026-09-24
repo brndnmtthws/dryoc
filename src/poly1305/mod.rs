@@ -360,6 +360,7 @@ mod tests {
         use crate::utils::test_util::XorShift64;
 
         fn sodium_mac(key: &[u8; 32], message: &[u8]) -> [u8; BLOCK_SIZE] {
+            crate::native_test_util::init();
             let mut tag = [0u8; BLOCK_SIZE];
             // SAFETY: `tag` is `crypto_onetimeauth_BYTES` long, `message` is
             // valid for its length and `key` is `crypto_onetimeauth_KEYBYTES`.

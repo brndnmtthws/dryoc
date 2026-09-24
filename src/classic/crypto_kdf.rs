@@ -329,6 +329,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_crypto_kdf_boundary_parameters_match_libsodium() {
+        crate::native_test_util::init();
         let key: Key = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
         for context in [
             [0u8; CRYPTO_KDF_CONTEXTBYTES],

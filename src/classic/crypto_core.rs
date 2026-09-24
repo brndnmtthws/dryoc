@@ -470,6 +470,8 @@ mod tests {
         fn test_crypto_core_ed25519_is_valid_point_matches_libsodium() {
             use libsodium_sys::crypto_core_ed25519_is_valid_point as sodium_is_valid_point;
 
+            crate::native_test_util::init();
+
             let basepoint = curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
             let mut negative_basepoint = basepoint;
             negative_basepoint[31] |= 0x80;
@@ -570,6 +572,8 @@ mod tests {
         fn test_crypto_scalarmult_low_order_compatibility() {
             use libsodium_sys::crypto_scalarmult as sodium_scalarmult;
 
+            crate::native_test_util::init();
+
             let mut rng = crate::utils::test_util::XorShift64::new(0x3c6e_f372_fe94_f82b);
             let scalars = [[0u8; 32], [0xff; 32], [0x42; 32], rng.next_bytes32()];
 
@@ -599,6 +603,8 @@ mod tests {
         #[test]
         fn test_crypto_scalarmult_noncanonical_compatibility() {
             use libsodium_sys::crypto_scalarmult as sodium_scalarmult;
+
+            crate::native_test_util::init();
 
             let mut rng = crate::utils::test_util::XorShift64::new(0xa54f_f53a_5f1d_36f1);
             // 0 and 1 are low order (tested above); 2..=18 reach 2^255 - 1.
@@ -638,6 +644,8 @@ mod tests {
 
             use crate::rng::copy_randombytes;
 
+            crate::native_test_util::init();
+
             for _ in 0..10 {
                 let mut key = [0u8; 32];
                 let mut data = [0u8; 16];
@@ -671,6 +679,8 @@ mod tests {
             use libsodium_sys::crypto_core_hsalsa20 as so_crypto_core_hsalsa20;
 
             use crate::rng::copy_randombytes;
+
+            crate::native_test_util::init();
 
             for _ in 0..10 {
                 let mut key = [0u8; CRYPTO_CORE_HSALSA20_KEYBYTES];

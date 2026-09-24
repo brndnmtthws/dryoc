@@ -369,6 +369,8 @@ mod tests {
         use libc::c_ulonglong;
         use libsodium_sys::{crypto_stream_chacha20_ietf_xor_ic, crypto_stream_chacha20_xor_ic};
 
+        crate::native_test_util::init();
+
         for nonce in [NONCE, [0xffu8; 12]] {
             let mut stream = [0u8; 128];
             ChaCha20::ietf(&KEY, &nonce, u32::MAX).apply_keystream(&mut stream);
@@ -415,6 +417,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_matches_libsodium_detached_and_combined() {
+        crate::native_test_util::init();
         check_matches_libsodium(
             &aead(),
             libsodium_sys::crypto_aead_chacha20poly1305_ietf_encrypt_detached,
@@ -434,6 +437,8 @@ mod tests {
         };
 
         use crate::constants::CRYPTO_AEAD_CHACHA20POLY1305_IETF_NSECBYTES;
+
+        crate::native_test_util::init();
 
         // SAFETY: These parameter-free libsodium functions only return
         // compile-time constants.

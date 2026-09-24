@@ -659,6 +659,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_b2_simd() {
+        crate::native_test_util::init();
         use crate::rng::copy_randombytes;
 
         let mut s = B2state {
@@ -700,6 +701,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_b2_key_simd() {
+        crate::native_test_util::init();
         use crate::rng::copy_randombytes;
 
         let mut s = B2state {
@@ -741,6 +743,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_blake2b_long_simd() {
+        crate::native_test_util::init();
         use crate::rng::copy_randombytes;
 
         for i in 5..320 {
@@ -767,6 +770,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_blake2b_long_rand_length_simd() {
+        crate::native_test_util::init();
         use rand::rngs::SysRng;
 
         use crate::rng::copy_randombytes;

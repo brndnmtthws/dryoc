@@ -1171,6 +1171,7 @@ mod tests {
 
         #[test]
         fn test_vector_argon2id_so() {
+            crate::native_test_util::init();
             let password = [1u8; 32];
             let salt = [2u8; 16];
 
@@ -1224,6 +1225,7 @@ mod tests {
         /// high-level Argon2i API imposes a larger minimum operation count.
         #[test]
         fn test_low_cost_parameter_matrix_matches_libargon2() {
+            crate::native_test_util::init();
             let password = b"deterministic password";
             let salt = b"saltsalt";
             for type_ in [Argon2Type::Argon2i, Argon2Type::Argon2id] {

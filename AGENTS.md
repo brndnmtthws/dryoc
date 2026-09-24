@@ -94,6 +94,11 @@ cargo fuzz run fuzz-hashes
 - For protected memory changes, test the default `protected` feature on
   Unix/Windows; also test with `+nightly --features nightly` when touching
   nightly-only allocator APIs.
+- Native compatibility tests run in parallel threads, and libsodium's lazy
+  RNG setup and `sodium_init`'s dispatch selection are unsynchronized
+  globals. Prefer the `src/native_test_util.rs` wrappers, which call
+  `native_test_util::init()`; any test that calls `libsodium_sys` (or a
+  libsodium symbol declared in `extern "C"`) directly must call it first.
 
 ## Crypto-Specific Rules
 

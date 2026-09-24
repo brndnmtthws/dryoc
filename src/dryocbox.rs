@@ -1240,6 +1240,7 @@ mod tests {
 
         #[test]
         fn nacl_vector_matches_libsodium_box_and_beforenm() {
+            crate::native_test_util::init();
             let v = nacl_vector();
             let so_boxed =
                 sodium::box_easy(&v.message, &v.nonce, &v.bob.public_key, &v.alice.secret_key);
