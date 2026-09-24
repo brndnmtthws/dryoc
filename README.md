@@ -82,6 +82,11 @@ The optional portable SIMD implementations require nightly Rust and
 `--features simd_backend,nightly`. The `simd_backend` feature selects those
 implementations, while `nightly` enables Rust's unstable `portable_simd` API.
 
+The `nightly` feature also implements the standard `Allocator` trait for
+the protected-memory `PageAlignedAllocator`. It requires `nightly-2026-09-24`
+or later (rustc 1.100.0-nightly from 2026-09-23), where that API no longer
+needs a feature gate; older nightlies fail to compile with `--features nightly`.
+
 Optimized AArch64 and x86-64 implementations are built in and do not require
 the `simd_backend` feature. Implementations that need optional CPU extensions,
 such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,

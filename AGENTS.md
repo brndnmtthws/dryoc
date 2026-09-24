@@ -30,8 +30,9 @@ than convenience refactors.
   - `protected`: protected memory APIs on Unix/Windows; enabled by default and
     does not add a dependency beyond target OS bindings already used by the
     crate.
-  - `nightly`: extra doc cfg support and nightly-only allocator APIs for
-    protected memory.
+  - `nightly`: extra doc cfg support, portable SIMD for `simd_backend`, and
+    the `Allocator` implementation for protected memory. Requires
+    `nightly-2026-09-24` or later (the allocator API is ungated there).
   - `simd_backend`: SIMD-backed internals; in CI this is used with `nightly`.
 - Do not commit a `Cargo.lock` for routine library changes unless the project
   policy changes.
@@ -110,6 +111,14 @@ cargo fuzz run fuzz-hashes
   secrets.
 - Use `subtle` or existing constant-time helpers for equality and selection.
 - Ensure secret material is zeroized where existing types expect that behavior.
+- Kernels (portable, SIMD, intrinsics, `asm!`) zeroize, once per call rather
+  than per block, every working copy of key-, keystream-, or key-derived state
+  whose address reaches memory in optimized code: storage passed by reference
+  to a non-inlined function (`#[inline(never)]` loops, out-of-line helpers) or
+  used as an `asm!` memory operand. Iterate secret `Copy` arrays by reference
+  so no iterator-owned copy is made. Values that only flow through inlined
+  helpers live in registers and spill slots, which Rust cannot reliably wipe;
+  do not add wipes that force them into memory, and say so at the kernel.
 - Treat nonce generation and reuse rules as part of the API contract; do not
   silently change them.
 - Any new `unsafe` must be small, documented by surrounding invariants, and
