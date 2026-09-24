@@ -402,7 +402,8 @@ mod tests {
     fn test_crypto_sign() {
         use base64::Engine as _;
         use base64::engine::general_purpose;
-        use sodiumoxide::crypto::sign;
+
+        use crate::native_test_util::{sign_ed25519, sign_ed25519_open};
 
         for _ in 0..10 {
             let (public_key, secret_key) = crypto_sign_keypair();
@@ -410,21 +411,14 @@ mod tests {
             let mut signed_message = vec![0u8; message.len() + CRYPTO_SIGN_BYTES];
             crypto_sign(&mut signed_message, message, &secret_key).expect("sign failed");
 
-            let so_signed_message = sign::sign(
-                message,
-                &sign::SecretKey::from_slice(&secret_key).expect("secret key failed"),
-            );
+            let so_signed_message = sign_ed25519(message, &secret_key);
 
             assert_eq!(
                 general_purpose::STANDARD.encode(&signed_message),
                 general_purpose::STANDARD.encode(&so_signed_message)
             );
 
-            let so_m = sign::verify(
-                &signed_message,
-                &sign::PublicKey::from_slice(&public_key).expect("public key failed"),
-            )
-            .expect("verify failed");
+            let so_m = sign_ed25519_open(&signed_message, &public_key).expect("verify failed");
 
             assert_eq!(so_m, message);
         }
@@ -434,7 +428,8 @@ mod tests {
     fn test_crypto_sign_open() {
         use base64::Engine as _;
         use base64::engine::general_purpose;
-        use sodiumoxide::crypto::sign;
+
+        use crate::native_test_util::{sign_ed25519, sign_ed25519_open};
 
         for _ in 0..10 {
             let (public_key, secret_key) = crypto_sign_keypair();
@@ -442,21 +437,14 @@ mod tests {
             let mut signed_message = vec![0u8; message.len() + CRYPTO_SIGN_BYTES];
             crypto_sign(&mut signed_message, message, &secret_key).expect("sign failed");
 
-            let so_signed_message = sign::sign(
-                message,
-                &sign::SecretKey::from_slice(&secret_key).expect("secret key failed"),
-            );
+            let so_signed_message = sign_ed25519(message, &secret_key);
 
             assert_eq!(
                 general_purpose::STANDARD.encode(&signed_message),
                 general_purpose::STANDARD.encode(&so_signed_message)
             );
 
-            let so_m = sign::verify(
-                &signed_message,
-                &sign::PublicKey::from_slice(&public_key).expect("public key failed"),
-            )
-            .expect("verify failed");
+            let so_m = sign_ed25519_open(&signed_message, &public_key).expect("verify failed");
 
             assert_eq!(so_m, message);
 
@@ -471,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_crypto_sign_detached() {
-        use sodiumoxide::crypto::sign;
+        use crate::native_test_util::sign_ed25519_verify_detached;
 
         for _ in 0..10 {
             let (public_key, secret_key) = crypto_sign_keypair();
@@ -479,10 +467,10 @@ mod tests {
             let mut signature = [0u8; CRYPTO_SIGN_BYTES];
             crypto_sign_detached(&mut signature, message, &secret_key).expect("sign failed");
 
-            assert!(sign::verify_detached(
-                &sign::ed25519::Signature::from_bytes(&signature).expect("secret key failed"),
+            assert!(sign_ed25519_verify_detached(
+                &signature,
                 message,
-                &sign::PublicKey::from_slice(&public_key).expect("public key failed"),
+                &public_key
             ));
 
             crypto_sign_verify_detached(&signature, message, &public_key).expect("verify failed");
@@ -491,8 +479,7 @@ mod tests {
 
     #[test]
     fn test_crypto_sign_incremental() {
-        use sodiumoxide::crypto::sign;
-
+        use crate::native_test_util::{sign_ed25519ph, sign_ed25519ph_verify};
         use crate::rng::copy_randombytes;
 
         for _ in 0..10 {
@@ -500,8 +487,8 @@ mod tests {
             let mut signer = crypto_sign_init();
             let mut verifier = crypto_sign_init();
 
-            let mut so_signer = sign::State::init();
-            let mut so_verifier = sign::State::init();
+            // libsodium's side absorbs the same three parts.
+            let mut so_parts = Vec::new();
 
             for _ in 0..3 {
                 let mut randos = vec![0u8; 100];
@@ -510,26 +497,21 @@ mod tests {
                 crypto_sign_update(&mut signer, &randos);
                 crypto_sign_update(&mut verifier, &randos);
 
-                so_signer.update(&randos);
-                so_verifier.update(&randos);
+                so_parts.push(randos);
             }
+            let so_parts: Vec<&[u8]> = so_parts.iter().map(Vec::as_slice).collect();
 
             let mut signature = [0u8; CRYPTO_SIGN_BYTES];
             crypto_sign_final_create(signer, &mut signature, &secret_key)
                 .expect("final create failed");
 
-            let so_signature = so_signer
-                .finalize(&sign::SecretKey::from_slice(&secret_key).expect("secret key failed"));
+            let so_signature = sign_ed25519ph(&so_parts, &secret_key);
 
-            assert_eq!(signature, so_signature.to_bytes());
+            assert_eq!(signature, so_signature);
 
-            crypto_sign_final_verify(verifier, &so_signature.to_bytes(), &public_key)
-                .expect("verify failed");
+            crypto_sign_final_verify(verifier, &so_signature, &public_key).expect("verify failed");
 
-            assert!(so_signer.verify(
-                &sign::ed25519::Signature::from_bytes(&signature).expect("secret key failed"),
-                &sign::PublicKey::from_slice(&public_key).expect("public key failed"),
-            ));
+            assert!(sign_ed25519ph_verify(&so_parts, &signature, &public_key));
         }
     }
 }

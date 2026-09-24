@@ -800,7 +800,7 @@ mod tests {
 
     #[test]
     fn test_keypair_seed() {
-        use sodiumoxide::crypto::sign;
+        use crate::native_test_util::sign_ed25519_seed_keypair;
 
         for _ in 0..10 {
             let mut seed = [0u8; CRYPTO_SIGN_ED25519_SEEDBYTES];
@@ -808,16 +808,15 @@ mod tests {
 
             let (pk, sk) = crypto_sign_ed25519_seed_keypair(&seed);
 
-            let (so_pk, so_sk) =
-                sign::keypair_from_seed(&sign::Seed::from_slice(&seed).expect("seed failed"));
+            let (so_pk, so_sk) = sign_ed25519_seed_keypair(&seed);
 
             assert_eq!(
                 general_purpose::STANDARD.encode(pk),
-                general_purpose::STANDARD.encode(so_pk.0)
+                general_purpose::STANDARD.encode(so_pk)
             );
             assert_eq!(
                 general_purpose::STANDARD.encode(sk),
-                general_purpose::STANDARD.encode(so_sk.0)
+                general_purpose::STANDARD.encode(so_sk)
             );
         }
     }

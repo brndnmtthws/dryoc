@@ -699,13 +699,11 @@ mod tests {
         fn test_libsodium() {
             use rand::TryRng;
             use rand::rngs::SysRng;
-            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
+            use crate::native_test_util::onetimeauth_poly1305;
             use crate::rng::copy_randombytes;
 
             let key = Key::generate();
-
-            let so_key = SOKey::from_slice(&key).unwrap();
 
             for _ in 0..20 {
                 let rand_usize = (SysRng.try_next_u32().unwrap() % 1000) as usize;
@@ -716,9 +714,9 @@ mod tests {
                 mac.update(&data);
                 let mac = mac.finalize_to_array();
 
-                let so_mac = authenticate(&data, &so_key);
+                let so_mac = onetimeauth_poly1305(&data, &key);
 
-                assert_eq!(mac, so_mac.as_ref());
+                assert_eq!(mac, so_mac);
             }
         }
 
@@ -727,8 +725,7 @@ mod tests {
         /// boundaries, and worst-case key/message limbs, against libsodium.
         #[test]
         fn test_libsodium_long_and_chunked() {
-            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
-
+            use crate::native_test_util::onetimeauth_poly1305;
             use crate::rng::copy_randombytes;
 
             let mut keys = vec![Key::generate(), Key::generate()];
@@ -737,22 +734,17 @@ mod tests {
             keys.push(Key::from(&[0xffu8; 32]));
 
             for key in &keys {
-                let so_key = SOKey::from_slice(key).unwrap();
                 for len in (464..=1300).chain([4096, 4097, 65536 + 17]) {
                     let mut data = vec![0u8; len];
                     copy_randombytes(&mut data);
                     if len % 3 == 0 {
                         data.fill(0xff);
                     }
-                    let so_mac = authenticate(&data, &so_key);
+                    let so_mac = onetimeauth_poly1305(&data, key);
 
                     let mut mac = Poly1305::new(key);
                     mac.update(&data);
-                    assert_eq!(
-                        mac.finalize_to_array(),
-                        so_mac.as_ref(),
-                        "one-shot len={len}"
-                    );
+                    assert_eq!(mac.finalize_to_array(), so_mac, "one-shot len={len}");
 
                     // Split so the NEON path runs in the middle of a stream
                     // with a pending partial block before and after it, and
@@ -768,60 +760,62 @@ mod tests {
                         let mut mac = Poly1305::new(key);
                         mac.update(&data[..split]);
                         mac.update(&data[split..]);
-                        assert_eq!(
-                            mac.finalize_to_array(),
-                            so_mac.as_ref(),
-                            "split={split} len={len}"
-                        );
+                        assert_eq!(mac.finalize_to_array(), so_mac, "split={split} len={len}");
                     }
                 }
             }
         }
 
         #[cfg(all(feature = "nightly", not(tarpaulin)))]
-        fn bench_sodiumoxide_poly1305(b: &mut test::Bencher, len: usize) {
-            use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
-
+        fn bench_libsodium_poly1305(b: &mut test::Bencher, len: usize) {
             use crate::rng::copy_randombytes;
 
-            sodiumoxide::init().expect("sodiumoxide init");
+            crate::native_test_util::init();
 
             let key = Key::generate();
-            let so_key = SOKey::from_slice(&key).expect("key");
             let mut input = vec![0u8; len];
             copy_randombytes(&mut input);
+            let mut mac = [0u8; 16];
             b.bytes = len as u64;
 
             b.iter(|| {
-                let _ = test::black_box(authenticate(
-                    test::black_box(&input),
-                    test::black_box(&so_key),
-                ));
+                // SAFETY: `mac` is a writable 16-byte array, `input` is live
+                // for its length and `key` is 32 bytes.
+                let rc = unsafe {
+                    libsodium_sys::crypto_onetimeauth_poly1305(
+                        mac.as_mut_ptr(),
+                        test::black_box(input.as_ptr()),
+                        input.len() as u64,
+                        test::black_box(key.as_ptr()),
+                    )
+                };
+                assert_eq!(rc, 0);
+                test::black_box(&mac);
             });
         }
 
         #[cfg(all(feature = "nightly", not(tarpaulin)))]
         #[bench]
-        fn sodiumoxide_poly1305_64b_bench(b: &mut test::Bencher) {
-            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
+        fn libsodium_poly1305_64b_bench(b: &mut test::Bencher) {
+            bench_libsodium_poly1305(b, crate::poly1305::bench_inputs::BYTES_64);
         }
 
         #[cfg(all(feature = "nightly", not(tarpaulin)))]
         #[bench]
-        fn sodiumoxide_poly1305_1k_bench(b: &mut test::Bencher) {
-            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
+        fn libsodium_poly1305_1k_bench(b: &mut test::Bencher) {
+            bench_libsodium_poly1305(b, crate::poly1305::bench_inputs::KIB_1);
         }
 
         #[cfg(all(feature = "nightly", not(tarpaulin)))]
         #[bench]
-        fn sodiumoxide_poly1305_16k_bench(b: &mut test::Bencher) {
-            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
+        fn libsodium_poly1305_16k_bench(b: &mut test::Bencher) {
+            bench_libsodium_poly1305(b, crate::poly1305::bench_inputs::KIB_16);
         }
 
         #[cfg(all(feature = "nightly", not(tarpaulin)))]
         #[bench]
-        fn sodiumoxide_poly1305_1m_bench(b: &mut test::Bencher) {
-            bench_sodiumoxide_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
+        fn libsodium_poly1305_1m_bench(b: &mut test::Bencher) {
+            bench_libsodium_poly1305(b, crate::poly1305::bench_inputs::MIB_1);
         }
     }
 }

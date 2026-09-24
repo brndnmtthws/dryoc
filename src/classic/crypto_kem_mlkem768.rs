@@ -146,6 +146,148 @@ pub fn crypto_kem_mlkem768_dec(
     mlkem::decapsulate(Arith::detect(), shared_secret, ciphertext, secret_key);
 }
 
+/// Cross-checks against libsodium 1.0.22's ML-KEM-768.
+#[cfg(all(test, dryoc_native_tests))]
+pub(crate) mod native_tests {
+    use super::*;
+    use crate::native_test_util as sodium;
+    use crate::utils::test_util::XorShift64;
+
+    /// Seeds for key generation or encapsulation: all-zero, all-ones, four
+    /// fixed pseudorandom ones and two fresh random ones.
+    pub(crate) fn seeds<const N: usize>() -> Vec<[u8; N]> {
+        let mut rng = XorShift64::new(0x6d6c_6b65_6d37_3638);
+        let mut seeds = vec![[0u8; N], [0xff; N]];
+        for _ in 0..4 {
+            seeds.push(std::array::from_fn(|_| rng.next_u64() as u8));
+        }
+        for _ in 0..2 {
+            let mut seed = [0u8; N];
+            copy_randombytes(&mut seed);
+            seeds.push(seed);
+        }
+        seeds
+    }
+
+    /// Copies of `key`, whose first 1152 bytes are an ML-KEM-768 encoded
+    /// polynomial vector, with its first or its last 12-bit coefficient set
+    /// to 4095: not reduced modulo q, so FIPS 203's modulus check rejects it.
+    pub(crate) fn with_unreduced_coefficient<const N: usize>(key: &[u8; N]) -> [[u8; N]; 2] {
+        let (mut first, mut last) = (*key, *key);
+        first[0] = 0xff;
+        first[1] |= 0x0f;
+        last[1150] |= 0xf0;
+        last[1151] = 0xff;
+        [first, last]
+    }
+
+    /// Copies of `ciphertext` with one bit flipped at the start, middle and
+    /// end.
+    pub(crate) fn tampered<const N: usize>(ciphertext: &[u8; N]) -> [[u8; N]; 3] {
+        [0, N / 2, N - 1].map(|index| {
+            let mut copy = *ciphertext;
+            copy[index] ^= 0x01;
+            copy
+        })
+    }
+
+    /// For every key seed and encapsulation seed, both libraries derive the
+    /// same key pair, encapsulate to the same ciphertext and shared secret,
+    /// decapsulate it to that secret, and agree on the implicit-rejection
+    /// secret of each tampered ciphertext.
+    #[test]
+    fn test_mlkem768_matches_libsodium() {
+        for seed in seeds::<CRYPTO_KEM_MLKEM768_SEEDBYTES>() {
+            let (public_key, secret_key) = crypto_kem_mlkem768_seed_keypair(&seed);
+            let (so_public_key, so_secret_key) = sodium::crypto_kem_mlkem768_seed_keypair(&seed);
+            assert_eq!(public_key, so_public_key, "seed {seed:02x?}");
+            assert_eq!(secret_key, so_secret_key, "seed {seed:02x?}");
+
+            for enc_seed in seeds::<CRYPTO_KEM_MLKEM768_ENCSEEDBYTES>() {
+                let mut ciphertext = [0u8; CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES];
+                let mut sent = [0u8; CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES];
+                crypto_kem_mlkem768_enc_deterministic(
+                    &mut ciphertext,
+                    &mut sent,
+                    &public_key,
+                    &enc_seed,
+                )
+                .expect("enc");
+                let (so_ciphertext, so_sent) =
+                    sodium::crypto_kem_mlkem768_enc_deterministic(&public_key, &enc_seed)
+                        .expect("libsodium enc");
+                assert_eq!(ciphertext, so_ciphertext, "enc seed {enc_seed:02x?}");
+                assert_eq!(sent, so_sent, "enc seed {enc_seed:02x?}");
+
+                for ciphertext in std::iter::once(ciphertext).chain(tampered(&ciphertext)) {
+                    let mut received = [0u8; CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES];
+                    crypto_kem_mlkem768_dec(&mut received, &ciphertext, &secret_key);
+                    let so_received = sodium::crypto_kem_mlkem768_dec(&ciphertext, &secret_key)
+                        .expect("libsodium dec");
+                    assert_eq!(received, so_received, "enc seed {enc_seed:02x?}");
+                    assert_eq!(received == sent, ciphertext == so_ciphertext);
+                }
+            }
+        }
+    }
+
+    /// Both libraries refuse to encapsulate to a key with an unreduced
+    /// coefficient, deterministically or not.
+    #[test]
+    fn test_mlkem768_unreduced_keys_rejected_like_libsodium() {
+        for seed in seeds::<CRYPTO_KEM_MLKEM768_SEEDBYTES>() {
+            let (public_key, _) = crypto_kem_mlkem768_seed_keypair(&seed);
+            for invalid in with_unreduced_coefficient(&public_key) {
+                let mut ciphertext = [0u8; CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES];
+                let mut shared_secret = [0u8; CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES];
+                assert!(
+                    crypto_kem_mlkem768_enc_deterministic(
+                        &mut ciphertext,
+                        &mut shared_secret,
+                        &invalid,
+                        &[9u8; CRYPTO_KEM_MLKEM768_ENCSEEDBYTES],
+                    )
+                    .is_err()
+                );
+                assert!(
+                    crypto_kem_mlkem768_enc(&mut ciphertext, &mut shared_secret, &invalid).is_err()
+                );
+                assert!(
+                    sodium::crypto_kem_mlkem768_enc_deterministic(
+                        &invalid,
+                        &[9u8; CRYPTO_KEM_MLKEM768_ENCSEEDBYTES]
+                    )
+                    .is_err()
+                );
+                assert!(sodium::crypto_kem_mlkem768_enc(&invalid).is_err());
+            }
+        }
+    }
+
+    /// Randomized encapsulations made by either library decapsulate to the
+    /// same shared secret in the other.
+    #[test]
+    fn test_mlkem768_randomized_interop_with_libsodium() {
+        for _ in 0..8 {
+            let (public_key, secret_key) = crypto_kem_mlkem768_keypair();
+
+            let mut ciphertext = [0u8; CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES];
+            let mut sent = [0u8; CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES];
+            crypto_kem_mlkem768_enc(&mut ciphertext, &mut sent, &public_key).expect("enc");
+            assert_eq!(
+                sodium::crypto_kem_mlkem768_dec(&ciphertext, &secret_key).expect("libsodium dec"),
+                sent
+            );
+
+            let (so_ciphertext, so_sent) =
+                sodium::crypto_kem_mlkem768_enc(&public_key).expect("libsodium enc");
+            let mut received = [0u8; CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES];
+            crypto_kem_mlkem768_dec(&mut received, &so_ciphertext, &secret_key);
+            assert_eq!(received, so_sent);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "nightly"))]
 mod benches {
     extern crate test;
@@ -175,6 +317,57 @@ mod benches {
         });
     }
 
+    /// libsodium's `crypto_kem_mlkem768_seed_keypair` on the same seed as
+    /// `mlkem768_keypair_bench`.
+    #[cfg(dryoc_native_tests)]
+    #[bench]
+    fn libsodium_mlkem768_keypair_bench(b: &mut test::Bencher) {
+        crate::native_test_util::init();
+        let seed = [7u8; CRYPTO_KEM_MLKEM768_SEEDBYTES];
+        let mut public_key = [0u8; CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES];
+        let mut secret_key = [0u8; CRYPTO_KEM_MLKEM768_SECRETKEYBYTES];
+        b.iter(|| {
+            // SAFETY: the key buffers and `seed` are arrays of libsodium's
+            // sizes.
+            let rc = unsafe {
+                libsodium_sys::crypto_kem_mlkem768_seed_keypair(
+                    public_key.as_mut_ptr(),
+                    secret_key.as_mut_ptr(),
+                    test::black_box(seed.as_ptr()),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box((&public_key, &secret_key));
+        });
+    }
+
+    /// libsodium's `crypto_kem_mlkem768_enc_deterministic` on the same key
+    /// and seed as `mlkem768_enc_bench`.
+    #[cfg(dryoc_native_tests)]
+    #[bench]
+    fn libsodium_mlkem768_enc_bench(b: &mut test::Bencher) {
+        crate::native_test_util::init();
+        let (public_key, _) =
+            crypto_kem_mlkem768_seed_keypair(&[7u8; CRYPTO_KEM_MLKEM768_SEEDBYTES]);
+        let (mut ciphertext, mut shared_secret) =
+            ([0u8; CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES], [0u8; 32]);
+        let seed = [9u8; 32];
+        b.iter(|| {
+            // SAFETY: the output buffers, `public_key` and `seed` are arrays
+            // of libsodium's sizes.
+            let rc = unsafe {
+                libsodium_sys::crypto_kem_mlkem768_enc_deterministic(
+                    ciphertext.as_mut_ptr(),
+                    shared_secret.as_mut_ptr(),
+                    test::black_box(public_key.as_ptr()),
+                    test::black_box(seed.as_ptr()),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box((&ciphertext, &shared_secret));
+        });
+    }
+
     #[bench]
     fn mlkem768_dec_bench(b: &mut test::Bencher) {
         let (public_key, secret_key) =
@@ -188,6 +381,32 @@ mod benches {
                 test::black_box(&ciphertext),
                 test::black_box(&secret_key),
             )
+        });
+    }
+
+    /// libsodium's `crypto_kem_mlkem768_dec` with the same key and
+    /// ciphertext setup as `mlkem768_dec_bench`.
+    #[cfg(dryoc_native_tests)]
+    #[bench]
+    fn libsodium_mlkem768_dec_bench(b: &mut test::Bencher) {
+        crate::native_test_util::init();
+        let (public_key, secret_key) =
+            crypto_kem_mlkem768_seed_keypair(&[7u8; CRYPTO_KEM_MLKEM768_SEEDBYTES]);
+        let mut ciphertext = [0u8; CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES];
+        let mut shared_secret = [0u8; 32];
+        crypto_kem_mlkem768_enc(&mut ciphertext, &mut shared_secret, &public_key).expect("enc");
+        b.iter(|| {
+            // SAFETY: `shared_secret`, `ciphertext` and `secret_key` are
+            // arrays of libsodium's sizes.
+            let rc = unsafe {
+                libsodium_sys::crypto_kem_mlkem768_dec(
+                    shared_secret.as_mut_ptr(),
+                    test::black_box(ciphertext.as_ptr()),
+                    test::black_box(secret_key.as_ptr()),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box(&shared_secret);
         });
     }
 }

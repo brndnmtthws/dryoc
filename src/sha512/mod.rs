@@ -236,12 +236,11 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn test_sha512_matches_sodiumoxide() {
-        use sodiumoxide::crypto::hash;
-
+    fn test_sha512_matches_libsodium() {
+        use crate::native_test_util::HashSha512State;
         use crate::rng::randombytes_buf;
 
-        let mut their_state = hash::State::new();
+        let mut their_state = HashSha512State::new();
         let mut our_state = Sha512::new();
 
         for _ in 0..10 {
@@ -253,7 +252,7 @@ mod tests {
         let their_digest = their_state.finalize();
         let our_digest = our_state.finalize_to_vec();
 
-        assert_eq!(their_digest.as_ref(), our_digest);
+        assert_eq!(their_digest.as_slice(), our_digest);
     }
 
     /// The hardware loop agrees with the portable compression for every block

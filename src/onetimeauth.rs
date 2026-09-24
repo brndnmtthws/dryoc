@@ -325,16 +325,13 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn rfc8439_vector_matches_sodiumoxide() {
-        use sodiumoxide::crypto::onetimeauth;
+    fn rfc8439_vector_matches_libsodium() {
+        use crate::native_test_util::onetimeauth_poly1305;
 
         let (key, expected) = vector();
-        let so_tag = onetimeauth::authenticate(
-            MESSAGE,
-            &onetimeauth::Key::from_slice(key.as_slice()).unwrap(),
-        );
-        assert_eq!(so_tag.as_ref(), expected.as_slice());
-        OnetimeAuth::compute_and_verify(&so_tag.0, key, &MESSAGE).expect("verify sodium tag");
+        let so_tag = onetimeauth_poly1305(MESSAGE, key.as_slice());
+        assert_eq!(so_tag.as_slice(), expected.as_slice());
+        OnetimeAuth::compute_and_verify(&so_tag, key, &MESSAGE).expect("verify sodium tag");
     }
 
     #[test]

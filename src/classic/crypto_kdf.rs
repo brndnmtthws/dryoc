@@ -628,7 +628,8 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_derive_key() {
-        use sodiumoxide::crypto::{kdf, secretbox};
+        use crate::native_test_util::kdf_blake2b_derive_from_key;
+
         let main_key = crypto_kdf_keygen();
         let context = b"hello123";
 
@@ -636,16 +637,9 @@ mod tests {
             let mut key = Key::default();
             crypto_kdf_derive_from_key(&mut key, i, context, &main_key).expect("kdf failed");
 
-            let mut so_key = secretbox::Key([0; secretbox::KEYBYTES]);
-            kdf::derive_from_key(
-                &mut so_key.0[..],
-                i,
-                *context,
-                &kdf::blake2b::Key::from_slice(&main_key).expect("key failed"),
-            )
-            .expect("so kdf failed");
+            let so_key: [u8; 32] = kdf_blake2b_derive_from_key(i, context, &main_key);
 
-            assert_eq!(so_key.0, key);
+            assert_eq!(so_key, key);
         }
     }
 }

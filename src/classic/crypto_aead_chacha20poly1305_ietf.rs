@@ -463,20 +463,19 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     #[test]
-    fn test_sodiumoxide_interop() {
-        use sodiumoxide::crypto::aead::chacha20poly1305_ietf::{
-            Key as SodiumKey, Nonce as SodiumNonce, open, seal,
+    fn test_libsodium_interop() {
+        use crate::native_test_util::{
+            crypto_aead_chacha20poly1305_ietf_decrypt as open,
+            crypto_aead_chacha20poly1305_ietf_encrypt as seal,
         };
 
-        let sodium_key = SodiumKey::from_slice(&KEY).expect("key");
-        let sodium_nonce = SodiumNonce::from_slice(&NONCE).expect("nonce");
         let ciphertext = expected();
         assert_eq!(
-            open(&ciphertext, Some(AD), &sodium_nonce, &sodium_key).expect("sodiumoxide open"),
+            open(&ciphertext, Some(AD), &NONCE, &KEY).expect("libsodium open"),
             MESSAGE
         );
 
-        let sodium_ciphertext = seal(MESSAGE, Some(AD), &sodium_nonce, &sodium_key);
+        let sodium_ciphertext = seal(MESSAGE, Some(AD), &NONCE, &KEY);
         let mut plaintext = vec![0u8; MESSAGE.len()];
         crypto_aead_chacha20poly1305_ietf_decrypt(
             &mut plaintext,

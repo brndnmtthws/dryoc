@@ -1273,7 +1273,7 @@ mod tests {
         /// `bench_argon2id`, so the two rows are directly comparable.
         #[cfg(feature = "nightly")]
         fn bench_libsodium_argon2id(b: &mut test::Bencher, t_cost: u32, m_cost: u32) {
-            sodiumoxide::init().expect("sodiumoxide init");
+            crate::native_test_util::init();
 
             let password = [1u8; 32];
             let salt = [2u8; 16];

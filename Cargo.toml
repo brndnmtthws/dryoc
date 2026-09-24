@@ -53,8 +53,7 @@ static_assertions = "1.1"
 wincode = "0.6"
 
 [target.'cfg(not(any(miri, all(target_arch = "wasm32", target_os = "unknown"))))'.dev-dependencies]
-libsodium-sys = "0.2"
-sodiumoxide = "0.2"
+libsodium-sys-stable = "1.24"
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
 proptest = "1"

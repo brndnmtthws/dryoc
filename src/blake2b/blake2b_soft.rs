@@ -784,7 +784,7 @@ mod tests {
         fn libsodium_blake2b_bench(b: &mut test::Bencher) {
             use crate::rng::copy_randombytes;
 
-            sodiumoxide::init().expect("sodiumoxide init");
+            crate::native_test_util::init();
 
             let mut input = vec![0u8; 694200];
             copy_randombytes(&mut input);

@@ -297,8 +297,9 @@ pub const CRYPTO_PWHASH_STRPREFIX: &str = CRYPTO_PWHASH_ARGON2ID_STRPREFIX;
 mod tests {
     /// Every constant mirrored from libsodium equals the value reported by
     /// the corresponding `libsodium_sys` getter. Constants without a getter
-    /// (`*_INONCEBYTES`, `*_COUNTERBYTES`, `*_PADBYTES`, the HKDF and SHA-3
-    /// sizes, `*_SALTBYTES_MIN/MAX`) are defined only by this crate.
+    /// (`*_INONCEBYTES`, `*_COUNTERBYTES`, `*_PADBYTES`, the HKDF sizes,
+    /// `*_SALTBYTES_MIN/MAX`, the KEM `*_ENCSEEDBYTES`) are defined only by
+    /// this crate.
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_libsodium_constants() {
@@ -504,6 +505,31 @@ mod tests {
             CRYPTO_PWHASH_PASSWD_MIN == crypto_pwhash_passwd_min,
             CRYPTO_PWHASH_SALTBYTES == crypto_pwhash_saltbytes,
             CRYPTO_PWHASH_STRBYTES == crypto_pwhash_strbytes,
+            CRYPTO_HASH_SHA3256_BYTES == crypto_hash_sha3256_bytes,
+            CRYPTO_HASH_SHA3512_BYTES == crypto_hash_sha3512_bytes,
+            CRYPTO_XOF_SHAKE128_BLOCKBYTES == crypto_xof_shake128_blockbytes,
+            CRYPTO_XOF_SHAKE128_DOMAIN_STANDARD == crypto_xof_shake128_domain_standard,
+            CRYPTO_XOF_SHAKE256_BLOCKBYTES == crypto_xof_shake256_blockbytes,
+            CRYPTO_XOF_SHAKE256_DOMAIN_STANDARD == crypto_xof_shake256_domain_standard,
+            CRYPTO_XOF_TURBOSHAKE128_BLOCKBYTES == crypto_xof_turboshake128_blockbytes,
+            CRYPTO_XOF_TURBOSHAKE128_DOMAIN_STANDARD == crypto_xof_turboshake128_domain_standard,
+            CRYPTO_XOF_TURBOSHAKE256_BLOCKBYTES == crypto_xof_turboshake256_blockbytes,
+            CRYPTO_XOF_TURBOSHAKE256_DOMAIN_STANDARD == crypto_xof_turboshake256_domain_standard,
+            CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES == crypto_kem_mlkem768_publickeybytes,
+            CRYPTO_KEM_MLKEM768_SECRETKEYBYTES == crypto_kem_mlkem768_secretkeybytes,
+            CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES == crypto_kem_mlkem768_ciphertextbytes,
+            CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES == crypto_kem_mlkem768_sharedsecretbytes,
+            CRYPTO_KEM_MLKEM768_SEEDBYTES == crypto_kem_mlkem768_seedbytes,
+            CRYPTO_KEM_XWING_PUBLICKEYBYTES == crypto_kem_xwing_publickeybytes,
+            CRYPTO_KEM_XWING_SECRETKEYBYTES == crypto_kem_xwing_secretkeybytes,
+            CRYPTO_KEM_XWING_CIPHERTEXTBYTES == crypto_kem_xwing_ciphertextbytes,
+            CRYPTO_KEM_XWING_SHAREDSECRETBYTES == crypto_kem_xwing_sharedsecretbytes,
+            CRYPTO_KEM_XWING_SEEDBYTES == crypto_kem_xwing_seedbytes,
+            CRYPTO_KEM_PUBLICKEYBYTES == crypto_kem_publickeybytes,
+            CRYPTO_KEM_SECRETKEYBYTES == crypto_kem_secretkeybytes,
+            CRYPTO_KEM_CIPHERTEXTBYTES == crypto_kem_ciphertextbytes,
+            CRYPTO_KEM_SHAREDSECRETBYTES == crypto_kem_sharedsecretbytes,
+            CRYPTO_KEM_SEEDBYTES == crypto_kem_seedbytes,
         );
 
         check_str!(
@@ -512,6 +538,7 @@ mod tests {
             CRYPTO_PWHASH_ARGON2I_STRPREFIX == crypto_pwhash_argon2i_strprefix,
             CRYPTO_PWHASH_ARGON2ID_STRPREFIX == crypto_pwhash_argon2id_strprefix,
             CRYPTO_PWHASH_STRPREFIX == crypto_pwhash_strprefix,
+            CRYPTO_KEM_PRIMITIVE == crypto_kem_primitive,
         );
     }
 }

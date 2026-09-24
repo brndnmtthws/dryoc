@@ -581,11 +581,11 @@ mod validation_tests {
 
 #[cfg(all(test, dryoc_native_tests))]
 mod tests {
-    use sodiumoxide::crypto::secretstream::{
-        Header as SOHeader, Key as SOKey, Stream as SOStream, Tag as SOTag,
-    };
-
     use super::*;
+    use crate::native_test_util::{
+        SECRETSTREAM_TAG_FINAL, SECRETSTREAM_TAG_MESSAGE, SECRETSTREAM_TAG_PUSH,
+        SECRETSTREAM_TAG_REKEY, SecretStream as SOStream,
+    };
 
     /// Shared stream key; each stream still derives a random header.
     fn fixed_key() -> Key {
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn rekey_on_push_side_is_mirrored_by_sodiumoxide_pull() {
+    fn rekey_on_push_side_is_mirrored_by_libsodium_pull() {
         let key = fixed_key();
         let aad: &[u8] = b"associated";
         let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
@@ -608,54 +608,53 @@ mod tests {
             .push_to_vec(&&b"final"[..], Some(&aad), Tag::FINAL)
             .expect("push failed");
 
-        let so_header = SOHeader::from_slice(header.as_slice()).expect("header");
-        let so_key = SOKey::from_slice(key.as_slice()).expect("key");
+        let so_header = header.as_slice();
+        let so_key = key.as_slice();
 
         // Without the rekey, sodium cannot continue past c1.
-        let mut unsynced = SOStream::init_pull(&so_header, &so_key).expect("init pull");
+        let mut unsynced = SOStream::init_pull(so_header, so_key).expect("init pull");
         assert_eq!(
             unsynced.pull(&c1, Some(aad)).expect("pull c1"),
-            (b"before rekey".to_vec(), SOTag::Message)
+            (b"before rekey".to_vec(), SECRETSTREAM_TAG_MESSAGE)
         );
         assert!(unsynced.pull(&c2, Some(aad)).is_err());
 
-        let mut so_pull = SOStream::init_pull(&so_header, &so_key).expect("init pull");
+        let mut so_pull = SOStream::init_pull(so_header, so_key).expect("init pull");
         assert_eq!(
             so_pull.pull(&c1, Some(aad)).expect("pull c1"),
-            (b"before rekey".to_vec(), SOTag::Message)
+            (b"before rekey".to_vec(), SECRETSTREAM_TAG_MESSAGE)
         );
         so_pull.rekey().expect("rekey");
         assert_eq!(
             so_pull.pull(&c2, Some(aad)).expect("pull c2"),
-            (b"after rekey".to_vec(), SOTag::Push)
+            (b"after rekey".to_vec(), SECRETSTREAM_TAG_PUSH)
         );
         assert_eq!(
             so_pull.pull(&c3, Some(aad)).expect("pull c3"),
-            (b"final".to_vec(), SOTag::Final)
+            (b"final".to_vec(), SECRETSTREAM_TAG_FINAL)
         );
         assert!(so_pull.is_finalized());
     }
 
     #[test]
-    fn rekey_on_sodiumoxide_push_side_is_mirrored_by_rustaceous_pull() {
+    fn rekey_on_libsodium_push_side_is_mirrored_by_rustaceous_pull() {
         let key = fixed_key();
-        let so_key = SOKey::from_slice(key.as_slice()).expect("key");
-        let (mut so_push, so_header) = SOStream::init_push(&so_key).expect("init push");
+        let (mut so_push, so_header) = SOStream::init_push(key.as_slice());
         let c1 = so_push
-            .push(b"before rekey", None, SOTag::Message)
+            .push(b"before rekey", None, SECRETSTREAM_TAG_MESSAGE)
             .expect("push failed");
         so_push.rekey().expect("rekey");
         let c2 = so_push
-            .push(b"after rekey", None, SOTag::Rekey)
+            .push(b"after rekey", None, SECRETSTREAM_TAG_REKEY)
             .expect("push failed");
         let c3 = so_push
-            .push(b"after tag rekey", None, SOTag::Message)
+            .push(b"after tag rekey", None, SECRETSTREAM_TAG_MESSAGE)
             .expect("push failed");
         let c4 = so_push
-            .push(b"final", None, SOTag::Final)
+            .push(b"final", None, SECRETSTREAM_TAG_FINAL)
             .expect("push failed");
 
-        let header = Header::try_from(so_header.as_ref()).expect("header");
+        let header = Header::try_from(so_header.as_slice()).expect("header");
         let mut pull_stream = DryocStream::init_pull(&key, &header);
         let (m1, t1) = pull_stream.pull_to_vec(&c1, None).expect("pull c1");
         assert_eq!((m1.as_slice(), t1), (&b"before rekey"[..], Tag::MESSAGE));
@@ -678,15 +677,20 @@ mod tests {
     }
 
     #[test]
-    fn sodiumoxide_messages_pulled_out_of_order_fail_and_state_stays_usable() {
+    fn libsodium_messages_pulled_out_of_order_fail_and_state_stays_usable() {
         let key = fixed_key();
-        let so_key = SOKey::from_slice(key.as_slice()).expect("key");
-        let (mut so_push, so_header) = SOStream::init_push(&so_key).expect("init push");
-        let c1 = so_push.push(b"one", None, SOTag::Message).expect("push");
-        let c2 = so_push.push(b"two", None, SOTag::Message).expect("push");
-        let c3 = so_push.push(b"three", None, SOTag::Final).expect("push");
+        let (mut so_push, so_header) = SOStream::init_push(key.as_slice());
+        let c1 = so_push
+            .push(b"one", None, SECRETSTREAM_TAG_MESSAGE)
+            .expect("push");
+        let c2 = so_push
+            .push(b"two", None, SECRETSTREAM_TAG_MESSAGE)
+            .expect("push");
+        let c3 = so_push
+            .push(b"three", None, SECRETSTREAM_TAG_FINAL)
+            .expect("push");
 
-        let header = Header::try_from(so_header.as_ref()).expect("header");
+        let header = Header::try_from(so_header.as_slice()).expect("header");
         let mut pull_stream = DryocStream::init_pull(&key, &header);
 
         assert!(matches!(
@@ -704,10 +708,6 @@ mod tests {
 
     #[test]
     fn test_stream_push() {
-        use sodiumoxide::crypto::secretstream::{
-            Header as SOHeader, Key as SOKey, Stream as SOStream, Tag as SOTag,
-        };
-
         let message1 = b"Arbitrary data to encrypt";
         let message2 = b"split into";
         let message3 = b"three messages";
@@ -729,11 +729,8 @@ mod tests {
             .expect("Encrypt failed");
 
         // Initialize the pull side using header generated by the push side
-        let mut so_stream_pull = SOStream::init_pull(
-            &SOHeader::from_slice(header.as_slice()).expect("header failed"),
-            &SOKey::from_slice(key.as_slice()).expect("key failed"),
-        )
-        .expect("pull init failed");
+        let mut so_stream_pull =
+            SOStream::init_pull(header.as_slice(), key.as_slice()).expect("pull init failed");
 
         let (m1, tag1) = so_stream_pull.pull(&c1, None).expect("decrypt failed");
         let (m2, tag2) = so_stream_pull.pull(&c2, None).expect("decrypt failed");
@@ -743,16 +740,14 @@ mod tests {
         assert_eq!(message2, m2.as_slice());
         assert_eq!(message3, m3.as_slice());
 
-        assert_eq!(tag1, SOTag::Message);
-        assert_eq!(tag2, SOTag::Message);
-        assert_eq!(tag3, SOTag::Final);
+        assert_eq!(tag1, SECRETSTREAM_TAG_MESSAGE);
+        assert_eq!(tag2, SECRETSTREAM_TAG_MESSAGE);
+        assert_eq!(tag3, SECRETSTREAM_TAG_FINAL);
     }
 
     #[test]
     fn test_stream_pull() {
         use std::convert::TryFrom;
-
-        use sodiumoxide::crypto::secretstream::{Key as SOKey, Stream as SOStream, Tag as SOTag};
 
         let message1 = b"Arbitrary data to encrypt";
         let message2 = b"split into";
@@ -762,23 +757,23 @@ mod tests {
         let key = Key::generate();
 
         // Initialize the push side, type annotations required on return type
-        let (mut so_push_stream, so_header) =
-            SOStream::init_push(&SOKey::from_slice(key.as_slice()).expect("key failed"))
-                .expect("init push failed");
+        let (mut so_push_stream, so_header) = SOStream::init_push(key.as_slice());
         // Encrypt a series of messages
         let c1: Vec<u8> = so_push_stream
-            .push(message1, None, SOTag::Message)
+            .push(message1, None, SECRETSTREAM_TAG_MESSAGE)
             .expect("Encrypt failed");
         let c2: Vec<u8> = so_push_stream
-            .push(message2, None, SOTag::Message)
+            .push(message2, None, SECRETSTREAM_TAG_MESSAGE)
             .expect("Encrypt failed");
         let c3: Vec<u8> = so_push_stream
-            .push(message3, None, SOTag::Final)
+            .push(message3, None, SECRETSTREAM_TAG_FINAL)
             .expect("Encrypt failed");
 
         // Initialize the pull side using header generated by the push side
-        let mut pull_stream =
-            DryocStream::init_pull(&key, &Header::try_from(so_header.as_ref()).expect("header"));
+        let mut pull_stream = DryocStream::init_pull(
+            &key,
+            &Header::try_from(so_header.as_slice()).expect("header"),
+        );
 
         // Decrypt the encrypted messages, type annotations required
         let (m1, tag1): (Vec<u8>, Tag) = pull_stream.pull(&c1, None).expect("Decrypt failed");

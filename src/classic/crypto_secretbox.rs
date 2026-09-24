@@ -306,8 +306,8 @@ mod tests {
         for i in 0..20 {
             use base64::Engine as _;
             use base64::engine::general_purpose;
-            use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+
+            use crate::native_test_util::{secretbox_easy, secretbox_open_easy};
 
             let key: Key = crypto_secretbox_keygen();
             let nonce = Nonce::generate();
@@ -318,11 +318,7 @@ mod tests {
             let mut ciphertext = vec![0u8; message.len() + CRYPTO_SECRETBOX_MACBYTES];
             crypto_secretbox_easy(&mut ciphertext, message.as_bytes(), &nonce, &key)
                 .expect("encrypt failed");
-            let so_ciphertext = secretbox::seal(
-                message.as_bytes(),
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&key).unwrap(),
-            );
+            let so_ciphertext = secretbox_easy(message.as_bytes(), &nonce, &key);
             assert_eq!(
                 general_purpose::STANDARD.encode(&ciphertext),
                 general_purpose::STANDARD.encode(&so_ciphertext)
@@ -331,12 +327,7 @@ mod tests {
             let mut decrypted = vec![0u8; message.len()];
             crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key)
                 .expect("decrypt failed");
-            let so_decrypted = secretbox::open(
-                &ciphertext,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&key).unwrap(),
-            )
-            .unwrap();
+            let so_decrypted = secretbox_open_easy(&ciphertext, &nonce, &key).unwrap();
 
             assert_eq!(decrypted, message.as_bytes());
             assert_eq!(decrypted, so_decrypted);
@@ -349,8 +340,8 @@ mod tests {
         for i in 0..20 {
             use base64::Engine as _;
             use base64::engine::general_purpose;
-            use sodiumoxide::crypto::secretbox;
-            use sodiumoxide::crypto::secretbox::{Key as SOKey, Nonce as SONonce};
+
+            use crate::native_test_util::{secretbox_easy, secretbox_open_easy};
 
             let key = crypto_secretbox_keygen();
             let nonce = Nonce::generate();
@@ -362,11 +353,7 @@ mod tests {
             let mut ciphertext = message.clone();
             ciphertext.resize(message.len() + CRYPTO_SECRETBOX_MACBYTES, 0);
             crypto_secretbox_easy_inplace(&mut ciphertext, &nonce, &key).expect("encrypt failed");
-            let so_ciphertext = secretbox::seal(
-                &message_copy,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&key).unwrap(),
-            );
+            let so_ciphertext = secretbox_easy(&message_copy, &nonce, &key);
             assert_eq!(
                 general_purpose::STANDARD.encode(&ciphertext),
                 general_purpose::STANDARD.encode(&so_ciphertext)
@@ -376,12 +363,8 @@ mod tests {
             crypto_secretbox_open_easy_inplace(&mut decrypted, &nonce, &key)
                 .expect("decrypt failed");
             decrypted.resize(ciphertext.len() - CRYPTO_SECRETBOX_MACBYTES, 0);
-            let so_decrypted = secretbox::open(
-                &ciphertext,
-                &SONonce::from_slice(&nonce).unwrap(),
-                &SOKey::from_slice(&key).unwrap(),
-            )
-            .expect("decrypt failed");
+            let so_decrypted =
+                secretbox_open_easy(&ciphertext, &nonce, &key).expect("decrypt failed");
 
             assert_eq!(&decrypted, &message_copy);
             assert_eq!(decrypted, so_decrypted);
@@ -683,7 +666,7 @@ mod tests {
     /// comparable.
     #[cfg(all(feature = "nightly", dryoc_native_tests))]
     fn bench_libsodium_secretbox_detached(b: &mut test::Bencher, message_len: usize) {
-        sodiumoxide::init().expect("sodiumoxide init");
+        crate::native_test_util::init();
 
         let key: Key = crypto_secretbox_keygen();
         let nonce = Nonce::generate();

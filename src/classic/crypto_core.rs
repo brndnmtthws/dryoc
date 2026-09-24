@@ -400,17 +400,20 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_crypto_core_ed25519_rejects_legacy_libsodium_mixed_order_points() {
+    /// Mixed-order points that libsodium through 1.0.20 accepted: `y = 9`,
+    /// and the regression vector added when libsodium fixed its main
+    /// subgroup check (a prime-order point plus order-two torsion).
+    fn legacy_libsodium_mixed_order_points() -> [[u8; CRYPTO_CORE_ED25519_BYTES]; 2] {
         let mut y_is_nine = [0u8; CRYPTO_CORE_ED25519_BYTES];
         y_is_nine[0] = 9;
-
-        // This is the regression vector added when libsodium fixed its main
-        // subgroup check. It is a prime-order point plus order-two torsion.
         let mut order_two_coset = [0x99; CRYPTO_CORE_ED25519_BYTES];
         order_two_coset[0] = 0x95;
+        [y_is_nine, order_two_coset]
+    }
 
-        for point in [y_is_nine, order_two_coset] {
+    #[test]
+    fn test_crypto_core_ed25519_rejects_legacy_libsodium_mixed_order_points() {
+        for point in legacy_libsodium_mixed_order_points() {
             let decoded = decompress_canonical_ed25519_point(&point)
                 .expect("regression vector must be a canonical curve point");
             assert!(!decoded.is_small_order());
@@ -464,13 +467,8 @@ mod tests {
         use crate::scalarmult_curve25519::test_vectors::field_prime_plus;
 
         #[test]
-        fn test_crypto_core_ed25519_compatibility_for_version_stable_points() {
+        fn test_crypto_core_ed25519_is_valid_point_matches_libsodium() {
             use libsodium_sys::crypto_core_ed25519_is_valid_point as sodium_is_valid_point;
-
-            // libsodium-sys 0.2.7 normally embeds libsodium 1.0.18, whose main
-            // subgroup check has a known mixed-order bug. Use it as an oracle
-            // only for cases whose behavior is stable across versions. The
-            // affected vectors are tested directly above.
 
             let basepoint = curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
             let mut negative_basepoint = basepoint;
@@ -499,7 +497,10 @@ mod tests {
                 torsion.compress().to_bytes(),
                 mixed_order,
                 [0u8; CRYPTO_CORE_ED25519_BYTES],
-            ] {
+            ]
+            .into_iter()
+            .chain(legacy_libsodium_mixed_order_points())
+            {
                 let dryoc_result = crypto_core_ed25519_is_valid_point(&point);
                 let sodium_result = unsafe { sodium_is_valid_point(point.as_ptr()) } == 1;
                 assert_eq!(dryoc_result, sodium_result, "point: {point:02x?}");
@@ -521,7 +522,7 @@ mod tests {
             use base64::Engine as _;
             use base64::engine::general_purpose;
             for _ in 0..20 {
-                use sodiumoxide::crypto::scalarmult::curve25519::{Scalar, scalarmult_base};
+                use crate::native_test_util::scalarmult_curve25519_base;
 
                 let (pk, sk) = crypto_box_keypair();
 
@@ -530,10 +531,10 @@ mod tests {
 
                 assert_eq!(&pk, &public_key);
 
-                let ge = scalarmult_base(&Scalar::from_slice(&sk).unwrap());
+                let ge = scalarmult_curve25519_base(&sk);
 
                 assert_eq!(
-                    general_purpose::STANDARD.encode(ge.as_ref()),
+                    general_purpose::STANDARD.encode(ge),
                     general_purpose::STANDARD.encode(public_key)
                 );
             }
@@ -544,9 +545,7 @@ mod tests {
             use base64::Engine as _;
             use base64::engine::general_purpose;
             for _ in 0..20 {
-                use sodiumoxide::crypto::scalarmult::curve25519::{
-                    GroupElement, Scalar, scalarmult,
-                };
+                use crate::native_test_util::scalarmult_curve25519;
 
                 let (_our_pk, our_sk) = crypto_box_keypair();
                 let (their_pk, _their_sk) = crypto_box_keypair();
@@ -555,14 +554,10 @@ mod tests {
                 crypto_scalarmult(&mut shared_secret, &our_sk, &their_pk)
                     .expect("scalarmult failed");
 
-                let ge = scalarmult(
-                    &Scalar::from_slice(&our_sk).unwrap(),
-                    &GroupElement::from_slice(&their_pk).unwrap(),
-                )
-                .expect("scalarmult failed");
+                let ge = scalarmult_curve25519(&our_sk, &their_pk).expect("scalarmult failed");
 
                 assert_eq!(
-                    general_purpose::STANDARD.encode(ge.as_ref()),
+                    general_purpose::STANDARD.encode(ge),
                     general_purpose::STANDARD.encode(shared_secret)
                 );
             }

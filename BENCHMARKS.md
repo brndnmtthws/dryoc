@@ -107,7 +107,7 @@ The charts are rendered from
 [`benchmarks/charts.gp`](benchmarks/charts.gp); regenerate them with
 `gnuplot -c benchmarks/charts.gp` after updating a data file.
 
-Each `*_bench` has a `libsodium_*_bench` (or `sodiumoxide_*_bench`) twin in
+Each `*_bench` has a `libsodium_*_bench` twin in
 the same test module that runs the corresponding libsodium function on the
 same input sizes after `sodium_init()`, so libsodium uses its own
 runtime-selected implementation. `RUSTFLAGS` does not affect the C library;
@@ -360,6 +360,33 @@ rotations to SVE2 `xar` and its diagonal shuffles to `ext` permutes; why that
 loses to the scalar rounds on this core has not been profiled. On AArch64,
 `simd_backend` should not be enabled for BLAKE2b performance.
 
+## Key Encapsulation: ML-KEM-768 and X-Wing
+
+`classic::crypto_kem_mlkem768` and `classic::crypto_kem_xwing` benches: key
+generation from a seed, deterministic encapsulation, and decapsulation of a
+valid ciphertext. These rows compare against libsodium 1.0.22 (statically
+linked from the `libsodium-sys-stable 1.24.0` bundled source, built with its
+default flags), since 1.0.18 has no KEM. They were measured the same way as
+the other Neoverse V3 rows: `-Ctarget-cpu=native`, `taskset -c 7`, median of
+three runs. They have not yet been measured on the Xeon.
+
+dryoc runs the NTT and multiply-add with NEON and the Keccak permutations two
+at a time with the SHA3 extension; libsodium 1.0.22's ML-KEM is its portable
+reference code. X-Wing adds X25519 scalar multiplications (one for key
+generation, two for encapsulation and for decapsulation, which also
+regenerates the ML-KEM key pair from the seed), so its speedup is smaller.
+
+### Arm Neoverse V3
+
+| Operation | dryoc | libsodium | dryoc vs libsodium |
+| --- | ---: | ---: | ---: |
+| ML-KEM-768 key generation | `9,280 ns` | `17,359 ns` | `1.87x faster` |
+| ML-KEM-768 encapsulation | `10,643 ns` | `20,128 ns` | `1.89x faster` |
+| ML-KEM-768 decapsulation | `13,687 ns` | `26,381 ns` | `1.93x faster` |
+| X-Wing key generation | `21,508 ns` | `31,123 ns` | `1.45x faster` |
+| X-Wing encapsulation | `52,348 ns` | `69,750 ns` | `1.33x faster` |
+| X-Wing decapsulation | `66,048 ns` | `94,106 ns` | `1.42x faster` |
+
 ## Without `target-cpu=native`
 
 The same `cargo +nightly bench --features nightly` run with no `RUSTFLAGS`,
@@ -428,10 +455,11 @@ machine:
 
 | Algorithm | Xeon: software / default build | Xeon: `simd_backend,nightly` build | Neoverse V3: software / default build | Neoverse V3: `simd_backend,nightly` build | libsodium baseline |
 | --- | --- | --- | --- | --- | --- |
-| Poly1305 | `poly1305_soft` + runtime `poly1305_x86_64` (AVX2 / AVX-512F / AVX-512 IFMA) | same; `poly1305_simd` compiled for tests only | `poly1305_soft` + runtime `poly1305_neon` | same; `poly1305_simd` compiled for tests only | `sodiumoxide_poly1305_*_bench` |
+| Poly1305 | `poly1305_soft` + runtime `poly1305_x86_64` (AVX2 / AVX-512F / AVX-512 IFMA) | same; `poly1305_simd` compiled for tests only | `poly1305_soft` + runtime `poly1305_neon` | same; `poly1305_simd` compiled for tests only | `libsodium_poly1305_*_bench` |
 | XSalsa20-Poly1305 secretbox | `salsa20_x86_64` (AVX2 / AVX-512) + Poly1305 above | same; `salsa20_simd` compiled for tests only | `salsa20_neon` (NEON / NEON+`sha3` / SVE2) + Poly1305 above | same; `salsa20_simd` compiled for tests only | `libsodium_secretbox_detached_*_bench` |
 | Argon2id password hashing | runtime `argon2_x86_64` (AVX2 / AVX-512F), else `argon2_soft` | runtime `argon2_x86_64`, else `argon2_simd` | `argon2_soft` | `argon2_simd` | `libsodium_argon2id_*_bench` |
 | BLAKE2b | `blake2b_soft` + runtime `blake2b_x86_64` (AVX2 / AVX-512VL) | `blake2b_simd` | `blake2b_soft` + `blake2b_aarch64` rounds | `blake2b_simd` | `libsodium_blake2b_bench` |
+| ML-KEM-768 and X-Wing | `mlkem_soft` + runtime `mlkem_x86_64` (AVX2), 4-way AVX2 Keccak | same | `mlkem_soft` + runtime `mlkem_neon`, 2-way SHA3-extension Keccak | same | `libsodium_mlkem768_*_bench`, `libsodium_xwing_*_bench` |
 
 Algorithms without benchmark coverage should get their own section when a
 second implementation is added or when performance work begins.

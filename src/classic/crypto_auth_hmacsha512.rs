@@ -216,16 +216,15 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_libsodium_compatibility() {
-        use sodiumoxide::crypto::auth::hmacsha512;
+        use crate::native_test_util::auth_hmacsha512;
 
         let key = crypto_auth_hmacsha512_keygen();
         let message = b"message to authenticate";
-        let so_key = hmacsha512::Key::from_slice(&key).expect("key failed");
-        let so_mac = hmacsha512::authenticate(message, &so_key);
+        let so_mac = auth_hmacsha512(message, &key);
 
         let mut mac = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
         crypto_auth_hmacsha512(&mut mac, message, &key);
-        assert_eq!(mac.as_slice(), so_mac.as_ref());
+        assert_eq!(mac.as_slice(), so_mac.as_slice());
         crypto_auth_hmacsha512_verify(&mac, message, &key).expect("verify failed");
 
         let mut state = crypto_auth_hmacsha512_init(&key);
@@ -233,7 +232,7 @@ mod tests {
         crypto_auth_hmacsha512_update(&mut state, b"to authenticate");
         let mut state_mac = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
         crypto_auth_hmacsha512_final(state, &mut state_mac);
-        assert_eq!(state_mac.as_slice(), so_mac.as_ref());
+        assert_eq!(state_mac.as_slice(), so_mac.as_slice());
     }
 
     fn manual_hmac(key: &[u8], message: &[u8]) -> Mac {

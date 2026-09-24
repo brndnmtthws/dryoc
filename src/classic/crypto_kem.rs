@@ -98,3 +98,55 @@ pub fn crypto_kem_dec(
 ) -> Result<(), Error> {
     crypto_kem_xwing_dec(shared_secret, ciphertext, secret_key)
 }
+
+/// Cross-checks against libsodium 1.0.22's generic `crypto_kem_*`.
+#[cfg(all(test, dryoc_native_tests))]
+mod native_tests {
+    use super::*;
+    use crate::classic::crypto_kem_mlkem768::native_tests::seeds;
+    use crate::constants::{CRYPTO_KEM_CIPHERTEXTBYTES, CRYPTO_KEM_SHAREDSECRETBYTES};
+    use crate::native_test_util as sodium;
+
+    /// The generic functions derive X-Wing key pairs in both libraries, and
+    /// encapsulations made by either decapsulate in the other through both
+    /// the generic and the X-Wing functions.
+    #[test]
+    fn test_generic_kem_is_xwing_like_libsodium() {
+        for seed in seeds::<32>() {
+            let keypair = crypto_kem_seed_keypair(&seed);
+            assert_eq!(
+                keypair,
+                sodium::crypto_kem_seed_keypair(&seed),
+                "seed {seed:02x?}"
+            );
+            assert_eq!(
+                keypair,
+                sodium::crypto_kem_xwing_seed_keypair(&seed),
+                "seed {seed:02x?}"
+            );
+            let (public_key, secret_key) = keypair;
+
+            let (so_ciphertext, so_sent) =
+                sodium::crypto_kem_enc(&public_key).expect("libsodium enc");
+            let mut received = [0u8; CRYPTO_KEM_SHAREDSECRETBYTES];
+            crypto_kem_dec(&mut received, &so_ciphertext, &secret_key).expect("dec");
+            assert_eq!(received, so_sent);
+            assert_eq!(
+                sodium::crypto_kem_xwing_dec(&so_ciphertext, &secret_key).expect("libsodium dec"),
+                so_sent
+            );
+
+            let mut ciphertext = [0u8; CRYPTO_KEM_CIPHERTEXTBYTES];
+            let mut sent = [0u8; CRYPTO_KEM_SHAREDSECRETBYTES];
+            crypto_kem_enc(&mut ciphertext, &mut sent, &public_key).expect("enc");
+            assert_eq!(
+                sodium::crypto_kem_dec(&ciphertext, &secret_key).expect("libsodium dec"),
+                sent
+            );
+            assert_eq!(
+                sodium::crypto_kem_xwing_dec(&ciphertext, &secret_key).expect("libsodium dec"),
+                sent
+            );
+        }
+    }
+}

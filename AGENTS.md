@@ -156,6 +156,9 @@ cargo fuzz run fuzz-hashes
   the runtime-detected `sha2`/`sha3` extensions).
 - `BENCHMARKS.md` and `benchmarks/`: libsodium comparison results per machine
   (`results-<arch>.dat`) and the gnuplot script that renders the charts.
+- `src/native_test_util.rs`: safe wrappers over the libsodium FFI calls
+  (from the `libsodium-sys-stable` dev-dependency, currently libsodium
+  1.0.22) shared by the `dryoc_native_tests` compatibility tests.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
 

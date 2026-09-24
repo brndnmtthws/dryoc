@@ -461,12 +461,11 @@ mod tests {
     #[test]
     fn test_libsodium_varied_lengths_and_chunking() {
         use rand::rngs::SysRng;
-        use sodiumoxide::crypto::onetimeauth::poly1305::{Key as SOKey, authenticate};
 
+        use crate::native_test_util::onetimeauth_poly1305;
         use crate::rng::copy_randombytes;
 
         let key = Key::generate();
-        let so_key = SOKey::from_slice(&key).unwrap();
 
         for len in 0..260 {
             let mut data = vec![0u8; len];
@@ -478,8 +477,8 @@ mod tests {
             }
             let mac = mac.finalize_to_array();
 
-            let so_mac = authenticate(&data, &so_key);
-            assert_eq!(mac, so_mac.as_ref(), "len={}", len);
+            let so_mac = onetimeauth_poly1305(&data, &key);
+            assert_eq!(mac, so_mac, "len={}", len);
         }
 
         for _ in 0..20 {
@@ -491,8 +490,8 @@ mod tests {
             mac.update(&data);
             let mac = mac.finalize_to_array();
 
-            let so_mac = authenticate(&data, &so_key);
-            assert_eq!(mac, so_mac.as_ref(), "len={}", rand_usize);
+            let so_mac = onetimeauth_poly1305(&data, &key);
+            assert_eq!(mac, so_mac, "len={}", rand_usize);
         }
     }
 

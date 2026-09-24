@@ -79,18 +79,15 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_shorthash_matches_libsodium() {
-        use sodiumoxide::crypto::shorthash;
+        use crate::native_test_util::shorthash_siphash24;
 
         let key: Key = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
         for len in [0usize, 1, 7, 8, 9, 63, 64, 65] {
             let input: Vec<u8> = (0..len as u32).map(|i| (i * 31 % 251) as u8).collect();
             let mut output = Hash::default();
             crypto_shorthash(&mut output, &input, &key);
-            let so_output = shorthash::shorthash(
-                &input,
-                &shorthash::Key::from_slice(&key).expect("so key failed"),
-            );
-            assert_eq!(output, so_output.0, "len {len}");
+            let so_output = shorthash_siphash24(&input, &key);
+            assert_eq!(output, so_output, "len {len}");
         }
     }
 }

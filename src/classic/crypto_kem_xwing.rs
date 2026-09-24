@@ -365,6 +365,130 @@ mod tests {
     }
 }
 
+/// Cross-checks against libsodium 1.0.22's X-Wing.
+#[cfg(all(test, dryoc_native_tests))]
+mod native_tests {
+    use super::*;
+    use crate::classic::crypto_kem_mlkem768::native_tests::{
+        seeds, tampered, with_unreduced_coefficient,
+    };
+    use crate::native_test_util as sodium;
+
+    /// Copies of `key` with its trailing X25519 part replaced by the
+    /// low-order points `u = 0` and `u = 1`.
+    fn with_low_order_x25519<const N: usize>(key: &[u8; N]) -> [[u8; N]; 2] {
+        [0u8, 1].map(|u| {
+            let mut copy = *key;
+            copy[N - CRYPTO_SCALARMULT_BYTES..].fill(0);
+            copy[N - CRYPTO_SCALARMULT_BYTES] = u;
+            copy
+        })
+    }
+
+    /// For every key seed and encapsulation seed, both libraries derive the
+    /// same key pair, encapsulate to the same ciphertext and shared secret,
+    /// decapsulate it to that secret, and agree on the secret of each
+    /// tampered ciphertext (ML-KEM implicit rejection, or a changed X25519
+    /// share).
+    #[test]
+    fn test_xwing_matches_libsodium() {
+        for seed in seeds::<CRYPTO_KEM_XWING_SEEDBYTES>() {
+            let (public_key, secret_key) = crypto_kem_xwing_seed_keypair(&seed);
+            let (so_public_key, so_secret_key) = sodium::crypto_kem_xwing_seed_keypair(&seed);
+            assert_eq!(public_key, so_public_key, "seed {seed:02x?}");
+            assert_eq!(secret_key, so_secret_key, "seed {seed:02x?}");
+
+            for enc_seed in seeds::<CRYPTO_KEM_XWING_ENCSEEDBYTES>() {
+                let mut ciphertext = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+                let mut sent = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+                crypto_kem_xwing_enc_deterministic(
+                    &mut ciphertext,
+                    &mut sent,
+                    &public_key,
+                    &enc_seed,
+                )
+                .expect("enc");
+                let (so_ciphertext, so_sent) =
+                    sodium::crypto_kem_xwing_enc_deterministic(&public_key, &enc_seed)
+                        .expect("libsodium enc");
+                assert_eq!(ciphertext, so_ciphertext, "enc seed {enc_seed:02x?}");
+                assert_eq!(sent, so_sent, "enc seed {enc_seed:02x?}");
+
+                for ciphertext in std::iter::once(ciphertext).chain(tampered(&ciphertext)) {
+                    let mut received = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+                    crypto_kem_xwing_dec(&mut received, &ciphertext, &secret_key).expect("dec");
+                    let so_received = sodium::crypto_kem_xwing_dec(&ciphertext, &secret_key)
+                        .expect("libsodium dec");
+                    assert_eq!(received, so_received, "enc seed {enc_seed:02x?}");
+                    assert_eq!(received == sent, ciphertext == so_ciphertext);
+                }
+            }
+        }
+    }
+
+    /// Both libraries refuse to encapsulate to a key whose X25519 part is a
+    /// low-order point or whose ML-KEM part has an unreduced coefficient,
+    /// and refuse to decapsulate a ciphertext whose X25519 part is zero.
+    #[test]
+    fn test_xwing_invalid_inputs_rejected_like_libsodium() {
+        for seed in seeds::<CRYPTO_KEM_XWING_SEEDBYTES>() {
+            let (public_key, secret_key) = crypto_kem_xwing_seed_keypair(&seed);
+            let enc_seed = [9u8; CRYPTO_KEM_XWING_ENCSEEDBYTES];
+            let invalid_keys = with_low_order_x25519(&public_key)
+                .into_iter()
+                .chain(with_unreduced_coefficient(&public_key));
+            for invalid in invalid_keys {
+                let mut ciphertext = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+                let mut shared_secret = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+                assert!(
+                    crypto_kem_xwing_enc_deterministic(
+                        &mut ciphertext,
+                        &mut shared_secret,
+                        &invalid,
+                        &enc_seed,
+                    )
+                    .is_err()
+                );
+                assert!(
+                    crypto_kem_xwing_enc(&mut ciphertext, &mut shared_secret, &invalid).is_err()
+                );
+                assert!(sodium::crypto_kem_xwing_enc_deterministic(&invalid, &enc_seed).is_err());
+                assert!(sodium::crypto_kem_xwing_enc(&invalid).is_err());
+            }
+
+            let (mut ciphertext, _) =
+                sodium::crypto_kem_xwing_enc_deterministic(&public_key, &enc_seed).expect("enc");
+            ciphertext[CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES..].fill(0);
+            let mut shared_secret = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+            assert!(crypto_kem_xwing_dec(&mut shared_secret, &ciphertext, &secret_key).is_err());
+            assert!(sodium::crypto_kem_xwing_dec(&ciphertext, &secret_key).is_err());
+        }
+    }
+
+    /// Randomized encapsulations made by either library decapsulate to the
+    /// same shared secret in the other.
+    #[test]
+    fn test_xwing_randomized_interop_with_libsodium() {
+        for _ in 0..8 {
+            let (public_key, secret_key) = crypto_kem_xwing_keypair();
+
+            let mut ciphertext = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+            let mut sent = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+            crypto_kem_xwing_enc(&mut ciphertext, &mut sent, &public_key).expect("enc");
+            assert_eq!(
+                sodium::crypto_kem_xwing_dec(&ciphertext, &secret_key).expect("libsodium dec"),
+                sent
+            );
+
+            let (so_ciphertext, so_sent) =
+                sodium::crypto_kem_xwing_enc(&public_key).expect("libsodium enc");
+            let mut received = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
+            crypto_kem_xwing_dec(&mut received, &so_ciphertext, &secret_key).expect("dec");
+            assert_eq!(received, so_sent);
+        }
+    }
+}
+
 #[cfg(all(test, feature = "nightly"))]
 mod benches {
     extern crate test;
@@ -392,6 +516,56 @@ mod benches {
         });
     }
 
+    /// libsodium's `crypto_kem_xwing_seed_keypair` on the same seed as
+    /// `xwing_keypair_bench`.
+    #[cfg(dryoc_native_tests)]
+    #[bench]
+    fn libsodium_xwing_keypair_bench(b: &mut test::Bencher) {
+        crate::native_test_util::init();
+        let seed = [7u8; 32];
+        let mut public_key = [0u8; CRYPTO_KEM_XWING_PUBLICKEYBYTES];
+        let mut secret_key = [0u8; CRYPTO_KEM_XWING_SECRETKEYBYTES];
+        b.iter(|| {
+            // SAFETY: the key buffers and `seed` are arrays of libsodium's
+            // sizes.
+            let rc = unsafe {
+                libsodium_sys::crypto_kem_xwing_seed_keypair(
+                    public_key.as_mut_ptr(),
+                    secret_key.as_mut_ptr(),
+                    test::black_box(seed.as_ptr()),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box((&public_key, &secret_key));
+        });
+    }
+
+    /// libsodium's `crypto_kem_xwing_enc_deterministic` on the same key and
+    /// seed as `xwing_enc_bench`.
+    #[cfg(dryoc_native_tests)]
+    #[bench]
+    fn libsodium_xwing_enc_bench(b: &mut test::Bencher) {
+        crate::native_test_util::init();
+        let (public_key, _) = crypto_kem_xwing_seed_keypair(&[7u8; 32]);
+        let (mut ciphertext, mut shared_secret) =
+            ([0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES], [0u8; 32]);
+        let seed = [9u8; 64];
+        b.iter(|| {
+            // SAFETY: the output buffers, `public_key` and `seed` are arrays
+            // of the sizes libsodium reads and writes.
+            let rc = unsafe {
+                libsodium_sys::crypto_kem_xwing_enc_deterministic(
+                    ciphertext.as_mut_ptr(),
+                    shared_secret.as_mut_ptr(),
+                    test::black_box(public_key.as_ptr()),
+                    test::black_box(seed.as_ptr()),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box((&ciphertext, &shared_secret));
+        });
+    }
+
     #[bench]
     fn xwing_dec_bench(b: &mut test::Bencher) {
         let (public_key, secret_key) = crypto_kem_xwing_seed_keypair(&[7u8; 32]);
@@ -405,6 +579,31 @@ mod benches {
                 test::black_box(&secret_key),
             )
             .expect("dec")
+        });
+    }
+
+    /// libsodium's `crypto_kem_xwing_dec` with the same key and ciphertext
+    /// setup as `xwing_dec_bench`.
+    #[cfg(dryoc_native_tests)]
+    #[bench]
+    fn libsodium_xwing_dec_bench(b: &mut test::Bencher) {
+        crate::native_test_util::init();
+        let (public_key, secret_key) = crypto_kem_xwing_seed_keypair(&[7u8; 32]);
+        let mut ciphertext = [0u8; CRYPTO_KEM_XWING_CIPHERTEXTBYTES];
+        let mut shared_secret = [0u8; 32];
+        crypto_kem_xwing_enc(&mut ciphertext, &mut shared_secret, &public_key).expect("enc");
+        b.iter(|| {
+            // SAFETY: `shared_secret`, `ciphertext` and `secret_key` are
+            // arrays of libsodium's sizes.
+            let rc = unsafe {
+                libsodium_sys::crypto_kem_xwing_dec(
+                    shared_secret.as_mut_ptr(),
+                    test::black_box(ciphertext.as_ptr()),
+                    test::black_box(secret_key.as_ptr()),
+                )
+            };
+            assert_eq!(rc, 0);
+            test::black_box(&shared_secret);
         });
     }
 }
