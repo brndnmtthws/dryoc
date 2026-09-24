@@ -67,13 +67,14 @@ fn exercise_heapbytearray(model: &[u8], byte: u8) {
 }
 
 /// Walks a copy of `model` through the protected-memory typestate transitions.
-/// `byte` chooses the resized length and fill byte.
+/// `raw_len` chooses the resized length (anywhere in `0..=MAX_LOCKED_LEN`, so
+/// across the page boundary) and `byte` the fill byte.
 #[cfg(any(unix, windows))]
-fn exercise_locked(model: &[u8], byte: u8) {
+fn exercise_locked(model: &[u8], raw_len: usize, byte: u8) {
     if model.len() > MAX_LOCKED_LEN {
         return;
     }
-    let new_len = usize::from(byte) % (MAX_LOCKED_LEN + 1);
+    let new_len = raw_len % (MAX_LOCKED_LEN + 1);
 
     // Lock an already-sized value so lock refusal remains a fallible operation;
     // locked `Clone` and `resize` allocate internally and panic on host limits.
@@ -142,13 +143,15 @@ fn exercise(data: &[u8]) {
     for chunk in cursor.chunks(4).take(MAX_OPS) {
         let op = chunk.first().copied().unwrap_or(0) % 5;
         let arg = chunk.get(1).copied().unwrap_or(0);
+        let wide_arg = usize::from(u16::from_le_bytes([
+            arg,
+            chunk.get(2).copied().unwrap_or(0),
+        ]));
         let value = chunk.get(3).copied().unwrap_or(0);
 
         match op {
             0 => {
-                let raw_len =
-                    u16::from_le_bytes([arg, chunk.get(2).copied().unwrap_or(0)]) as usize;
-                let new_len = raw_len % (MAX_HEAP_BYTES_LEN + 1);
+                let new_len = wide_arg % (MAX_HEAP_BYTES_LEN + 1);
                 bytes.resize(new_len, value);
                 model.resize(new_len, value);
                 assert_eq!(bytes.as_slice(), model.as_slice());
@@ -166,15 +169,13 @@ fn exercise(data: &[u8]) {
             }
             2 => {
                 if !model.is_empty() {
-                    let raw_idx =
-                        u16::from_le_bytes([arg, chunk.get(2).copied().unwrap_or(0)]) as usize;
-                    let idx = raw_idx % model.len();
+                    let idx = wide_arg % model.len();
                     bytes[idx] = value;
                     model[idx] = value;
                     assert_eq!(bytes.as_slice(), model.as_slice());
                 }
             }
-            3 => exercise_locked(model.as_slice(), value),
+            3 => exercise_locked(model.as_slice(), wide_arg, value),
             _ => exercise_heapbytearray(model.as_slice(), value),
         }
     }
