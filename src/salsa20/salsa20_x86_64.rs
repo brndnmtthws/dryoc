@@ -4,6 +4,13 @@
 //! Salsa20 rounds are plain lane-wise arithmetic and the blocks only have to
 //! be transposed once at the end, right before being XORed into the data.
 //! Control flow and memory access are independent of the key and nonce.
+//!
+//! Wiping: the lane sets and scalar words only flow through registers and
+//! inlined helpers, so they live in registers or compiler spill slots, which
+//! are out of Rust's reach and not wiped (a wipe would only force them into
+//! stack slots). The one addressable copy, the memory-resident words of the
+//! scalar companion block (an `asm!` memory operand), is zeroized once per
+//! kernel call.
 
 use std::arch::asm;
 use std::arch::x86_64::{
@@ -447,10 +454,8 @@ fn xor_chunk_avx512_with_block(
         scalar_double_round(&mut regs, &mut mem);
     }
     finish_lanes512(x, &initial, &mut dest);
-    let mut s = join_words(&regs, &mem);
+    let s = join_words(&regs, &mem);
     xor_scalar_words(&s, &scalar_initial, extra);
-    s.zeroize();
-    regs.zeroize();
     mem.zeroize();
 }
 

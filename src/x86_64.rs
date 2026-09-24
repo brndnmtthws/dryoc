@@ -345,10 +345,10 @@ pub(crate) fn xor_block(keystream: [__m256i; 2], index: usize, dest: &mut Dest<'
     };
     let source = source.map(|source| source.as_chunks::<32>().0);
     let out = out.as_chunks_mut::<32>().0;
-    for (half, keystream) in keystream.into_iter().enumerate() {
+    for (half, keystream) in keystream.iter().enumerate() {
         let data = match source {
-            Some(source) => _mm256_xor_si256(load(&source[half]), keystream),
-            None => _mm256_xor_si256(load(&out[half]), keystream),
+            Some(source) => _mm256_xor_si256(load(&source[half]), *keystream),
+            None => _mm256_xor_si256(load(&out[half]), *keystream),
         };
         store(&mut out[half], data);
     }
@@ -492,8 +492,8 @@ pub(crate) fn finish_lanes512(mut x: [__m512i; 16], initial: &[__m512i; 16], des
         *word = _mm512_add_epi32(*word, *init);
     }
     let blocks = transpose512(x);
-    for (index, keystream) in blocks.into_iter().enumerate() {
-        xor_block512(keystream, index, dest);
+    for (index, keystream) in blocks.iter().enumerate() {
+        xor_block512(*keystream, index, dest);
     }
 }
 

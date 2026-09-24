@@ -6,6 +6,12 @@
 //! the blocks only have to be transposed once at the end, right before being
 //! XORed into the data. Control flow and memory access are independent of the
 //! key and nonce.
+//!
+//! Wiping: the lane sets only flow through registers and inlined helpers, so
+//! they live in registers or compiler spill slots, which are out of Rust's
+//! reach and not wiped (a wipe would only force them into stack slots). The
+//! one addressable copy, the scalar companion block whose words `10..16` are
+//! an `asm!` memory operand, is zeroized once per kernel call.
 
 use std::arch::asm;
 use std::arch::x86_64::{

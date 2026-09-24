@@ -84,12 +84,13 @@ pub fn crypto_core_hchacha20(
 
     crate::chacha20::rounds(&mut x);
 
-    for (chunk, word) in output
-        .as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .zip([x[0], x[1], x[2], x[3], x[12], x[13], x[14], x[15]])
-    {
+    // Words 0..4 and 12..16 of the permuted state, read by reference rather
+    // than gathered into a by-value copy.
+    let (head, tail) = output.as_chunks_mut::<4>().0.split_at_mut(4);
+    for (chunk, word) in head.iter_mut().zip(&x[..4]) {
+        *chunk = word.to_le_bytes();
+    }
+    for (chunk, word) in tail.iter_mut().zip(&x[12..]) {
         *chunk = word.to_le_bytes();
     }
 }

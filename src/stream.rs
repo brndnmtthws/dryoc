@@ -71,8 +71,8 @@ pub(crate) fn xor_scalar_block(
 ) {
     let mut ks = [0u8; 64];
     block(state, counter, &mut ks);
-    for (byte, ks_byte) in extra.iter_mut().zip(ks) {
-        *byte ^= ks_byte;
+    for (byte, ks_byte) in extra.iter_mut().zip(&ks) {
+        *byte ^= *ks_byte;
     }
     crate::utils::zeroize_bytes(&mut ks);
 }

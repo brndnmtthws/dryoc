@@ -6,6 +6,12 @@
 //! names) and the blocks only have to be transposed once at the end, right
 //! before being XORed into the data. Control flow and memory access are
 //! independent of the key and nonce.
+//!
+//! Wiping: the lane sets, row blocks and scalar blocks only flow through
+//! registers, register-only `asm!` operands and inlined helpers, so they live
+//! in registers or compiler spill slots, which are out of Rust's reach and
+//! not wiped; a wipe would only force them into stack slots. The keystream
+//! goes straight into the caller's buffers, which the drivers wipe.
 
 use std::arch::aarch64::{
     uint8x16_t, uint32x4_t, vaddq_u32, veorq_u32, vextq_u32, vqtbl1q_u8, vreinterpretq_u8_u32,

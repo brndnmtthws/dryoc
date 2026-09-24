@@ -4,6 +4,11 @@
 //! Salsa20 rounds are plain lane-wise arithmetic and the blocks only have to
 //! be transposed once at the end, right before being XORed into the data.
 //! Control flow and memory access are independent of the key and nonce.
+//!
+//! Wiping: the lane set only flows through registers and inlined helpers, so
+//! it lives in registers or compiler spill slots, which are out of Rust's
+//! reach and not wiped; a wipe would only force it into stack slots. The
+//! keystream goes straight into the caller's buffers, which the driver wipes.
 
 use std::simd::{Simd, simd_swizzle};
 
