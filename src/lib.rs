@@ -180,7 +180,7 @@
 //! [^4]: Available on Unix and Windows targets with the `protected` feature
 //! flag enabled. The `protected` feature is enabled by default.
 
-#![cfg_attr(feature = "nightly", feature(allocator_api, doc_cfg))]
+#![cfg_attr(feature = "nightly", feature(doc_cfg))]
 #![cfg_attr(
     all(feature = "simd_backend", feature = "nightly"),
     feature(portable_simd)
