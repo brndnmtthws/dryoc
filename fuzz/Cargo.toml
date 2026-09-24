@@ -11,14 +11,17 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-# Independent oracles for the differential targets; all already in the dryoc
-# dependency graph (`sha2`, `curve25519-dalek` and `zeroize` as dependencies,
-# `chacha20` and `salsa20` as dev-dependencies). `zeroize` only supplies the
-# trait `fuzz-protected` needs to call `Zeroize::zeroize` on protected values.
+# Independent oracles for the differential targets. `sha2`, `curve25519-dalek`
+# and `zeroize` are dryoc dependencies and `chacha20` and `salsa20` are
+# dev-dependencies; `sha3` 0.10 (its own sponge over `keccak` 0.1, and the last
+# release with SHAKE and TurboSHAKE) checks dryoc's Keccak sponge. `zeroize`
+# only supplies the trait `fuzz-protected` needs to call `Zeroize::zeroize` on
+# protected values.
 chacha20 = { version = "0.10", features = ["xchacha"] }
 curve25519-dalek = "5.0"
 salsa20 = "0.11"
 sha2 = "0.11"
+sha3 = "0.10"
 zeroize = "1.9"
 
 [dependencies.dryoc]

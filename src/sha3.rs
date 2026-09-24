@@ -18,9 +18,8 @@
 //! let hash = state.finalize_to_vec();
 //! assert_eq!(hash.len(), 32);
 //! ```
-use sha3_impl::{Digest as DigestImpl, Sha3_256 as Sha3256Impl, Sha3_512 as Sha3512Impl};
-
 use crate::constants::{CRYPTO_HASH_SHA3256_BYTES, CRYPTO_HASH_SHA3512_BYTES};
+use crate::keccak::{DOMAIN_SHA3, RATE_256, RATE_512, ROUNDS_FULL, Sponge};
 use crate::types::*;
 
 /// Type alias for SHA3-256 digest, provided for convenience.
@@ -28,30 +27,31 @@ pub type Sha3256Digest = StackByteArray<CRYPTO_HASH_SHA3256_BYTES>;
 /// Type alias for SHA3-512 digest, provided for convenience.
 pub type Sha3512Digest = StackByteArray<CRYPTO_HASH_SHA3512_BYTES>;
 
-/// Defines a SHA-3 hasher wrapping a `sha3_impl` digest.
+/// Defines a SHA-3 hasher over the shared Keccak [`Sponge`].
 ///
-/// - `$name`: the wrapper type; leading attributes (docs) are applied to it.
+/// - `$name`: the hasher type; leading attributes (docs) are applied to it.
 /// - `$algo`: the algorithm name for the generated method docs.
-/// - `$inner`: the `sha3_impl` hasher.
+/// - `$rate`: the sponge rate in bytes.
 /// - `$digest_bytes`: the digest size constant.
 macro_rules! sha3_hasher {
     (
         $(#[$meta:meta])*
         $name:ident,
         $algo:literal,
-        $inner:ty,
+        $rate:expr,
         $digest_bytes:expr,
     ) => {
         $(#[$meta])*
+        #[derive(Clone)]
         pub struct $name {
-            hasher: $inner,
+            sponge: Sponge<$rate, ROUNDS_FULL>,
         }
 
         impl $name {
             #[doc = concat!("Returns a new ", $algo, " hasher instance.")]
             pub fn new() -> Self {
                 Self {
-                    hasher: <$inner>::new(),
+                    sponge: Sponge::new(),
                 }
             }
 
@@ -93,7 +93,7 @@ macro_rules! sha3_hasher {
 
             #[doc = concat!("Updates ", $algo, " hash state with `input`.")]
             pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
-                self.hasher.update(input.as_slice())
+                self.sponge.absorb(input.as_slice())
             }
 
             /// Consumes hasher and return final computed hash.
@@ -105,11 +105,11 @@ macro_rules! sha3_hasher {
 
             /// Consumes hasher and writes final computed hash into `output`.
             pub fn finalize_into_bytes<Output: MutByteArray<$digest_bytes>>(
-                self,
+                mut self,
                 output: &mut Output,
             ) {
-                let digest = self.hasher.finalize();
-                output.as_mut_slice().copy_from_slice(&digest);
+                self.sponge.pad(DOMAIN_SHA3);
+                self.sponge.squeeze(output.as_mut_array());
             }
 
             /// Consumes hasher and returns final computed hash as a [`Vec`].
@@ -130,7 +130,7 @@ sha3_hasher! {
     /// SHA3-256 wrapper, provided for convenience.
     Sha3256,
     "SHA3-256",
-    Sha3256Impl,
+    RATE_256,
     CRYPTO_HASH_SHA3256_BYTES,
 }
 
@@ -138,7 +138,7 @@ sha3_hasher! {
     /// SHA3-512 wrapper, provided for convenience.
     Sha3512,
     "SHA3-512",
-    Sha3512Impl,
+    RATE_512,
     CRYPTO_HASH_SHA3512_BYTES,
 }
 
@@ -153,10 +153,7 @@ sha3_hasher! {
 /// The million-`a` digests are the NIST SHA-3 example values.
 #[cfg(test)]
 pub(crate) mod test_vectors {
-    /// SHA3-256 absorbs 136 bytes per permutation.
-    pub(crate) const SHA3_256_RATE: usize = 136;
-    /// SHA3-512 absorbs 72 bytes per permutation.
-    pub(crate) const SHA3_512_RATE: usize = 72;
+    pub(crate) use crate::keccak::{RATE_256 as SHA3_256_RATE, RATE_512 as SHA3_512_RATE};
 
     fn hex(s: &str) -> Vec<u8> {
         hex::decode(s).expect("hex failed")

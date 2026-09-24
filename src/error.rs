@@ -26,6 +26,8 @@ pub enum ErrorContext {
     Curve25519PublicKey,
     /// An in-place data buffer.
     Data,
+    /// A domain-separation byte.
+    Domain,
     /// An Ed25519 public key.
     Ed25519PublicKey,
     /// An ephemeral public key.
@@ -84,6 +86,8 @@ pub enum ErrorContext {
     Tag,
     /// An Argon2 time-cost parameter.
     TimeCost,
+    /// An extendable-output function (XOF) state.
+    Xof,
 }
 
 impl Display for ErrorContext {
@@ -100,6 +104,7 @@ impl Display for ErrorContext {
             Self::Ciphertext => "ciphertext",
             Self::Curve25519PublicKey => "Curve25519 public key",
             Self::Data => "data",
+            Self::Domain => "domain separator",
             Self::Ed25519PublicKey => "Ed25519 public key",
             Self::EphemeralPublicKey => "ephemeral public key",
             Self::MemoryCost => "memory cost",
@@ -129,6 +134,7 @@ impl Display for ErrorContext {
             Self::Subkey => "subkey",
             Self::Tag => "tag",
             Self::TimeCost => "time cost",
+            Self::Xof => "XOF",
         })
     }
 }

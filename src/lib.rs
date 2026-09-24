@@ -31,8 +31,8 @@
 //!   "nightly"]`
 //! * Curve25519 and Ed25519 group operations implemented in dryoc; [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
 //!   provides scalar arithmetic modulo the group order
-//! * Portable SHA-256, SHA-512, and SHA-3 building blocks from the [RustCrypto](https://github.com/RustCrypto)
-//!   project
+//! * Portable SHA-256 and SHA-512 compression and the Keccak permutation from
+//!   the [RustCrypto](https://github.com/RustCrypto) project
 //!
 //! The optional portable SIMD implementations require nightly Rust and
 //! `--features simd_backend,nightly`. The `simd_backend` feature selects those
@@ -89,6 +89,7 @@
 //! | Generic hashing and keyed hashing | [`GenericHash`](generichash) | [`crypto_generichash`](classic::crypto_generichash) | [Link](https://doc.libsodium.org/hashing/generic_hashing) |
 //! | SHA-2 hashing | [`Sha256`](sha256::Sha256), [`Sha512`](sha512::Sha512) | [`crypto_hash`](classic::crypto_hash) | [Link](https://doc.libsodium.org/advanced/sha-2_hash_function) |
 //! | SHA-3 hashing | [`Sha3256`](sha3::Sha3256), [`Sha3512`](sha3::Sha3512) | [`crypto_hash`](classic::crypto_hash) | [Link](https://nvlpubs.nist.gov/nistpubs/fips/nist.fips.202.pdf) |
+//! | Extendable-output functions | [`Shake128`](xof::Shake128), [`TurboShake128`](xof::TurboShake128) | [`crypto_xof`](classic::crypto_xof) | [Link](https://doc.libsodium.org/hashing/xof) |
 //! | Secret-key authentication | [`Auth`](auth) | [`crypto_auth`](classic::crypto_auth) | [Link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication) |
 //! | Direct HMAC authentication | [`Hmac`](hmac) | [`crypto_auth_hmacsha256`](classic::crypto_auth_hmacsha256), [`crypto_auth_hmacsha512`](classic::crypto_auth_hmacsha512), [`crypto_auth_hmacsha512256`](classic::crypto_auth_hmacsha512256) | [Link](https://doc.libsodium.org/secret-key_cryptography/secret-key_authentication) |
 //! | One-time authentication | [`OnetimeAuth`](onetimeauth) | [`crypto_onetimeauth`](classic::crypto_onetimeauth) | [Link](https://doc.libsodium.org/advanced/poly1305) |
@@ -200,6 +201,7 @@ mod bytes_serde;
 mod chacha20;
 mod edwards25519;
 mod fe25519;
+mod keccak;
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod neon;
 mod poly1305;
@@ -244,6 +246,7 @@ pub mod classic {
     pub mod crypto_shorthash;
     pub mod crypto_sign;
     pub mod crypto_sign_ed25519;
+    pub mod crypto_xof;
 }
 
 pub mod auth;
@@ -272,5 +275,6 @@ pub mod sign;
 pub mod types;
 /// # Various utility functions
 pub mod utils;
+pub mod xof;
 
 pub use error::{Error, ErrorContext, LengthConstraint, ValueConstraint};

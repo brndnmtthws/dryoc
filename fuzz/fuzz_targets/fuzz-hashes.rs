@@ -1,11 +1,13 @@
 #![no_main]
 //! SHA-256, SHA-512 and their HMACs against the `sha2` crate, SipHash-2-4
-//! against the paper's reference below, SHA3-256/512 one-shot against
-//! streamed and the Rustaceous wrapper, plus streamed and one-shot BLAKE2b and
-//! Poly1305 against each other (and BLAKE2b's key/output length contract), at
-//! every length and chunking the fuzzer finds. On AArch64 this drives the SHA2
-//! hardware compressions, the register-scheduled BLAKE2b rounds and the NEON
-//! Poly1305 bulk path; SHA-3 is the `sha3` crate behind dryoc's wrapper.
+//! against the paper's reference below, SHA3-256/512 and the SHAKE and
+//! TurboSHAKE XOFs (fuzz-selected domain and output length, streamed input and
+//! output) against the `sha3` 0.10 crate, plus streamed and one-shot BLAKE2b
+//! and Poly1305 against each other (and BLAKE2b's key/output length
+//! contract), at every length and chunking the fuzzer finds. On AArch64 this
+//! drives the SHA2 hardware compressions, the SHA3-extension Keccak
+//! permutation, the register-scheduled BLAKE2b rounds and the NEON Poly1305
+//! bulk path.
 use dryoc::classic::crypto_auth_hmacsha256::{
     crypto_auth_hmacsha256, crypto_auth_hmacsha256_final, crypto_auth_hmacsha256_init,
     crypto_auth_hmacsha256_update, crypto_auth_hmacsha256_verify,
@@ -35,13 +37,16 @@ use dryoc::classic::crypto_onetimeauth::{
     crypto_onetimeauth_update, crypto_onetimeauth_verify,
 };
 use dryoc::classic::crypto_shorthash::crypto_shorthash;
+use dryoc::classic::crypto_xof::*;
 use dryoc::constants::{
     CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN, CRYPTO_GENERICHASH_KEYBYTES_MAX,
     CRYPTO_GENERICHASH_KEYBYTES_MIN,
 };
 use dryoc::sha3::{Sha3256, Sha3512};
+use dryoc::xof::{Shake128, Shake256, TurboShake128, TurboShake256};
 use libfuzzer_sys::fuzz_target;
 use sha2::Digest;
+use sha3::digest::{ExtendableOutput, Update, XofReader};
 
 #[path = "common.rs"]
 mod common;
@@ -134,6 +139,8 @@ fuzz_target!(|data: &[u8]| {
     let hmac_keylen = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) % 257;
     let long_hmac_keylen = 129 + usize::from(fill::<1>(&mut data)[0]) % 128;
     let outlen = 16 + usize::from(fill::<1>(&mut data)[0]) % 49;
+    let xof_len = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) % 600;
+    let xof_domain = 1 + fill::<1>(&mut data)[0] % 0x7f;
     let message_len = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) & 0xfff;
     let message: Vec<u8> = if data.is_empty() {
         vec![0u8; message_len]
@@ -162,33 +169,119 @@ fuzz_target!(|data: &[u8]| {
     crypto_hash_sha512_final(state, &mut digest);
     assert_eq!(digest[..], expected[..]);
 
-    // SHA3-256 / SHA3-512: one-shot against streamed (rate boundaries 136 and
-    // 72 fall within the chunking) and against the Rustaceous wrapper. Both
-    // routes wrap the `sha3` crate, so this checks dryoc's plumbing only; there
-    // is no independent Keccak here to compare against.
-    let mut expected = [0u8; 32];
-    crypto_hash_sha3256(&mut expected, &message);
+    // SHA3-256 / SHA3-512 one-shot, streamed (rate boundaries 136 and 72 fall
+    // within the chunking) and through the Rustaceous wrapper, against `sha3`.
+    let expected = <sha3::Sha3_256 as sha3::Digest>::digest(&message);
+    let mut digest = [0u8; 32];
+    crypto_hash_sha3256(&mut digest, &message);
+    assert_eq!(digest[..], expected[..]);
     let mut state = crypto_hash_sha3256_init();
     chunks().for_each(|chunk| crypto_hash_sha3256_update(&mut state, chunk));
-    let mut digest = [0u8; 32];
     crypto_hash_sha3256_final(state, &mut digest);
-    assert_eq!(digest, expected);
-    assert_eq!(Sha3256::compute_to_vec(&message), expected);
+    assert_eq!(digest[..], expected[..]);
     let mut hasher = Sha3256::new();
     chunks().for_each(|chunk| hasher.update(chunk));
-    assert_eq!(hasher.finalize_to_vec(), expected);
+    assert_eq!(hasher.finalize_to_vec(), expected[..]);
 
-    let mut expected = [0u8; 64];
-    crypto_hash_sha3512(&mut expected, &message);
+    let expected = <sha3::Sha3_512 as sha3::Digest>::digest(&message);
+    let mut digest = [0u8; 64];
+    crypto_hash_sha3512(&mut digest, &message);
+    assert_eq!(digest[..], expected[..]);
     let mut state = crypto_hash_sha3512_init();
     chunks().for_each(|chunk| crypto_hash_sha3512_update(&mut state, chunk));
-    let mut digest = [0u8; 64];
     crypto_hash_sha3512_final(state, &mut digest);
-    assert_eq!(digest, expected);
-    assert_eq!(Sha3512::compute_to_vec(&message), expected);
+    assert_eq!(digest[..], expected[..]);
     let mut hasher = Sha3512::new();
     chunks().for_each(|chunk| hasher.update(chunk));
-    assert_eq!(hasher.finalize_to_vec(), expected);
+    assert_eq!(hasher.finalize_to_vec(), expected[..]);
+
+    // XOFs: output squeezed in the same cut pattern (scaled onto the output
+    // length) through the Classic state and the Rustaceous reader, against
+    // `sha3`. TurboSHAKE also takes the fuzz-selected domain; out-of-range
+    // domains are rejected.
+    let output_cuts: Vec<usize> = cuts
+        .iter()
+        .map(|&c| c * xof_len / message.len().max(1))
+        .map(|c| c.min(xof_len))
+        .collect();
+    let output_chunks = |output: &mut [u8], mut squeeze: Box<dyn FnMut(&mut [u8]) + '_>| {
+        let mut last = 0;
+        for &cut in output_cuts.iter().chain(std::iter::once(&xof_len)) {
+            squeeze(&mut output[last..cut.max(last)]);
+            last = cut.max(last);
+        }
+    };
+    macro_rules! check_xof {
+        (
+            $oracle:expr, $domain:expr, $oneshot:ident, $init_with_domain:ident,
+            $update:ident, $squeeze:ident, $xof:ty
+        ) => {{
+            let mut oracle = $oracle;
+            oracle.update(&message);
+            let mut expected = vec![0u8; xof_len];
+            oracle.finalize_xof().read(&mut expected);
+
+            if $domain == 0x1f {
+                let mut output = vec![0u8; xof_len];
+                $oneshot(&mut output, &message);
+                assert_eq!(output, expected);
+                assert_eq!(<$xof>::compute_to_vec(&message, xof_len), expected);
+            }
+
+            let mut state = $init_with_domain($domain).expect("valid domain");
+            chunks().for_each(|chunk| $update(&mut state, chunk).expect("update"));
+            let mut output = vec![0u8; xof_len];
+            output_chunks(&mut output, Box::new(|out| $squeeze(&mut state, out)));
+            assert_eq!(output, expected);
+            assert!($update(&mut state, b"").is_err());
+
+            let mut xof = <$xof>::with_domain($domain).expect("valid domain");
+            chunks().for_each(|chunk| xof.update(chunk));
+            let mut reader = xof.finalize();
+            let mut output = vec![0u8; xof_len];
+            output_chunks(&mut output, Box::new(|out| reader.squeeze(out)));
+            assert_eq!(output, expected);
+        }};
+    }
+    check_xof!(
+        sha3::Shake128::default(),
+        0x1f,
+        crypto_xof_shake128,
+        crypto_xof_shake128_init_with_domain,
+        crypto_xof_shake128_update,
+        crypto_xof_shake128_squeeze,
+        Shake128
+    );
+    check_xof!(
+        sha3::Shake256::default(),
+        0x1f,
+        crypto_xof_shake256,
+        crypto_xof_shake256_init_with_domain,
+        crypto_xof_shake256_update,
+        crypto_xof_shake256_squeeze,
+        Shake256
+    );
+    check_xof!(
+        sha3::TurboShake128::from_core(sha3::TurboShake128Core::new(xof_domain)),
+        xof_domain,
+        crypto_xof_turboshake128,
+        crypto_xof_turboshake128_init_with_domain,
+        crypto_xof_turboshake128_update,
+        crypto_xof_turboshake128_squeeze,
+        TurboShake128
+    );
+    check_xof!(
+        sha3::TurboShake256::from_core(sha3::TurboShake256Core::new(xof_domain)),
+        xof_domain,
+        crypto_xof_turboshake256,
+        crypto_xof_turboshake256_init_with_domain,
+        crypto_xof_turboshake256_update,
+        crypto_xof_turboshake256_squeeze,
+        TurboShake256
+    );
+    let bad_domain = xof_domain | 0x80;
+    assert!(crypto_xof_turboshake128_init_with_domain(bad_domain).is_err());
+    assert!(TurboShake256::with_domain(0).is_err());
 
     // SipHash-2-4 against the paper, including every `len % 8` tail and the
     // `len as u8` length byte wrapping past 255.
