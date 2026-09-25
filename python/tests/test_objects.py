@@ -4,6 +4,8 @@ equality, hashing, explicit export, exceptions and buffer handling."""
 import array
 import hashlib
 import pickle
+import sys
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -145,6 +147,53 @@ WORDS = array.array("I", range(2048))
 )
 def test_buffers_are_read_as_raw_bytes_in_c_order(value: Any, expected: bytes) -> None:
     assert dhash.sha256(value) == hashlib.sha256(expected).digest()
+
+
+class ReExported(bytearray):
+    def __buffer__(self, flags: int) -> memoryview:
+        return memoryview(b"exported")
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="__buffer__ overrides need PEP 688 (3.12)")
+def test_bytearray_subclass_is_read_through_its_buffer() -> None:
+    # The locked `bytearray` copy reads the object's storage, so it must not
+    # be used for subclasses, whose exported bytes can differ.
+    value = ReExported(b"storage")
+    assert dhash.sha256(value) == hashlib.sha256(b"exported").digest()
+
+
+@pytest.mark.skipif(
+    getattr(sys, "_is_gil_enabled", lambda: True)(),
+    reason="concurrent bytearray writes only race the copy with the GIL disabled "
+    "(free-threaded build, e.g. 3.14t)",
+)
+def test_bytearray_input_is_copied_atomically_under_concurrent_writes() -> None:
+    size = 16 << 20
+    old, new = bytes(size), b"\xff" * size
+    expected = {hashlib.sha256(old).digest(), hashlib.sha256(new).digest()}
+    shared = bytearray(old)
+    running, stop = threading.Event(), threading.Event()
+
+    def writer() -> None:
+        running.set()
+        while not stop.is_set():
+            # Same-length assignments never resize. The reversed extended
+            # slice writes back to front, so an unlocked front-to-back copy
+            # running concurrently crosses the write front and sees both
+            # values.
+            shared[::-1] = new
+            shared[::-1] = old
+
+    thread = threading.Thread(target=writer)
+    thread.start()
+    try:
+        running.wait()
+        digests = [dhash.sha256(shared) for _ in range(30)]
+    finally:
+        stop.set()
+        thread.join()
+    torn = sum(digest not in expected for digest in digests)
+    assert torn == 0, f"{torn} of {len(digests)} digests saw a partially written bytearray"
 
 
 def test_random_bytes() -> None:

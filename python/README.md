@@ -232,7 +232,10 @@ authenticator `Poly1305`.
 - **Any bytes-like input.** `bytes`, `bytearray`, `memoryview`, `array`,
   NumPy arrays and other buffer-protocol objects are accepted; results are
   `bytes`. Mutable buffers are copied (and the copy wiped) before use, so
-  another thread cannot change them mid-operation.
+  another thread cannot change them mid-operation. A `bytearray` is copied
+  atomically with respect to its own methods, even on free-threaded CPython;
+  writing to other buffers (a `memoryview`, `array`, NumPy array) from
+  another thread while a call copies them is a race, as with `hashlib`.
 - **Threads.** Password hashing and operations on inputs of 2 KiB or more run
   with the GIL released. Key objects are immutable; stateful objects
   (hashers, MACs, streams) serialize concurrent calls. The extension declares
