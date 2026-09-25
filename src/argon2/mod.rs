@@ -632,7 +632,7 @@ fn index_alpha(
     };
 
     /* 1.2.6. Computing absolute position */
-    (start_position + relative_position) % instance.lane_length /* absolute position */
+    ((start_position as u64 + relative_position as u64) % instance.lane_length as u64) as u32
 }
 
 fn generate_addresses(instance: &mut Argon2Instance, position: &Argon2Position) {
@@ -782,6 +782,21 @@ mod tests {
     extern crate test;
 
     use super::*;
+
+    #[test]
+    fn index_alpha_computes_absolute_position_without_u32_overflow() {
+        let lane_length = 4 * 0x3FFF_FFFF;
+        let mut instance = Argon2Instance::default();
+        instance.lane_length = lane_length;
+        instance.segment_length = lane_length / ARGON2_SYNC_POINTS;
+        let position = Argon2Position {
+            pass: 1,
+            lane: 0,
+            slice: 2,
+            index: 1,
+        };
+        assert_eq!(index_alpha(&instance, &position, 0, true), 2_147_483_645);
+    }
 
     #[test]
     fn secret_working_types_zeroize_on_drop() {

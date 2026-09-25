@@ -3,9 +3,6 @@
 const fn min(a: usize, b: usize) -> usize {
     [a, b][(a > b) as usize]
 }
-const fn max(a: usize, b: usize) -> usize {
-    [a, b][(a < b) as usize]
-}
 const fn min_usize_u64(a: usize, b: u64) -> usize {
     if (a as u64) < b { a } else { b as usize }
 }
@@ -220,13 +217,13 @@ pub const CRYPTO_PWHASH_ARGON2I_ALG_ARGON2I13: usize = 1;
 pub const CRYPTO_PWHASH_ARGON2I_BYTES_MAX: usize = min(SODIUM_SIZE_MAX, 4294967295);
 pub const CRYPTO_PWHASH_ARGON2I_BYTES_MIN: usize = 16;
 pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_INTERACTIVE: usize = 33554432;
-pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MAX: usize = max(
-    min_usize_u64(SODIUM_SIZE_MAX, 4398046510080),
-    max(
-        min(SODIUM_SIZE_MAX, 2147483648),
-        min(SODIUM_SIZE_MAX, 32768),
-    ),
-);
+pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MAX: usize = if usize::BITS >= 64 {
+    4_398_046_510_080u64 as usize
+} else if usize::BITS >= 32 {
+    2_147_483_648u64 as usize
+} else {
+    32_768
+};
 pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MIN: usize = 8192;
 pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MODERATE: usize = 134217728;
 pub const CRYPTO_PWHASH_ARGON2I_MEMLIMIT_SENSITIVE: usize = 536870912;
@@ -248,13 +245,13 @@ pub const CRYPTO_PWHASH_ARGON2ID_BYTES_MAX: usize = min(SODIUM_SIZE_MAX, 4294967
 pub const CRYPTO_PWHASH_ARGON2ID_BYTES_MIN: usize = 16;
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_INTERACTIVE: usize = 67108864;
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MIN: usize = 8192;
-pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MAX: usize = max(
-    min_usize_u64(SODIUM_SIZE_MAX, 4398046510080),
-    max(
-        min(SODIUM_SIZE_MAX, 2147483648),
-        min(SODIUM_SIZE_MAX, 32768),
-    ),
-);
+pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MAX: usize = if usize::BITS >= 64 {
+    4_398_046_510_080u64 as usize
+} else if usize::BITS >= 32 {
+    2_147_483_648u64 as usize
+} else {
+    32_768
+};
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MODERATE: usize = 268435456;
 pub const CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_SENSITIVE: usize = 1073741824;
 pub const CRYPTO_PWHASH_ARGON2ID_OPSLIMIT_INTERACTIVE: u64 = 2;
@@ -293,8 +290,29 @@ pub const CRYPTO_PWHASH_SALTBYTES: usize = CRYPTO_PWHASH_ARGON2ID_SALTBYTES;
 pub const CRYPTO_PWHASH_STRBYTES: usize = CRYPTO_PWHASH_ARGON2ID_STRBYTES;
 pub const CRYPTO_PWHASH_STRPREFIX: &str = CRYPTO_PWHASH_ARGON2ID_STRPREFIX;
 
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MAX == 2_147_483_648usize);
+    assert!(CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MAX == 2_147_483_648usize);
+    assert!(CRYPTO_PWHASH_MEMLIMIT_MAX == 2_147_483_648usize);
+};
+
 #[cfg(test)]
 mod tests {
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn argon2_memory_limits_match_32_bit_libsodium_maximum() {
+        assert_eq!(
+            super::CRYPTO_PWHASH_ARGON2I_MEMLIMIT_MAX,
+            2_147_483_648usize
+        );
+        assert_eq!(
+            super::CRYPTO_PWHASH_ARGON2ID_MEMLIMIT_MAX,
+            2_147_483_648usize
+        );
+        assert_eq!(super::CRYPTO_PWHASH_MEMLIMIT_MAX, 2_147_483_648usize);
+    }
     /// Every constant mirrored from libsodium equals the value reported by
     /// the corresponding `libsodium_sys` getter. Constants without a getter
     /// (`*_INONCEBYTES`, `*_COUNTERBYTES`, `*_PADBYTES`, the HKDF sizes,

@@ -155,10 +155,12 @@ macro_rules! blake2b_longhash {
         /// `alloc`, uses it.
         #[cfg(feature = "alloc")]
         pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
+            use zeroize::Zeroize;
+
             use crate::blake2b::HALFOUTBYTES;
 
             assert!(output.len() > 4);
-            assert!(output.len() < u32::MAX as usize);
+            assert!(output.len() <= u32::MAX as usize);
 
             let outlen = output.len() as u32;
             let outlen_bytes = outlen.to_le_bytes();
@@ -176,28 +178,31 @@ macro_rules! blake2b_longhash {
                 state.finalize(output)
             } else {
                 let mut in_buffer = [0u8; OUTBYTES];
+                let mut out_buffer = [0u8; OUTBYTES];
+                let result = (|| {
+                    state.finalize(&mut output[..OUTBYTES])?;
+                    in_buffer.copy_from_slice(&output[..OUTBYTES]);
 
-                state.finalize(&mut output[..OUTBYTES])?;
-                in_buffer.copy_from_slice(&output[..OUTBYTES]);
+                    let outlen = output.len() - HALFOUTBYTES;
+                    let chunk_count = if outlen.is_multiple_of(HALFOUTBYTES) {
+                        outlen / HALFOUTBYTES - 2
+                    } else {
+                        outlen / HALFOUTBYTES - 1
+                    };
+                    let end_offset = chunk_count * HALFOUTBYTES;
+                    let (start, end) = output[HALFOUTBYTES..].split_at_mut(end_offset);
 
-                let outlen = output.len() - HALFOUTBYTES;
-                let chunk_count = if outlen.is_multiple_of(HALFOUTBYTES) {
-                    outlen / HALFOUTBYTES - 2
-                } else {
-                    outlen / HALFOUTBYTES - 1
-                };
-                let end = chunk_count * HALFOUTBYTES;
-                let (start, end) = output[HALFOUTBYTES..].split_at_mut(end);
+                    for chunk in start.as_chunks_mut::<HALFOUTBYTES>().0 {
+                        hash(&mut out_buffer, &in_buffer, None)?;
 
-                for chunk in start.as_chunks_mut::<HALFOUTBYTES>().0 {
-                    let mut out_buffer = [0u8; OUTBYTES];
-
-                    hash(&mut out_buffer, &in_buffer, None)?;
-
-                    chunk.copy_from_slice(&out_buffer[..HALFOUTBYTES]);
-                    in_buffer.copy_from_slice(&out_buffer);
-                }
-                hash(end, &in_buffer, None)
+                        chunk.copy_from_slice(&out_buffer[..HALFOUTBYTES]);
+                        in_buffer.copy_from_slice(&out_buffer);
+                    }
+                    hash(end, &in_buffer, None)
+                })();
+                in_buffer.zeroize();
+                out_buffer.zeroize();
+                result
             }
         }
     };
