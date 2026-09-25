@@ -60,7 +60,7 @@ proptest = "1"
 
 [features]
 base64 = ["alloc"]
-default = ["base64", "protected", "std"]
+default = ["base64", "protected", "serde", "std"]
 nightly = []
 protected = ["std"]
 simd_backend = []
