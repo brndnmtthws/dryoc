@@ -370,101 +370,109 @@ macro_rules! poly1305_26 {
                 }
             }
 
-            /// Loads `LANES` consecutive 16-byte blocks into 5x26-bit limbs
-            /// (with the `2^128` high bit set) and adds them lane-wise to
-            /// `acc`.
-            #[inline]
-            #[target_feature(enable = $feature)]
-            fn add_blocks(acc: Acc, blocks: &[u8; LANE_BYTES]) -> Acc {
-                let (t0, t1) = $gather_qwords(blocks);
+            // `add_blocks!` and `mul_reduce!` are defined per kernel so they
+            // can use this kernel's intrinsics; their own `$acc`, `$blocks`
+            // and `$m` are not metavariables of `poly1305_26!` and pass
+            // through to the inner definitions unchanged.
+            /// Loads the `LANES` consecutive 16-byte blocks `$blocks: &[u8;
+            /// LANE_BYTES]` into 5x26-bit limbs (with the `2^128` high bit
+            /// set) and adds them lane-wise to `$acc: Acc`. A macro so it
+            /// expands inside `hot_loop` and `blocks`; see `blocks`.
+            macro_rules! add_blocks {
+                ($acc:expr, $blocks:expr) => {{
+                    let acc: Acc = $acc;
+                    let (t0, t1) = $gather_qwords($blocks);
 
-                let mask = $set1(M26 as i64);
-                let hibit = $set1(1 << 24);
-                let m = [
-                    $and(t0, mask),
-                    $and($srli_epi64::<26>(t0), mask),
-                    $and($or($srli_epi64::<52>(t0), $slli_epi64::<12>(t1)), mask),
-                    $and($srli_epi64::<14>(t1), mask),
-                    $or($srli_epi64::<40>(t1), hibit),
-                ];
-                let mut out = acc;
-                for (limb, m) in out.0.iter_mut().zip(m) {
-                    *limb = $add_epi64(*limb, m);
-                }
-                out
+                    let mask = $set1(M26 as i64);
+                    let hibit = $set1(1 << 24);
+                    let [a0, a1, a2, a3, a4] = acc.0;
+                    Acc([
+                        $add_epi64(a0, $and(t0, mask)),
+                        $add_epi64(a1, $and($srli_epi64::<26>(t0), mask)),
+                        $add_epi64(
+                            a2,
+                            $and($or($srli_epi64::<52>(t0), $slli_epi64::<12>(t1)), mask),
+                        ),
+                        $add_epi64(a3, $and($srli_epi64::<14>(t1), mask)),
+                        $add_epi64(a4, $or($srli_epi64::<40>(t1), hibit)),
+                    ])
+                }};
             }
 
-            /// `acc * m mod p`, partially carried so every limb ends below
-            /// `2^26 + 2^10`.
+            /// `$acc * $m mod p` (`$acc: Acc`, `$m: &Mult`), partially
+            /// carried so every limb ends below `2^26 + 2^10`. A macro so it
+            /// expands inside `hot_loop` and `blocks`; see `blocks`.
             ///
             /// Input bound: `acc` limbs below `2^27 + 2^11` (a reduced state
             /// plus one message block), multiplier limbs below `2^26 + 2^10`
             /// (`r`, a canonical or partially carried power) and `5 *` that
             /// (`s`), so each of the five product sums is below `2^59`.
-            #[inline]
-            #[target_feature(enable = $feature)]
-            fn mul_reduce(acc: Acc, m: &Mult) -> Acc {
-                let [h0, h1, h2, h3, h4] = acc.0;
-                let Mult { r, s } = m;
-                let mul = $mul_epu32;
-                let add = $add_epi64;
+            macro_rules! mul_reduce {
+                ($acc:expr, $m:expr) => {{
+                    let acc: Acc = $acc;
+                    let m: &Mult = $m;
+                    let [h0, h1, h2, h3, h4] = acc.0;
+                    let Mult { r, s } = m;
+                    let mul = $mul_epu32;
+                    let add = $add_epi64;
 
-                let d0 = add(
-                    add(
-                        add(mul(h0, r[0]), mul(h1, s[3])),
-                        add(mul(h2, s[2]), mul(h3, s[1])),
-                    ),
-                    mul(h4, s[0]),
-                );
-                let d1 = add(
-                    add(
-                        add(mul(h0, r[1]), mul(h1, r[0])),
-                        add(mul(h2, s[3]), mul(h3, s[2])),
-                    ),
-                    mul(h4, s[1]),
-                );
-                let d2 = add(
-                    add(
-                        add(mul(h0, r[2]), mul(h1, r[1])),
-                        add(mul(h2, r[0]), mul(h3, s[3])),
-                    ),
-                    mul(h4, s[2]),
-                );
-                let d3 = add(
-                    add(
-                        add(mul(h0, r[3]), mul(h1, r[2])),
-                        add(mul(h2, r[1]), mul(h3, r[0])),
-                    ),
-                    mul(h4, s[3]),
-                );
-                let d4 = add(
-                    add(
-                        add(mul(h0, r[4]), mul(h1, r[3])),
-                        add(mul(h2, r[2]), mul(h3, r[1])),
-                    ),
-                    mul(h4, r[0]),
-                );
+                    let d0 = add(
+                        add(
+                            add(mul(h0, r[0]), mul(h1, s[3])),
+                            add(mul(h2, s[2]), mul(h3, s[1])),
+                        ),
+                        mul(h4, s[0]),
+                    );
+                    let d1 = add(
+                        add(
+                            add(mul(h0, r[1]), mul(h1, r[0])),
+                            add(mul(h2, s[3]), mul(h3, s[2])),
+                        ),
+                        mul(h4, s[1]),
+                    );
+                    let d2 = add(
+                        add(
+                            add(mul(h0, r[2]), mul(h1, r[1])),
+                            add(mul(h2, r[0]), mul(h3, s[3])),
+                        ),
+                        mul(h4, s[2]),
+                    );
+                    let d3 = add(
+                        add(
+                            add(mul(h0, r[3]), mul(h1, r[2])),
+                            add(mul(h2, r[1]), mul(h3, r[0])),
+                        ),
+                        mul(h4, s[3]),
+                    );
+                    let d4 = add(
+                        add(
+                            add(mul(h0, r[4]), mul(h1, r[3])),
+                            add(mul(h2, r[2]), mul(h3, r[1])),
+                        ),
+                        mul(h4, r[0]),
+                    );
 
-                let mask = $set1(M26 as i64);
-                let mut c = $srli_epi64::<26>(d0);
-                let mut h0 = $and(d0, mask);
-                let d1 = add(d1, c);
-                c = $srli_epi64::<26>(d1);
-                let mut h1 = $and(d1, mask);
-                let d2 = add(d2, c);
-                c = $srli_epi64::<26>(d2);
-                let h2 = $and(d2, mask);
-                let d3 = add(d3, c);
-                c = $srli_epi64::<26>(d3);
-                let h3 = $and(d3, mask);
-                let d4 = add(d4, c);
-                c = $srli_epi64::<26>(d4);
-                let h4 = $and(d4, mask);
-                h0 = add(h0, add(c, $slli_epi64::<2>(c)));
-                c = $srli_epi64::<26>(h0);
-                h0 = $and(h0, mask);
-                h1 = add(h1, c);
-                Acc([h0, h1, h2, h3, h4])
+                    let mask = $set1(M26 as i64);
+                    let mut c = $srli_epi64::<26>(d0);
+                    let mut h0 = $and(d0, mask);
+                    let d1 = add(d1, c);
+                    c = $srli_epi64::<26>(d1);
+                    let mut h1 = $and(d1, mask);
+                    let d2 = add(d2, c);
+                    c = $srli_epi64::<26>(d2);
+                    let h2 = $and(d2, mask);
+                    let d3 = add(d3, c);
+                    c = $srli_epi64::<26>(d3);
+                    let h3 = $and(d3, mask);
+                    let d4 = add(d4, c);
+                    c = $srli_epi64::<26>(d4);
+                    let h4 = $and(d4, mask);
+                    h0 = add(h0, add(c, $slli_epi64::<2>(c)));
+                    c = $srli_epi64::<26>(h0);
+                    h0 = $and(h0, mask);
+                    h1 = add(h1, c);
+                    Acc([h0, h1, h2, h3, h4])
+                }};
             }
 
             /// Hot loop: every lane is multiplied by `r^BLOCKS` per chunk.
@@ -475,8 +483,8 @@ macro_rules! poly1305_26 {
             fn hot_loop(a: &mut Acc, b: &mut Acc, m: &Mult, body: &[[u8; CHUNK]]) {
                 for chunk in body {
                     let (half, _) = chunk.as_chunks::<LANE_BYTES>();
-                    *a = mul_reduce(add_blocks(*a, &half[0]), m);
-                    *b = mul_reduce(add_blocks(*b, &half[1]), m);
+                    *a = mul_reduce!(add_blocks!(*a, &half[0]), m);
+                    *b = mul_reduce!(add_blocks!(*b, &half[1]), m);
                 }
             }
 
@@ -484,25 +492,27 @@ macro_rules! poly1305_26 {
             /// `h` using the clamped key limbs `r`.
             ///
             /// `h` is the scalar backend's partially reduced 3x44-bit state
-            /// on entry and exit. The staging arrays, the `r^BLOCKS`
-            /// multiplier and both accumulators (which the out-of-line
-            /// `hot_loop` reaches through memory) are wiped once before
-            /// returning; values that live only in registers and compiler
-            /// spill slots are out of Rust's reach and are not wiped, since
-            /// wiping them would force them into memory.
+            /// on entry and exit. Other than the `zeroize` calls, the only
+            /// function this kernel hands key-derived storage to is the
+            /// out-of-line `hot_loop`; the `r^BLOCKS` multiplier and both
+            /// accumulators, which it reaches through memory, are wiped once
+            /// before returning, as are the staging arrays `$load_words`
+            /// reads the power and state limbs from.
             ///
-            /// Opt-level assumption: the limb helpers and `key_powers` are
-            /// `#[inline(always)]` and the multipliers and lane sums are
-            /// built without closures or index loops, so at opt-level 2, 3
-            /// and `s` nothing but `hot_loop` is out of line and the other
-            /// key-derived values (`low`, `high`, `tail_a`/`tail_b`, `l`)
-            /// stay in registers and spill slots. At opt-level `z` LLVM
-            /// also outlines the `#[target_feature]` helpers `add_blocks`
-            /// and `mul_reduce`, which stable Rust cannot mark
-            /// `#[inline(always)]`; their by-value `Acc` arguments and
-            /// results (`low`, `high`, the accumulators, also in
-            /// `hot_loop`) then pass through stack temporaries that are not
-            /// wiped.
+            /// Every step on key-derived values is expanded here and in
+            /// `hot_loop`: `add_blocks!` and `mul_reduce!` are macros,
+            /// because a `#[target_feature]` function cannot be
+            /// `#[inline(always)]` and LLVM keeps the larger ones out of
+            /// line, handing them their `Acc` arguments and results through
+            /// stack temporaries. The `Mult` constructors, `$first_lane`,
+            /// `$load_words` and `$lane_sum` are a few intrinsics each and
+            /// inline like the intrinsics themselves, `$gather_qwords` sees
+            /// message bytes only, and the limb helpers and `key_powers` are
+            /// `#[inline(always)]`. The other key-derived values (`low`,
+            /// `high`, `tail_a`/`tail_b`, `l`) therefore live only in
+            /// registers and compiler spill slots, which are out of Rust's
+            /// reach and are not wiped, since wiping them would force them
+            /// into memory.
             #[target_feature(enable = $feature)]
             pub(crate) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
                 debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
@@ -515,7 +525,7 @@ macro_rules! poly1305_26 {
                 // conversions.
                 let mut limbs = key_powers::<LANES>(r);
                 let low = Acc(Mult::descending(&limbs).r);
-                let high = mul_reduce(low, &Mult::broadcast(&limbs[LANES - 1]));
+                let high = mul_reduce!(low, &Mult::broadcast(&limbs[LANES - 1]));
                 limbs.zeroize();
                 let mut top = Mult::from_lane0(high);
                 let tail_a = Mult::from_acc(high);
@@ -543,8 +553,8 @@ macro_rules! poly1305_26 {
                 // Final chunk: block `i` gets `r^(BLOCKS - i)` so the lane sum
                 // is the exact sequential Horner value.
                 let (half, _) = last.as_chunks::<LANE_BYTES>();
-                a = mul_reduce(add_blocks(a, &half[0]), &tail_a);
-                b = mul_reduce(add_blocks(b, &half[1]), &tail_b);
+                a = mul_reduce!(add_blocks!(a, &half[0]), &tail_a);
+                b = mul_reduce!(add_blocks!(b, &half[1]), &tail_b);
 
                 // Sum the `BLOCKS` lanes (each limb below 2^27, so the sums
                 // below 2^27 * BLOCKS <= 2^31) and convert back to 3x44-bit
@@ -600,7 +610,7 @@ macro_rules! poly1305_26 {
                         let (low, high, top) = unsafe {
                             let mut limbs = key_powers::<LANES>(r);
                             let low = Acc(Mult::descending(&limbs).r);
-                            let high = mul_reduce(low, &Mult::broadcast(&limbs[LANES - 1]));
+                            let high = mul_reduce!(low, &Mult::broadcast(&limbs[LANES - 1]));
                             limbs.zeroize();
                             (
                                 lanes(&low.0),
@@ -688,7 +698,7 @@ pub(super) const CHUNK_IFMA: usize = 16 * avx512::LANES;
 /// consecutive blocks in the 64-bit lanes of `0[k]`, the same 44/44/42-bit
 /// split as the scalar backend's `h`. Every limb handed to
 /// `vpmadd52luq`/`vpmadd52huq`, which multiply the low 52 bits of each
-/// lane, stays far below `2^52`; see [`mul_reduce44`].
+/// lane, stays far below `2^52`; see `mul_reduce44!`.
 #[derive(Clone, Copy, Zeroize)]
 struct Acc44([__m512i; 3]);
 
@@ -750,84 +760,91 @@ impl Mult44 {
     }
 }
 
-/// Loads eight consecutive 16-byte blocks as 3x44-bit limbs (with the
-/// `2^128` high bit set, so limbs below `2^44`, `2^44` and `2^41`) and adds
-/// them lane-wise to `acc`.
-#[inline]
-#[target_feature(enable = "avx512f")]
-fn add_blocks44(acc: Acc44, blocks: &[u8; CHUNK_IFMA]) -> Acc44 {
-    let (t0, t1) = gather_qwords512(blocks);
+/// Loads the eight consecutive 16-byte blocks `$blocks: &[u8; CHUNK_IFMA]`
+/// as 3x44-bit limbs (with the `2^128` high bit set, so limbs below `2^44`,
+/// `2^44` and `2^41`) and adds them lane-wise to `$acc: Acc44`. A macro so it
+/// expands inside the IFMA kernels and their hot loops; see [`blocks_ifma`].
+macro_rules! add_blocks44 {
+    ($acc:expr, $blocks:expr) => {{
+        let acc: Acc44 = $acc;
+        let (t0, t1) = gather_qwords512($blocks);
 
-    let mask = _mm512_set1_epi64(M44 as i64);
-    let hibit = _mm512_set1_epi64(1 << 40);
-    let m = [
-        _mm512_and_si512(t0, mask),
-        _mm512_and_si512(
-            _mm512_or_si512(_mm512_srli_epi64::<44>(t0), _mm512_slli_epi64::<20>(t1)),
-            mask,
-        ),
-        _mm512_or_si512(_mm512_srli_epi64::<24>(t1), hibit),
-    ];
-    let mut out = acc;
-    for (limb, m) in out.0.iter_mut().zip(m) {
-        *limb = _mm512_add_epi64(*limb, m);
-    }
-    out
+        let mask = _mm512_set1_epi64(M44 as i64);
+        let hibit = _mm512_set1_epi64(1 << 40);
+        let [a0, a1, a2] = acc.0;
+        Acc44([
+            _mm512_add_epi64(a0, _mm512_and_si512(t0, mask)),
+            _mm512_add_epi64(
+                a1,
+                _mm512_and_si512(
+                    _mm512_or_si512(_mm512_srli_epi64::<44>(t0), _mm512_slli_epi64::<20>(t1)),
+                    mask,
+                ),
+            ),
+            _mm512_add_epi64(a2, _mm512_or_si512(_mm512_srli_epi64::<24>(t1), hibit)),
+        ])
+    }};
 }
 
-/// `acc * m mod p` on eight lanes of 3x44-bit limbs: the scalar backend's
-/// block multiplication (`mul_mod_p`) with each `u128` column split into
-/// the `vpmadd52luq` sum of the products' low 52 bits and the `vpmadd52huq`
-/// sum of their bits `52..104`, which weigh `2^52 = 2^8 * 2^44` (one limb
-/// up) and, out of the top column, `2^140 = 2^130 * 2^10 = 5 * 2^10 mod p`.
-/// This is the reduction of OpenSSL's `poly1305_blocks_vpmadd52_8x`.
+/// `$acc * $m mod p` (`$acc: Acc44`, `$m: &Mult44`) on eight lanes of
+/// 3x44-bit limbs: the scalar backend's block multiplication (`mul_mod_p`)
+/// with each `u128` column split into the `vpmadd52luq` sum of the products'
+/// low 52 bits and the `vpmadd52huq` sum of their bits `52..104`, which
+/// weigh `2^52 = 2^8 * 2^44` (one limb up) and, out of the top column,
+/// `2^140 = 2^130 * 2^10 = 5 * 2^10 mod p`. This is the reduction of
+/// OpenSSL's `poly1305_blocks_vpmadd52_8x`.
 ///
 /// Bounds: `acc` limbs are below `2^44 + 2^44`, `2^44 + 2^8 + 2^44` and
 /// `2^42 + 2^41` (a partially carried accumulator plus a block), `m.r` limbs
-/// are canonical or partially carried outputs of this function (below
-/// `2^44`, `2^44 + 2^8`, `2^42`) so `m.s` limbs are below `20 * (2^44 +
+/// are canonical or partially carried outputs of this macro (below `2^44`,
+/// `2^44 + 2^8`, `2^42`) so `m.s` limbs are below `20 * (2^44 +
 /// 2^8) < 2^49`; every operand is below `2^52` and every product below
 /// `2^45.1 * 2^49 < 2^95`. Each `lo` column sums three values below `2^52`,
 /// each `hi` column three values below `2^43`; after the `<< 8` (`<< 10` for
 /// the top column) and the carries they stay far below `2^64`, and the
 /// result is partially carried to `h0 < 2^44`, `h1 < 2^44 + 2^8`, `h2 <
 /// 2^42`.
-#[inline]
-#[target_feature(enable = "avx512f,avx512ifma")]
-fn mul_reduce44(acc: Acc44, m: &Mult44) -> Acc44 {
-    let [h0, h1, h2] = acc.0;
-    let Mult44 { r, s } = m;
-    let lo = _mm512_madd52lo_epu64;
-    let hi = _mm512_madd52hi_epu64;
-    let add = _mm512_add_epi64;
-    let zero = _mm512_setzero_si512();
+///
+/// A macro so it expands inside the IFMA kernels and their hot loops; see
+/// [`blocks_ifma`].
+macro_rules! mul_reduce44 {
+    ($acc:expr, $m:expr) => {{
+        let acc: Acc44 = $acc;
+        let m: &Mult44 = $m;
+        let [h0, h1, h2] = acc.0;
+        let Mult44 { r, s } = m;
+        let lo = _mm512_madd52lo_epu64;
+        let hi = _mm512_madd52hi_epu64;
+        let add = _mm512_add_epi64;
+        let zero = _mm512_setzero_si512();
 
-    // d0 = h0 r0 + h1 s2 + h2 s1; d1 = h0 r1 + h1 r0 + h2 s2;
-    // d2 = h0 r2 + h1 r1 + h2 r0.
-    let d0lo = lo(lo(lo(zero, h0, r[0]), h1, s[1]), h2, s[0]);
-    let d0hi = hi(hi(hi(zero, h0, r[0]), h1, s[1]), h2, s[0]);
-    let d1lo = lo(lo(lo(zero, h0, r[1]), h1, r[0]), h2, s[1]);
-    let d1hi = hi(hi(hi(zero, h0, r[1]), h1, r[0]), h2, s[1]);
-    let d2lo = lo(lo(lo(zero, h0, r[2]), h1, r[1]), h2, r[0]);
-    let d2hi = hi(hi(hi(zero, h0, r[2]), h1, r[1]), h2, r[0]);
+        // d0 = h0 r0 + h1 s2 + h2 s1; d1 = h0 r1 + h1 r0 + h2 s2;
+        // d2 = h0 r2 + h1 r1 + h2 r0.
+        let d0lo = lo(lo(lo(zero, h0, r[0]), h1, s[1]), h2, s[0]);
+        let d0hi = hi(hi(hi(zero, h0, r[0]), h1, s[1]), h2, s[0]);
+        let d1lo = lo(lo(lo(zero, h0, r[1]), h1, r[0]), h2, s[1]);
+        let d1hi = hi(hi(hi(zero, h0, r[1]), h1, r[0]), h2, s[1]);
+        let d2lo = lo(lo(lo(zero, h0, r[2]), h1, r[1]), h2, r[0]);
+        let d2hi = hi(hi(hi(zero, h0, r[2]), h1, r[1]), h2, r[0]);
 
-    let mask44 = _mm512_set1_epi64(M44 as i64);
-    let mask42 = _mm512_set1_epi64(M42 as i64);
-    let c = _mm512_srli_epi64::<44>(d0lo);
-    let h0 = _mm512_and_si512(d0lo, mask44);
-    let d1lo = add(d1lo, add(_mm512_slli_epi64::<8>(d0hi), c));
-    let c = _mm512_srli_epi64::<44>(d1lo);
-    let h1 = _mm512_and_si512(d1lo, mask44);
-    let d2lo = add(d2lo, add(_mm512_slli_epi64::<8>(d1hi), c));
-    let c = _mm512_srli_epi64::<42>(d2lo);
-    let h2 = _mm512_and_si512(d2lo, mask42);
-    // Everything past 2^130 folds back as `5 *` into the low limb.
-    let wrap = add(_mm512_slli_epi64::<10>(d2hi), c);
-    let h0 = add(h0, add(wrap, _mm512_slli_epi64::<2>(wrap)));
-    let c = _mm512_srli_epi64::<44>(h0);
-    let h0 = _mm512_and_si512(h0, mask44);
-    let h1 = add(h1, c);
-    Acc44([h0, h1, h2])
+        let mask44 = _mm512_set1_epi64(M44 as i64);
+        let mask42 = _mm512_set1_epi64(M42 as i64);
+        let c = _mm512_srli_epi64::<44>(d0lo);
+        let h0 = _mm512_and_si512(d0lo, mask44);
+        let d1lo = add(d1lo, add(_mm512_slli_epi64::<8>(d0hi), c));
+        let c = _mm512_srli_epi64::<44>(d1lo);
+        let h1 = _mm512_and_si512(d1lo, mask44);
+        let d2lo = add(d2lo, add(_mm512_slli_epi64::<8>(d1hi), c));
+        let c = _mm512_srli_epi64::<42>(d2lo);
+        let h2 = _mm512_and_si512(d2lo, mask42);
+        // Everything past 2^130 folds back as `5 *` into the low limb.
+        let wrap = add(_mm512_slli_epi64::<10>(d2hi), c);
+        let h0 = add(h0, add(wrap, _mm512_slli_epi64::<2>(wrap)));
+        let c = _mm512_srli_epi64::<44>(h0);
+        let h0 = _mm512_and_si512(h0, mask44);
+        let h1 = add(h1, c);
+        Acc44([h0, h1, h2])
+    }};
 }
 
 /// Hot loop of the IFMA kernel: every lane is multiplied by `r^8` per
@@ -836,7 +853,7 @@ fn mul_reduce44(acc: Acc44, m: &Mult44) -> Acc44 {
 #[target_feature(enable = "avx512f,avx512ifma")]
 fn hot_loop44(a: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFMA]]) {
     for chunk in body {
-        *a = mul_reduce44(add_blocks44(*a, chunk), m);
+        *a = mul_reduce44!(add_blocks44!(*a, chunk), m);
     }
 }
 
@@ -846,27 +863,39 @@ fn hot_loop44(a: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFMA]]) {
 /// (`r`, then `r^2`, then `r^4`) and the other half by one. Three dependent
 /// vector multiplies replace the scalar power tree's four dependent
 /// `mul_mod_p` and eight limb conversions. The limbs are partially carried
-/// ([`mul_reduce44`]'s output bound), which is what the multipliers built
+/// (`mul_reduce44!`'s output bound), which is what the multipliers built
 /// from them require.
 ///
-/// A macro, expanded in `avx512f,avx512ifma` code, rather than a
-/// `#[target_feature]` function, which cannot be `#[inline(always)]`: with
-/// two callers, opt-level `s` outlines such a function and returns the eight
-/// key powers through a stack slot nothing wipes.
+/// A macro so it expands inside the IFMA kernels; see [`blocks_ifma`]. The
+/// three steps are spelled out: a loop over the masks or the limbs that is
+/// not unrolled keeps `v` and the multipliers in stack memory.
 macro_rules! descending_powers {
     ($r:expr) => {{
-        let one = splat44(&[1, 0, 0]);
+        let [one0, one1, one2] = splat44(&[1, 0, 0]);
         let mut v = Acc44(splat44(&canonical($r)));
         // Lanes selected by each mask take lane 0 of `v` as their multiplier,
         // the rest take one: 0b0101_0101, then 0b0011_0011, then 0b0000_1111.
-        for mask in [0x55u8, 0x33, 0x0f] {
-            let mut m = one;
-            for (word, &limb) in m.iter_mut().zip(&v.0) {
-                *word = _mm512_mask_blend_epi64(mask, *word, first_lane512(limb));
-            }
-            v = mul_reduce44(v, &Mult44::with_s(m));
-        }
-        v
+        let [v0, v1, v2] = v.0;
+        let m = [
+            _mm512_mask_blend_epi64(0x55, one0, first_lane512(v0)),
+            _mm512_mask_blend_epi64(0x55, one1, first_lane512(v1)),
+            _mm512_mask_blend_epi64(0x55, one2, first_lane512(v2)),
+        ];
+        v = mul_reduce44!(v, &Mult44::with_s(m));
+        let [v0, v1, v2] = v.0;
+        let m = [
+            _mm512_mask_blend_epi64(0x33, one0, first_lane512(v0)),
+            _mm512_mask_blend_epi64(0x33, one1, first_lane512(v1)),
+            _mm512_mask_blend_epi64(0x33, one2, first_lane512(v2)),
+        ];
+        v = mul_reduce44!(v, &Mult44::with_s(m));
+        let [v0, v1, v2] = v.0;
+        let m = [
+            _mm512_mask_blend_epi64(0x0f, one0, first_lane512(v0)),
+            _mm512_mask_blend_epi64(0x0f, one1, first_lane512(v1)),
+            _mm512_mask_blend_epi64(0x0f, one2, first_lane512(v2)),
+        ];
+        mul_reduce44!(v, &Mult44::with_s(m))
     }};
 }
 
@@ -875,21 +904,24 @@ macro_rules! descending_powers {
 /// chunk in lane `i`), each multiplied by `r^8` per chunk; the final chunk
 /// uses `r^8, r^7, ..., r` so the lane sum is the sequential Horner value.
 ///
-/// The multiplier and the accumulator the out-of-line `hot_loop44` reaches
-/// through memory are wiped once before returning; values that live only in
-/// registers and compiler spill slots are out of Rust's reach and are not
-/// wiped, since wiping them would force them into memory.
+/// `h` is the scalar backend's partially reduced 3x44-bit state on entry and
+/// exit. Other than the `zeroize` calls, the only function this kernel hands
+/// key-derived storage to is the out-of-line `hot_loop44`; the multiplier
+/// and the accumulator it reaches through memory are wiped once before
+/// returning.
 ///
-/// Opt-level assumption: the limb helpers are `#[inline(always)]`,
-/// `descending_powers!` is a macro and the limb vectors and lane sums are
-/// built without closures or index loops, so at opt-level 2, 3 and `s`
-/// nothing but `hot_loop44` is out of line and the other key-derived values
-/// (`low`, `tail`, `start`, `l`) stay in registers and spill slots. At
-/// opt-level `z` LLVM also outlines the `#[target_feature]` helpers
-/// `add_blocks44` and `mul_reduce44`, which stable Rust cannot mark
-/// `#[inline(always)]`; their by-value `Acc44` arguments and results (the
-/// powers inside `descending_powers`, the accumulator, also in `hot_loop44`)
-/// then pass through stack temporaries that are not wiped.
+/// Every step on key-derived values is expanded here and in `hot_loop44`:
+/// `descending_powers!`, `add_blocks44!` and `mul_reduce44!` are macros,
+/// because a `#[target_feature]` function cannot be `#[inline(always)]` and
+/// LLVM keeps the larger ones out of line, handing them their `Acc44`
+/// arguments and results through stack temporaries. The `Mult44`
+/// constructors, `splat44`, `first_lane512` and `lane_sum512` are a few
+/// intrinsics each and inline like the intrinsics themselves,
+/// `gather_qwords512` sees message bytes only, and the limb helpers are
+/// `#[inline(always)]`. The other key-derived values (`low`, `tail`, `l`)
+/// therefore live only in registers and compiler spill slots, which are out
+/// of Rust's reach and are not wiped, since wiping them would force them
+/// into memory.
 #[target_feature(enable = "avx512f,avx512ifma")]
 pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA));
@@ -900,8 +932,8 @@ pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
 
     // `h` goes into lane 0 (block 0 of each chunk), canonical so it meets
     // the accumulator bound. Spelled out, like the lane sums below: a loop
-    // opt-level `s` may not unroll would keep the limbs in stack memory
-    // nothing wipes.
+    // that is not unrolled would keep the limbs in stack memory nothing
+    // wipes.
     let [s0, s1, s2] = canonical(h);
     let mut a = Acc44([
         _mm512_setr_epi64(s0 as i64, 0, 0, 0, 0, 0, 0, 0),
@@ -913,7 +945,7 @@ pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     let (last, body) = chunks.split_last().unwrap();
 
     hot_loop44(&mut a, &top, body);
-    a = mul_reduce44(add_blocks44(a, last), &tail);
+    a = mul_reduce44!(add_blocks44!(a, last), &tail);
 
     // Sum the eight lanes (each limb below 2^44 + 2^8, so the sums below
     // 2^48) and carry back to the scalar backend's partially reduced form.
@@ -935,8 +967,8 @@ pub(super) const CHUNK_IFMA2: usize = 2 * CHUNK_IFMA;
 fn hot_loop44x2(a: &mut Acc44, b: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFMA2]]) {
     for chunk in body {
         let (half, _) = chunk.as_chunks::<CHUNK_IFMA>();
-        *a = mul_reduce44(add_blocks44(*a, &half[0]), m);
-        *b = mul_reduce44(add_blocks44(*b, &half[1]), m);
+        *a = mul_reduce44!(add_blocks44!(*a, &half[0]), m);
+        *b = mul_reduce44!(add_blocks44!(*b, &half[1]), m);
     }
 }
 
@@ -948,15 +980,15 @@ fn hot_loop44x2(a: &mut Acc44, b: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFM
 /// accumulating multiplies and the carries, about as long as the issue time
 /// of its instructions; the second chain fills those gaps.
 ///
-/// Wipes the working copies `hot_loop44x2` reaches through memory as
-/// [`blocks_ifma`] does, under the same opt-level assumption (`high`,
-/// `tail_a`/`tail_b` join the values at stake at opt-level `z`).
+/// Wipes the working copies `hot_loop44x2` reaches through memory and keeps
+/// every other key-derived value (also `high`, `tail_a`/`tail_b`) in
+/// registers and spill slots, as [`blocks_ifma`] does.
 #[target_feature(enable = "avx512f,avx512ifma")]
 pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA2));
 
     let low = descending_powers!(r);
-    let high = mul_reduce44(low, &Mult44::from_lane0(low));
+    let high = mul_reduce44!(low, &Mult44::from_lane0(low));
     let mut top = Mult44::from_lane0(high);
     let tail_a = Mult44::from_acc(high);
     let tail_b = Mult44::from_acc(low);
@@ -974,8 +1006,8 @@ pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
 
     hot_loop44x2(&mut a, &mut b, &top, body);
     let (half, _) = last.as_chunks::<CHUNK_IFMA>();
-    a = mul_reduce44(add_blocks44(a, &half[0]), &tail_a);
-    b = mul_reduce44(add_blocks44(b, &half[1]), &tail_b);
+    a = mul_reduce44!(add_blocks44!(a, &half[0]), &tail_a);
+    b = mul_reduce44!(add_blocks44!(b, &half[1]), &tail_b);
 
     // Sum the sixteen lanes (each limb below 2^44 + 2^8, so the sums below
     // 2^49) and carry back to the scalar backend's partially reduced form.
@@ -1033,7 +1065,7 @@ mod tests {
     }
 
     /// Every raw limb of the multipliers (before canonicalisation) must be
-    /// below `2^26 + 2^10`, the bound `mul_reduce` documents for `r` so that
+    /// below `2^26 + 2^10`, the bound `mul_reduce!` documents for `r` so that
     /// `5 * r` and the five-product column sums cannot overflow.
     pub(super) fn assert_multiplier_bound(words: [[u64; 8]; 5], lanes: usize, what: &str) {
         for (k, word) in words.iter().enumerate() {
@@ -1056,9 +1088,9 @@ mod tests {
         out
     }
 
-    /// One `add_blocks44` + `mul_reduce44` step equals `mul_mod_p` of
+    /// One `add_blocks44!` + `mul_reduce44!` step equals `mul_mod_p` of
     /// `(lane + block)` in every lane, and its raw limbs meet the partially
-    /// carried bound `mul_reduce44` documents (`h0 < 2^44`, `h1 < 2^44 +
+    /// carried bound `mul_reduce44!` documents (`h0 < 2^44`, `h1 < 2^44 +
     /// 2^8`, `h2 < 2^42`). The multipliers are adversarial canonical field
     /// elements (the `carry_keys` elements made canonical; production uses
     /// the canonical powers `r^1 .. r^8`, a subset of those), the accumulator
@@ -1071,7 +1103,7 @@ mod tests {
         }
         let blocks = [0xffu8; CHUNK_IFMA];
         // Every lane starts at the component-wise maximum of the partially
-        // carried accumulator bound `mul_reduce44` documents.
+        // carried accumulator bound `mul_reduce44!` documents.
         let start = [M44, M44 + (1 << 8) - 1, M42];
         let block = |i: usize| -> [u64; 3] {
             let t0 = u64::from_le_bytes(blocks[16 * i..16 * i + 8].try_into().unwrap());
@@ -1088,7 +1120,7 @@ mod tests {
             // were detected above.
             let out = unsafe {
                 let acc = Acc44(start.map(|limb| _mm512_set1_epi64(limb as i64)));
-                lanes44(&mul_reduce44(add_blocks44(acc, &blocks), &Mult44::broadcast(r)).0)
+                lanes44(&mul_reduce44!(add_blocks44!(acc, &blocks), &Mult44::broadcast(r)).0)
             };
             for (lane, ((&h0, &h1), &h2)) in out[0].iter().zip(&out[1]).zip(&out[2]).enumerate() {
                 assert!(h0 < 1 << 44, "h0 lane {lane}: {h0:#x}");
@@ -1109,7 +1141,7 @@ mod tests {
     /// exactly `[r^8 .. r]` (`low`), `[r^16 .. r^9]` (`high`) and `r^8` /
     /// `r^16` in every lane (`top8` / `top16`), for carry-heavy multipliers,
     /// and every raw limb meets the partially carried multiplier bound
-    /// `mul_reduce44` documents.
+    /// `mul_reduce44!` documents.
     #[test]
     fn test_ifma_vector_powers_match_serial_chain() {
         if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
@@ -1133,7 +1165,7 @@ mod tests {
             // were detected above.
             let (low, high, top8, top16) = unsafe {
                 let low = descending_powers!(r);
-                let high = mul_reduce44(low, &Mult44::from_lane0(low));
+                let high = mul_reduce44!(low, &Mult44::from_lane0(low));
                 (
                     lanes44(&low.0),
                     lanes44(&high.0),
