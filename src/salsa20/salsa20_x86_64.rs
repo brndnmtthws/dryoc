@@ -79,7 +79,7 @@ impl super::Kernel for Kernel {
                 xor_chunk_avx512vl(state, counter, input, output, partial)
             },
             // SAFETY: as above; `LaneSet::Avx512` and `LaneSet::Avx512Vl`
-            // require `avx512f`.
+            // require `avx512f` and `avx2` (`x86_64::has_avx512f`).
             LaneSet::Avx512 | LaneSet::Avx512Vl => unsafe {
                 xor_chunk_avx512(state, counter, input, output, partial)
             },
@@ -126,7 +126,7 @@ impl super::Kernel for Kernel {
                 );
             }
             // SAFETY: as for `xor_chunk`; `LaneSet::Avx512` and
-            // `LaneSet::Avx512Vl` require `avx512f`.
+            // `LaneSet::Avx512Vl` require `avx512f` and `avx2`.
             LaneSet::Avx512 | LaneSet::Avx512Vl => unsafe {
                 xor_chunk_avx512_with_block(
                     state,
@@ -407,23 +407,29 @@ fn scalar_double_round(regs: &mut [u32; 9], mem: &mut [u32; 7]) {
 }
 
 /// Splits a block state into the register and memory words of
-/// [`scalar_double_round`].
+/// [`scalar_double_round`]. Spelled out: `array::map` with a closure and
+/// index loops are kept out of line at opt-level `z` and `s`, where they
+/// would take the key-derived state words through memory.
 #[inline(always)]
 fn split_words(x: &[u32; 16]) -> ([u32; 9], [u32; 7]) {
-    (REG_WORDS.map(|i| x[i]), MEM_WORDS.map(|i| x[i]))
+    const _: () = assert!(
+        matches!(REG_WORDS, [0, 1, 4, 5, 9, 10, 11, 14, 15])
+            && matches!(MEM_WORDS, [2, 3, 6, 7, 8, 12, 13])
+    );
+    (
+        [x[0], x[1], x[4], x[5], x[9], x[10], x[11], x[14], x[15]],
+        [x[2], x[3], x[6], x[7], x[8], x[12], x[13]],
+    )
 }
 
-/// Inverse of [`split_words`].
+/// Inverse of [`split_words`], spelled out for the same reason.
 #[inline(always)]
 fn join_words(regs: &[u32; 9], mem: &[u32; 7]) -> [u32; 16] {
-    let mut x = [0u32; 16];
-    for (&i, &word) in REG_WORDS.iter().zip(regs) {
-        x[i] = word;
-    }
-    for (&i, &word) in MEM_WORDS.iter().zip(mem) {
-        x[i] = word;
-    }
-    x
+    let [r0, r1, r4, r5, r9, r10, r11, r14, r15] = *regs;
+    let [m2, m3, m6, m7, m8, m12, m13] = *mem;
+    [
+        r0, r1, m2, m3, r4, r5, m6, m7, m8, r9, r10, r11, m12, m13, r14, r15,
+    ]
 }
 
 /// [`xor_chunk_avx512`] plus one unrelated block: the sixteen lanes and,
@@ -491,7 +497,7 @@ mod tests {
     /// sets and extra blocks before and after them.
     #[test]
     fn test_avx512_with_block_matches_run_and_scalar_block() {
-        if !has_x86_feature!("avx512f") {
+        if !crate::x86_64::has_avx512f() {
             return;
         }
         let mut state = [0u32; 16];
@@ -507,7 +513,7 @@ mod tests {
                     let mut expected = plaintext[..len].to_vec();
                     let mut expected_partial = [0u8; 64];
                     let mut expected_extra = [0u8; 64];
-                    // SAFETY: `avx512f` was detected above.
+                    // SAFETY: `avx512f` and `avx2` were detected above.
                     unsafe {
                         xor_chunk_avx512(
                             &state,
@@ -522,7 +528,7 @@ mod tests {
                     let mut in_place = plaintext[..len].to_vec();
                     let mut partial = [0u8; 64];
                     let mut extra = [0u8; 64];
-                    // SAFETY: `avx512f` was detected above.
+                    // SAFETY: `avx512f` and `avx2` were detected above.
                     unsafe {
                         xor_chunk_avx512_with_block(
                             &state,
@@ -541,7 +547,7 @@ mod tests {
 
                     let mut b2b = vec![0u8; len];
                     let mut extra = [0xa5u8; 64];
-                    // SAFETY: `avx512f` was detected above.
+                    // SAFETY: `avx512f` and `avx2` were detected above.
                     unsafe {
                         xor_chunk_avx512_with_block(
                             &state,

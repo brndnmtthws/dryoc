@@ -20,7 +20,7 @@ use zeroize::Zeroize;
 
 use crate::fe25519::{EDWARDS_D, Fe};
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 mod edwards25519_neon;
 #[cfg(target_arch = "x86_64")]
 mod edwards25519_x86_64;
@@ -88,6 +88,9 @@ struct ProjectiveNiels {
 
 impl ProjectiveNiels {
     /// `-self`: swap the sums and negate `2 d T`.
+    ///
+    /// Only used by the variable-time verification ladder on public points,
+    /// so it may stay out of line.
     fn neg(&self) -> ProjectiveNiels {
         ProjectiveNiels {
             y_plus_x: self.y_minus_x,
@@ -166,6 +169,12 @@ impl Niels {
     };
 
     /// Negates in place when `mask` is all ones.
+    ///
+    /// `#[inline(always)]`: [`select`] applies it to the secret-selected
+    /// entry, and at opt-level `z` and `s` LLVM kept it out of line, taking
+    /// `next` (which stays in registers with NEON) and the negated copy
+    /// through memory.
+    #[inline(always)]
     fn conditional_negate(&mut self, mask: u64) {
         let swapped = Niels {
             y_plus_x: self.y_minus_x,
@@ -244,6 +253,9 @@ impl Point {
     }
 
     /// `-self`.
+    ///
+    /// Only used on public points (`-A` in signature verification), so it
+    /// may stay out of line.
     pub(crate) fn neg(&self) -> Point {
         Point {
             x: self.x.neg(),
@@ -416,10 +428,15 @@ impl Point {
     }
 
     /// Ed25519 encoding: the y coordinate with the sign of x in the top bit.
+    ///
+    /// `Fe::invert` is not inlined, so `1 / Z` reaches memory as its return
+    /// slot and is wiped; `x` and `y` come from inlined multiplies and stay
+    /// in registers.
     pub(crate) fn compress(&self) -> [u8; 32] {
-        let zinv = self.z.invert();
+        let mut zinv = self.z.invert();
         let x = self.x.mul(&zinv);
         let y = self.y.mul(&zinv);
+        zinv.zeroize();
         let mut out = y.to_bytes();
         out[31] |= u8::from(x.is_negative()) << 7;
         out
@@ -427,10 +444,20 @@ impl Point {
 
     /// The Montgomery u coordinate `(1 + y) / (1 - y) = (Z + Y) / (Z - Y)`;
     /// zero for the identity, as `0^-1 = 0`.
-    pub(crate) fn to_montgomery(self) -> [u8; 32] {
+    ///
+    /// `Z - Y` is passed to the non-inlined `Fe::invert` and its inverse is
+    /// returned through memory, so both are wiped; `Z + Y` stays in
+    /// registers. Takes `&self` although `Point` is `Copy`: by value, callers
+    /// that wipe their point afterwards would pass an unwiped copy.
+    #[allow(clippy::wrong_self_convention)]
+    pub(crate) fn to_montgomery(&self) -> [u8; 32] {
         let u = self.z.add(&self.y);
-        let w = self.z.sub(&self.y);
-        u.mul(&w.invert()).to_bytes()
+        let mut w = self.z.sub(&self.y);
+        let mut winv = w.invert();
+        let out = u.mul(&winv).to_bytes();
+        w.zeroize();
+        winv.zeroize();
+        out
     }
 }
 
@@ -441,48 +468,61 @@ struct Tables {
     odd: [Niels; 64],
 }
 
-/// Constant-time table row lookup: entry `magnitude - 1` for `magnitude` in
-/// `1..=8`, the identity for `0` (the only values [`select`] passes). Every
-/// entry is read and merged under a mask that is all ones only for the
-/// matching one.
-fn select_row(row: &[Niels; 8], magnitude: u8) -> Niels {
-    #[cfg(target_arch = "aarch64")]
-    if has_aarch64_feature!("neon") {
-        // SAFETY: the feature check above confirmed the `neon` feature the
-        // function requires; it uses only safe intrinsics on values.
-        return unsafe { edwards25519_neon::select_row(row, magnitude) };
-    }
+/// Constant-time table row lookup into `out`: entry `magnitude - 1` for
+/// `magnitude` in `1..=8`, the identity for `0` (the only values [`select`]
+/// passes). Every entry is read and merged under a mask that is all ones
+/// only for the matching one.
+///
+/// The result goes to caller-owned storage rather than a return value, so
+/// where this dispatcher is out of line (x86-64, whose AVX-512 kernel never
+/// inlines, and targets without NEON) the one copy that reaches memory is
+/// the caller's, which [`mul_base`] wipes. With NEON the dispatcher and the
+/// kernel are always inlined and `out` stays in registers.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[inline(always)]
+fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
+    edwards25519_neon::select_row(row, magnitude, out)
+}
+
+/// [`select_row`] without NEON: the AVX-512 kernel where available, else
+/// [`select_row_scalar`].
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     #[cfg(target_arch = "x86_64")]
-    if has_x86_feature!("avx512f") {
-        // SAFETY: the feature check above confirmed the `avx512f` feature
-        // the function requires; it uses safe value intrinsics and the
-        // `x86_64::store_words512` helper.
-        return unsafe { edwards25519_x86_64::select_row(row, magnitude) };
+    if crate::x86_64::has_avx512f() {
+        // SAFETY: `has_avx512f` confirmed the `avx512f` feature the function
+        // requires, together with the `avx2` that rustc's `avx512f` implies;
+        // it uses safe value intrinsics and the `x86_64::store_words512`
+        // helper.
+        return unsafe { edwards25519_x86_64::select_row(row, magnitude, out) };
     }
-    select_row_scalar(row, magnitude)
+    select_row_scalar(row, magnitude, out)
 }
 
 /// [`select_row`] with scalar masking, one limb at a time.
-fn select_row_scalar(row: &[Niels; 8], magnitude: u8) -> Niels {
-    let mut out = Niels::IDENTITY;
+#[cfg_attr(
+    all(target_arch = "aarch64", target_feature = "neon"),
+    allow(dead_code)
+)]
+fn select_row_scalar(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
+    let mut acc = Niels::IDENTITY;
     for (j, entry) in row.iter().enumerate() {
-        out = Niels::conditional_select(&out, entry, magnitude.ct_eq(&(j as u8 + 1)));
+        acc = Niels::conditional_select(&acc, entry, magnitude.ct_eq(&(j as u8 + 1)));
     }
-    out
+    *out = acc;
 }
 
-/// Selects `[digit * 256^k] B` for `digit` in `-8..=8` without revealing
-/// the digit through timing or memory access.
+/// Selects `[digit * 256^k] B` for `digit` in `-8..=8` into `out` without
+/// revealing the digit through timing or memory access.
 #[inline(always)]
-fn select(row: &[Niels; 8], digit: i8) -> Niels {
+fn select(row: &[Niels; 8], digit: i8, out: &mut Niels) {
     let negative = ((digit as i16) >> 8) as u8 & 1;
     // |digit| via the two's complement identity (d ^ m) - m for m in {0, -1}.
     let sign_mask = 0u8.wrapping_sub(negative);
     let magnitude = ((digit as u8) ^ sign_mask).wrapping_sub(sign_mask);
 
-    let mut out = select_row(row, magnitude);
+    select_row(row, magnitude, out);
     out.conditional_negate(0u64.wrapping_sub(u64::from(negative)));
-    out
 }
 
 /// Signed radix-16 digits of a little-endian scalar below 2^255, each in
@@ -572,14 +612,22 @@ fn mul_base_impl(scalar: &[u8; 32]) -> Point {
     // addition's ~800 instructions would otherwise keep the next lookup
     // outside the out-of-order window. The digit sequence is fixed, so this
     // changes no data-dependent behaviour.
+    //
+    // Without NEON, `next` is the only lookup storage whose address reaches
+    // memory: it is passed to the out-of-line `select_row`, so it is wiped
+    // once at the end. With NEON the lookup is always inlined and `next`
+    // stays in registers and spill slots like `entry`, the point and the
+    // field temporaries, which cannot be reliably wiped; wiping them would
+    // only force them into memory.
     let mut p = Point::IDENTITY;
-    let mut next = select(&table[0], digits[1]);
+    let mut next = Niels::IDENTITY;
+    select(&table[0], digits[1], &mut next);
     for k in 0..32 {
         let entry = next;
         if k + 1 < 32 {
-            next = select(&table[k + 1], digits[2 * (k + 1) + 1]);
+            select(&table[k + 1], digits[2 * (k + 1) + 1], &mut next);
         } else {
-            next = select(&table[0], digits[0]);
+            select(&table[0], digits[0], &mut next);
         }
         p = p.add_niels(&entry);
     }
@@ -587,11 +635,13 @@ fn mul_base_impl(scalar: &[u8; 32]) -> Point {
     for k in 0..32 {
         let entry = next;
         if k + 1 < 32 {
-            next = select(&table[k + 1], digits[2 * (k + 1)]);
+            select(&table[k + 1], digits[2 * (k + 1)], &mut next);
         }
         p = p.add_niels(&entry);
     }
 
+    #[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
+    next.zeroize();
     digits.zeroize();
     p
 }
@@ -1082,27 +1132,38 @@ mod tests {
         }
     }
 
-    /// The NEON row lookup returns exactly the limbs the scalar one does
-    /// for every table row and every digit magnitude `0..=8`, including the
-    /// identity for 0, and the production dispatch agrees with both.
+    /// Runs a table lookup into storage that starts as garbage, so a lookup
+    /// that leaves part of its output unwritten is caught.
+    fn lookup(f: impl FnOnce(&mut Niels)) -> [[u64; 5]; 3] {
+        let garbage = Fe([u64::MAX; 5]);
+        let mut out = Niels {
+            y_plus_x: garbage,
+            y_minus_x: garbage,
+            xy2d: garbage,
+        };
+        f(&mut out);
+        [out.y_plus_x.0, out.y_minus_x.0, out.xy2d.0]
+    }
+
     /// The AVX-512 lookup equals the scalar one for every table row and
     /// every digit magnitude `0..=8`, including the identity for 0, and the
     /// production dispatch agrees with both.
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_avx512_select_row_matches_scalar() {
-        if !has_x86_feature!("avx512f") {
+        if !crate::x86_64::has_avx512f() {
             return;
         }
         let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         for (k, row) in TABLES.base.iter().enumerate() {
             for magnitude in 0..=8u8 {
-                let expected = limbs(&select_row_scalar(row, magnitude));
+                let expected = lookup(|out| select_row_scalar(row, magnitude, out));
                 // SAFETY: `avx512f` was detected above.
-                let avx512 = unsafe { edwards25519_x86_64::select_row(row, magnitude) };
-                assert_eq!(limbs(&avx512), expected, "row {k}, magnitude {magnitude}");
+                let avx512 =
+                    lookup(|out| unsafe { edwards25519_x86_64::select_row(row, magnitude, out) });
+                assert_eq!(avx512, expected, "row {k}, magnitude {magnitude}");
                 assert_eq!(
-                    limbs(&select_row(row, magnitude)),
+                    lookup(|out| select_row(row, magnitude, out)),
                     expected,
                     "row {k}, magnitude {magnitude}"
                 );
@@ -1115,22 +1176,20 @@ mod tests {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
+    /// The NEON row lookup returns exactly the limbs the scalar one does
+    /// for every table row and every digit magnitude `0..=8`, including the
+    /// identity for 0, and the production dispatch agrees with both.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[test]
     fn test_neon_select_row_matches_scalar() {
-        assert!(
-            has_aarch64_feature!("neon"),
-            "NEON path must run on this machine"
-        );
         let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         for (k, row) in TABLES.base.iter().enumerate() {
             for magnitude in 0..=8u8 {
-                let expected = limbs(&select_row_scalar(row, magnitude));
-                // SAFETY: `neon` was detected above.
-                let neon = unsafe { edwards25519_neon::select_row(row, magnitude) };
-                assert_eq!(limbs(&neon), expected, "row {k}, magnitude {magnitude}");
+                let expected = lookup(|out| select_row_scalar(row, magnitude, out));
+                let neon = lookup(|out| edwards25519_neon::select_row(row, magnitude, out));
+                assert_eq!(neon, expected, "row {k}, magnitude {magnitude}");
                 assert_eq!(
-                    limbs(&select_row(row, magnitude)),
+                    lookup(|out| select_row(row, magnitude, out)),
                     expected,
                     "row {k}, magnitude {magnitude}"
                 );

@@ -214,13 +214,15 @@ impl State {
         let mut state = Self::init_param(&params);
 
         if let Some(key) = key {
-            let mut block = [0u8; BLOCKBYTES];
-            block[..key.len()].copy_from_slice(key);
-            state.update(&block);
-            zeroize_bytes(&mut block);
+            // The zero-padded key block, buffered as `update` would buffer a
+            // first full block (kept for `finalize` in case it is the last).
+            state.buf[..key.len()].copy_from_slice(key);
+            state.buflen = BLOCKBYTES;
         }
 
-        Ok(state)
+        // `state` holds the key block in memory (the copy above goes through
+        // `memcpy`): move it out and let the local drop (wipe).
+        Ok(core::mem::take(&mut state))
     }
 
     pub(crate) fn update(&mut self, mut input: &[u8]) {
@@ -258,6 +260,14 @@ impl State {
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
+        self.finalize_in_place(output)
+        // `self` is dropped here, which wipes the whole state.
+    }
+
+    /// [`State::finalize`] without consuming `self`, for callers that keep
+    /// the state where it is (moving it out leaves unwiped copies) and let it
+    /// drop there.
+    fn finalize_in_place(&mut self, output: &mut [u8]) -> Result<(), Error> {
         validate_length!(
             1,
             OUTBYTES,
@@ -285,7 +295,6 @@ impl State {
         buffer[56..64].copy_from_slice(&self.h[7].to_le_bytes());
         output.copy_from_slice(&buffer[..output.len()]);
         zeroize_bytes(&mut buffer);
-        // `self` is dropped here, which wipes the whole state.
 
         Ok(())
     }
@@ -332,7 +341,7 @@ fn hash_single_block(
     compress(&mut h, &t, &f, block);
 
     let mut buffer = [0u8; OUTBYTES];
-    for (chunk, word) in buffer.as_chunks_mut::<8>().0.iter_mut().zip(h) {
+    for (chunk, word) in buffer.as_chunks_mut::<8>().0.iter_mut().zip(&h) {
         *chunk = word.to_le_bytes();
     }
     output.copy_from_slice(&buffer[..output.len()]);
@@ -356,10 +365,16 @@ pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), E
         return Ok(());
     }
 
-    let mut state = State::init(output.len() as u8, key, None, None)?;
-
-    state.update(input);
-    state.finalize(output)
+    // Work on the state inside `init`'s result: `?` would move it out, and
+    // `finalize` by value would move it again, each leaving an unwiped copy
+    // of the key block or keyed chaining value. The `Result` drops (wipes)
+    // the one copy here.
+    let mut state = State::init(output.len() as u8, key, None, None);
+    let Ok(inner) = &mut state else {
+        return state.map(|_| ());
+    };
+    inner.update(input);
+    inner.finalize_in_place(output)
 }
 
 /// Keyed BLAKE2b of the empty message with `salt` and `personal` (the

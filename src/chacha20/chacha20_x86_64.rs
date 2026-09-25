@@ -65,6 +65,9 @@ impl super::Kernel for Kernel {
         2
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: it only forwards `&`
+    /// to the cipher's own state, which `ChaCha20` wipes on drop, and the
+    /// caller's buffers.
     #[inline]
     fn xor_chunk(
         self,
@@ -87,7 +90,7 @@ impl super::Kernel for Kernel {
                 xor_chunk_avx512vl(state, counter, input, output, partial)
             },
             // SAFETY: as above; `LaneSet::Avx512` and `LaneSet::Avx512Vl`
-            // require `avx512f`.
+            // require `avx512f` and `avx2` (`x86_64::has_avx512f`).
             LaneSet::Avx512 | LaneSet::Avx512Vl => unsafe {
                 xor_chunk_avx512(state, counter, input, output, partial)
             },
@@ -126,7 +129,7 @@ impl super::Kernel for Kernel {
                 );
             }
             // SAFETY: as for `xor_chunk`; `LaneSet::Avx512` and
-            // `LaneSet::Avx512Vl` require `avx512f`.
+            // `LaneSet::Avx512Vl` require `avx512f` and `avx2`.
             LaneSet::Avx512 | LaneSet::Avx512Vl => unsafe {
                 xor_chunk_avx512_with_block(
                     state,
@@ -525,7 +528,7 @@ mod tests {
     /// sets and extra blocks before and after them.
     #[test]
     fn test_avx512_with_block_matches_run_and_scalar_block() {
-        if !has_x86_feature!("avx512f") {
+        if !crate::x86_64::has_avx512f() {
             return;
         }
         let mut state = [0u32; 16];
@@ -541,7 +544,7 @@ mod tests {
                     let mut expected = plaintext[..len].to_vec();
                     let mut expected_partial = [0u8; 64];
                     let mut expected_extra = [0u8; 64];
-                    // SAFETY: `avx512f` was detected above.
+                    // SAFETY: `avx512f` and `avx2` were detected above.
                     unsafe {
                         xor_chunk_avx512(
                             &state,
@@ -556,7 +559,7 @@ mod tests {
                     let mut in_place = plaintext[..len].to_vec();
                     let mut partial = [0u8; 64];
                     let mut extra = [0u8; 64];
-                    // SAFETY: `avx512f` was detected above.
+                    // SAFETY: `avx512f` and `avx2` were detected above.
                     unsafe {
                         xor_chunk_avx512_with_block(
                             &state,
@@ -575,7 +578,7 @@ mod tests {
 
                     let mut b2b = vec![0u8; len];
                     let mut extra = [0xa5u8; 64];
-                    // SAFETY: `avx512f` was detected above.
+                    // SAFETY: `avx512f` and `avx2` were detected above.
                     unsafe {
                         xor_chunk_avx512_with_block(
                             &state,

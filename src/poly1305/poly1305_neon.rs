@@ -45,7 +45,7 @@ use super::{M26, M42, M44, canonical, carry44, limbs26, mul_mod_p, pack_limbs26}
 const NEON_BLOCKS: usize = 8;
 /// Blocks handled by scalar lanes per iteration.
 const SCALAR_LANES: usize = 2;
-/// Blocks per iteration; also the highest key power needed. `Powers::new`
+/// Blocks per iteration; also the highest key power needed. `powers!`
 /// spells out the addition chain for this value.
 const BLOCKS: usize = NEON_BLOCKS + SCALAR_LANES;
 const _: () = assert!(BLOCKS == 10);
@@ -70,12 +70,14 @@ impl Zeroize for Powers {
     }
 }
 
-impl Powers {
-    /// Computes the scalar powers from the clamped 3x44-bit key limbs, plus
-    /// the vector `[r^4, r^3, r^2, r]` (lane 0 first) in 5x26-bit limbs that
-    /// seeds the NEON power vectors.
-    #[target_feature(enable = "neon")]
-    fn new(r: &[u64; 3]) -> (Self, Acc) {
+/// Computes the scalar [`Powers`] from the clamped 3x44-bit key limbs `$r:
+/// &[u64; 3]`, plus the vector `[r^4, r^3, r^2, r]` (lane 0 first) in
+/// 5x26-bit limbs that seeds the NEON power vectors, as `(Powers, Acc)`.
+///
+/// A macro so it expands inside [`blocks`]; see there.
+macro_rules! powers {
+    ($r:expr) => {{
+        let r: &[u64; 3] = $r;
         let r2 = mul_mod_p(r, r);
         let mut r3 = mul_mod_p(&r2, r);
         let mut r4 = mul_mod_p(&r2, &r2);
@@ -83,21 +85,26 @@ impl Powers {
         let top = mul_mod_p(&r8, &r2);
         const _: () = assert!(BLOCKS == 10);
 
-        // Spelled out: `array::map` with a closure is not inlined here.
+        // Spelled out: `array::map` with a closure is not inlined here, and
+        // at opt-level `s` a loop over the limb index is not unrolled, which
+        // keeps the limb arrays in stack memory nothing wipes.
         let l4 = limbs26(canonical(&r4));
         let l3 = limbs26(canonical(&r3));
         let l2 = limbs26(canonical(&r2));
         let l1 = limbs26(canonical(r));
-        let mut seed = Acc([vdupq_n_u32(0); 5]);
-        for i in 0..5 {
-            seed.0[i] = quad([l4[i], l3[i], l2[i], l1[i]]);
-        }
+        let seed = Acc([
+            quad([l4[0], l3[0], l2[0], l1[0]]),
+            quad([l4[1], l3[1], l2[1], l1[1]]),
+            quad([l4[2], l3[2], l2[2], l1[2]]),
+            quad([l4[3], l3[3], l2[3], l1[3]]),
+            quad([l4[4], l3[4], l2[4], l1[4]]),
+        ]);
         r3.zeroize();
         r4.zeroize();
         r8.zeroize();
 
-        (Self { r1: *r, r2, top }, seed)
-    }
+        (Powers { r1: *r, r2, top }, seed)
+    }};
 }
 
 /// One Horner step of a scalar lane: `(h + m) * r mod p` in 3x44-bit limbs,
@@ -153,25 +160,25 @@ fn quad(w: [u32; 4]) -> uint32x4_t {
 #[derive(Clone, Copy, Zeroize)]
 struct LaneMult([uint32x4_t; 3]);
 
-impl LaneMult {
-    /// The power held in lane `L` of `powers`.
-    #[inline]
-    #[target_feature(enable = "neon")]
-    fn from_lane<const L: i32>(powers: &Acc) -> Self {
+/// The [`LaneMult`] of the power held in lane `$lane` (a literal) of
+/// `$powers: &Acc`. A macro so it expands inside [`blocks`]; see there.
+macro_rules! lane_mult {
+    ($powers:expr, $lane:literal) => {{
+        let powers: &Acc = $powers;
         let [p0, p1, p2, p3, p4] = powers.0;
         let r = [
-            vgetq_lane_u32::<L>(p0),
-            vgetq_lane_u32::<L>(p1),
-            vgetq_lane_u32::<L>(p2),
-            vgetq_lane_u32::<L>(p3),
-            vgetq_lane_u32::<L>(p4),
+            vgetq_lane_u32::<$lane>(p0),
+            vgetq_lane_u32::<$lane>(p1),
+            vgetq_lane_u32::<$lane>(p2),
+            vgetq_lane_u32::<$lane>(p3),
+            vgetq_lane_u32::<$lane>(p4),
         ];
-        Self([
+        LaneMult([
             quad([r[0], r[1], r[2], r[3]]),
             quad([r[4], r[1] * 5, r[2] * 5, r[3] * 5]),
             quad([r[4] * 5, 0, 0, 0]),
         ])
-    }
+    }};
 }
 
 /// Per-lane multiplier: word `W` of the power for lane `l` in lane `l` of
@@ -179,13 +186,13 @@ impl LaneMult {
 #[derive(Clone, Copy)]
 struct FullMult([uint32x4_t; 9]);
 
-impl FullMult {
-    /// The four powers held in the lanes of `powers`.
-    #[inline]
-    #[target_feature(enable = "neon")]
-    fn from_lanes(powers: &Acc) -> Self {
+/// The [`FullMult`] of the four powers held in the lanes of `$powers:
+/// &Acc`. A macro so it expands inside [`blocks`]; see there.
+macro_rules! full_mult {
+    ($powers:expr) => {{
+        let powers: &Acc = $powers;
         let [r0, r1, r2, r3, r4] = powers.0;
-        Self([
+        FullMult([
             r0,
             r1,
             r2,
@@ -196,7 +203,7 @@ impl FullMult {
             vmulq_n_u32(r3, 5),
             vmulq_n_u32(r4, 5),
         ])
-    }
+    }};
 }
 
 /// Four-lane 5x26-bit accumulator: limb `k` of four consecutive blocks in
@@ -326,11 +333,13 @@ macro_rules! products {
     }};
 }
 
-/// Loads four consecutive 16-byte blocks into 5x26-bit limbs (with the 2^128
-/// high bit set) and adds them lane-wise to `acc`.
+/// The 32-bit words of four consecutive 16-byte blocks: word `i` of block
+/// `j` in lane `j` of element `i`. Message bytes only, so this may stay a
+/// function; kept separate so LLVM sees the loads on their own and merges
+/// them into one de-interleaving `ld4`.
 #[inline]
 #[target_feature(enable = "neon")]
-fn add_blocks(acc: Acc, blocks: &[u8; 64]) -> Acc {
+fn block_words(blocks: &[u8; 64]) -> [uint32x4_t; 4] {
     // `lo[j]`/`hi[j]` are the low/high 64-bit halves of block `j`.
     let word = |b: &[u8]| vcreate_u64(u64::from_le_bytes(b.try_into().unwrap()));
     let (b, _) = blocks.as_chunks::<16>();
@@ -340,28 +349,42 @@ fn add_blocks(acc: Acc, blocks: &[u8; 64]) -> Acc {
     let hi23 = vreinterpretq_u32_u64(vcombine_u64(word(&b[2][8..]), word(&b[3][8..])));
 
     // De-interleave so `w[i]` holds 32-bit word `i` of each block.
-    let w0 = vuzp1q_u32(lo01, lo23);
-    let w1 = vuzp2q_u32(lo01, lo23);
-    let w2 = vuzp1q_u32(hi01, hi23);
-    let w3 = vuzp2q_u32(hi01, hi23);
+    [
+        vuzp1q_u32(lo01, lo23),
+        vuzp2q_u32(lo01, lo23),
+        vuzp1q_u32(hi01, hi23),
+        vuzp2q_u32(hi01, hi23),
+    ]
+}
 
-    let hibit = vdupq_n_u32(1 << 24);
+/// Loads the four consecutive 16-byte blocks `$blocks: &[u8; 64]` into
+/// 5x26-bit limbs (with the 2^128 high bit set) and adds them lane-wise to
+/// `$acc: Acc`. A macro so it expands inside [`hot_loop`] and [`blocks`]; see
+/// [`blocks`].
+macro_rules! add_blocks {
+    ($acc:expr, $blocks:expr) => {{
+        let acc: Acc = $acc;
+        let [w0, w1, w2, w3] = block_words($blocks);
 
-    // Limb k of a block is bits 26k..26k+26, i.e. the top `32 - a` bits of
-    // word `w_i` and the low `a - 6` bits of `w_{i+1}`. Each limb is
-    // accumulated as `(w_i >> a) + ((w_{i+1} << (38 - a)) >> 6)` with
-    // `vsraq_n::<N>(x, y) = x + (y >> N)`, which needs no mask registers: the
-    // left shift drops the bits that belong to the next limb.
-    let [a0, a1, a2, a3, a4] = acc.0;
-    let a0 = vsraq_n_u32::<6>(a0, vshlq_n_u32::<6>(w0));
-    let a1 = vsraq_n_u32::<26>(a1, w0);
-    let a1 = vsraq_n_u32::<6>(a1, vshlq_n_u32::<12>(w1));
-    let a2 = vsraq_n_u32::<20>(a2, w1);
-    let a2 = vsraq_n_u32::<6>(a2, vshlq_n_u32::<18>(w2));
-    let a3 = vsraq_n_u32::<14>(a3, w2);
-    let a3 = vsraq_n_u32::<6>(a3, vshlq_n_u32::<24>(w3));
-    let a4 = vsraq_n_u32::<8>(vaddq_u32(a4, hibit), w3);
-    Acc([a0, a1, a2, a3, a4])
+        let hibit = vdupq_n_u32(1 << 24);
+
+        // Limb k of a block is bits 26k..26k+26, i.e. the top `32 - a` bits
+        // of word `w_i` and the low `a - 6` bits of `w_{i+1}`. Each limb is
+        // accumulated as `(w_i >> a) + ((w_{i+1} << (38 - a)) >> 6)` with
+        // `vsraq_n::<N>(x, y) = x + (y >> N)`, which needs no mask
+        // registers: the left shift drops the bits that belong to the next
+        // limb.
+        let [a0, a1, a2, a3, a4] = acc.0;
+        let a0 = vsraq_n_u32::<6>(a0, vshlq_n_u32::<6>(w0));
+        let a1 = vsraq_n_u32::<26>(a1, w0);
+        let a1 = vsraq_n_u32::<6>(a1, vshlq_n_u32::<12>(w1));
+        let a2 = vsraq_n_u32::<20>(a2, w1);
+        let a2 = vsraq_n_u32::<6>(a2, vshlq_n_u32::<18>(w2));
+        let a3 = vsraq_n_u32::<14>(a3, w2);
+        let a3 = vsraq_n_u32::<6>(a3, vshlq_n_u32::<24>(w3));
+        let a4 = vsraq_n_u32::<8>(vaddq_u32(a4, hibit), w3);
+        Acc([a0, a1, a2, a3, a4])
+    }};
 }
 
 #[inline]
@@ -380,73 +403,66 @@ fn narrow(x: Prod) -> uint32x4_t {
     vuzp1q_u32(vreinterpretq_u32_u64(x.lo), vreinterpretq_u32_u64(x.hi))
 }
 
-/// Partial carry of the limb products (each below `2^58`) so every limb ends
-/// below `2^26 + 2^10`, narrowed back to a four-lane accumulator.
+/// `x & mask` on both halves.
 #[inline]
 #[target_feature(enable = "neon")]
-fn carry(d: [Prod; 5]) -> Acc {
-    let [d0, d1, d2, d3, d4] = d;
-    let mask = vdupq_n_u64(M26);
-    let mask32 = vdupq_n_u32(M26 as u32);
-    let and = |x: Prod| Prod {
+fn and(x: Prod, mask: uint64x2_t) -> Prod {
+    Prod {
         lo: vandq_u64(x.lo, mask),
         hi: vandq_u64(x.hi, mask),
-    };
-    let bic = |x: Prod| Prod {
+    }
+}
+
+/// `x & !mask` on both halves.
+#[inline]
+#[target_feature(enable = "neon")]
+fn bic(x: Prod, mask: uint64x2_t) -> Prod {
+    Prod {
         lo: vbicq_u64(x.lo, mask),
         hi: vbicq_u64(x.hi, mask),
-    };
-
-    // Carry chain (`vsraq_n::<26>(x, y)` is `x + (y >> 26)`):
-    //   d3 -> d4, then d4 -> (x5) d0, then d0 -> d1 -> d2 -> d3 -> d4.
-    // Folding the wrapped carry into d0 before d0 is carried out means every
-    // limb receives exactly one carry-in, so only the two limbs that receive
-    // a carry after being masked (h3, h4) need a 64-bit mask; the others are
-    // masked once, as 32-bit lanes after narrowing. Bounds: every d is below
-    // 2^58 and every carry below 2^32 + 1, so no 64-bit sum overflows; on
-    // exit h0..h3 are exact 26-bit limbs and h4 < 2^26 + 2^7. The chain is
-    // six shift-accumulates deep, which the other chain and the scalar lanes
-    // hide.
-    let d4 = sra::<26>(d4, d3);
-    let h3 = and(d3);
-    let h4 = and(d4);
-    // d0 += 5 * (d4 >> 26): the carry plus four times the carry, the latter
-    // as the masked-off high part of d4 shifted right by 24.
-    let d0 = sra::<26>(d0, d4);
-    let d0 = sra::<24>(d0, bic(d4));
-    let d1 = sra::<26>(d1, d0);
-    let d2 = sra::<26>(d2, d1);
-    let h3 = sra::<26>(h3, d2);
-    let h4 = sra::<26>(h4, h3);
-
-    Acc([
-        vandq_u32(narrow(d0), mask32),
-        vandq_u32(narrow(d1), mask32),
-        vandq_u32(narrow(d2), mask32),
-        vandq_u32(narrow(h3), mask32),
-        narrow(h4),
-    ])
+    }
 }
 
-/// The 25 limb products of `acc * r^BLOCKS`, before carrying.
-#[inline]
-#[target_feature(enable = "neon")]
-fn products_lane(acc: Acc, m: &LaneMult) -> [Prod; 5] {
-    products!(acc, m, mull_lane, mlal_lane)
-}
+/// Partial carry of the limb products `$d: [Prod; 5]` (each below `2^58`) so
+/// every limb ends below `2^26 + 2^10`, narrowed back to a four-lane
+/// accumulator. A macro so it expands inside [`hot_loop`] and [`blocks`]; see
+/// [`blocks`].
+macro_rules! carry {
+    ($d:expr) => {{
+        let [d0, d1, d2, d3, d4]: [Prod; 5] = $d;
+        let mask = vdupq_n_u64(M26);
+        let mask32 = vdupq_n_u32(M26 as u32);
 
-/// `acc * m mod p` with the same power in every lane, partially carried.
-#[inline]
-#[target_feature(enable = "neon")]
-fn mul_reduce_lane(acc: Acc, m: &LaneMult) -> Acc {
-    carry(products_lane(acc, m))
-}
+        // Carry chain (`vsraq_n::<26>(x, y)` is `x + (y >> 26)`):
+        //   d3 -> d4, then d4 -> (x5) d0, then d0 -> d1 -> d2 -> d3 -> d4.
+        // Folding the wrapped carry into d0 before d0 is carried out means
+        // every limb receives exactly one carry-in, so only the two limbs
+        // that receive a carry after being masked (h3, h4) need a 64-bit
+        // mask; the others are masked once, as 32-bit lanes after narrowing.
+        // Bounds: every d is below 2^58 and every carry below 2^32 + 1, so no
+        // 64-bit sum overflows; on exit h0..h3 are exact 26-bit limbs and h4
+        // < 2^26 + 2^7. The chain is six shift-accumulates deep, which the
+        // other chain and the scalar lanes hide.
+        let d4 = sra::<26>(d4, d3);
+        let h3 = and(d3, mask);
+        let h4 = and(d4, mask);
+        // d0 += 5 * (d4 >> 26): the carry plus four times the carry, the
+        // latter as the masked-off high part of d4 shifted right by 24.
+        let d0 = sra::<26>(d0, d4);
+        let d0 = sra::<24>(d0, bic(d4, mask));
+        let d1 = sra::<26>(d1, d0);
+        let d2 = sra::<26>(d2, d1);
+        let h3 = sra::<26>(h3, d2);
+        let h4 = sra::<26>(h4, h3);
 
-/// `acc * m mod p` with a distinct power per lane, partially carried.
-#[inline]
-#[target_feature(enable = "neon")]
-fn mul_reduce_full(acc: Acc, m: &FullMult) -> Acc {
-    carry(products!(acc, m, mull_full, mlal_full))
+        Acc([
+            vandq_u32(narrow(d0), mask32),
+            vandq_u32(narrow(d1), mask32),
+            vandq_u32(narrow(d2), mask32),
+            vandq_u32(narrow(h3), mask32),
+            narrow(h4),
+        ])
+    }};
 }
 
 /// Hot loop: every lane is multiplied by `r^BLOCKS` per chunk.
@@ -474,30 +490,49 @@ fn hot_loop(
     // out-of-order core overlaps them instead of alternating between a burst
     // of multiplies and a latency-bound carry chain.
     let (half, _) = first.as_chunks::<64>();
-    let mut acc_a = carry(products_lane(add_blocks(*a, &half[0]), m));
-    let mut db = products_lane(add_blocks(*b, &half[1]), m);
+    let mut acc_a = carry!(products!(
+        add_blocks!(*a, &half[0]),
+        m,
+        mull_lane,
+        mlal_lane
+    ));
+    let mut db = products!(add_blocks!(*b, &half[1]), m, mull_lane, mlal_lane);
     scalar_chunk(lanes, first, r);
     for chunk in rest {
         let (half, _) = chunk.as_chunks::<64>();
-        let acc_b = add_blocks(carry(db), &half[1]);
-        let da = products_lane(add_blocks(acc_a, &half[0]), m);
-        db = products_lane(acc_b, m);
-        acc_a = carry(da);
+        let acc_b = add_blocks!(carry!(db), &half[1]);
+        let da = products!(add_blocks!(acc_a, &half[0]), m, mull_lane, mlal_lane);
+        db = products!(acc_b, m, mull_lane, mlal_lane);
+        acc_a = carry!(da);
         scalar_chunk(lanes, chunk, r);
     }
     *a = acc_a;
-    *b = carry(db);
+    *b = carry!(db);
 }
 
 /// Processes `input` (a non-empty multiple of `CHUNK` bytes) into `h` using
 /// the clamped key limbs `r`.
 ///
 /// `h` is the scalar backend's partially reduced 3x44-bit state on entry and
-/// exit. The working copies the out-of-line [`hot_loop`] reaches through
-/// memory (the scalar key powers, the `r^BLOCKS` multiplier, both
-/// accumulators and the scalar lanes) are wiped once before returning;
-/// values that live only in registers and compiler spill slots are out of
-/// Rust's reach and are not wiped.
+/// exit. Other than the `zeroize` calls, the only function this kernel hands
+/// key-derived storage to is the out-of-line [`hot_loop`]; the working
+/// copies it reaches through memory (the scalar key powers, the `r^BLOCKS`
+/// multiplier, both accumulators and the scalar lanes) are wiped once before
+/// returning.
+///
+/// Every step on key-derived values is expanded here and in `hot_loop`:
+/// `powers!`, `lane_mult!`, `full_mult!`, `add_blocks!`, `products!` and
+/// `carry!` are macros, because a `#[target_feature]` function cannot be
+/// `#[inline(always)]` and LLVM keeps the larger ones out of line, handing
+/// them their `Acc`/`Prod` arguments and results through stack temporaries.
+/// The remaining `#[inline]` helpers on key-derived values (`pair`, `quad`,
+/// `sra`, `and`, `bic`, `narrow` and the `mull_*`/`mlal_*` multiplies) each
+/// wrap one or two intrinsics and inline like the intrinsics themselves, and
+/// the limb helpers are `#[inline(always)]`. [`block_words`] sees message
+/// bytes only and may stay out of line. The other key-derived values
+/// (`seed`, `low`, `high`, `tail_a`/`tail_b`, `start`, `l`) therefore live
+/// only in registers and compiler spill slots, which are out of Rust's reach
+/// and are not wiped, since wiping them would force them into memory.
 #[target_feature(enable = "neon")]
 pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
@@ -508,19 +543,22 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     // exactly the per-lane powers of the final chunk, with `r^BLOCKS` in
     // lane 0 of `high` for the hot loop. This costs two vector multiplies
     // instead of six scalar ones plus eight limb conversions.
-    let (mut powers, seed) = Powers::new(r);
-    let low = mul_reduce_lane(seed, &LaneMult::from_lane::<2>(&seed));
-    let high = mul_reduce_lane(low, &LaneMult::from_lane::<0>(&seed));
-    let mut top = LaneMult::from_lane::<0>(&high);
+    let (mut powers, seed) = powers!(r);
+    let low = carry!(products!(seed, &lane_mult!(&seed, 2), mull_lane, mlal_lane));
+    let high = carry!(products!(low, &lane_mult!(&seed, 0), mull_lane, mlal_lane));
+    let mut top = lane_mult!(&high, 0);
 
     // Convert h into 5x26 limbs in lane 0 of chain A (block 0 of each chunk).
+    // Spelled out like the seed in `powers!` so `start` stays in registers.
     let start = limbs26(canonical(h));
-    let zero = vdupq_n_u32(0);
-    let mut a = Acc([zero; 5]);
-    for (lane, &limb) in a.0.iter_mut().zip(&start) {
-        *lane = quad([limb, 0, 0, 0]);
-    }
-    let mut b = Acc([zero; 5]);
+    let mut a = Acc([
+        quad([start[0], 0, 0, 0]),
+        quad([start[1], 0, 0, 0]),
+        quad([start[2], 0, 0, 0]),
+        quad([start[3], 0, 0, 0]),
+        quad([start[4], 0, 0, 0]),
+    ]);
+    let mut b = Acc([vdupq_n_u32(0); 5]);
     let mut lanes = [[0u64; 3]; SCALAR_LANES];
 
     let (chunks, _) = input.as_chunks::<CHUNK>();
@@ -530,21 +568,37 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
 
     // Final chunk: block `i` gets `r^(BLOCKS - i)` so the lane sum is the
     // exact sequential Horner value.
-    let tail_a = FullMult::from_lanes(&high);
-    let tail_b = FullMult::from_lanes(&low);
+    let tail_a = full_mult!(&high);
+    let tail_b = full_mult!(&low);
     let (half, _) = last.as_chunks::<64>();
-    a = mul_reduce_full(add_blocks(a, &half[0]), &tail_a);
-    b = mul_reduce_full(add_blocks(b, &half[1]), &tail_b);
+    a = carry!(products!(
+        add_blocks!(a, &half[0]),
+        &tail_a,
+        mull_full,
+        mlal_full
+    ));
+    b = carry!(products!(
+        add_blocks!(b, &half[1]),
+        &tail_b,
+        mull_full,
+        mlal_full
+    ));
     let (tail_blocks, _) = last[16 * NEON_BLOCKS..].as_chunks::<16>();
     lanes[0] = scalar_step(lanes[0], &tail_blocks[0], &powers.r2);
     lanes[1] = scalar_step(lanes[1], &tail_blocks[1], &powers.r1);
     powers.zeroize();
 
-    // Sum the eight NEON lanes and convert back to 3x44-bit limbs.
-    let mut l = [0u64; 5];
-    for (i, limb) in l.iter_mut().enumerate() {
-        *limb = vaddlvq_u32(vaddq_u32(a.0[i], b.0[i]));
-    }
+    // Sum the eight NEON lanes and convert back to 3x44-bit limbs (spelled
+    // out for the same reason).
+    let [a0, a1, a2, a3, a4] = a.0;
+    let [b0, b1, b2, b3, b4] = b.0;
+    let l = [
+        vaddlvq_u32(vaddq_u32(a0, b0)),
+        vaddlvq_u32(vaddq_u32(a1, b1)),
+        vaddlvq_u32(vaddq_u32(a2, b2)),
+        vaddlvq_u32(vaddq_u32(a3, b3)),
+        vaddlvq_u32(vaddq_u32(a4, b4)),
+    ];
     let [mut h0, mut h1, mut h2] = pack_limbs26(l);
 
     // Add the scalar lanes (each partially reduced: limbs below 2^44, 2^44 +

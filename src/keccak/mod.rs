@@ -60,6 +60,9 @@ impl<const RATE: usize, const ROUNDS: usize> Sponge<RATE, ROUNDS> {
         }
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: it and the
+    /// `keccak` backend get only `&mut self.state`, the sponge's own state,
+    /// which is permuted in place and wiped on drop.
     fn permute(&mut self) {
         let state = &mut self.state;
         self.keccak.with_p1600::<ROUNDS>(|p1600| p1600(state));

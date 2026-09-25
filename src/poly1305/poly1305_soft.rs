@@ -513,7 +513,7 @@ mod tests {
     fn avx512_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK512, blocks_avx512};
 
-        if !has_x86_feature!("avx512f") {
+        if !crate::x86_64::has_avx512f() {
             return;
         }
         check_bulk_matches_scalar(
@@ -521,7 +521,8 @@ mod tests {
             CHUNK512,
             &[1, 2, 3, 4, 8, 16, 25, 32],
             |h, r, input| {
-                // SAFETY: `avx512f` was detected above.
+                // SAFETY: `avx512f` (with the `avx2` it implies) was detected
+                // above.
                 unsafe { blocks_avx512(h, r, input) }
             },
         );
@@ -534,7 +535,7 @@ mod tests {
     fn ifma_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK_IFMA, blocks_ifma};
 
-        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
+        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
             return;
         }
         check_bulk_matches_scalar(
@@ -542,7 +543,8 @@ mod tests {
             CHUNK_IFMA,
             &[1, 2, 3, 4, 8, 16, 25, 32, 63, 64],
             |h, r, input| {
-                // SAFETY: `avx512f` and `avx512ifma` were detected above.
+                // SAFETY: `avx512f` (with the `avx2` it implies) and
+                // `avx512ifma` were detected above.
                 unsafe { blocks_ifma(h, r, input) }
             },
         );
@@ -555,7 +557,7 @@ mod tests {
     fn ifma2_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK_IFMA2, blocks_ifma2};
 
-        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
+        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
             return;
         }
         check_bulk_matches_scalar(
@@ -563,7 +565,8 @@ mod tests {
             CHUNK_IFMA2,
             &[1, 2, 3, 4, 8, 16, 25, 32],
             |h, r, input| {
-                // SAFETY: `avx512f` and `avx512ifma` were detected above.
+                // SAFETY: `avx512f` (with the `avx2` it implies) and
+                // `avx512ifma` were detected above.
                 unsafe { blocks_ifma2(h, r, input) }
             },
         );

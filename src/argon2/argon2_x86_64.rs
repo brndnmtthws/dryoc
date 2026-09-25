@@ -11,6 +11,14 @@
 //! AVX-512 kernel holds two states side by side in each 512-bit vector and
 //! rotates with `vprorq`. Control flow and memory access are independent of
 //! the data.
+//!
+//! Zeroization: the permutation runs in place on the caller's `dst` block,
+//! and the XORs around it use the caller's `scratch` block. Both are
+//! [`Block`]s, which wipe themselves on drop. The vectors of the two
+//! kernels live only in registers: the optimized `permute_avx2` and
+//! `permute_avx512` touch no stack memory and call no functions. Rust cannot
+//! reliably wipe registers, and wiping these values would force them into
+//! memory, so the kernels add no wipes of their own.
 
 use core::arch::x86_64::{
     __m256i, __m512i, _mm256_add_epi64, _mm256_mul_epu32, _mm256_permute2x128_si256,
@@ -40,7 +48,7 @@ pub(super) enum Kernel {
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if has_x86_feature!("avx512f") {
+    if crate::x86_64::has_avx512f() {
         Some(Kernel::Avx512)
     } else if has_x86_feature!("avx2") {
         Some(Kernel::Avx2)
@@ -57,7 +65,7 @@ impl Kernel {
         if has_x86_feature!("avx2") {
             kernels.push(Kernel::Avx2);
         }
-        if has_x86_feature!("avx512f") {
+        if crate::x86_64::has_avx512f() {
             kernels.push(Kernel::Avx512);
         }
         kernels
@@ -81,7 +89,8 @@ impl Kernel {
             // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { permute_avx2(dst) },
             // SAFETY: `Kernel::Avx512` is only constructed after
-            // `has_x86_feature!("avx512f")` succeeded.
+            // `x86_64::has_avx512f()` confirmed `avx512f` and the `avx2`
+            // that rustc's `avx512f` implies.
             Kernel::Avx512 => unsafe { permute_avx512(dst) },
         }
         finish_in_place(dst, prev_block, ref_block, xor_old, scratch);

@@ -1,3 +1,12 @@
+//! Portable-SIMD Argon2 block compression.
+//!
+//! Zeroization: the rounds run in place on the caller's `dst` block, and the
+//! XORs around them use the caller's `scratch` block. Both are [`Block`]s,
+//! which wipe themselves on drop. The `#[inline(always)]` round helpers load
+//! each round's words into vectors, so the working values live only in
+//! registers and spill slots. Rust cannot reliably wipe those, and adding
+//! wipes would force the values into memory, so the kernel adds none.
+
 use core::simd::{Simd, simd_swizzle};
 
 use super::{Block, finish_in_place, prepare_in_place};

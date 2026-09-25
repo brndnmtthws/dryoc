@@ -60,18 +60,16 @@ macro_rules! sha2_hasher {
                 }
             }
 
-            /// A hasher that has absorbed exactly `block` (one full block), for the
-            /// HMAC key pads: one compression with no buffering.
+            /// Absorbs exactly `block` (one full block) into this fresh hasher,
+            /// for the HMAC key pads: one compression with no buffering.
+            ///
+            /// The key-equivalent chaining state is compressed in place, so
+            /// the only copy is the hasher's own, which is wiped on drop.
             #[inline]
-            pub(crate) fn from_block(block: &[u8; $block_bytes]) -> Self {
-                let mut state = $iv;
-                $compress(&mut state, core::slice::from_ref(block));
-                Self {
-                    state,
-                    buffer: [0u8; $block_bytes],
-                    buflen: 0,
-                    len: $block_bytes as _,
-                }
+            pub(crate) fn absorb_key_block(&mut self, block: &[u8; $block_bytes]) {
+                debug_assert!(self.len == 0 && self.buflen == 0);
+                $compress(&mut self.state, core::slice::from_ref(block));
+                self.len = $block_bytes as _;
             }
 
             /// A fresh hasher whose length counter claims `len` bytes were
@@ -107,7 +105,7 @@ macro_rules! sha2_hasher {
                         .copy_from_slice(&((input.len() as $len) * 8).to_be_bytes());
                     let mut state = $iv;
                     $compress(&mut state, core::slice::from_ref(&block));
-                    for (chunk, word) in output.as_chunks_mut::<$word_bytes>().0.iter_mut().zip(state)
+                    for (chunk, word) in output.as_chunks_mut::<$word_bytes>().0.iter_mut().zip(&state)
                     {
                         *chunk = word.to_be_bytes();
                     }
@@ -178,6 +176,14 @@ macro_rules! sha2_hasher {
                 mut self,
                 output: &mut Output,
             ) {
+                self.finalize_in_place(output.as_mut_array());
+            }
+
+            /// [`Self::finalize_into_bytes`] without moving the hasher, for
+            /// callers that own it in place (HMAC); the hasher is spent
+            /// afterwards and must only be dropped, which wipes it.
+            #[inline]
+            pub(crate) fn finalize_in_place(&mut self, output: &mut [u8; $digest_bytes]) {
                 let bit_len = self.len.wrapping_mul(8).to_be_bytes();
                 // Bytes beyond `buflen` are already zero (`new` and `update` keep
                 // it so), which avoids a variable-length fill here.
@@ -190,8 +196,7 @@ macro_rules! sha2_hasher {
                 self.buffer[$block_bytes - $length_bytes..].copy_from_slice(&bit_len);
                 $compress(&mut self.state, core::slice::from_ref(&self.buffer));
 
-                let output = output.as_mut_array();
-                for (chunk, word) in output.as_chunks_mut::<$word_bytes>().0.iter_mut().zip(self.state)
+                for (chunk, word) in output.as_chunks_mut::<$word_bytes>().0.iter_mut().zip(&self.state)
                 {
                     *chunk = word.to_be_bytes();
                 }

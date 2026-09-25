@@ -39,6 +39,13 @@ const M44: u64 = (1 << 44) - 1;
 ))]
 const M42: u64 = (1 << 42) - 1;
 
+// The limb helpers below are `#[inline(always)]` because the bulk kernels
+// only wipe what their out-of-line hot loops reach: at opt-level `s` and `z`
+// LLVM otherwise outlines them, and their key-derived arguments and results
+// (the powers `r^k`, their 5x26-bit limbs, the lane sums) then pass through
+// stack slots nothing wipes. Inlined, they cost nothing at opt-level 3, where
+// LLVM inlines them anyway.
+
 /// Multiplies two 3x44-bit limb values modulo `2^130 - 5`, returning a
 /// partially reduced result (limbs `< 2^44`, `< 2^44 + small`, `< 2^42 +
 /// small`). Mirrors the scalar block multiplication in `poly1305_soft.rs`.
@@ -46,6 +53,7 @@ const M42: u64 = (1 << 42) - 1;
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
     target_arch = "x86_64"
 ))]
+#[inline(always)]
 fn mul_mod_p(a: &[u64; 3], b: &[u64; 3]) -> [u64; 3] {
     let mul = |x: u64, y: u64| u128::from(x) * u128::from(y);
     let s1 = b[1] * (5 << 2);
@@ -77,6 +85,7 @@ fn mul_mod_p(a: &[u64; 3], b: &[u64; 3]) -> [u64; 3] {
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
     target_arch = "x86_64"
 ))]
+#[inline(always)]
 fn canonical(h: &[u64; 3]) -> [u64; 3] {
     let (mut h0, mut h1, mut h2) = (h[0], h[1], h[2]);
 
@@ -121,6 +130,7 @@ fn canonical(h: &[u64; 3]) -> [u64; 3] {
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
     target_arch = "x86_64"
 ))]
+#[inline(always)]
 fn limbs26(h: [u64; 3]) -> [u32; 5] {
     let [h0, h1, h2] = h;
     [
@@ -140,6 +150,7 @@ fn limbs26(h: [u64; 3]) -> [u32; 5] {
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
     target_arch = "x86_64"
 ))]
+#[inline(always)]
 fn pack_limbs26(mut l: [u64; 5]) -> [u64; 3] {
     let mut c = l[0] >> 26;
     l[0] &= M26;
@@ -174,6 +185,7 @@ fn pack_limbs26(mut l: [u64; 5]) -> [u64; 3] {
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
     target_arch = "x86_64"
 ))]
+#[inline(always)]
 fn carry44(h: [u64; 3]) -> [u64; 3] {
     let [mut h0, mut h1, mut h2] = h;
     let mut c = h0 >> 44;

@@ -184,14 +184,14 @@ macro_rules! finish_set {
 /// bytes into `output`.
 #[inline(always)]
 fn finish_scalar_block(
-    x: [u32; 16],
+    x: &[u32; 16],
     initial: &[u32; 16],
     input: Option<&[u8; 64]>,
     output: &mut [u8; 64],
 ) {
     let input = input.map(|input| input.as_chunks::<4>().0);
     let output = output.as_chunks_mut::<4>().0;
-    for (index, (word, init)) in x.into_iter().zip(initial).enumerate() {
+    for (index, (word, init)) in x.iter().zip(initial).enumerate() {
         let source = match input {
             Some(input) => &input[index],
             None => &output[index],
@@ -253,10 +253,10 @@ macro_rules! define_xor_chunk {
                     soft::double_round(&mut b);
                 }
                 if let Some((source, out)) = dest.block(block_a) {
-                    finish_scalar_block(a, &initial_a, source, out);
+                    finish_scalar_block(&a, &initial_a, source, out);
                 }
                 if let Some((source, out)) = dest.block(block_a + 1) {
-                    finish_scalar_block(b, &initial_b, source, out);
+                    finish_scalar_block(&b, &initial_b, source, out);
                 }
             }
             finish_set!(v, &initial_v, &mut dest);
@@ -450,7 +450,7 @@ fn xor_chunk_sve2(
     let mut s = initial_s;
     double_rounds_sve2(&mut v, &mut s);
     if let Some((source, out)) = dest.block(SET_BLOCKS as usize) {
-        finish_scalar_block(s, &initial_s, source, out);
+        finish_scalar_block(&s, &initial_s, source, out);
     }
     // The initial lanes are rebuilt from `state` after the rounds rather than
     // kept across the asm block, which would spill them to the stack and make

@@ -14,10 +14,10 @@ use super::Niels;
 use crate::fe25519::Fe;
 use crate::x86_64::store_words512;
 
-/// Constant-time table row lookup: entry `magnitude - 1` for `magnitude` in
-/// `1..=8`, the identity for `0`.
+/// Constant-time table row lookup into `out`: entry `magnitude - 1` for
+/// `magnitude` in `1..=8`, the identity for `0`. The caller wipes `out`.
 #[target_feature(enable = "avx512f")]
-pub(super) fn select_row(row: &[Niels; 8], magnitude: u8) -> Niels {
+pub(super) fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     // Limbs 0..8 and 8..15 of an entry (y_plus_x, y_minus_x, xy2d), the
     // second word padded with a zero lane.
     let words = |n: &Niels| {
@@ -57,13 +57,16 @@ pub(super) fn select_row(row: &[Niels; 8], magnitude: u8) -> Niels {
         acc[0] = _mm512_mask_blend_epi64(hit, acc[0], lo);
         acc[1] = _mm512_mask_blend_epi64(hit, acc[1], hi);
     }
+    // `lo` and `hi` are only written by the inlined `store_words512` and are
+    // promoted to registers (the compiled kernel has no stack frame), so
+    // they are not wiped; the caller wipes `out`.
     let mut lo = [0u64; 8];
     let mut hi = [0u64; 8];
     store_words512(&mut lo, acc[0]);
     store_words512(&mut hi, acc[1]);
-    Niels {
+    *out = Niels {
         y_plus_x: Fe([lo[0], lo[1], lo[2], lo[3], lo[4]]),
         y_minus_x: Fe([lo[5], lo[6], lo[7], hi[0], hi[1]]),
         xy2d: Fe([hi[2], hi[3], hi[4], hi[5], hi[6]]),
-    }
+    };
 }

@@ -67,26 +67,30 @@ sha2_hasher! {
 }
 
 impl Sha512 {
-    /// Two hashers that have absorbed exactly `a` and `b` respectively (the
-    /// HMAC inner and outer key blocks), compressed together where the
-    /// hardware path can interleave them (see `sha512_aarch64::compress2`).
+    /// [`Self::absorb_key_block`] of `a` into the fresh hasher `self` and of
+    /// `b` into the fresh hasher `other` (the HMAC inner and outer key
+    /// blocks), compressed together where the hardware path can interleave
+    /// them (see `sha512_aarch64::compress2`). Both chaining states are
+    /// compressed in place.
     #[inline]
-    pub(crate) fn from_blocks(a: &[u8; BLOCK_BYTES], b: &[u8; BLOCK_BYTES]) -> (Self, Self) {
+    pub(crate) fn absorb_key_blocks(
+        &mut self,
+        a: &[u8; BLOCK_BYTES],
+        other: &mut Self,
+        b: &[u8; BLOCK_BYTES],
+    ) {
         #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
         if has_aarch64_feature!("sha3") {
-            let mut state_a = IV;
-            let mut state_b = IV;
+            debug_assert!(self.len == 0 && self.buflen == 0);
+            debug_assert!(other.len == 0 && other.buflen == 0);
             // SAFETY: the feature check above confirmed the `sha3` extension.
-            unsafe { sha512_aarch64::compress2(&mut state_a, a, &mut state_b, b) };
-            let fresh = |state| Self {
-                state,
-                buffer: [0u8; BLOCK_BYTES],
-                buflen: 0,
-                len: BLOCK_BYTES as u128,
-            };
-            return (fresh(state_a), fresh(state_b));
+            unsafe { sha512_aarch64::compress2(&mut self.state, a, &mut other.state, b) };
+            self.len = BLOCK_BYTES as u128;
+            other.len = BLOCK_BYTES as u128;
+            return;
         }
-        (Self::from_block(a), Self::from_block(b))
+        self.absorb_key_block(a);
+        other.absorb_key_block(b);
     }
 }
 
@@ -174,9 +178,13 @@ mod tests {
             assert_eq!(sa, ea, "state a {i}");
             assert_eq!(sb, eb, "state b {i}");
         }
-        let (x, y) = Sha512::from_blocks(&[0x36; BLOCK_BYTES], &[0x5c; BLOCK_BYTES]);
-        assert_eq!(x.state, Sha512::from_block(&[0x36; BLOCK_BYTES]).state);
-        assert_eq!(y.state, Sha512::from_block(&[0x5c; BLOCK_BYTES]).state);
+        let (mut x, mut y) = (Sha512::new(), Sha512::new());
+        x.absorb_key_blocks(&[0x36; BLOCK_BYTES], &mut y, &[0x5c; BLOCK_BYTES]);
+        let (mut ex, mut ey) = (Sha512::new(), Sha512::new());
+        ex.absorb_key_block(&[0x36; BLOCK_BYTES]);
+        ey.absorb_key_block(&[0x5c; BLOCK_BYTES]);
+        assert_eq!(x.state, ex.state);
+        assert_eq!(y.state, ey.state);
     }
 
     /// Every buffer fill level and padding boundary, absorbed in one call and

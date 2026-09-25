@@ -1,3 +1,12 @@
+//! Portable Argon2 block compression.
+//!
+//! Zeroization: the rounds run in place on the caller's `dst` block, and the
+//! XORs around them use the caller's `scratch` block. Both are [`Block`]s,
+//! which wipe themselves on drop. Each `#[inline(always)]` round loads its 16
+//! words into locals, so the working values live only in registers and
+//! spill slots. Rust cannot reliably wipe those, and adding wipes would force
+//! the values into memory, so the kernel adds none.
+
 use super::{Block, finish_in_place, prepare_in_place};
 
 /// Overwrites `dst` with `P(R) ^ R [^ old dst]` for `R = prev_block ^

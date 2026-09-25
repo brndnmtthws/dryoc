@@ -123,60 +123,76 @@ macro_rules! kernel {
                 d: __m256i,
             }
 
-            impl Rows {
-                /// The first half of `G` on every column: `a += b + m`,
-                /// `d = (d ^ a) >>> 32`, `c += d`, `b = (b ^ c) >>> 24`.
-                #[inline]
-                #[target_feature(enable = $features)]
-                fn g1(&mut self, m: __m256i) {
-                    self.a = _mm256_add_epi64(_mm256_add_epi64(self.a, self.b), m);
-                    self.d = $ror32(_mm256_xor_si256(self.d, self.a));
-                    self.c = _mm256_add_epi64(self.c, self.d);
-                    self.b = $ror24(_mm256_xor_si256(self.b, self.c));
-                }
+            // The row steps are macros rather than `#[target_feature]`
+            // methods, which cannot be `#[inline(always)]`: at opt-level `z`
+            // LLVM kept `round`, `g1` and `g2` out of line and handed them
+            // the working rows (a copy of the chaining value) and the message
+            // vectors (the key, in a keyed hash's first block) through
+            // memory. Their own `$v`, `$m` and `$m1..$m4` are not
+            // metavariables of `kernel!` and pass through unchanged (rustfmt
+            // would mangle those matchers, hence `rustfmt::skip`).
 
-                /// The second half of `G` on every column: `a += b + m`,
-                /// `d = (d ^ a) >>> 16`, `c += d`, `b = (b ^ c) >>> 63`.
-                #[inline]
-                #[target_feature(enable = $features)]
-                fn g2(&mut self, m: __m256i) {
-                    self.a = _mm256_add_epi64(_mm256_add_epi64(self.a, self.b), m);
-                    self.d = $ror16(_mm256_xor_si256(self.d, self.a));
-                    self.c = _mm256_add_epi64(self.c, self.d);
-                    self.b = $ror63(_mm256_xor_si256(self.b, self.c));
-                }
+    /// The first half of `G` on every column of `$v: Rows`: `a += b
+            /// + m`, `d = (d ^ a) >>> 32`, `c += d`, `b = (b ^ c) >>> 24`.
+            #[rustfmt::skip]
+            macro_rules! g1 {
+                ($v:ident, $m:expr) => {
+                    $v.a = _mm256_add_epi64(_mm256_add_epi64($v.a, $v.b), $m);
+                    $v.d = $ror32(_mm256_xor_si256($v.d, $v.a));
+                    $v.c = _mm256_add_epi64($v.c, $v.d);
+                    $v.b = $ror24(_mm256_xor_si256($v.b, $v.c));
+                };
+            }
 
-                /// Lines the diagonals up in columns: `a` rotated right by
-                /// one lane, `d` by two, `c` by three (`b` stays).
-                #[inline]
-                #[target_feature(enable = $features)]
-                fn diagonalize(&mut self) {
-                    self.a = _mm256_permute4x64_epi64::<0x93>(self.a);
-                    self.d = _mm256_permute4x64_epi64::<0x4E>(self.d);
-                    self.c = _mm256_permute4x64_epi64::<0x39>(self.c);
-                }
+    /// The second half of `G` on every column of `$v: Rows`: `a += b
+            /// + m`, `d = (d ^ a) >>> 16`, `c += d`, `b = (b ^ c) >>> 63`.
+            #[rustfmt::skip]
+            macro_rules! g2 {
+                ($v:ident, $m:expr) => {
+                    $v.a = _mm256_add_epi64(_mm256_add_epi64($v.a, $v.b), $m);
+                    $v.d = $ror16(_mm256_xor_si256($v.d, $v.a));
+                    $v.c = _mm256_add_epi64($v.c, $v.d);
+                    $v.b = $ror63(_mm256_xor_si256($v.b, $v.c));
+                };
+            }
 
-                /// Undoes [`Rows::diagonalize`].
-                #[inline]
-                #[target_feature(enable = $features)]
-                fn undiagonalize(&mut self) {
-                    self.a = _mm256_permute4x64_epi64::<0x39>(self.a);
-                    self.d = _mm256_permute4x64_epi64::<0x4E>(self.d);
-                    self.c = _mm256_permute4x64_epi64::<0x93>(self.c);
-                }
+    /// Lines the diagonals of `$v: Rows` up in columns: `a` rotated
+            /// right by one lane, `d` by two, `c` by three (`b` stays).
+            #[rustfmt::skip]
+            macro_rules! diagonalize {
+                ($v:ident) => {
+                    $v.a = _mm256_permute4x64_epi64::<0x93>($v.a);
+                    $v.d = _mm256_permute4x64_epi64::<0x4E>($v.d);
+                    $v.c = _mm256_permute4x64_epi64::<0x39>($v.c);
+                };
+            }
 
-                /// One round: a column step and a diagonal step, with the
-                /// round's four message vectors.
-                #[inline]
-                #[target_feature(enable = $features)]
-                fn round(&mut self, m1: __m256i, m2: __m256i, m3: __m256i, m4: __m256i) {
-                    self.g1(m1);
-                    self.g2(m2);
-                    self.diagonalize();
-                    self.g1(m3);
-                    self.g2(m4);
-                    self.undiagonalize();
-                }
+    /// Undoes `diagonalize!`.
+            #[rustfmt::skip]
+            macro_rules! undiagonalize {
+                ($v:ident) => {
+                    $v.a = _mm256_permute4x64_epi64::<0x39>($v.a);
+                    $v.d = _mm256_permute4x64_epi64::<0x4E>($v.d);
+                    $v.c = _mm256_permute4x64_epi64::<0x93>($v.c);
+                };
+            }
+
+    /// One round on `$v: Rows`: a column step and a diagonal step,
+            /// with the round's four message vectors.
+            #[rustfmt::skip]
+            macro_rules! round {
+                ($v:ident, $m1:expr, $m2:expr, $m3:expr, $m4:expr,) => {
+                    round!($v, $m1, $m2, $m3, $m4)
+                };
+                ($v:ident, $m1:expr, $m2:expr, $m3:expr, $m4:expr) => {{
+                    let (m1, m2, m3, m4) = ($m1, $m2, $m3, $m4);
+                    g1!($v, m1);
+                    g2!($v, m2);
+                    diagonalize!($v);
+                    g1!($v, m3);
+                    g2!($v, m4);
+                    undiagonalize!($v);
+                }};
             }
 
             /// One BLAKE2b compression of `block` into the chaining state
@@ -184,7 +200,10 @@ macro_rules! kernel {
             ///
             /// The working rows and message vectors live only in registers
             /// and compiler spill slots, which are out of Rust's reach and
-            /// are not wiped.
+            /// are not wiped: every step on them is a macro expanded here,
+            /// and the remaining `#[inline]` helpers (`msg`, the lane
+            /// rotations, `load`/`load_words`/`store_words`) are a few
+            /// intrinsics each.
             #[target_feature(enable = $features)]
             pub(super) fn compress(
                 h: &mut [u64; 8],
@@ -224,14 +243,16 @@ macro_rules! kernel {
                 };
 
                 // round 1
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpacklo_epi64(m0, m1), _mm256_unpacklo_epi64(m2, m3)),
                     msg(_mm256_unpackhi_epi64(m0, m1), _mm256_unpackhi_epi64(m2, m3)),
                     msg(_mm256_unpacklo_epi64(m7, m4), _mm256_unpacklo_epi64(m5, m6)),
                     msg(_mm256_unpackhi_epi64(m7, m4), _mm256_unpackhi_epi64(m5, m6)),
                 );
                 // round 2
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpacklo_epi64(m7, m2), _mm256_unpackhi_epi64(m4, m6)),
                     msg(
                         _mm256_unpacklo_epi64(m5, m4),
@@ -247,7 +268,8 @@ macro_rules! kernel {
                     ),
                 );
                 // round 3
-                v.round(
+                round!(
+                    v,
                     msg(
                         _mm256_alignr_epi8::<8>(m6, m5),
                         _mm256_unpackhi_epi64(m2, m7),
@@ -266,7 +288,8 @@ macro_rules! kernel {
                     ),
                 );
                 // round 4
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpackhi_epi64(m3, m1), _mm256_unpackhi_epi64(m6, m5)),
                     msg(_mm256_unpackhi_epi64(m4, m0), _mm256_unpacklo_epi64(m6, m7)),
                     msg(
@@ -276,7 +299,8 @@ macro_rules! kernel {
                     msg(_mm256_unpacklo_epi64(m4, m3), _mm256_unpacklo_epi64(m5, m0)),
                 );
                 // round 5
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpackhi_epi64(m4, m2), _mm256_unpacklo_epi64(m1, m5)),
                     msg(
                         _mm256_blend_epi32::<0x33>(m3, m0),
@@ -289,7 +313,8 @@ macro_rules! kernel {
                     msg(_mm256_unpackhi_epi64(m6, m0), _mm256_unpacklo_epi64(m6, m4)),
                 );
                 // round 6
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpacklo_epi64(m1, m3), _mm256_unpacklo_epi64(m0, m4)),
                     msg(_mm256_unpacklo_epi64(m6, m5), _mm256_unpackhi_epi64(m5, m1)),
                     msg(
@@ -302,7 +327,8 @@ macro_rules! kernel {
                     ),
                 );
                 // round 7
-                v.round(
+                round!(
+                    v,
                     msg(
                         _mm256_blend_epi32::<0x33>(m0, m6),
                         _mm256_unpacklo_epi64(m7, m2),
@@ -321,7 +347,8 @@ macro_rules! kernel {
                     ),
                 );
                 // round 8
-                v.round(
+                round!(
+                    v,
                     msg(
                         _mm256_unpackhi_epi64(m6, m3),
                         _mm256_blend_epi32::<0x33>(m1, m6),
@@ -337,7 +364,8 @@ macro_rules! kernel {
                     msg(_mm256_unpacklo_epi64(m5, m0), _mm256_unpacklo_epi64(m2, m3)),
                 );
                 // round 9
-                v.round(
+                round!(
+                    v,
                     msg(
                         _mm256_unpacklo_epi64(m3, m7),
                         _mm256_alignr_epi8::<8>(m0, m5),
@@ -353,7 +381,8 @@ macro_rules! kernel {
                     ),
                 );
                 // round 10
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpacklo_epi64(m5, m4), _mm256_unpackhi_epi64(m3, m0)),
                     msg(
                         _mm256_unpacklo_epi64(m1, m2),
@@ -366,14 +395,16 @@ macro_rules! kernel {
                     ),
                 );
                 // round 11
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpacklo_epi64(m0, m1), _mm256_unpacklo_epi64(m2, m3)),
                     msg(_mm256_unpackhi_epi64(m0, m1), _mm256_unpackhi_epi64(m2, m3)),
                     msg(_mm256_unpacklo_epi64(m7, m4), _mm256_unpacklo_epi64(m5, m6)),
                     msg(_mm256_unpackhi_epi64(m7, m4), _mm256_unpackhi_epi64(m5, m6)),
                 );
                 // round 12
-                v.round(
+                round!(
+                    v,
                     msg(_mm256_unpacklo_epi64(m7, m2), _mm256_unpackhi_epi64(m4, m6)),
                     msg(
                         _mm256_unpacklo_epi64(m5, m4),

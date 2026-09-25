@@ -38,8 +38,10 @@ pub(crate) fn crypto_scalarmult_curve25519_base(
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
 ) {
     let mut clamped = clamp(n);
-    *q = mul_base(&clamped).to_montgomery();
+    let mut point = mul_base(&clamped);
+    *q = point.to_montgomery();
     clamped.zeroize();
+    point.zeroize();
 }
 
 /// On x86-64 with BMI2 the ladder runs in a copy compiled for `mulx` (see
@@ -116,10 +118,12 @@ fn ladder(
     Fe::cswap(&mut x2, &mut x3, swap);
     Fe::cswap(&mut z2, &mut z3, swap);
 
-    let mut shared = x2.mul(&z2.invert());
+    let mut zinv = z2.invert();
+    let mut shared = x2.mul(&zinv);
     *q = shared.to_bytes();
 
     clamped.zeroize();
+    zinv.zeroize();
     shared.zeroize();
     x2.zeroize();
     z2.zeroize();
