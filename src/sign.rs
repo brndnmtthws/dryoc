@@ -193,10 +193,12 @@ impl<
     }
 
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
-    /// a new keypair.
-    pub fn from_secret_key(secret_key: SecretKey) -> Self {
+    /// a new keypair. The consumed key is wiped, even if its type does not
+    /// wipe itself on drop.
+    pub fn from_secret_key(mut secret_key: SecretKey) -> Self {
         let mut seed = Zeroizing::new([0u8; 32]);
         seed.copy_from_slice(&secret_key.as_slice()[..32]);
+        secret_key.zeroize();
 
         Self::from_seed(&*seed)
     }

@@ -11,8 +11,9 @@ use zeroize::Zeroize;
 
 use crate::chacha20::ChaCha20;
 use crate::constants::{CRYPTO_ONETIMEAUTH_POLY1305_BYTES, CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES};
+use crate::error::Error;
 use crate::poly1305::{Key as Poly1305Key, Poly1305};
-use crate::utils::{pad16, zeroize_bytes};
+use crate::utils::{pad16, verify_ct, zeroize_bytes};
 
 /// Poly1305 tag; the `Mac` of every ChaCha20-Poly1305 construction.
 pub(crate) type Tag = [u8; CRYPTO_ONETIMEAUTH_POLY1305_BYTES];
@@ -60,10 +61,21 @@ pub(crate) fn compute_mac(mac: &mut Tag, mac_key: &mut Poly1305Key, ciphertext: 
     state.finalize(mac);
 }
 
-pub(crate) fn compute_mac_to_array(mac_key: &mut Poly1305Key, ciphertext: &[u8], ad: &[u8]) -> Tag {
-    let mut mac = Tag::default();
-    compute_mac(&mut mac, mac_key, ciphertext, ad);
-    mac
+/// Verifies `mac` over `ciphertext` and `ad` in constant time. The computed
+/// tag is the valid tag for this input, so it is wiped before returning,
+/// whether or not verification succeeded.
+pub(crate) fn verify_mac(
+    mac: &Tag,
+    mac_key: &mut Poly1305Key,
+    ciphertext: &[u8],
+    ad: &[u8],
+) -> Result<(), Error> {
+    let mut computed_mac = Tag::default();
+    compute_mac(&mut computed_mac, mac_key, ciphertext, ad);
+
+    let verified = verify_ct(mac, &computed_mac);
+    zeroize_bytes(&mut computed_mac);
+    verified
 }
 
 /// Generates the libsodium-shaped API of one ChaCha20-Poly1305-IETF
@@ -112,9 +124,8 @@ macro_rules! impl_chacha20poly1305_aead {
         decrypt_inplace: $decrypt_inplace:ident,
     ) => {
         use $crate::classic::crypto_aead_chacha20poly1305_impl::{
-            compute_mac, compute_mac_to_array, encrypt_with_poly1305_key, poly1305_key,
+            compute_mac, encrypt_with_poly1305_key, poly1305_key, verify_mac,
         };
-        use $crate::utils::verify_ct;
 
         $(#[$keygen_inplace_meta])*
         pub fn $keygen_inplace(key: &mut $key) {
@@ -187,9 +198,7 @@ macro_rules! impl_chacha20poly1305_aead {
 
             let associated_data = associated_data.unwrap_or(&[]);
             let (mut cipher, mut mac_key) = poly1305_key(($stream)(nonce, key));
-            let computed_mac = compute_mac_to_array(&mut mac_key, ciphertext, associated_data);
-
-            verify_ct(mac, &computed_mac)?;
+            verify_mac(mac, &mut mac_key, ciphertext, associated_data)?;
             cipher.apply_keystream_b2b(ciphertext, message);
             Ok(())
         }
@@ -206,9 +215,7 @@ macro_rules! impl_chacha20poly1305_aead {
 
             let associated_data = associated_data.unwrap_or(&[]);
             let (mut cipher, mut mac_key) = poly1305_key(($stream)(nonce, key));
-            let computed_mac = compute_mac_to_array(&mut mac_key, data, associated_data);
-
-            verify_ct(mac, &computed_mac)?;
+            verify_mac(mac, &mut mac_key, data, associated_data)?;
             cipher.apply_keystream(data);
             Ok(())
         }

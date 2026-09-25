@@ -59,7 +59,7 @@ use crate::constants::{
 use crate::error::Error;
 use crate::poly1305::Poly1305;
 use crate::types::*;
-use crate::utils::verify_ct;
+use crate::utils::{verify_ct, zeroize_bytes};
 struct OnetimeauthPoly1305State {
     mac: Poly1305,
 }
@@ -77,9 +77,14 @@ fn crypto_onetimeauth_poly1305(output: &mut Mac, message: &[u8], key: &Key) {
 fn crypto_onetimeauth_poly1305_verify(mac: &Mac, input: &[u8], key: &Key) -> Result<(), Error> {
     let mut poly1305 = Poly1305::new(key);
     poly1305.update(input);
-    let computed_mac = poly1305.finalize_to_array();
+    // The computed tag is the valid tag for `input`, so wipe it even when
+    // verification fails.
+    let mut computed_mac = Mac::default();
+    poly1305.finalize(&mut computed_mac);
 
-    verify_ct(mac, &computed_mac)
+    let verified = verify_ct(mac, &computed_mac);
+    zeroize_bytes(&mut computed_mac);
+    verified
 }
 
 fn crypto_onetimeauth_poly1305_init(key: &Key) -> OnetimeauthPoly1305State {
