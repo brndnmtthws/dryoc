@@ -157,6 +157,20 @@ updated `python/Cargo.lock` in the same change. `publish.yml` checks this with
 `cargo metadata --locked --manifest-path python/Cargo.toml` before anything
 is published.
 
+Releases are cut with `./release.py` (a stdlib-only `uv run --script`).
+First merge a bump PR that sets both `Cargo.toml` versions, runs
+`cargo update -p dryoc --manifest-path python/Cargo.toml` and `uv lock` (in
+`python/`), and commits both lockfiles. Then, on an up-to-date `main`, run
+`./release.py --dry-run` and `./release.py`. It checks that `git`, `cargo`,
+`uv` and `gh` are installed; that `main` is clean and equal to `origin/main`;
+that both manifests carry the release version, which must be SemVer, newer
+than every crates.io version, and a prerelease only as `-alpha.N`, `-beta.N`
+or `-rc.N` (maturin maps these to PEP 440 `aN`/`bN`/`rcN`); that both
+lockfiles are fresh; that the `vX.Y.Z` tag exists neither locally nor on
+`origin`; that the version is on neither crates.io nor PyPI; and that
+Build & test passed on `HEAD`. It then asks before creating and pushing the
+annotated tag, which starts `publish.yml`.
+
 ## Formatting And Lints
 
 - Follow `.rustfmt.toml`; it uses unstable rustfmt options, so formatting checks
