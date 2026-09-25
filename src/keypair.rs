@@ -36,6 +36,10 @@ pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
 /// Public/secret keypair for use with [`crate::dryocbox::DryocBox`] and
 /// libsodium-compatible public-key encryption.
+///
+/// Create keypairs with [`KeyPair::generate`], [`KeyPair::from_seed`], or
+/// [`KeyPair::from_secret_key`]. There is no `new` or [`Default`]
+/// constructor, so an all-zero secret key is never produced implicitly.
 pub struct KeyPair<
     PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
@@ -64,14 +68,6 @@ impl<
     SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > KeyPair<PublicKey, SecretKey>
 {
-    /// Creates a new, empty keypair.
-    pub fn new() -> Self {
-        Self {
-            public_key: PublicKey::new_byte_array(),
-            secret_key: SecretKey::new_byte_array(),
-        }
-    }
-
     /// Generates a random keypair.
     pub fn generate() -> Self {
         use crate::classic::crypto_box::crypto_box_keypair_inplace;
@@ -276,16 +272,6 @@ impl<
     }
 }
 
-impl<
-    PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
-    SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
-> Default for KeyPair<PublicKey, SecretKey>
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
@@ -300,7 +286,7 @@ pub mod protected {
             Locked<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
         >
     {
-        /// Returns a new zero-filled locked keypair.
+        /// Returns a new randomly generated locked keypair.
         ///
         /// # Errors
         ///
@@ -309,28 +295,14 @@ pub mod protected {
         ///
         /// # Panics
         ///
-        /// Panics if either page-aligned allocation cannot be created or its
-        /// size cannot be represented with guard pages.
-        pub fn new_locked_keypair() -> Result<Self, Error> {
-            Ok(Self {
-                public_key: HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?,
-                secret_key: HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?,
-            })
-        }
-
-        /// Returns a new randomly generated locked keypair.
-        ///
-        /// # Errors
-        ///
-        /// Returns [`Error::Io`] if either allocation cannot be locked.
-        ///
-        /// # Panics
-        ///
         /// Panics if either page-aligned allocation cannot be created, its
         /// size cannot be represented with guard pages, or the operating
         /// system's random number generator fails.
         pub fn generate_locked_keypair() -> Result<Self, Error> {
-            let mut res = Self::new_locked_keypair()?;
+            let mut res = Self {
+                public_key: HeapByteArray::<CRYPTO_BOX_PUBLICKEYBYTES>::new_locked()?,
+                secret_key: HeapByteArray::<CRYPTO_BOX_SECRETKEYBYTES>::new_locked()?,
+            };
 
             crypto_box_keypair_inplace(
                 res.public_key.as_mut_array(),
@@ -453,35 +425,6 @@ mod tests {
             debug,
             "KeyPair { public_key: \"[REDACTED]\", secret_key: \"[REDACTED]\" }"
         );
-    }
-
-    fn all_eq<T>(t: &[T], v: T) -> bool
-    where
-        T: PartialEq,
-    {
-        t.iter().all(|x| *x == v)
-    }
-
-    #[test]
-    fn test_new() {
-        let keypair = KeyPair::<
-            StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-            StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::new();
-
-        assert!(all_eq(&keypair.public_key, 0));
-        assert!(all_eq(&keypair.secret_key, 0));
-    }
-
-    #[test]
-    fn test_default() {
-        let keypair = KeyPair::<
-            StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
-            StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        >::default();
-
-        assert!(all_eq(&keypair.public_key, 0));
-        assert!(all_eq(&keypair.secret_key, 0));
     }
 
     #[test]
