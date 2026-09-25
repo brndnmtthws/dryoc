@@ -112,7 +112,10 @@ fn double_round(x: &mut [U32x4; 16]) {
 /// The Salsa20 input for blocks `counter .. counter + 4`, one block per lane.
 #[inline(always)]
 fn input_lanes(state: &[u32; 16], counter: u64) -> [U32x4; 16] {
-    let mut lanes = state.map(U32x4::splat);
+    let mut lanes = [U32x4::splat(0); 16];
+    for (lane, &word) in lanes.iter_mut().zip(state) {
+        *lane = U32x4::splat(word);
+    }
     let counters = [0, 1, 2, 3].map(|i| counter.wrapping_add(i));
     lanes[8] = U32x4::from(counters.map(|c| c as u32));
     lanes[9] = U32x4::from(counters.map(|c| (c >> 32) as u32));
@@ -144,12 +147,12 @@ fn xor_block(keystream: [U32x4; 4], index: usize, dest: &mut Dest<'_>) {
     };
     let source = source.map(|source| source.as_chunks::<16>().0);
     let out = out.as_chunks_mut::<16>().0;
-    for (row, keystream) in keystream.into_iter().enumerate() {
+    for (row, keystream) in keystream.iter().enumerate() {
         let data = match source {
             Some(source) => load(&source[row]),
             None => load(&out[row]),
         };
-        store(&mut out[row], data ^ keystream);
+        store(&mut out[row], data ^ *keystream);
     }
 }
 

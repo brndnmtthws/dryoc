@@ -431,13 +431,15 @@ impl State {
         let mut state = Self::init_param(&params);
 
         if let Some(key) = key {
-            let mut block = [0u8; BLOCKBYTES];
-            block[..key.len()].copy_from_slice(key);
-            state.update(&block);
-            block.zeroize();
+            // The zero-padded key block, buffered as `update` would buffer a
+            // first full block (kept for `finalize` in case it is the last).
+            state.buf[..key.len()].copy_from_slice(key);
+            state.buflen = BLOCKBYTES;
         }
 
-        Ok(state)
+        // `state` holds the key block in memory (the copy above goes through
+        // `memcpy`): move it out and let the local drop (wipe).
+        Ok(core::mem::take(&mut state))
     }
 
     pub(crate) fn update(&mut self, mut input: &[u8]) {
@@ -476,6 +478,14 @@ impl State {
     }
 
     pub(crate) fn finalize(mut self, output: &mut [u8]) -> Result<(), Error> {
+        self.finalize_in_place(output)
+        // `self` is dropped here, which wipes the whole state.
+    }
+
+    /// [`State::finalize`] without consuming `self`, for callers that keep
+    /// the state where it is (moving it out leaves unwiped copies) and let it
+    /// drop there.
+    fn finalize_in_place(&mut self, output: &mut [u8]) -> Result<(), Error> {
         validate_length!(
             1,
             OUTBYTES,
@@ -505,7 +515,6 @@ impl State {
         output.copy_from_slice(&buffer[..output.len()]);
 
         buffer.zeroize();
-        self.zeroize();
 
         Ok(())
     }
@@ -529,10 +538,16 @@ impl State {
 pub fn hash(output: &mut [u8], input: &[u8], key: Option<&[u8]>) -> Result<(), Error> {
     validate_length!(max OUTBYTES, output.len(), crate::ErrorContext::Blake2bOutput);
 
-    let mut state = State::init(output.len() as u8, key, None, None)?;
-
-    state.update(input);
-    state.finalize(output)
+    // Work on the state inside `init`'s result: `?` would move it out, and
+    // `finalize` by value would move it again, each leaving an unwiped copy
+    // of the key block or keyed chaining value. The `Result` drops (wipes)
+    // the one copy here.
+    let mut state = State::init(output.len() as u8, key, None, None);
+    let Ok(inner) = &mut state else {
+        return state.map(|_| ());
+    };
+    inner.update(input);
+    inner.finalize_in_place(output)
 }
 
 /// Keyed BLAKE2b of the empty message with `salt` and `personal` (the
@@ -550,7 +565,12 @@ pub(crate) fn hash_key_only(
         crate::ErrorContext::Blake2bOutput
     );
     validate_length!(1, KEYBYTES, key.len(), crate::ErrorContext::Blake2bKey);
-    State::init(output.len() as u8, Some(key), Some(salt), Some(personal))?.finalize(output)
+    // As in `hash`, finalize the state where `init` returned it.
+    let mut state = State::init(output.len() as u8, Some(key), Some(salt), Some(personal));
+    let Ok(inner) = &mut state else {
+        return state.map(|_| ());
+    };
+    inner.finalize_in_place(output)
 }
 
 blake2b_longhash!();

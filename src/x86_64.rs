@@ -121,7 +121,7 @@ impl LaneSet {
     /// The best variant the running CPU supports.
     #[inline]
     pub(crate) fn detect() -> Option<Self> {
-        if has_x86_feature!("avx512f") {
+        if has_avx512f() {
             if Self::has_avx512vl() {
                 Some(Self::Avx512Vl)
             } else {
@@ -141,7 +141,7 @@ impl LaneSet {
         if has_x86_feature!("avx2") {
             variants.push(Self::Avx2);
         }
-        if has_x86_feature!("avx512f") {
+        if has_avx512f() {
             variants.push(Self::Avx512);
             if Self::has_avx512vl() {
                 variants.push(Self::Avx512Vl);
@@ -183,6 +183,17 @@ impl LaneSet {
     pub(crate) fn fits_ymm(output_len: usize, has_partial: bool) -> bool {
         output_len / 64 + usize::from(has_partial) <= LANES
     }
+}
+
+/// Whether a `#[target_feature(enable = "avx512f")]` kernel may run. rustc's
+/// `avx512f` target feature implies `avx2` (and `fma` and `f16c`), so such a
+/// kernel may contain AVX2 instructions and call `avx2` helpers. std's
+/// detection reports `avx512f` only together with `fma` and `f16c`, but it
+/// does not check the CPUID `avx2` bit, so this helper checks it as well.
+/// Every AVX-512F dispatch goes through it.
+#[inline]
+pub(crate) fn has_avx512f() -> bool {
+    has_x86_feature!("avx512f") && has_x86_feature!("avx2")
 }
 
 /// Whether the CPU has BMI2, whose `mulx` lets the compiler schedule the

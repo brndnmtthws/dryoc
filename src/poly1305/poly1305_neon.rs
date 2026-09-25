@@ -83,15 +83,20 @@ impl Powers {
         let top = mul_mod_p(&r8, &r2);
         const _: () = assert!(BLOCKS == 10);
 
-        // Spelled out: `array::map` with a closure is not inlined here.
+        // Spelled out: `array::map` with a closure is not inlined here, and
+        // at opt-level `s` a loop over the limb index is not unrolled, which
+        // keeps the limb arrays in stack memory nothing wipes.
         let l4 = limbs26(canonical(&r4));
         let l3 = limbs26(canonical(&r3));
         let l2 = limbs26(canonical(&r2));
         let l1 = limbs26(canonical(r));
-        let mut seed = Acc([vdupq_n_u32(0); 5]);
-        for i in 0..5 {
-            seed.0[i] = quad([l4[i], l3[i], l2[i], l1[i]]);
-        }
+        let seed = Acc([
+            quad([l4[0], l3[0], l2[0], l1[0]]),
+            quad([l4[1], l3[1], l2[1], l1[1]]),
+            quad([l4[2], l3[2], l2[2], l1[2]]),
+            quad([l4[3], l3[3], l2[3], l1[3]]),
+            quad([l4[4], l3[4], l2[4], l1[4]]),
+        ]);
         r3.zeroize();
         r4.zeroize();
         r8.zeroize();
@@ -497,7 +502,19 @@ fn hot_loop(
 /// memory (the scalar key powers, the `r^BLOCKS` multiplier, both
 /// accumulators and the scalar lanes) are wiped once before returning;
 /// values that live only in registers and compiler spill slots are out of
-/// Rust's reach and are not wiped.
+/// Rust's reach and are not wiped, since wiping them would force them into
+/// memory.
+///
+/// Opt-level assumption: the limb helpers are `#[inline(always)]` and the
+/// limb arrays are built without index loops, so at opt-level 2, 3 and `s`
+/// nothing but `hot_loop` is out of line and the other key-derived values
+/// (`seed`, `low`, `high`, `tail_a`/`tail_b`, `start`, `l`) stay in registers
+/// and spill slots. At opt-level `z` LLVM also outlines the
+/// `#[target_feature]` helpers `add_blocks`, `carry`, `products_lane`,
+/// `mul_reduce_lane`, `mul_reduce_full` and `LaneMult::from_lane`, which
+/// stable Rust cannot mark `#[inline(always)]`; their by-value `Acc`/`Prod`
+/// arguments and results (`seed`, `low`, `high`, the accumulators, also in
+/// `hot_loop`) then pass through stack temporaries that are not wiped.
 #[target_feature(enable = "neon")]
 pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
@@ -514,13 +531,16 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     let mut top = LaneMult::from_lane::<0>(&high);
 
     // Convert h into 5x26 limbs in lane 0 of chain A (block 0 of each chunk).
+    // Spelled out like `Powers::new`'s seed so `start` stays in registers.
     let start = limbs26(canonical(h));
-    let zero = vdupq_n_u32(0);
-    let mut a = Acc([zero; 5]);
-    for (lane, &limb) in a.0.iter_mut().zip(&start) {
-        *lane = quad([limb, 0, 0, 0]);
-    }
-    let mut b = Acc([zero; 5]);
+    let mut a = Acc([
+        quad([start[0], 0, 0, 0]),
+        quad([start[1], 0, 0, 0]),
+        quad([start[2], 0, 0, 0]),
+        quad([start[3], 0, 0, 0]),
+        quad([start[4], 0, 0, 0]),
+    ]);
+    let mut b = Acc([vdupq_n_u32(0); 5]);
     let mut lanes = [[0u64; 3]; SCALAR_LANES];
 
     let (chunks, _) = input.as_chunks::<CHUNK>();
@@ -540,11 +560,17 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     lanes[1] = scalar_step(lanes[1], &tail_blocks[1], &powers.r1);
     powers.zeroize();
 
-    // Sum the eight NEON lanes and convert back to 3x44-bit limbs.
-    let mut l = [0u64; 5];
-    for (i, limb) in l.iter_mut().enumerate() {
-        *limb = vaddlvq_u32(vaddq_u32(a.0[i], b.0[i]));
-    }
+    // Sum the eight NEON lanes and convert back to 3x44-bit limbs (spelled
+    // out for the same reason).
+    let [a0, a1, a2, a3, a4] = a.0;
+    let [b0, b1, b2, b3, b4] = b.0;
+    let l = [
+        vaddlvq_u32(vaddq_u32(a0, b0)),
+        vaddlvq_u32(vaddq_u32(a1, b1)),
+        vaddlvq_u32(vaddq_u32(a2, b2)),
+        vaddlvq_u32(vaddq_u32(a3, b3)),
+        vaddlvq_u32(vaddq_u32(a4, b4)),
+    ];
     let [mut h0, mut h1, mut h2] = pack_limbs26(l);
 
     // Add the scalar lanes (each partially reduced: limbs below 2^44, 2^44 +

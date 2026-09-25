@@ -21,6 +21,13 @@
 //! that layout and interleaves once at the end. No layout leaks out of an
 //! operation, and control flow and memory access are independent of the
 //! data.
+//!
+//! Zeroization: the kernels work in place on the caller's polynomials, which
+//! [`super`] keeps in `Zeroizing` buffers or wipes explicitly when they hold
+//! secrets. The vectors of a pass live in registers and in the few spill
+//! slots the compiler adds (the optimized NTT spills one vector to the red
+//! zone). Rust cannot reliably wipe those, and wiping them would force the
+//! values into memory, so the kernels add no wipes of their own.
 
 use core::arch::x86_64::{
     __m256i, _mm256_add_epi16, _mm256_blend_epi16, _mm256_blend_epi32, _mm256_mulhi_epi16,
@@ -332,8 +339,8 @@ fn load_strided(r: &Poly, j: usize) -> [__m256i; 8] {
 #[inline]
 #[target_feature(enable = "avx2")]
 fn store_strided(r: &mut Poly, j: usize, v: [__m256i; 8]) {
-    for (v, pair) in v.into_iter().zip(pairs_mut(r)) {
-        store_i16s(&mut pair[j], v);
+    for (v, pair) in v.iter().zip(pairs_mut(r)) {
+        store_i16s(&mut pair[j], *v);
     }
 }
 

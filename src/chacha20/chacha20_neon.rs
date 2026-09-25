@@ -295,14 +295,14 @@ fn finish_rows(x: [uint32x4_t; 4], initial: &[uint32x4_t; 4], index: usize, dest
 /// bytes into `output`.
 #[inline(always)]
 fn finish_scalar_block(
-    x: [u32; 16],
+    x: &[u32; 16],
     initial: &[u32; 16],
     input: Option<&[u8; 64]>,
     output: &mut [u8; 64],
 ) {
     let input = input.map(|input| input.as_chunks::<4>().0);
     let output = output.as_chunks_mut::<4>().0;
-    for (index, (word, init)) in x.into_iter().zip(initial).enumerate() {
+    for (index, (word, init)) in x.iter().zip(initial).enumerate() {
         let source = match input {
             Some(input) => &input[index],
             None => &output[index],
@@ -369,10 +369,10 @@ fn xor_chunk_neon(
         super::chacha20_double_round!(scalar_quarter_round, b);
     }
     if let Some((source, out)) = dest.block(SCALAR_BASE as usize) {
-        finish_scalar_block(a, &initial_a, source, out);
+        finish_scalar_block(&a, &initial_a, source, out);
     }
     if let Some((source, out)) = dest.block(SCALAR_BASE as usize + 1) {
-        finish_scalar_block(b, &initial_b, source, out);
+        finish_scalar_block(&b, &initial_b, source, out);
     }
     finish_rows(r0, &initial_r0, ROW_BASE as usize, &mut dest);
     finish_rows(r1, &initial_r1, ROW_BASE as usize + 1, &mut dest);

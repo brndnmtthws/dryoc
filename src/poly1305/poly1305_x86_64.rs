@@ -75,15 +75,16 @@ const IFMA2_MIN_BYTES: usize = 1024;
 #[inline]
 pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize {
     if input.len() >= IFMA_MIN_BYTES
-        && has_x86_feature!("avx512f")
+        && crate::x86_64::has_avx512f()
         && has_x86_feature!("avx512ifma")
     {
         let mut bulk = 0;
         if input.len() >= IFMA2_MIN_BYTES {
             bulk = input.len() - input.len() % CHUNK_IFMA2;
             // SAFETY: `blocks_ifma2` requires the `avx512f` and `avx512ifma`
-            // target features, which the feature checks above confirmed are
-            // present.
+            // target features: the checks above confirmed `avx512ifma`, and
+            // `avx512f` together with the `avx2` that rustc's `avx512f`
+            // implies.
             unsafe { blocks_ifma2(h, r, &input[..bulk]) };
         }
         // The single chain takes what is left over from the two-chain run
@@ -93,17 +94,19 @@ pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize
         if rest >= CHUNK_IFMA {
             let end = input.len() - rest % CHUNK_IFMA;
             // SAFETY: `blocks_ifma` requires the `avx512f` and `avx512ifma`
-            // target features, which the feature checks above confirmed are
-            // present.
+            // target features: the checks above confirmed `avx512ifma`, and
+            // `avx512f` together with the `avx2` that rustc's `avx512f`
+            // implies.
             unsafe { blocks_ifma(h, r, &input[bulk..end]) };
             bulk = end;
         }
         return bulk;
     }
-    if input.len() >= AVX512_MIN_BYTES && has_x86_feature!("avx512f") {
+    if input.len() >= AVX512_MIN_BYTES && crate::x86_64::has_avx512f() {
         let bulk = input.len() - input.len() % CHUNK512;
         // SAFETY: `blocks_avx512` requires the `avx512f` target feature,
-        // which the feature check above confirmed is present.
+        // which the check above confirmed together with the `avx2` that
+        // rustc's `avx512f` implies.
         unsafe { blocks_avx512(h, r, &input[..bulk]) };
         return bulk;
     }
@@ -125,7 +128,7 @@ pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize
 /// form a tree of depth `log2(N) + 1` instead of a chain of `N - 1`
 /// dependent products; the multiplications are short enough that their
 /// latency, not their count, sets the cost of a bulk call.
-#[inline]
+#[inline(always)]
 fn key_powers44<const N: usize>(r: &[u64; 3]) -> [[u64; 3]; N] {
     let mut powers = [[0u64; 3]; N];
     powers[0] = *r;
@@ -147,7 +150,7 @@ fn key_powers44<const N: usize>(r: &[u64; 3]) -> [[u64; 3]; N] {
 
 /// [`key_powers44`] as 5x26-bit limbs, with the 3x44-bit intermediates
 /// wiped.
-#[inline]
+#[inline(always)]
 fn key_powers<const N: usize>(r: &[u64; 3]) -> [[u32; 5]; N] {
     let mut powers = key_powers44::<N>(r);
     let mut limbs = [[0u32; 5]; N];
@@ -227,8 +230,9 @@ fn lane_sum512(v: __m512i) -> u64 {
 /// `LANES`, `BLOCKS`, `CHUNK` and `blocks`.
 ///
 /// - `$name`: the module; leading attributes (docs) are applied to it.
-/// - `$feature`: the `#[target_feature(enable = ...)]` string (also used for
-///   the tests' `has_x86_feature!`).
+/// - `$feature`: the `#[target_feature(enable = ...)]` string.
+/// - `$detected`: a `bool` expression, whether the CPU supports `$feature`
+///   (tests only).
 /// - `$lanes`: 64-bit lanes per vector, the blocks per chain per iteration.
 /// - `$vec`: the vector type.
 /// - `$set1`: `fn(i64) -> $vec`, the value in every lane.
@@ -246,6 +250,7 @@ macro_rules! poly1305_26 {
         $(#[$meta:meta])*
         mod $name:ident {
             feature: $feature:tt,
+            detected: $detected:expr,
             lanes: $lanes:literal,
             vec: $vec:ident,
             set1: $set1:ident,
@@ -304,8 +309,14 @@ macro_rules! poly1305_26 {
                 /// The same power `p` (5x26-bit limbs) in every lane.
                 #[inline]
                 #[target_feature(enable = $feature)]
-                fn broadcast(p: [u32; 5]) -> Self {
-                    Self::with_s(p.map(|limb| $set1(i64::from(limb))))
+                fn broadcast(p: &[u32; 5]) -> Self {
+                    Self::with_s([
+                        $set1(i64::from(p[0])),
+                        $set1(i64::from(p[1])),
+                        $set1(i64::from(p[2])),
+                        $set1(i64::from(p[3])),
+                        $set1(i64::from(p[4])),
+                    ])
                 }
 
                 /// The powers `p` (5x26-bit limbs, `p[i] = r^(i + 1)`) in
@@ -338,7 +349,14 @@ macro_rules! poly1305_26 {
                 #[inline]
                 #[target_feature(enable = $feature)]
                 fn from_lane0(acc: Acc) -> Self {
-                    Self::with_s(acc.0.map(|word| $first_lane(word)))
+                    let [w0, w1, w2, w3, w4] = acc.0;
+                    Self::with_s([
+                        $first_lane(w0),
+                        $first_lane(w1),
+                        $first_lane(w2),
+                        $first_lane(w3),
+                        $first_lane(w4),
+                    ])
                 }
 
                 #[inline]
@@ -470,7 +488,21 @@ macro_rules! poly1305_26 {
             /// multiplier and both accumulators (which the out-of-line
             /// `hot_loop` reaches through memory) are wiped once before
             /// returning; values that live only in registers and compiler
-            /// spill slots are out of Rust's reach and are not wiped.
+            /// spill slots are out of Rust's reach and are not wiped, since
+            /// wiping them would force them into memory.
+            ///
+            /// Opt-level assumption: the limb helpers and `key_powers` are
+            /// `#[inline(always)]` and the multipliers and lane sums are
+            /// built without closures or index loops, so at opt-level 2, 3
+            /// and `s` nothing but `hot_loop` is out of line and the other
+            /// key-derived values (`low`, `high`, `tail_a`/`tail_b`, `l`)
+            /// stay in registers and spill slots. At opt-level `z` LLVM
+            /// also outlines the `#[target_feature]` helpers `add_blocks`
+            /// and `mul_reduce`, which stable Rust cannot mark
+            /// `#[inline(always)]`; their by-value `Acc` arguments and
+            /// results (`low`, `high`, the accumulators, also in
+            /// `hot_loop`) then pass through stack temporaries that are not
+            /// wiped.
             #[target_feature(enable = $feature)]
             pub(crate) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
                 debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
@@ -483,7 +515,7 @@ macro_rules! poly1305_26 {
                 // conversions.
                 let mut limbs = key_powers::<LANES>(r);
                 let low = Acc(Mult::descending(&limbs).r);
-                let high = mul_reduce(low, &Mult::broadcast(limbs[LANES - 1]));
+                let high = mul_reduce(low, &Mult::broadcast(&limbs[LANES - 1]));
                 limbs.zeroize();
                 let mut top = Mult::from_lane0(high);
                 let tail_a = Mult::from_acc(high);
@@ -516,11 +548,17 @@ macro_rules! poly1305_26 {
 
                 // Sum the `BLOCKS` lanes (each limb below 2^27, so the sums
                 // below 2^27 * BLOCKS <= 2^31) and convert back to 3x44-bit
-                // limbs.
-                let mut l = [0u64; 5];
-                for (limb, (wa, wb)) in l.iter_mut().zip(a.0.iter().zip(&b.0)) {
-                    *limb = $lane_sum($add_epi64(*wa, *wb));
-                }
+                // limbs. Spelled out: a loop opt-level `s` may not
+                // unroll would keep `l` in stack memory nothing wipes.
+                let [a0, a1, a2, a3, a4] = a.0;
+                let [b0, b1, b2, b3, b4] = b.0;
+                let l = [
+                    $lane_sum($add_epi64(a0, b0)),
+                    $lane_sum($add_epi64(a1, b1)),
+                    $lane_sum($add_epi64(a2, b2)),
+                    $lane_sum($add_epi64(a3, b3)),
+                    $lane_sum($add_epi64(a4, b4)),
+                ];
                 *h = carry44(pack_limbs26(l));
                 top.zeroize();
                 a.zeroize();
@@ -553,7 +591,7 @@ macro_rules! poly1305_26 {
                 /// (`top`), for carry-heavy keys.
                 #[test]
                 fn vector_powers_match_serial_chain() {
-                    if !has_x86_feature!($feature) {
+                    if !$detected {
                         return;
                     }
                     for r in &carry_keys() {
@@ -562,7 +600,7 @@ macro_rules! poly1305_26 {
                         let (low, high, top) = unsafe {
                             let mut limbs = key_powers::<LANES>(r);
                             let low = Acc(Mult::descending(&limbs).r);
-                            let high = mul_reduce(low, &Mult::broadcast(limbs[LANES - 1]));
+                            let high = mul_reduce(low, &Mult::broadcast(&limbs[LANES - 1]));
                             limbs.zeroize();
                             (
                                 lanes(&low.0),
@@ -598,6 +636,7 @@ poly1305_26! {
     /// `__m256i`.
     mod avx2 {
         feature: "avx2",
+        detected: has_x86_feature!("avx2"),
         lanes: 4,
         vec: __m256i,
         set1: _mm256_set1_epi64x,
@@ -620,6 +659,7 @@ poly1305_26! {
     /// `__m512i`.
     mod avx512 {
         feature: "avx512f",
+        detected: crate::x86_64::has_avx512f(),
         lanes: 8,
         vec: __m512i,
         set1: _mm512_set1_epi64,
@@ -655,8 +695,12 @@ struct Acc44([__m512i; 3]);
 /// Canonical 3x44-bit limbs `p` in every lane.
 #[inline]
 #[target_feature(enable = "avx512f")]
-fn splat44(p: [u64; 3]) -> [__m512i; 3] {
-    p.map(|limb| _mm512_set1_epi64(limb as i64))
+fn splat44(p: &[u64; 3]) -> [__m512i; 3] {
+    [
+        _mm512_set1_epi64(p[0] as i64),
+        _mm512_set1_epi64(p[1] as i64),
+        _mm512_set1_epi64(p[2] as i64),
+    ]
 }
 
 /// Multiplier words for one `acc * m mod p` on 3x44-bit limbs: `r[k]` holds
@@ -676,7 +720,7 @@ impl Mult44 {
     #[inline]
     #[target_feature(enable = "avx512f")]
     fn broadcast(p: [u64; 3]) -> Self {
-        Self::with_s(splat44(p))
+        Self::with_s(splat44(&p))
     }
 
     /// The per-lane powers held in `acc` (partially carried limbs).
@@ -690,7 +734,8 @@ impl Mult44 {
     #[inline]
     #[target_feature(enable = "avx512f")]
     fn from_lane0(acc: Acc44) -> Self {
-        Self::with_s(acc.0.map(|word| first_lane512(word)))
+        let [w0, w1, w2] = acc.0;
+        Self::with_s([first_lane512(w0), first_lane512(w1), first_lane512(w2)])
     }
 
     #[inline]
@@ -795,28 +840,34 @@ fn hot_loop44(a: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFMA]]) {
     }
 }
 
-/// `[r^8, r^7, ..., r]` (lane `i` holds `r^(8 - i)`) from the clamped key
-/// `r`, by three lane-wise multiplies: starting from `r` in every lane, each
-/// step multiplies half of the lanes by lane 0 (`r`, then `r^2`, then `r^4`)
-/// and the other half by one. Three dependent vector multiplies replace the
-/// scalar power tree's four dependent `mul_mod_p` and eight limb
-/// conversions. The limbs are partially carried ([`mul_reduce44`]'s output
-/// bound), which is what the multipliers built from them require.
-#[inline]
-#[target_feature(enable = "avx512f,avx512ifma")]
-fn descending_powers(r: &[u64; 3]) -> Acc44 {
-    let one = splat44([1, 0, 0]);
-    let mut v = Acc44(splat44(canonical(r)));
-    // Lanes selected by each mask take lane 0 of `v` as their multiplier,
-    // the rest take one: 0b0101_0101, then 0b0011_0011, then 0b0000_1111.
-    for mask in [0x55u8, 0x33, 0x0f] {
-        let mut m = one;
-        for (word, &limb) in m.iter_mut().zip(&v.0) {
-            *word = _mm512_mask_blend_epi64(mask, *word, first_lane512(limb));
+/// `[r^8, r^7, ..., r]` (lane `i` holds `r^(8 - i)`) as an [`Acc44`] from
+/// the clamped key `$r: &[u64; 3]`, by three lane-wise multiplies: starting
+/// from `r` in every lane, each step multiplies half of the lanes by lane 0
+/// (`r`, then `r^2`, then `r^4`) and the other half by one. Three dependent
+/// vector multiplies replace the scalar power tree's four dependent
+/// `mul_mod_p` and eight limb conversions. The limbs are partially carried
+/// ([`mul_reduce44`]'s output bound), which is what the multipliers built
+/// from them require.
+///
+/// A macro, expanded in `avx512f,avx512ifma` code, rather than a
+/// `#[target_feature]` function, which cannot be `#[inline(always)]`: with
+/// two callers, opt-level `s` outlines such a function and returns the eight
+/// key powers through a stack slot nothing wipes.
+macro_rules! descending_powers {
+    ($r:expr) => {{
+        let one = splat44(&[1, 0, 0]);
+        let mut v = Acc44(splat44(&canonical($r)));
+        // Lanes selected by each mask take lane 0 of `v` as their multiplier,
+        // the rest take one: 0b0101_0101, then 0b0011_0011, then 0b0000_1111.
+        for mask in [0x55u8, 0x33, 0x0f] {
+            let mut m = one;
+            for (word, &limb) in m.iter_mut().zip(&v.0) {
+                *word = _mm512_mask_blend_epi64(mask, *word, first_lane512(limb));
+            }
+            v = mul_reduce44(v, &Mult44::with_s(m));
         }
-        v = mul_reduce44(v, &Mult44::with_s(m));
-    }
-    v
+        v
+    }};
 }
 
 /// [`blocks`] with the AVX-512 IFMA kernel: `input` is a non-empty multiple
@@ -827,19 +878,36 @@ fn descending_powers(r: &[u64; 3]) -> Acc44 {
 /// The multiplier and the accumulator the out-of-line `hot_loop44` reaches
 /// through memory are wiped once before returning; values that live only in
 /// registers and compiler spill slots are out of Rust's reach and are not
-/// wiped.
+/// wiped, since wiping them would force them into memory.
+///
+/// Opt-level assumption: the limb helpers are `#[inline(always)]`,
+/// `descending_powers!` is a macro and the limb vectors and lane sums are
+/// built without closures or index loops, so at opt-level 2, 3 and `s`
+/// nothing but `hot_loop44` is out of line and the other key-derived values
+/// (`low`, `tail`, `start`, `l`) stay in registers and spill slots. At
+/// opt-level `z` LLVM also outlines the `#[target_feature]` helpers
+/// `add_blocks44` and `mul_reduce44`, which stable Rust cannot mark
+/// `#[inline(always)]`; their by-value `Acc44` arguments and results (the
+/// powers inside `descending_powers`, the accumulator, also in `hot_loop44`)
+/// then pass through stack temporaries that are not wiped.
 #[target_feature(enable = "avx512f,avx512ifma")]
 pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA));
 
-    let low = descending_powers(r);
+    let low = descending_powers!(r);
     let mut top = Mult44::from_lane0(low);
     let tail = Mult44::from_acc(low);
 
     // `h` goes into lane 0 (block 0 of each chunk), canonical so it meets
-    // the accumulator bound.
-    let start = canonical(h);
-    let mut a = Acc44(start.map(|limb| _mm512_setr_epi64(limb as i64, 0, 0, 0, 0, 0, 0, 0)));
+    // the accumulator bound. Spelled out, like the lane sums below: a loop
+    // opt-level `s` may not unroll would keep the limbs in stack memory
+    // nothing wipes.
+    let [s0, s1, s2] = canonical(h);
+    let mut a = Acc44([
+        _mm512_setr_epi64(s0 as i64, 0, 0, 0, 0, 0, 0, 0),
+        _mm512_setr_epi64(s1 as i64, 0, 0, 0, 0, 0, 0, 0),
+        _mm512_setr_epi64(s2 as i64, 0, 0, 0, 0, 0, 0, 0),
+    ]);
 
     let (chunks, _) = input.as_chunks::<CHUNK_IFMA>();
     let (last, body) = chunks.split_last().unwrap();
@@ -849,10 +917,8 @@ pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
 
     // Sum the eight lanes (each limb below 2^44 + 2^8, so the sums below
     // 2^48) and carry back to the scalar backend's partially reduced form.
-    let mut l = [0u64; 3];
-    for (limb, word) in l.iter_mut().zip(&a.0) {
-        *limb = lane_sum512(*word);
-    }
+    let [a0, a1, a2] = a.0;
+    let l = [lane_sum512(a0), lane_sum512(a1), lane_sum512(a2)];
     *h = carry44(l);
     top.zeroize();
     a.zeroize();
@@ -883,19 +949,24 @@ fn hot_loop44x2(a: &mut Acc44, b: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFM
 /// of its instructions; the second chain fills those gaps.
 ///
 /// Wipes the working copies `hot_loop44x2` reaches through memory as
-/// [`blocks_ifma`] does.
+/// [`blocks_ifma`] does, under the same opt-level assumption (`high`,
+/// `tail_a`/`tail_b` join the values at stake at opt-level `z`).
 #[target_feature(enable = "avx512f,avx512ifma")]
 pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA2));
 
-    let low = descending_powers(r);
+    let low = descending_powers!(r);
     let high = mul_reduce44(low, &Mult44::from_lane0(low));
     let mut top = Mult44::from_lane0(high);
     let tail_a = Mult44::from_acc(high);
     let tail_b = Mult44::from_acc(low);
 
-    let start = canonical(h);
-    let mut a = Acc44(start.map(|limb| _mm512_setr_epi64(limb as i64, 0, 0, 0, 0, 0, 0, 0)));
+    let [s0, s1, s2] = canonical(h);
+    let mut a = Acc44([
+        _mm512_setr_epi64(s0 as i64, 0, 0, 0, 0, 0, 0, 0),
+        _mm512_setr_epi64(s1 as i64, 0, 0, 0, 0, 0, 0, 0),
+        _mm512_setr_epi64(s2 as i64, 0, 0, 0, 0, 0, 0, 0),
+    ]);
     let mut b = Acc44([_mm512_setzero_si512(); 3]);
 
     let (chunks, _) = input.as_chunks::<CHUNK_IFMA2>();
@@ -908,10 +979,13 @@ pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
 
     // Sum the sixteen lanes (each limb below 2^44 + 2^8, so the sums below
     // 2^49) and carry back to the scalar backend's partially reduced form.
-    let mut l = [0u64; 3];
-    for (limb, (wa, wb)) in l.iter_mut().zip(a.0.iter().zip(&b.0)) {
-        *limb = lane_sum512(_mm512_add_epi64(*wa, *wb));
-    }
+    let [a0, a1, a2] = a.0;
+    let [b0, b1, b2] = b.0;
+    let l = [
+        lane_sum512(_mm512_add_epi64(a0, b0)),
+        lane_sum512(_mm512_add_epi64(a1, b1)),
+        lane_sum512(_mm512_add_epi64(a2, b2)),
+    ];
     *h = carry44(l);
     top.zeroize();
     a.zeroize();
@@ -992,7 +1066,7 @@ mod tests {
     /// blocks are all ones.
     #[test]
     fn test_ifma_step_matches_scalar_and_bound() {
-        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
+        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
             return;
         }
         let blocks = [0xffu8; CHUNK_IFMA];
@@ -1010,7 +1084,8 @@ mod tests {
         };
         for r in &carry_keys() {
             let r = canonical(r);
-            // SAFETY: `avx512f` and `avx512ifma` were detected above.
+            // SAFETY: `avx512f` (with the `avx2` it implies) and `avx512ifma`
+            // were detected above.
             let out = unsafe {
                 let acc = Acc44(start.map(|limb| _mm512_set1_epi64(limb as i64)));
                 lanes44(&mul_reduce44(add_blocks44(acc, &blocks), &Mult44::broadcast(r)).0)
@@ -1037,7 +1112,7 @@ mod tests {
     /// `mul_reduce44` documents.
     #[test]
     fn test_ifma_vector_powers_match_serial_chain() {
-        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
+        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
             return;
         }
         let assert_bound = |words: [[u64; 8]; 3], what: &str| {
@@ -1054,9 +1129,10 @@ mod tests {
         };
         for r in &carry_keys() {
             let serial = serial_powers::<16>(r);
-            // SAFETY: `avx512f` and `avx512ifma` were detected above.
+            // SAFETY: `avx512f` (with the `avx2` it implies) and `avx512ifma`
+            // were detected above.
             let (low, high, top8, top16) = unsafe {
-                let low = descending_powers(r);
+                let low = descending_powers!(r);
                 let high = mul_reduce44(low, &Mult44::from_lane0(low));
                 (
                     lanes44(&low.0),

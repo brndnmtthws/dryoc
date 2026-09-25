@@ -7,6 +7,13 @@
 //! this file. Arithmetic is on signed 16-bit coefficients modulo `q = 3329`
 //! with Montgomery multiplication (`R = 2^16`) and a flooring Barrett
 //! reduction; both are branch-free.
+//!
+//! Zeroization: every operation works in place on the caller's polynomials,
+//! which [`super`] keeps in `Zeroizing` buffers or wipes explicitly when they
+//! hold secrets. The working values are locals of inlined helpers, so they
+//! live only in registers and spill slots. Rust cannot reliably wipe those,
+//! and wiping them would force them into memory, so these functions add no
+//! wipes of their own.
 
 use super::{N, Poly, Q};
 

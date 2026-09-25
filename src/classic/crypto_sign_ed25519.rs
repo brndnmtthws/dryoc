@@ -65,8 +65,10 @@ pub(crate) fn crypto_sign_ed25519_seed_keypair_inplace(
     let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(seed);
 
     let mut clamped = clamp_hash(&mut hash);
-    let pk = mul_base(&clamped).compress();
+    let mut point = mul_base(&clamped);
+    let pk = point.compress();
     clamped.zeroize();
+    point.zeroize();
 
     secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
     secret_key[CRYPTO_SIGN_ED25519_SEEDBYTES..].copy_from_slice(&pk);
@@ -227,8 +229,10 @@ fn crypto_sign_ed25519_detached_impl(
 
     let mut r = Scalar::from_bytes_mod_order_wide(&nonce);
     let mut r_bytes = r.to_bytes();
-    let big_r = mul_base(&r_bytes).compress();
+    let mut r_point = mul_base(&r_bytes);
+    let big_r = r_point.compress();
     r_bytes.zeroize();
+    r_point.zeroize();
 
     signature[..32].copy_from_slice(&big_r);
 

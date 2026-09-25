@@ -22,6 +22,14 @@
 //! again sit in the same lane of two vectors. Coefficients enter and leave
 //! every operation in the portable order. All control flow and memory access
 //! is independent of the coefficients.
+//!
+//! Zeroization: the kernels load rows of the caller's polynomial, transform
+//! them in vector registers and store them back in place. The polynomials
+//! belong to [`super`], which keeps secret ones in `Zeroizing` buffers or
+//! wipes them explicitly. The vector arrays are iterated by reference and
+//! stay in registers and spill slots. Rust cannot reliably wipe those, and
+//! wiping them would force them into memory, so the kernels add no wipes of
+//! their own.
 
 use core::arch::aarch64::{
     int16x8_t, vaddq_s16, vdupq_n_s16, vhsubq_s16, vld1q_s16, vmlsq_n_s16, vmulq_n_s16, vmulq_s16,
@@ -323,8 +331,8 @@ fn ntt(r: &mut Poly) {
         ct_layer(&mut v, 4, 1);
         ct_layer(&mut v, 2, 2);
         ct_layer(&mut v, 1, 4);
-        for (m, v) in v.into_iter().enumerate() {
-            store(&mut rows[j + 4 * m], v);
+        for (m, v) in v.iter().enumerate() {
+            store(&mut rows[j + 4 * m], *v);
         }
     }
     // Layers len = 16, 8, 4, 2 on 64 consecutive coefficients.
@@ -335,8 +343,8 @@ fn ntt(r: &mut Poly) {
         for i in 0..4 {
             (v[2 * i], v[2 * i + 1]) = ntt_pair(v[2 * i], v[2 * i + 1], 4 * q + i);
         }
-        for (row, v) in rows.iter_mut().zip(v) {
-            store(row, v);
+        for (row, v) in rows.iter_mut().zip(&v) {
+            store(row, *v);
         }
     }
 }
@@ -353,8 +361,8 @@ fn invntt_tomont(r: &mut Poly) {
         }
         gs_layer(&mut v, 1, 31 - 4 * q);
         gs_layer(&mut v, 2, 15 - 2 * q);
-        for (row, v) in rows.iter_mut().zip(v) {
-            store(row, v);
+        for (row, v) in rows.iter_mut().zip(&v) {
+            store(row, *v);
         }
     }
     // Layers len = 32, 64, 128 and the final scaling on rows j, j + 4, ...,
@@ -366,8 +374,8 @@ fn invntt_tomont(r: &mut Poly) {
         gs_layer(&mut v, 1, 7);
         gs_layer(&mut v, 2, 3);
         gs_layer(&mut v, 4, 1);
-        for (m, v) in v.into_iter().enumerate() {
-            store(&mut rows[j + 4 * m], fqmul(v, f, f_qinv));
+        for (m, v) in v.iter().enumerate() {
+            store(&mut rows[j + 4 * m], fqmul(*v, f, f_qinv));
         }
     }
 }
