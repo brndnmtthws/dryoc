@@ -96,8 +96,9 @@ where
 /// Routes 3 to 5 copy without a lock: the buffer protocol has none, and writes
 /// through a `memoryview` (of a `bytearray` or anything else), to an
 /// `array.array` or to a numpy array do not take one either. Mutating such a
-/// buffer from another thread during a call is the caller's race, as with
-/// `hashlib`, and may make the call see a mix of old and new bytes.
+/// buffer, or a `bytearray` subclass, from another thread during a call is the
+/// caller's race, as with `hashlib`, and may make the call see a mix of old and
+/// new bytes.
 pub(crate) enum Buf<'py> {
     Bytes(Bound<'py, PyBytes>),
     Owned(Zeroizing<Vec<u8>>),
