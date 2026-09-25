@@ -42,6 +42,9 @@ test = ["pytest>=9.1", "pynacl>=1.6.2", "mypy>=2.3", "pyright>=1.1.414"]
 dev = [{ include-group = "test" }, "maturin>=1.15,<2"]
 
 [tool.maturin]
+# Every build (maturin CLI, `uv sync`/`uv run`, pip from the sdist) uses the
+# committed Cargo.lock and fails instead of updating it.
+locked = true
 module-name = "dryoc._dryoc"
 python-source = "python"
 

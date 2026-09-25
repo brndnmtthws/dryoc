@@ -149,8 +149,9 @@ wheel takes its version from it, and `publish.yml` refuses a release tag when
 the two differ. Bump both together.
 
 `python/Cargo.lock` records the root crate's version and its whole dependency
-graph, and every Python build uses `--locked`. Any change to the root version
-or root dependencies therefore requires
+graph, and every Python build is locked (`--locked` on the command line,
+`[tool.maturin] locked = true` for `uv sync`, `uv run` and sdist builds).
+Any change to the root version or root dependencies therefore requires
 `cargo update -p dryoc --manifest-path python/Cargo.toml` and committing the
 updated `python/Cargo.lock` in the same change. `publish.yml` checks this with
 `cargo metadata --locked --manifest-path python/Cargo.toml` before anything
