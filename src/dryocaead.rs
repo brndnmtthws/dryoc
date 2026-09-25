@@ -1275,48 +1275,6 @@ mod tests {
             );
         }
 
-        /// A nonce or tag backed by a longer buffer is its first `N` bytes
-        /// (the `ByteArray` view), so a box or envelope built from such parts
-        /// serializes to the canonical wire format and still opens. The nonce
-        /// rows cover both algorithms' nonce sizes.
-        #[test]
-        fn oversized_field_storage_serializes_canonically() {
-            type ChaChaEnvelope = AeadEnvelope<ChaCha20Poly1305Ietf, Vec<u8>, Vec<u8>, Vec<u8>>;
-            type XChaChaEnvelope = AeadEnvelope<XChaCha20Poly1305Ietf, Vec<u8>, Vec<u8>, Vec<u8>>;
-            let padded = |field: &[u8]| [field, &[0xa5]].concat();
-            let expected = chacha_expected();
-            let (data, tag) = expected.split_at(MESSAGE.len());
-
-            let aead = AeadBox::<ChaCha20Poly1305Ietf, Vec<u8>, Vec<u8>>::from_parts(
-                padded(tag),
-                data.to_vec(),
-            );
-            assert_eq!(aead.to_vec(), expected);
-            let decrypted: Vec<u8> = aead
-                .decrypt(Some(AD), &CHACHA_NONCE, &KEY)
-                .expect("decrypt");
-            assert_eq!(decrypted, MESSAGE);
-
-            let envelope_bytes = [&CHACHA_NONCE[..], &expected].concat();
-            for (row, nonce, mac) in [
-                ("nonce", padded(&CHACHA_NONCE), tag.to_vec()),
-                ("tag", CHACHA_NONCE.to_vec(), padded(tag)),
-            ] {
-                let envelope = ChaChaEnvelope::from_parts(nonce, mac, data.to_vec());
-                assert_eq!(envelope.to_vec(), envelope_bytes, "{row}");
-                let opened: Vec<u8> = envelope.open(Some(AD), &KEY).expect(row);
-                assert_eq!(opened, MESSAGE, "{row}");
-            }
-
-            let expected = xchacha_expected();
-            let (data, tag) = expected.split_at(MESSAGE.len());
-            let envelope =
-                XChaChaEnvelope::from_parts(padded(&XCHACHA_NONCE), tag.to_vec(), data.to_vec());
-            assert_eq!(envelope.to_vec(), [&XCHACHA_NONCE[..], &expected].concat());
-            let opened: Vec<u8> = envelope.open(Some(AD), &KEY).expect("open");
-            assert_eq!(opened, MESSAGE);
-        }
-
         #[test]
         fn chacha_tampering_and_wrong_inputs_are_rejected() {
             let key = chacha::Key::from(KEY);

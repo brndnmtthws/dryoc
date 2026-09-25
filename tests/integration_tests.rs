@@ -337,8 +337,8 @@ fn test_kem_public_api() {
     let mut ciphertext = [0u8; CRYPTO_KEM_CIPHERTEXTBYTES];
     let mut sent = [0u8; 32];
     crypto_kem_enc(&mut ciphertext, &mut sent, keypair.public_key.as_array()).expect("enc");
-    let received: Vec<u8> = KeyPair::decapsulate(&restored, &ciphertext).expect("decapsulate");
-    assert_eq!(received, sent);
+    let received: SharedSecret = KeyPair::decapsulate(&restored, &ciphertext).expect("decapsulate");
+    assert_eq!(*received.as_array(), sent);
 
     // ML-KEM-768 alone: the public key is recoverable from the secret key.
     let keypair = kem::mlkem768::StackKeyPair::generate();
@@ -700,8 +700,8 @@ fn test_classic_hmac_and_hkdf_public_api() {
 fn test_rustaceous_hmac_and_hkdf_public_api() {
     use dryoc::hkdf::{HkdfSha256, HkdfSha256Prk, HkdfSha512};
     use dryoc::hmac::{
-        HmacSha256, HmacSha256Key, HmacSha256Mac, HmacSha512, HmacSha512Key, HmacSha512256,
-        HmacSha512256Key,
+        HmacSha256, HmacSha256Key, HmacSha256Mac, HmacSha512, HmacSha512Key, HmacSha512Mac,
+        HmacSha512256, HmacSha512256Key, HmacSha512256Mac,
     };
     use dryoc::types::*;
 
@@ -719,10 +719,11 @@ fn test_rustaceous_hmac_and_hkdf_public_api() {
     let mut verify512 = HmacSha512::new(key512);
     verify512.update(b"public API ");
     verify512.update(b"message");
+    let mac512 = HmacSha512Mac::try_from(mac512.as_slice()).expect("MAC length");
     verify512.verify(&mac512).expect("verify failed");
 
     let key512256 = HmacSha512256Key::generate();
-    let mac512256 = HmacSha512256::compute_to_vec(key512256.clone(), message);
+    let mac512256: HmacSha512256Mac = HmacSha512256::compute(key512256.clone(), message);
     HmacSha512256::compute_and_verify(&mac512256, key512256, b"invalid")
         .expect_err("verify should fail");
 
@@ -772,12 +773,14 @@ fn test_signing_key_extraction_public_api() {
         signing_keypair.public_key.as_slice()
     );
 
-    let rustaceous_seed_vec: Vec<u8> = secret_key_to_seed(&signing_keypair.secret_key);
-    let rustaceous_public_key_vec: Vec<u8> = secret_key_to_public_key(&signing_keypair.secret_key);
-    assert_eq!(rustaceous_seed_vec.as_slice(), seed.as_slice());
+    let rustaceous_seed_array: [u8; dryoc::constants::CRYPTO_SIGN_SEEDBYTES] =
+        secret_key_to_seed(&signing_keypair.secret_key);
+    let rustaceous_public_key_array: [u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES] =
+        secret_key_to_public_key(&signing_keypair.secret_key);
+    assert_eq!(rustaceous_seed_array, seed);
     assert_eq!(
-        rustaceous_public_key_vec.as_slice(),
-        signing_keypair.public_key.as_slice()
+        &rustaceous_public_key_array,
+        signing_keypair.public_key.as_array()
     );
 }
 
@@ -1042,27 +1045,6 @@ fn test_dryocaead() {
         .expect("unable to open");
 
     assert_eq!(message, decrypted.as_slice());
-}
-
-#[test]
-fn test_dryocaead_vec_nonce_envelope() {
-    use dryoc::constants::CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES;
-    use dryoc::dryocaead::{AeadEnvelope, Key, Mac, XChaCha20Poly1305Ietf};
-    use dryoc::types::NewByteArray;
-
-    type VecNonceEnvelope = AeadEnvelope<XChaCha20Poly1305Ietf, Vec<u8>, Mac, Vec<u8>>;
-
-    let key = Key::generate();
-    let envelope = VecNonceEnvelope::seal(b"message", None, &key).expect("seal");
-
-    assert_eq!(
-        envelope.nonce().len(),
-        CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
-    );
-    assert_eq!(
-        envelope.open::<Vec<u8>, _>(None, &key).expect("open"),
-        b"message"
-    );
 }
 
 #[test]

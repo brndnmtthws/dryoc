@@ -683,13 +683,12 @@ mod tests {
         assert_eq!(extracted_seed, seed);
         assert_eq!(extracted_public_key, keypair.public_key);
 
-        let extracted_seed_vec: Vec<u8> = secret_key_to_seed(&keypair.secret_key);
-        let extracted_public_key_vec: Vec<u8> = secret_key_to_public_key(&keypair.secret_key);
-        assert_eq!(extracted_seed_vec.as_slice(), seed.as_slice());
-        assert_eq!(
-            extracted_public_key_vec.as_slice(),
-            keypair.public_key.as_slice()
-        );
+        let extracted_seed_array: [u8; CRYPTO_SIGN_SEEDBYTES] =
+            secret_key_to_seed(&keypair.secret_key);
+        let extracted_public_key_array: [u8; CRYPTO_SIGN_PUBLICKEYBYTES] =
+            secret_key_to_public_key(&keypair.secret_key);
+        assert_eq!(&extracted_seed_array, seed.as_array());
+        assert_eq!(&extracted_public_key_array, keypair.public_key.as_array());
     }
 
     /// RFC 8032 section 7.1 (Ed25519) tests 1-3 and section 7.3 (Ed25519ph):
@@ -790,26 +789,6 @@ mod tests {
                 keypair
             );
         }
-    }
-
-    /// A signature backed by a longer buffer is its first
-    /// [`CRYPTO_SIGN_BYTES`] bytes (the `ByteArray` view), so a signed
-    /// message built from it serializes to the canonical wire format and
-    /// still verifies.
-    #[test]
-    fn oversized_signature_storage_serializes_canonically() {
-        let (seed, public_key, message, signature) = RFC8032_ED25519[2];
-        let keypair = rfc_keypair(seed, public_key);
-        let message = hex::decode(message).expect("hex");
-        let signature = hex::decode(signature).expect("hex");
-        let wire = [signature.as_slice(), &message].concat();
-
-        let oversized = SignedMessage::<Vec<u8>, Vec<u8>>::from_parts(
-            [signature.as_slice(), &[0xa5]].concat(),
-            message,
-        );
-        assert_eq!(oversized.to_vec(), wire);
-        oversized.verify(&keypair.public_key).expect("verify");
     }
 
     #[test]

@@ -269,7 +269,12 @@ pub fn crypto_secretstream_xchacha20poly1305_init_pull(
 }
 
 fn secretstream_init(state: &mut State, header: &Header, key: &Key) {
-    crypto_core_hchacha20(&mut state.k, ByteArray::as_array(&header[..16]), key, None);
+    crypto_core_hchacha20(
+        &mut state.k,
+        header.first_chunk::<16>().expect("16-byte prefix"),
+        key,
+        None,
+    );
     _crypto_secretstream_xchacha20poly1305_counter_reset(state);
 
     let inonce = state_inonce(&mut state.nonce);

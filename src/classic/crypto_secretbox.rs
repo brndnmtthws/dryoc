@@ -168,8 +168,9 @@ pub fn crypto_secretbox_open_easy(
         crate::ErrorContext::Message
     );
 
-    let (mac, ciphertext) = ciphertext.split_at(CRYPTO_SECRETBOX_MACBYTES);
-    let mac = ByteArray::as_array(mac);
+    let (mac, ciphertext) = ciphertext
+        .split_first_chunk::<CRYPTO_SECRETBOX_MACBYTES>()
+        .expect("validated ciphertext length");
     crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
 }
 
@@ -186,8 +187,9 @@ pub fn crypto_secretbox_easy_inplace(
 ) -> Result<(), Error> {
     validate_length!(min CRYPTO_SECRETBOX_MACBYTES, data.len(), crate::ErrorContext::Data);
     data.rotate_right(CRYPTO_SECRETBOX_MACBYTES);
-    let (mac, data) = data.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
-    let mac = MutByteArray::as_mut_array(mac);
+    let (mac, data) = data
+        .split_first_chunk_mut::<CRYPTO_SECRETBOX_MACBYTES>()
+        .expect("validated data length");
 
     crypto_secretbox_detached_inplace(data, mac, nonce, key);
 
@@ -212,8 +214,10 @@ pub fn crypto_secretbox_open_easy_inplace(
         crate::ErrorContext::Ciphertext
     );
 
-    let (mac, data) = ciphertext.split_at_mut(CRYPTO_SECRETBOX_MACBYTES);
-    let mac = ByteArray::as_array(mac);
+    let (mac, data) = ciphertext
+        .split_first_chunk_mut::<CRYPTO_SECRETBOX_MACBYTES>()
+        .expect("validated ciphertext length");
+    let mac = &*mac;
 
     crypto_secretbox_open_detached_inplace(data, mac, nonce, key)?;
 
@@ -285,7 +289,7 @@ mod tests {
         assert!(
             crypto_secretbox_open_detached(
                 &mut short_open,
-                ByteArray::as_array(&ciphertext[..CRYPTO_SECRETBOX_MACBYTES]),
+                ciphertext.first_chunk().expect("sealed ciphertext"),
                 &ciphertext[CRYPTO_SECRETBOX_MACBYTES..],
                 &nonce,
                 &key,

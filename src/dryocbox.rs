@@ -1127,41 +1127,6 @@ mod tests {
         );
     }
 
-    /// A fixed-size field backed by a longer buffer is its first `N` bytes
-    /// (the `ByteArray` view), so a box built from such parts serializes to
-    /// the canonical wire format and still opens.
-    #[test]
-    fn oversized_field_storage_serializes_canonically() {
-        let v = nacl_vector();
-        let padded = |field: &[u8], extra: usize| [field, &vec![0xa5; extra]].concat();
-
-        let (tag, data) = v.boxed.split_at(CRYPTO_BOX_MACBYTES);
-        let regular =
-            DryocBox::<Vec<u8>, Vec<u8>, Vec<u8>>::from_parts(padded(tag, 1), data.to_vec(), None);
-        assert_eq!(regular.to_vec(), v.boxed);
-        let decrypted: Vec<u8> = regular
-            .decrypt(&v.nonce, &v.alice.public_key, &v.bob.secret_key)
-            .expect("decrypt");
-        assert_eq!(decrypted, v.message);
-
-        let (tag, data, epk) = DryocBox::seal_to_vecbox(&v.message, &v.bob.public_key)
-            .expect("seal")
-            .into_parts();
-        let epk = epk.expect("sealed box has an ephemeral key");
-        let canonical = [epk.as_slice(), tag.as_slice(), &data].concat();
-        for (epk_extra, tag_extra) in [(1, 0), (0, 1)] {
-            let sealed = DryocBox::<Vec<u8>, Vec<u8>, Vec<u8>>::from_parts(
-                padded(tag.as_slice(), tag_extra),
-                data.clone(),
-                Some(padded(epk.as_slice(), epk_extra)),
-            );
-            let row = format!("epk +{epk_extra}, tag +{tag_extra}");
-            assert_eq!(sealed.to_vec(), canonical, "{row}");
-            let unsealed: Vec<u8> = sealed.unseal(&v.bob).expect(&row);
-            assert_eq!(unsealed, v.message, "{row}");
-        }
-    }
-
     #[test]
     fn test_precalc_encrypt_decrypt() {
         let keypair_sender = KeyPair::generate();

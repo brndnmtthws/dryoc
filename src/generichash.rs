@@ -129,7 +129,7 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     /// Returns an error if the underlying BLAKE2b finalization rejects the
     /// output. Initialization normally guarantees a valid output length.
     pub fn finalize_to_vec(self) -> Result<Vec<u8>, Error> {
-        self.finalize()
+        Ok(self.finalize::<StackByteArray<OUTPUT_LENGTH>>()?.to_vec())
     }
 
     /// Computes the hash of `input` with an optional secret `key`.
@@ -183,7 +183,7 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
         input: &Input,
         key: Option<&Key>,
     ) -> Result<Vec<u8>, Error> {
-        Self::hash(input, key)
+        Ok(Self::hash::<_, _, StackByteArray<OUTPUT_LENGTH>>(input, key)?.to_vec())
     }
 }
 
@@ -238,7 +238,7 @@ impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
         input: &Input,
         key: Option<&Key>,
     ) -> Result<Vec<u8>, Error> {
-        Self::hash(input, key)
+        Ok(Self::hash::<_, _, Hash>(input, key)?.to_vec())
     }
 }
 
@@ -254,10 +254,10 @@ mod tests {
         let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new hash failed");
         hasher.update(b"hello");
 
-        let output: Vec<u8> = hasher.finalize().expect("finalize failed");
+        let output: Hash = hasher.finalize().expect("finalize failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(output),
+            general_purpose::STANDARD.encode(&output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
@@ -285,11 +285,11 @@ mod tests {
             "AECDe+XJsB6nOkbCsbS/OPXdzpcRm3AolW/Bg1LFY9A="
         );
 
-        let output: Vec<u8> =
+        let output: Hash =
             GenericHash::hash_with_defaults::<_, Key, _>(b"hello", None).expect("hash failed");
 
         assert_eq!(
-            general_purpose::STANDARD.encode(output),
+            general_purpose::STANDARD.encode(&output),
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
@@ -319,10 +319,13 @@ mod tests {
     fn test_vectors() {
         let test_vec = |input, key, hash| {
             let input = hex::decode(input).expect("decode input");
-            let key = hex::decode(key).expect("decode key");
+            let key: [u8; 64] = hex::decode(key)
+                .expect("decode key")
+                .try_into()
+                .expect("64-byte key");
             let expected_hash = hex::decode(hash).expect("decode hash");
 
-            let hash: Vec<u8> =
+            let hash: [u8; 64] =
                 GenericHash::<64, 64>::hash(&input, Some(&key)).expect("hash failed");
 
             assert_eq!(expected_hash, hash);

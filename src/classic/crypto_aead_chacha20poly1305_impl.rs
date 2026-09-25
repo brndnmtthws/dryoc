@@ -229,7 +229,7 @@ macro_rules! impl_chacha20poly1305_aead {
             );
 
             let (ciphertext, mac) = ciphertext.split_at_mut(message.len());
-            let mac = $crate::types::MutByteArray::as_mut_array(mac);
+            let mac = mac.try_into().expect("validated tag length");
             $encrypt_detached(ciphertext, mac, message, associated_data, nonce, key)
         }
 
@@ -246,7 +246,7 @@ macro_rules! impl_chacha20poly1305_aead {
             validate_length!(exact message_len, message.len(), $crate::ErrorContext::Message);
 
             let (ciphertext, mac) = ciphertext.split_at(message_len);
-            let mac = $crate::types::ByteArray::as_array(mac);
+            let mac = mac.try_into().expect("validated tag length");
             $decrypt_detached(message, ciphertext, mac, associated_data, nonce, key)
         }
 
@@ -260,7 +260,7 @@ macro_rules! impl_chacha20poly1305_aead {
             let message_len =
                 message_len_from_combined_len(data.len(), $crate::ErrorContext::Data)?;
             let (data, mac) = data.split_at_mut(message_len);
-            let mac = $crate::types::MutByteArray::as_mut_array(mac);
+            let mac = mac.try_into().expect("validated tag length");
             $encrypt_detached_inplace(data, mac, associated_data, nonce, key)
         }
 
@@ -274,7 +274,7 @@ macro_rules! impl_chacha20poly1305_aead {
             let message_len =
                 message_len_from_combined_len(data.len(), $crate::ErrorContext::Data)?;
             let (data, mac) = data.split_at_mut(message_len);
-            let mac = $crate::types::ByteArray::as_array(mac);
+            let mac = (&*mac).try_into().expect("validated tag length");
             $decrypt_detached_inplace(data, mac, associated_data, nonce, key)
         }
     };

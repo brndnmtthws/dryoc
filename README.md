@@ -13,8 +13,10 @@ interoperate with libsodium.
 
 The _Classic_ API closely follows libsodium's functions and types, which makes
 it useful when porting existing code. The _Rustaceous_ API provides typed Rust
-interfaces that make key, nonce, and output sizes explicit. Both APIs use the
-same implementations and can be used together.
+interfaces that make key, nonce, and output sizes explicit: fixed-size inputs
+such as keys, nonces, and public keys only accept fixed-size types, so convert
+runtime-length bytes with `try_into()`, which rejects the wrong length. Both
+APIs use the same implementations and can be used together.
 
 dryoc does not implement every libsodium feature. See [Project status](#project-status)
 for current coverage.

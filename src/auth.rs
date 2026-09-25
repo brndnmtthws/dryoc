@@ -23,7 +23,7 @@
 //!
 //! // Compute the MAC in one shot. This API takes ownership of the key, so clone
 //! // it when the same key is also needed for verification.
-//! let mac = Auth::compute_to_vec(key.clone(), b"Data to authenticate");
+//! let mac: Mac = Auth::compute(key.clone(), b"Data to authenticate");
 //!
 //! // Verify the MAC
 //! Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
@@ -42,7 +42,7 @@
 //! let mut mac = Auth::new(key.clone());
 //! mac.update(b"Multi-part");
 //! mac.update(b"data");
-//! let mac = mac.finalize_to_vec();
+//! let mac: Mac = mac.finalize();
 //!
 //! // Verify the MAC
 //! let mut verify_mac = Auth::new(key.clone());
@@ -135,7 +135,7 @@ impl Auth {
         key: Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute(key, input)
+        Self::compute::<_, _, Mac>(key, input).to_vec()
     }
 
     /// Verifies that `other_mac` authenticates `input` under `key`.
@@ -183,7 +183,7 @@ impl Auth {
     /// authentication code as a [`Vec`]. Convenience wrapper around
     /// [`Auth::finalize`].
     pub fn finalize_to_vec(self) -> Vec<u8> {
-        self.finalize()
+        self.finalize::<Mac>().to_vec()
     }
 
     /// Finalizes this authenticator, and verifies that the computed code
@@ -291,7 +291,12 @@ mod tests {
         for (key, message, _) in CASES {
             let key = padded_key(key);
             let mac = Auth::compute_to_vec(key.clone(), &message);
-            crypto_auth_verify(mac.as_array(), message, key.as_array()).expect("classic verify");
+            crypto_auth_verify(
+                mac.as_slice().try_into().expect("MAC length"),
+                message,
+                key.as_array(),
+            )
+            .expect("classic verify");
 
             let mut classic = [0u8; CRYPTO_AUTH_BYTES];
             crypto_auth(&mut classic, message, key.as_array());
@@ -335,16 +340,5 @@ mod tests {
             assert_eq!(Auth::compute_to_vec(key.clone(), &message), so_tag);
             Auth::compute_and_verify(&so_tag, key, &message).expect("verify sodium tag");
         }
-    }
-
-    #[test]
-    fn incremental_verify_accepts_fixed_prefix_buffer() {
-        let key = Key::generate();
-        let mut mac = Auth::compute_to_vec(key.clone(), b"message");
-        mac.extend_from_slice(b"trailing storage");
-
-        let mut verifier = Auth::new(key);
-        verifier.update(b"message");
-        verifier.verify(&mac).expect("valid MAC prefix rejected");
     }
 }

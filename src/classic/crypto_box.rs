@@ -159,14 +159,10 @@ pub fn crypto_box_easy_afternm(
         crate::ErrorContext::Ciphertext
     );
 
-    let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
-    crypto_box_detached_afternm(
-        ciphertext,
-        MutByteArray::as_mut_array(mac),
-        message,
-        nonce,
-        key,
-    )
+    let (mac, ciphertext) = ciphertext
+        .split_first_chunk_mut::<CRYPTO_BOX_MACBYTES>()
+        .expect("validated ciphertext length");
+    crypto_box_detached_afternm(ciphertext, mac, message, nonce, key)
 }
 
 /// Detached variant of [`crypto_box_easy`].
@@ -241,8 +237,9 @@ pub fn crypto_box_easy(
         crate::ErrorContext::Ciphertext
     );
 
-    let (mac, ciphertext) = ciphertext.split_at_mut(CRYPTO_BOX_MACBYTES);
-    let mac = MutByteArray::as_mut_array(mac);
+    let (mac, ciphertext) = ciphertext
+        .split_first_chunk_mut::<CRYPTO_BOX_MACBYTES>()
+        .expect("validated ciphertext length");
     crypto_box_detached(
         ciphertext,
         mac,
@@ -357,8 +354,9 @@ pub fn crypto_box_easy_inplace(
 
     data.rotate_right(CRYPTO_BOX_MACBYTES);
 
-    let (mac, data) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
-    let mac = MutByteArray::as_mut_array(mac);
+    let (mac, data) = data
+        .split_first_chunk_mut::<CRYPTO_BOX_MACBYTES>()
+        .expect("validated data length");
 
     crypto_box_detached_afternm_inplace(data, mac, nonce, &key);
 
@@ -420,8 +418,10 @@ pub fn crypto_box_open_easy_afternm(
         crate::ErrorContext::Message
     );
 
-    let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
-    crypto_box_open_detached_afternm(message, ByteArray::as_array(mac), ciphertext, nonce, key)
+    let (mac, ciphertext) = ciphertext
+        .split_first_chunk::<CRYPTO_BOX_MACBYTES>()
+        .expect("validated ciphertext length");
+    crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, key)
 }
 
 /// Detached variant of [`crypto_box_open_easy`].
@@ -498,8 +498,9 @@ pub fn crypto_box_open_easy(
         crate::ErrorContext::Message
     );
 
-    let (mac, ciphertext) = ciphertext.split_at(CRYPTO_BOX_MACBYTES);
-    let mac = ByteArray::as_array(mac);
+    let (mac, ciphertext) = ciphertext
+        .split_first_chunk::<CRYPTO_BOX_MACBYTES>()
+        .expect("validated ciphertext length");
 
     crypto_box_open_detached(
         message,
@@ -578,8 +579,10 @@ pub fn crypto_box_open_easy_inplace(
 ) -> Result<(), Error> {
     validate_length!(min CRYPTO_BOX_MACBYTES, data.len(), crate::ErrorContext::Data);
 
-    let (mac, d) = data.split_at_mut(CRYPTO_BOX_MACBYTES);
-    let mac = ByteArray::as_array(mac);
+    let (mac, d) = data
+        .split_first_chunk_mut::<CRYPTO_BOX_MACBYTES>()
+        .expect("validated data length");
+    let mac = &*mac;
 
     crypto_box_open_detached_inplace(d, mac, nonce, sender_public_key, recipient_secret_key)?;
 
