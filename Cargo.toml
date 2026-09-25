@@ -64,7 +64,7 @@ default = ["base64", "protected"]
 nightly = ["protected"]
 protected = []
 simd_backend = []
-wincode = ["dep:wincode"]
+wincode_0_6 = ["dep:wincode"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [
@@ -75,4 +75,4 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 
 [package.metadata.docs.rs]
 # docs.rs uses nightly, enable feature flag to get all the juicy docs
-features = ["nightly", "serde", "base64", "wincode"]
+features = ["nightly", "serde", "base64", "wincode_0_6"]

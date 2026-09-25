@@ -19,9 +19,9 @@
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
 //! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
 //! for [`AeadBox`] and [`AeadEnvelope`].
-//! If the `wincode` feature is enabled,
-//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
-//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
+//! If the `wincode_0_6` feature is enabled,
+//! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
 //! implemented for [`VecBox`] and [`VecEnvelope`].
 //!
 //! ## Rustaceous API example
@@ -286,9 +286,10 @@ pub struct AeadEnvelope<Algorithm: AeadAlgorithm, Nonce, Mac, Data> {
 /// Generates the wincode schema implementations for one algorithm's `VecBox`
 /// and `VecEnvelope`: `ciphertext || tag` for the box and
 /// `nonce || ciphertext || tag` for the envelope.
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 macro_rules! impl_wincode_aead {
     ($box:ty, $envelope:ty, $abytes:expr, $npubbytes:expr) => {
+        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
         // SAFETY: The implementation writes exactly the fields used to
         // reconstruct the box below, using `wincode` schema implementations
         // for each initialized field and preserving their order.
@@ -309,6 +310,7 @@ macro_rules! impl_wincode_aead {
             }
         }
 
+        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
         // SAFETY: The implementation fully initializes `dst` with a valid box
         // after successfully reading each field in the same order as
         // `SchemaWrite`.
@@ -330,6 +332,7 @@ macro_rules! impl_wincode_aead {
             }
         }
 
+        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
         // SAFETY: The implementation writes exactly the fields used to
         // reconstruct the envelope below, using `wincode` schema
         // implementations for each initialized field and preserving their
@@ -358,6 +361,7 @@ macro_rules! impl_wincode_aead {
             }
         }
 
+        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
         // SAFETY: The implementation fully initializes `dst` with a valid
         // envelope after successfully reading each field in the same order as
         // `SchemaWrite`.
@@ -384,14 +388,14 @@ macro_rules! impl_wincode_aead {
     };
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 impl_wincode_aead!(
     VecBox,
     VecEnvelope,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
 );
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 impl_wincode_aead!(
     chacha20poly1305_ietf::VecBox,
     chacha20poly1305_ietf::VecEnvelope,
@@ -1458,7 +1462,7 @@ mod tests {
             assert_eq!(decrypted, MESSAGE);
         }
 
-        #[cfg(feature = "wincode")]
+        #[cfg(feature = "wincode_0_6")]
         #[test]
         fn chacha_wincode_round_trips_decrypt_with_classic() {
             let expected = chacha_expected();

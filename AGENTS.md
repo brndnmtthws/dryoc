@@ -26,7 +26,10 @@ than convenience refactors.
   - `serde`: serialization support for supported types.
   - `base64`: password-hash string helpers; enabled by default and does not add
     a dependency.
-  - `wincode`: direct binary serialization support for Rustaceous box types.
+  - `wincode_0_6`: direct binary serialization support for Rustaceous box
+    types with wincode 0.6. wincode is pre-1.0 and public API, so each
+    supported wincode version gets its own `wincode_<major>_<minor>` feature;
+    add new versions alongside, never rename or repoint an existing one.
   - `protected`: protected memory APIs on Unix/Windows; enabled by default and
     does not add a dependency beyond target OS bindings already used by the
     crate.
@@ -46,7 +49,7 @@ cargo check
 cargo test
 cargo test --features serde
 cargo test --features base64
-cargo test --features wincode
+cargo test --features wincode_0_6
 cargo +nightly test --features serde,nightly
 cargo +nightly test --features simd_backend,nightly
 cargo clippy --features default -- -D warnings
@@ -59,14 +62,14 @@ CI uses `cargo nextest` when available:
 cargo nextest run --features default
 cargo nextest run --features serde
 cargo nextest run --features base64
-cargo nextest run --features wincode
+cargo nextest run --features wincode_0_6
 cargo +nightly nextest run --features simd_backend,nightly
 ```
 
 Coverage is generated on nightly with:
 
 ```sh
-cargo +nightly tarpaulin --features serde,nightly,wincode --out Xml
+cargo +nightly tarpaulin --features serde,nightly,wincode_0_6 --out Xml
 ```
 
 Fuzzing lives in `fuzz/` and is isolated as its own workspace:

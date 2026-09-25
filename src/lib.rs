@@ -123,11 +123,18 @@
 //!
 //! ## Using wincode
 //!
-//! Enable the `wincode` feature to implement
-//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
-//! and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
-//! for the `VecBox` aliases in [`dryocbox`] and [`dryocsecretbox`], and for the
-//! `VecBox` and `VecEnvelope` aliases in [`dryocaead`].
+//! Enable the `wincode_0_6` feature to implement
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html)
+//! and [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html)
+//! from wincode 0.6 for the `VecBox` aliases in [`dryocbox`] and
+//! [`dryocsecretbox`], and for the `VecBox` and `VecEnvelope` aliases in
+//! [`dryocaead`].
+//!
+//! wincode is pre-1.0 and its traits are part of dryoc's public API, so the
+//! feature name carries the wincode version. Support for a future wincode
+//! release will be added as a new feature (for example, `wincode_0_7`)
+//! alongside the existing ones, so upgrading wincode does not require a new
+//! dryoc major version.
 //!
 //! ## Unsafe code
 //!
@@ -141,7 +148,7 @@
 //! | Area | Feature gate | Why `unsafe` is required |
 //! |-|-|-|
 //! | `src/types.rs` fixed-size byte views | Always available | `StackByteArray`'s `AsRef<[u8; N]>` and `AsMut<[u8; N]>` impls cast a pointer to its inner `[u8; N]` into an array reference without copying. The wrapper stores exactly that array, so size, alignment, and initialization match. |
-//! | `src/dryocbox.rs`, `src/dryocsecretbox.rs`, and `src/dryocaead.rs` wincode impls | `wincode` | Implements `unsafe` wincode schema traits for the Rustaceous box wire formats, including both AEAD nonce sizes. The implementations write and read initialized fields in the same order. |
+//! | `src/dryocbox.rs`, `src/dryocsecretbox.rs`, and `src/dryocaead.rs` wincode impls | `wincode_0_6` | Implements `unsafe` wincode schema traits for the Rustaceous box wire formats, including both AEAD nonce sizes. The implementations write and read initialized fields in the same order. |
 //! | `src/blake2b/mod.rs` parameter block | Always available | `Params::as_bytes` views the `repr(C, packed)` BLAKE2b parameter block as a `[u8; 64]` so the initialization vector is mixed exactly as specified; both backends call it. The parameter type contains only initialized byte fields, has alignment 1, and its size is checked at compile time. |
 //! | `src/protected.rs` protected memory | `protected` on Unix/Windows | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements page-aligned guarded heap buffers, and exposes exact-size byte-array views over protected heap buffers. |
 //! | `src/poly1305/poly1305_soft.rs` with `src/poly1305/poly1305_neon.rs` and `src/poly1305/poly1305_x86_64.rs` Poly1305 bulk backends | Always available on little-endian `aarch64` and `x86_64` | Calls a `#[target_feature(enable = "neon")]` (AArch64) block function, or through `poly1305_x86_64::full_blocks` a `#[target_feature(enable = "avx2")]`, `#[target_feature(enable = "avx512f")]` or `#[target_feature(enable = "avx512f,avx512ifma")]` (x86-64) one, after `is_aarch64_feature_detected!("neon")`, `is_x86_feature_detected!("avx2")`, `is_x86_feature_detected!("avx512f")` or both `is_x86_feature_detected!("avx512f")` and `is_x86_feature_detected!("avx512ifma")` succeed at runtime. The kernels use only safe value intrinsics and safe slice loads; the x86-64 ones load message blocks through `x86_64::load`/`load512` (`_mm256_loadu_si256`/`_mm512_loadu_si512` on `&[u8; 32]`/`&[u8; 64]`) and key-power lanes through `x86_64::load_words`/`load_words512` (the same intrinsics on `&[u64; 4]`/`&[u64; 8]`). |

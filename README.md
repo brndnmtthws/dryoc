@@ -104,10 +104,15 @@ Enable `serde` to derive [`serde::Serialize`](https://docs.rs/serde/latest/serde
 and [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
 for supported data structures.
 
-Enable `wincode` to implement [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html)
-and [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html)
-for the `VecBox` aliases in `dryocbox` and `dryocsecretbox`, and for the
-`VecBox` and `VecEnvelope` aliases in `dryocaead`.
+Enable `wincode_0_6` to implement [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html)
+and [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html)
+from wincode 0.6 for the `VecBox` aliases in `dryocbox` and `dryocsecretbox`,
+and for the `VecBox` and `VecEnvelope` aliases in `dryocaead`.
+
+wincode is pre-1.0 and its traits are part of dryoc's public API, so the
+feature name carries the wincode version. Support for a future wincode release
+will be added as a new feature (for example, `wincode_0_7`) alongside the
+existing ones, so upgrading wincode does not require a new dryoc major version.
 
 ## Security
 
