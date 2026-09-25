@@ -351,8 +351,12 @@ impl Poly1305 {
         let f0 = f0 as u128 + self.pad[0] as u128;
         let f1 = f1 as u128 + self.pad[1] as u128 + (f0 >> 64);
 
-        output[0..8].copy_from_slice(&(f0 as u64).to_le_bytes());
-        output[8..16].copy_from_slice(&(f1 as u64).to_le_bytes());
+        // Array stores rather than `copy_from_slice`, which at opt-level `z`
+        // and `s` stays out of line and takes the tag words by reference from
+        // an unwiped stack temporary.
+        let (words, _) = output.as_chunks_mut::<8>();
+        words[0] = (f0 as u64).to_le_bytes();
+        words[1] = (f1 as u64).to_le_bytes();
 
         self.zeroize();
     }

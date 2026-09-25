@@ -191,10 +191,12 @@ impl Poly1305 {
     }
 
     pub fn finalize(&mut self, output: &mut [u8]) {
-        // At opt-level `z` and `s` the `copy_from_slice` calls below take the
-        // finished tag words by reference (the bytes `output` receives), and
-        // the out-of-line `zeroize` (like this state's `Drop`) only gets
-        // `&mut` to the state it wipes.
+        // The tag words go straight into `output` as array stores: at
+        // opt-level `z` and `s` `copy_from_slice` stays out of line and took
+        // them by reference from a stack temporary that was never wiped (the
+        // computed tag is secret when verification fails). The out-of-line
+        // `zeroize` (like this state's `Drop`) only gets `&mut` to the state
+        // it wipes.
         // process any remaining block
         if self.buflen > 0 {
             let block = self.buffer.to_le_bytes();
@@ -261,8 +263,12 @@ impl Poly1305 {
         h0 |= h1 << 44;
         h1 = (h1 >> 20) | (h2 << 24);
 
-        output[0..8].copy_from_slice(&h0.to_le_bytes());
-        output[8..16].copy_from_slice(&h1.to_le_bytes());
+        // One bounds check per word (not `output[..16]`) keeps two 8-byte
+        // stores at opt-level 3; a merged 16-byte store measured +2% on
+        // 64-byte `crypto_onetimeauth_verify`, which reads the tag bytewise.
+        let (words, _) = output.as_chunks_mut::<8>();
+        words[0] = h0.to_le_bytes();
+        words[1] = h1.to_le_bytes();
 
         // zero out the state
         self.zeroize();
