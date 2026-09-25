@@ -1154,6 +1154,10 @@ mod tests {
 
     /// Runs a table lookup into storage that starts as garbage, so a lookup
     /// that leaves part of its output unwritten is caught.
+    #[cfg(any(
+        target_arch = "x86_64",
+        all(target_arch = "aarch64", target_feature = "neon")
+    ))]
     fn lookup(f: impl FnOnce(&mut Niels)) -> [[u64; 5]; 3] {
         let garbage = Fe([u64::MAX; 5]);
         let mut out = Niels {

@@ -16,6 +16,7 @@ use core::arch::x86_64::{
 
 use zeroize::Zeroize;
 
+use super::{RC, RHO};
 use crate::x86_64::{Avx2, load_words, store_words, transpose_words};
 
 /// A vector kernel the running CPU has been verified to support: its variant
@@ -89,73 +90,6 @@ impl Kernel {
     }
 }
 
-/// The Keccak-f[1600] round constants, from the FIPS 202 `rc` LFSR (`x^8 +
-/// x^6 + x^5 + x^4 + 1`): bit `2^j - 1` of constant `i` is output `7 * i +
-/// j`. Keccak-p[1600, `ROUNDS`] uses the last `ROUNDS` of them.
-const RC: [u64; 24] = {
-    let mut rc = [0u64; 24];
-    let mut lfsr: u8 = 1;
-    let mut round = 0;
-    while round < 24 {
-        let mut j = 0;
-        while j < 7 {
-            if lfsr & 1 == 1 {
-                rc[round] |= 1 << ((1 << j) - 1);
-            }
-            lfsr = if lfsr & 0x80 == 0 {
-                lfsr << 1
-            } else {
-                (lfsr << 1) ^ 0x71
-            };
-            j += 1;
-        }
-        round += 1;
-    }
-    rc
-};
-
-/// The `rho` rotation of each lane `x + 5 * y`: `(t + 1)(t + 2) / 2 mod 64`
-/// for the lane that step `t` of the walk `(x, y) -> (y, 2x + 3y)` from
-/// `(1, 0)` reaches; lane `(0, 0)` is not rotated.
-const RHO: [i32; 25] = {
-    let mut rho = [0i32; 25];
-    let (mut x, mut y) = (1, 0);
-    let mut t = 0;
-    while t < 24 {
-        rho[x + 5 * y] = (t + 1) * (t + 2) / 2 % 64;
-        (x, y) = (y, (2 * x + 3 * y) % 5);
-        t += 1;
-    }
-    rho
-};
-
-/// Runs `$body` five times with `$x` bound to the constants `0..5`, so every
-/// lane index and rotation count in the round is a constant.
-macro_rules! unroll5 {
-    ($x:ident, $body:block) => {{
-        {
-            const $x: usize = 0;
-            $body
-        }
-        {
-            const $x: usize = 1;
-            $body
-        }
-        {
-            const $x: usize = 2;
-            $body
-        }
-        {
-            const $x: usize = 3;
-            $body
-        }
-        {
-            const $x: usize = 4;
-            $body
-        }
-    }};
-}
-
 /// Rotates every 64-bit word of `$v` left by the constant `$n < 64`: a byte
 /// shuffle for 8 and 56, otherwise a pair of shifts.
 macro_rules! rotl {
@@ -166,8 +100,8 @@ macro_rules! rotl {
             8 => _mm256_shuffle_epi8(v, $bytes.rol8),
             56 => _mm256_shuffle_epi8(v, $bytes.rol56),
             _ => _mm256_or_si256(
-                _mm256_slli_epi64::<{ $n }>(v),
-                _mm256_srli_epi64::<{ 64 - $n }>(v),
+                _mm256_slli_epi64::<{ $n as i32 }>(v),
+                _mm256_srli_epi64::<{ 64 - $n as i32 }>(v),
             ),
         }
     }};

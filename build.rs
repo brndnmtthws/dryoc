@@ -16,10 +16,20 @@ fn main() {
     }
 
     // Targets with an architecture-specific stream-cipher kernel module
-    // (`chacha20_*`/`salsa20_*` NEON or AVX): the drivers in `chacha20` and
-    // `salsa20` and the shared `stream::Dest` plumbing are compiled for these.
-    // Miri cannot interpret the NEON shift-insert intrinsics used on AArch64.
-    if target_arch == "x86_64" || (target_arch == "aarch64" && target_endian == "little" && !miri) {
+    // (`chacha20_*`/`salsa20_*` NEON, AVX or WebAssembly `simd128`): the
+    // drivers in `chacha20` and `salsa20` and the shared `stream::Dest`
+    // plumbing are compiled for these. Miri cannot interpret the NEON
+    // shift-insert intrinsics used on AArch64. WebAssembly has no runtime
+    // feature detection, so its kernels need `simd128` at compile time.
+    let target_features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
+    let wasm_simd128 = target_arch == "wasm32"
+        && target_features
+            .split(',')
+            .any(|feature| feature == "simd128");
+    if target_arch == "x86_64"
+        || (target_arch == "aarch64" && target_endian == "little" && !miri)
+        || wasm_simd128
+    {
         println!("cargo::rustc-cfg=dryoc_stream_kernel");
     }
 }

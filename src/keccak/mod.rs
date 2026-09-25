@@ -7,8 +7,10 @@
 //! the RustCrypto `keccak` crate, which selects the AArch64 SHA3-extension
 //! implementation at runtime when the CPU has it. [`ParSponge`] runs several
 //! independent sponges together through that crate's multi-state
-//! permutation, or four at a time through the AVX2 kernel in
-//! `keccak_x86_64.rs` when an x86-64 CPU has AVX2.
+//! permutation, four at a time through the AVX2 kernel in `keccak_x86_64.rs`
+//! when an x86-64 CPU has AVX2, or two at a time through the `simd128`
+//! kernel in `keccak_wasm32.rs` when the crate is built for WebAssembly with
+//! `simd128`.
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -17,6 +19,87 @@ use crate::constants::{
     CRYPTO_XOF_SHAKE256_BLOCKBYTES,
 };
 
+/// The Keccak-f[1600] round constants, from the FIPS 202 `rc` LFSR (`x^8 +
+/// x^6 + x^5 + x^4 + 1`): bit `2^j - 1` of constant `i` is output `7 * i +
+/// j`. Keccak-p[1600, `ROUNDS`] uses the last `ROUNDS` of them.
+#[cfg(any(
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
+const RC: [u64; 24] = {
+    let mut rc = [0u64; 24];
+    let mut lfsr: u8 = 1;
+    let mut round = 0;
+    while round < 24 {
+        let mut j = 0;
+        while j < 7 {
+            if lfsr & 1 == 1 {
+                rc[round] |= 1 << ((1 << j) - 1);
+            }
+            lfsr = if lfsr & 0x80 == 0 {
+                lfsr << 1
+            } else {
+                (lfsr << 1) ^ 0x71
+            };
+            j += 1;
+        }
+        round += 1;
+    }
+    rc
+};
+
+/// The `rho` rotation of each lane `x + 5 * y`: `(t + 1)(t + 2) / 2 mod 64`
+/// for the lane that step `t` of the walk `(x, y) -> (y, 2x + 3y)` from
+/// `(1, 0)` reaches; lane `(0, 0)` is not rotated.
+#[cfg(any(
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
+const RHO: [u32; 25] = {
+    let mut rho = [0u32; 25];
+    let (mut x, mut y) = (1, 0);
+    let mut t = 0;
+    while t < 24 {
+        rho[x + 5 * y] = (t + 1) * (t + 2) / 2 % 64;
+        (x, y) = (y, (2 * x + 3 * y) % 5);
+        t += 1;
+    }
+    rho
+};
+
+/// Runs `$body` five times with `$x` bound to the constants `0..5`, so every
+/// lane index and rotation count in a vector kernel's round is a constant.
+#[cfg(any(
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
+macro_rules! unroll5 {
+    ($x:ident, $body:block) => {{
+        {
+            const $x: usize = 0;
+            $body
+        }
+        {
+            const $x: usize = 1;
+            $body
+        }
+        {
+            const $x: usize = 2;
+            $body
+        }
+        {
+            const $x: usize = 3;
+            $body
+        }
+        {
+            const $x: usize = 4;
+            $body
+        }
+    }};
+}
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+mod keccak_wasm32;
 #[cfg(target_arch = "x86_64")]
 mod keccak_x86_64;
 
@@ -246,8 +329,10 @@ impl<const RATE: usize, const ROUNDS: usize, const N: usize> ZeroizeOnDrop
 /// This is the one place multi-state permutations are chosen. On x86-64
 /// with AVX2, the selected states are permuted four at a time by the
 /// in-crate kernel in `keccak_x86_64.rs` (three leftover states with a
-/// spare one). The rest go to the `keccak` crate's backend in groups of its
-/// parallel width (two on AArch64 with the SHA3 extension, one otherwise).
+/// spare one); on WebAssembly with `simd128`, all of them are permuted two
+/// at a time by `keccak_wasm32.rs` (a leftover state with a spare one). The
+/// rest go to the `keccak` crate's backend in groups of its parallel width
+/// (two on AArch64 with the SHA3 extension, one otherwise).
 fn permute_lanes<const ROUNDS: usize, const N: usize>(
     keccak: &keccak::Keccak,
     states: &mut [[u64; 25]; N],
@@ -257,6 +342,14 @@ fn permute_lanes<const ROUNDS: usize, const N: usize>(
     let selected = {
         let mut selected = selected;
         if let Some(kernel) = keccak_x86_64::detect() {
+            kernel.permute_selected::<ROUNDS, N>(states, &mut selected);
+        }
+        selected
+    };
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    let selected = {
+        let mut selected = selected;
+        if let Some(kernel) = keccak_wasm32::detect() {
             kernel.permute_selected::<ROUNDS, N>(states, &mut selected);
         }
         selected
@@ -367,6 +460,9 @@ fn state_byte(state: &[u64; 25], pos: usize) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    use wasm_bindgen_test::wasm_bindgen_test as test;
+
     use super::*;
     use crate::test_prelude::*;
 
@@ -494,6 +590,53 @@ mod tests {
         check_par_sponge_matches_sponge::<RATE_128, ROUNDS_FULL, 9>();
     }
 
+    /// Runs `permute_selected` on nine random states (from `seed`) for each
+    /// of `selections` and checks that exactly the lanes in the matching
+    /// `handled` entry are permuted like the `keccak` crate's
+    /// Keccak-p[1600, `ROUNDS`] and have their flags cleared, while the
+    /// others keep their state and flag.
+    #[cfg(any(
+        target_arch = "x86_64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    ))]
+    fn check_permute_selected<const ROUNDS: usize>(
+        seed: u64,
+        selections: &[&[usize]],
+        handled: &[&[usize]],
+        permute_selected: impl Fn(&mut [[u64; 25]; 9], &mut [bool; 9]),
+    ) {
+        let mut seed = seed;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let initial: [[u64; 25]; 9] = core::array::from_fn(|_| core::array::from_fn(|_| next()));
+        let keccak = keccak::Keccak::new();
+        let permuted = initial.map(|mut state| {
+            keccak.with_p1600::<ROUNDS>(|p1600| p1600(&mut state));
+            state
+        });
+        for (&lanes, &handled) in selections.iter().zip(handled) {
+            let mut states = initial;
+            let mut selected = [false; 9];
+            for &lane in lanes {
+                selected[lane] = true;
+            }
+            permute_selected(&mut states, &mut selected);
+            for lane in 0..9 {
+                let done = handled.contains(&lane);
+                let expected = if done { permuted[lane] } else { initial[lane] };
+                assert_eq!(
+                    states[lane], expected,
+                    "{ROUNDS} rounds, {lanes:?}, lane {lane}"
+                );
+                assert_eq!(selected[lane], lanes.contains(&lane) && !done);
+            }
+        }
+    }
+
     /// The 4-way x86-64 kernel permutes the selected states like the
     /// `keccak` crate's permutation, with 24 and 12 rounds, in consecutive
     /// and scattered groups of four and in a leftover group of three, and
@@ -501,59 +644,57 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_x86_64_permute4_matches_scalar() {
-        fn check<const ROUNDS: usize>(kernel: keccak_x86_64::Kernel, seed: u64) {
-            let mut seed = seed;
-            let mut next = move || {
-                seed ^= seed << 13;
-                seed ^= seed >> 7;
-                seed ^= seed << 17;
-                seed
-            };
-            let initial: [[u64; 25]; 9] =
-                core::array::from_fn(|_| core::array::from_fn(|_| next()));
-            let keccak = keccak::Keccak::new();
-            let permuted = initial.map(|mut state| {
-                keccak.with_p1600::<ROUNDS>(|p1600| p1600(&mut state));
-                state
-            });
-            // Consecutive and scattered groups of four; one or two leftover
-            // lanes stay selected, three run with a spare state.
-            let selections: [&[usize]; 5] = [
-                &[0, 1, 2, 3],
-                &[1, 2, 4, 7, 8],
-                &[0, 1, 3, 5, 6, 8],
-                &[0, 5, 6],
-                &[0, 1, 2, 3, 4, 6, 8],
-            ];
-            let handled: [&[usize]; 5] = [
-                &[0, 1, 2, 3],
-                &[1, 2, 4, 7],
-                &[0, 1, 3, 5],
-                &[0, 5, 6],
-                &[0, 1, 2, 3, 4, 6, 8],
-            ];
-            for (lanes, handled) in selections.into_iter().zip(handled) {
-                let mut states = initial;
-                let mut selected = [false; 9];
-                for &lane in lanes {
-                    selected[lane] = true;
-                }
-                kernel.permute_selected::<ROUNDS, 9>(&mut states, &mut selected);
-                for lane in 0..9 {
-                    let done = handled.contains(&lane);
-                    let expected = if done { permuted[lane] } else { initial[lane] };
-                    assert_eq!(
-                        states[lane], expected,
-                        "{ROUNDS} rounds, {lanes:?}, lane {lane}"
-                    );
-                    assert_eq!(selected[lane], lanes.contains(&lane) && !done);
-                }
-            }
-        }
+        // Consecutive and scattered groups of four; one or two leftover
+        // lanes stay selected, three run with a spare state.
+        let selections: [&[usize]; 5] = [
+            &[0, 1, 2, 3],
+            &[1, 2, 4, 7, 8],
+            &[0, 1, 3, 5, 6, 8],
+            &[0, 5, 6],
+            &[0, 1, 2, 3, 4, 6, 8],
+        ];
+        let handled: [&[usize]; 5] = [
+            &[0, 1, 2, 3],
+            &[1, 2, 4, 7],
+            &[0, 1, 3, 5],
+            &[0, 5, 6],
+            &[0, 1, 2, 3, 4, 6, 8],
+        ];
         for kernel in keccak_x86_64::Kernel::all() {
             for seed in [0x9e37_79b9_7f4a_7c15, 0x2545_f491_4f6c_dd1d] {
-                check::<ROUNDS_FULL>(kernel, seed);
-                check::<ROUNDS_TURBO>(kernel, seed);
+                check_permute_selected::<ROUNDS_FULL>(seed, &selections, &handled, |s, l| {
+                    kernel.permute_selected::<ROUNDS_FULL, 9>(s, l)
+                });
+                check_permute_selected::<ROUNDS_TURBO>(seed, &selections, &handled, |s, l| {
+                    kernel.permute_selected::<ROUNDS_TURBO, 9>(s, l)
+                });
+            }
+        }
+    }
+
+    /// The 2-way `simd128` kernel permutes every selected state like the
+    /// `keccak` crate's permutation, with 24 and 12 rounds, in consecutive
+    /// and scattered pairs and with a leftover state beside the spare one,
+    /// and leaves unselected states untouched.
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    #[test]
+    fn test_wasm32_permute2_matches_scalar() {
+        let selections: [&[usize]; 6] = [
+            &[],
+            &[4],
+            &[0, 1],
+            &[1, 4, 7],
+            &[0, 2, 3, 5, 6, 8],
+            &[0, 1, 2, 3, 4, 5, 6, 7, 8],
+        ];
+        for kernel in keccak_wasm32::Kernel::all() {
+            for seed in [0x9e37_79b9_7f4a_7c15, 0x2545_f491_4f6c_dd1d] {
+                check_permute_selected::<ROUNDS_FULL>(seed, &selections, &selections, |s, l| {
+                    kernel.permute_selected::<ROUNDS_FULL, 9>(s, l)
+                });
+                check_permute_selected::<ROUNDS_TURBO>(seed, &selections, &selections, |s, l| {
+                    kernel.permute_selected::<ROUNDS_TURBO, 9>(s, l)
+                });
             }
         }
     }

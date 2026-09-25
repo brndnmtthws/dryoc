@@ -31,7 +31,8 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Classic and typed Rustaceous APIs for many libsodium operations
 * Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
   ML-KEM-768 and X25519, and post-quantum sealed boxes built on X-Wing
-* WebAssembly support through the `wasm32-unknown-unknown` target
+* WebAssembly support through the `wasm32-unknown-unknown` target, with
+  optional `simd128` implementations selected at compile time
 * `no_std` support, with or without `alloc`; see [Cargo features](#cargo-features)
 * Protected memory on Unix and Windows, enabled by default with the
   `protected` feature
@@ -101,6 +102,22 @@ implementations of the BLAKE2b rounds, the scalar ChaCha20 rounds, and
 Curve25519 field multiplication use only baseline instructions and are used on
 that architecture outside Miri. Curve25519 and Ed25519 group operations are
 also unaffected by the `simd_backend` feature.
+
+### WebAssembly SIMD
+
+WebAssembly has no runtime feature detection, so dryoc's WebAssembly SIMD
+implementations of ChaCha20, XSalsa20, Poly1305, the ML-KEM polynomial
+arithmetic and the 2-way Keccak permutation behind ML-KEM sampling are
+compiled in only when the `simd128` target feature is enabled:
+
+```sh
+RUSTFLAGS=-Ctarget-feature=+simd128 cargo build --target wasm32-unknown-unknown
+```
+
+The resulting module requires an engine with WebAssembly SIMD support.
+Without the target feature, WebAssembly builds use the portable
+implementations. BLAKE2b and Argon2 use the portable implementations in both
+cases, since they measured faster.
 
 ## Cargo features
 
@@ -249,6 +266,9 @@ at runtime with the `std` feature and taken from the compile-time target
 features without it. Each detected kernel is entered through one safe wrapper
 that takes a zero-sized CPU feature token, which only that feature detection
 can construct, so the kernel's single `unsafe` call sits next to that proof
-rather than at every call site.
+rather than at every call site. The WebAssembly `simd128` backends (ChaCha20,
+XSalsa20 and the ML-KEM polynomial arithmetic) use unsafe 16-byte vector loads
+and stores, and `simd128` builds store the portable Argon2 round outputs with
+volatile writes that keep LLVM from vectorizing them.
 The [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 lists every non-test use of unsafe code in this crate.

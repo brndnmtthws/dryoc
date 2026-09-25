@@ -19,7 +19,8 @@
 //! * Classic and typed Rustaceous APIs for many libsodium operations
 //! * Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
 //!   ML-KEM-768 and X25519, and post-quantum sealed boxes built on X-Wing
-//! * WebAssembly support through the `wasm32-unknown-unknown` target
+//! * WebAssembly support through the `wasm32-unknown-unknown` target, with
+//!   optional `simd128` implementations selected at compile time
 //! * `no_std` support, with or without `alloc`; see [Cargo
 //!   features](#cargo-features)
 //! * Protected memory on Unix and Windows, enabled by default with the
@@ -61,6 +62,16 @@
 //! portable implementations where assembly or intrinsics are unsupported.
 //! Curve25519 and Ed25519 group operations are also unaffected by the
 //! `simd_backend` feature.
+//!
+//! WebAssembly has no runtime feature detection, so dryoc's WebAssembly SIMD
+//! implementations of ChaCha20, XSalsa20, Poly1305, the ML-KEM polynomial
+//! arithmetic and the 2-way Keccak permutation behind ML-KEM sampling are
+//! compiled in only when the `simd128` target feature is enabled, for example
+//! with `RUSTFLAGS=-Ctarget-feature=+simd128 cargo build --target
+//! wasm32-unknown-unknown`. The resulting module requires an engine with
+//! WebAssembly SIMD support. Without the target feature, WebAssembly builds
+//! use the portable implementations. BLAKE2b and Argon2 use the portable
+//! implementations in both cases, since they measured faster.
 //!
 //! ## Cargo features
 //!
@@ -217,6 +228,8 @@
 //! | `src/edwards25519/edwards25519_neon.rs` basepoint table lookup | `aarch64` with `neon` enabled at build time (every std AArch64 target) | The module is compiled only under `cfg(target_feature = "neon")`. Its `select_row` is an `#[inline(always)]` function whose body is one `unsafe` block of NEON value intrinsics (`and`/`orr` on vectors built from limbs); the block is valid because the feature is statically enabled. It reads every table entry regardless of the digit and writes the result into caller-owned storage. |
 //! | `src/mlkem/mlkem_neon.rs` ML-KEM NEON polynomial arithmetic | Always available on little-endian `aarch64` | Calls the `#[target_feature(enable = "neon")]` forward NTT, inverse NTT and NTT-domain multiply-add kernels through the token wrappers of the `Neon` token held by its `Kernel` handle. The kernels use safe value intrinsics; the only pointer intrinsics are `vld1q_s16`/`vst1q_s16` in `load`/`store` on `&[i16; 8]`/`&mut [i16; 8]` rows of the polynomials and twiddle tables, which guarantee exactly 16 readable or writable bytes and need no alignment beyond `i16`'s. |
 //! | `src/fe25519/fe25519_aarch64.rs` Curve25519 field multiply and square | Always available on `aarch64` | `mul`, `square`, `square_chain` and `mul_121666` are register-only `asm!` blocks of base A64 integer instructions (`mul`, `umulh`, `adds`/`adc`, `extr`, `madd`, `and`) computing one radix-2^51 field product; every written register is a declared output or scratch operand and the blocks are `pure`, `nomem`, `nostack`. |
+//! | `src/wasm32.rs` WebAssembly `simd128` loads and stores, used by the `src/chacha20/chacha20_wasm32.rs`, `src/salsa20/salsa20_wasm32.rs` and `src/mlkem/mlkem_wasm32.rs` kernels | `wasm32` built with the `simd128` target feature | `load`/`store` and `load_i16s`/`store_i16s` call `v128_load`/`v128_store` on `&[u8; 16]`/`&mut [u8; 16]` and `&[i16; 8]`/`&mut [i16; 8]` references, which guarantee exactly 16 initialized readable or writable bytes; both instructions are unaligned (align 1) accesses. The kernels, and the Poly1305 and Keccak `simd128` kernels, otherwise use only safe value intrinsics. `simd128` is a compile-time target feature, so there is no runtime check or `#[target_feature]` call to justify. |
+//! | `src/argon2/argon2_soft.rs` round output stores | `wasm32` built with the `simd128` target feature | `store_word` writes each of a round's sixteen output words with `core::ptr::write_volatile` through a `&mut u64` into the block, so the pointer is valid, aligned and initialized. A volatile store is not a seed for LLVM's SLP vectorizer, which would otherwise pair the four `G` columns into `i64x2` lanes whose multiply engines emulate at half the scalar speed; other builds use a plain assignment. |
 //! | `src/utils.rs` word-wise zeroization | Always available | `zeroize_bytes` and `zeroize_u64s` view the 16-byte-aligned middle of a byte or `u64` slice as `u128`s (`align_to_mut`) and clear each with a volatile store, so wiping a buffer costs one store per sixteen bytes instead of one per byte or word. Unaligned ends use the `zeroize` crate. |
 //! | `src/pwhash.rs` `PwHash::into_parts` | `alloc` | Uses `ManuallyDrop` and reads each owned field exactly once so the hash's drop-time zeroization does not erase the value while transferring ownership to the caller. |
 //!
@@ -334,6 +347,8 @@ mod scalarmult_curve25519;
 mod sha2_impl;
 mod siphash24;
 mod stream;
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+mod wasm32;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 

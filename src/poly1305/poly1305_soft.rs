@@ -22,9 +22,38 @@ pub struct Poly1305 {
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 const NEON_MIN_BYTES: usize = 480;
 
+/// Minimum run of full blocks worth handing to the `simd128` path; below
+/// this the key-power setup and limb conversions cost more than they save.
+/// Must be at least one `poly1305_wasm32::CHUNK`.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+const WASM_MIN_BYTES: usize = 128;
+
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
 #[inline]
 fn mul(x: u64, y: u64) -> u128 {
     u128::from(x) * u128::from(y)
+}
+
+/// `x * y` from four 32x32-bit products. WebAssembly has no 64x64 -> 128-bit
+/// multiply, so the plain `u128` product is a call to compiler-rt's
+/// `__multi3`; in `simd128` builds those calls made the scalar blocks (every
+/// message under `WASM_MIN_BYTES`, and every tail) measurably slower in V8
+/// than in builds without `simd128`, and the inline form is faster than the
+/// call in both engines.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline(always)]
+fn mul(x: u64, y: u64) -> u128 {
+    let (xl, xh) = (x & 0xffff_ffff, x >> 32);
+    let (yl, yh) = (y & 0xffff_ffff, y >> 32);
+    let ll = xl * yl;
+    let lh = xl * yh;
+    let hl = xh * yl;
+    let hh = xh * yh;
+    // At most `3 * (2^32 - 1)`, so no overflow.
+    let mid = (ll >> 32) + (lh & 0xffff_ffff) + (hl & 0xffff_ffff);
+    let lo = (ll & 0xffff_ffff) | (mid << 32);
+    let hi = hh + (lh >> 32) + (hl >> 32) + (mid >> 32);
+    (u128::from(hi) << 64) | u128::from(lo)
 }
 
 #[inline]
@@ -103,8 +132,8 @@ impl Poly1305 {
         }
     }
 
-    /// Processes a whole number of full blocks, using the NEON or x86-64
-    /// bulk paths for long runs when available.
+    /// Processes a whole number of full blocks, using the NEON, x86-64 or
+    /// `simd128` bulk paths for long runs when available.
     fn full_blocks(&mut self, input: &[u8]) {
         #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
         if input.len() >= NEON_MIN_BYTES
@@ -112,6 +141,13 @@ impl Poly1305 {
         {
             let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
             super::poly1305_neon::blocks(neon, &mut self.h, &self.r, &input[..bulk]);
+            self.blocks(&input[bulk..], false);
+            return;
+        }
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        if input.len() >= WASM_MIN_BYTES {
+            let bulk = input.len() - input.len() % super::poly1305_wasm32::CHUNK;
+            super::poly1305_wasm32::blocks(&mut self.h, &self.r, &input[..bulk]);
             self.blocks(&input[bulk..], false);
             return;
         }
@@ -264,6 +300,9 @@ impl Poly1305 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    use wasm_bindgen_test::wasm_bindgen_test as test;
+
     use super::*;
     use crate::test_prelude::*;
 
@@ -437,10 +476,12 @@ mod tests {
     /// A bulk kernel with `chunk`-byte chunks must leave the same state as
     /// the scalar block loop, starting from a non-zero state and followed by
     /// more scalar blocks, for every whole number of chunks in
-    /// `chunk_counts`.
+    /// `chunk_counts`, on the patterned carry message and on all-ones blocks
+    /// (every message limb at its maximum).
     #[cfg(any(
         all(target_arch = "aarch64", target_endian = "little", not(miri)),
-        target_arch = "x86_64"
+        target_arch = "x86_64",
+        all(target_arch = "wasm32", target_feature = "simd128")
     ))]
     fn check_bulk_matches_scalar(
         name: &str,
@@ -448,8 +489,12 @@ mod tests {
         chunk_counts: &[usize],
         bulk: impl Fn(&mut [u64; 3], &[u64; 3], &[u8]),
     ) {
-        let data = carry_message(chunk_counts.iter().max().unwrap() * chunk + 64);
-        for key in &carry_keys() {
+        let size = chunk_counts.iter().max().unwrap() * chunk + 64;
+        let messages = [carry_message(size), vec![0xff; size]];
+        for (key, data) in carry_keys()
+            .iter()
+            .flat_map(|key| messages.iter().map(move |data| (key, data)))
+        {
             for len in chunk_counts.iter().map(|chunks| chunks * chunk) {
                 let mut scalar = Poly1305::new(key);
                 let mut vector = Poly1305::new(key);
@@ -556,16 +601,57 @@ mod tests {
         );
     }
 
+    /// The `simd128` bulk kernel, for 1 to 4 of its 128-byte chunks and for
+    /// 8, 16, 25 and 32 chunks (up to 4 KiB).
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    #[test]
+    fn simd128_blocks_match_scalar() {
+        use super::super::poly1305_wasm32::{CHUNK, blocks};
+
+        check_bulk_matches_scalar("simd128", CHUNK, &[1, 2, 3, 4, 8, 16, 25, 32], blocks);
+    }
+
+    /// The four-product `mul` of `simd128` builds equals the full 128-bit
+    /// product, at the limb and carry boundaries and on pseudo-random words.
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    #[test]
+    fn simd128_mul_matches_u128_product() {
+        let edges = [
+            0,
+            1,
+            u64::from(u32::MAX),
+            1 << 32,
+            (1 << 44) - 1,
+            (1 << 49) - 1,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        let mut seed = 0x243f_6a88_85a3_08d3u64;
+        let random = core::iter::repeat_with(|| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            seed
+        });
+        let words: Vec<u64> = edges.into_iter().chain(random.take(64)).collect();
+        for &x in &words {
+            for &y in &words {
+                assert_eq!(mul(x, y), u128::from(x) * u128::from(y), "{x:#x} * {y:#x}");
+            }
+        }
+    }
+
     /// The production driver must match the scalar block loop at every
     /// length around the bulk-path thresholds (480 bytes on AArch64; 256,
-    /// 512, 1024 and 2048 on x86-64) and their 160-, 128- and 256-byte chunk
-    /// residues (including a 128-byte chunk left over from the two-chain
-    /// run), one-shot and split so a partial block is pending before and
-    /// after the bulk run.
+    /// 512, 1024 and 2048 on x86-64; 128 with `simd128`) and their 160-, 128-
+    /// and 256-byte chunk residues (including a 128-byte chunk left over from
+    /// the two-chain run), one-shot and split so a partial block is pending
+    /// before and after the bulk run.
     #[test]
     fn update_matches_scalar_blocks_at_bulk_boundaries() {
         let data = carry_message(4608 + 200);
-        let lens = (240..=272)
+        let lens = (112..=144)
+            .chain(240..=272)
             .chain(368..=400)
             .chain(464..=529)
             .chain([

@@ -91,6 +91,16 @@ cargo nextest run --features wincode_0_6
 cargo +nightly nextest run --features simd_backend,nightly
 ```
 
+The wasm tests run through `wasm-bindgen-test-runner` (from the
+`wasm-bindgen-cli` version matching the `wasm-bindgen` in `cargo tree`), once
+without and once with the `simd128` kernels:
+
+```sh
+export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
+cargo nextest run --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6
+RUSTFLAGS=-Ctarget-feature=+simd128 cargo nextest run --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6
+```
+
 Coverage is generated on nightly with:
 
 ```sh
@@ -157,7 +167,10 @@ cargo fuzz run fuzz-hashes
   wrapper holds the kernel's one `unsafe` call. Tokens are only constructed
   by their detection functions (`new`, and the `avx512vl` refinements),
   which use `has_x86_feature!`/`has_aarch64_feature!`; dispatch enums hold
-  them. Do not call those macros outside the token constructors.
+  them. Do not call those macros outside the token constructors. The
+  WebAssembly `simd128` kernels are not detected: they are compiled only
+  when the crate itself has the target feature, so they are ordinary safe
+  functions without `#[target_feature]`, `*_unchecked` names or tokens.
 - Put a `// SAFETY:` comment immediately before every non-test `unsafe` block,
   `unsafe impl`, `unsafe extern`, or `unsafe fn`; explain the concrete pointer,
   aliasing, initialization, layout, or OS-call invariant that makes it valid.
@@ -183,6 +196,14 @@ cargo fuzz run fuzz-hashes
 - `src/x86_64.rs`: the x86-64 CPU feature tokens (`Avx2`, `Avx512`,
   `Avx512Vl`, `Avx512Ifma`, `Bmi2`) and the AVX2/AVX-512
   load/store/transpose/XOR helpers shared by the `*_x86_64.rs` kernels.
+- `src/wasm32.rs`: WebAssembly `simd128` load/store/transpose/XOR helpers
+  shared by the `*_wasm32.rs` kernels. WebAssembly has no runtime feature
+  detection, so these kernels are selected at compile time with
+  `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` (built with
+  `RUSTFLAGS=-Ctarget-feature=+simd128`); other wasm builds use the portable
+  code. Test both configurations (see the `wasm` CI job); the cross-backend
+  test modules import `wasm_bindgen_test as test` on wasm so their `#[test]`
+  functions run under `wasm-bindgen-test-runner`.
 - `src/keccak/`: the Keccak sponge behind SHA-3 (`src/sha3.rs`) and the
   SHAKE/TurboSHAKE XOFs (`src/xof.rs`), and the multi-state `ParSponge`
   behind ML-KEM sampling; the permutation comes from the `keccak` crate,
@@ -205,9 +226,10 @@ cargo fuzz run fuzz-hashes
   `mod.rs` that selects the backend, plus one file per backend it has, named
   `<algo>_soft.rs` (portable Rust), `<algo>_simd.rs` (nightly portable SIMD),
   `<algo>_neon.rs` (runtime-detected AArch64 NEON/SVE2 intrinsics),
-  `<algo>_x86_64.rs` (runtime-detected AVX2/AVX-512 intrinsics), or
-  `<algo>_aarch64.rs` (AArch64 `asm!` blocks: base integer instructions or
-  the runtime-detected `sha2`/`sha3` extensions).
+  `<algo>_x86_64.rs` (runtime-detected AVX2/AVX-512 intrinsics),
+  `<algo>_wasm32.rs` (compile-time-selected WebAssembly `simd128`
+  intrinsics), or `<algo>_aarch64.rs` (AArch64 `asm!` blocks: base integer
+  instructions or the runtime-detected `sha2`/`sha3` extensions).
 - `BENCHMARKS.md` and `benchmarks/`: libsodium comparison results per machine
   (`results-<arch>.dat`) and the gnuplot script that renders the charts.
 - `src/native_test_util.rs`: safe wrappers over the libsodium FFI calls

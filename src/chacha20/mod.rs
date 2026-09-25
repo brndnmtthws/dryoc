@@ -3,9 +3,10 @@
 //! secretstream construction.
 //!
 //! Bulk keystream comes from a vector kernel where one is available: the
-//! runtime-detected NEON/SVE2 kernels on little-endian AArch64 and the
-//! runtime-detected AVX2/AVX-512 kernels on x86-64. The portable scalar block
-//! function handles everything else.
+//! runtime-detected NEON/SVE2 kernels on little-endian AArch64, the
+//! runtime-detected AVX2/AVX-512 kernels on x86-64 and the `simd128` kernel
+//! on WebAssembly builds with that target feature enabled. The portable
+//! scalar block function handles everything else.
 
 use zeroize::Zeroize;
 
@@ -30,6 +31,10 @@ pub(crate) use chacha20_soft::block as scalar_block;
 pub(crate) use chacha20_soft::rounds;
 #[cfg(target_arch = "x86_64")]
 use chacha20_x86_64 as vector;
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+mod chacha20_wasm32;
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+use chacha20_wasm32 as vector;
 
 /// One ChaCha20 double round (a column round followed by a diagonal round)
 /// of `$x`: the eight quarter rounds spelled out with the backend's `$qr`
@@ -88,6 +93,14 @@ trait Kernel: Copy + core::fmt::Debug {
     #[inline]
     fn fuses_extra_block(self) -> bool {
         false
+    }
+
+    /// Fewest blocks (the head included) worth producing in one fused small
+    /// run through the staging buffer rather than as a scalar head block
+    /// followed by the data's own path; by default every run that fits.
+    #[inline]
+    fn fused_head_min_blocks(self) -> usize {
+        1
     }
 
     /// [`Kernel::xor_chunk`] plus one unrelated block: the raw keystream of
@@ -345,7 +358,10 @@ impl ChaCha20 {
         mut sink: S,
     ) -> Result<(), S> {
         let blocks = 1 + sink.len().div_ceil(64);
-        if sink.is_empty() || blocks > vector::SMALL_BLOCKS {
+        if sink.is_empty()
+            || blocks > vector::SMALL_BLOCKS
+            || blocks < kernel.fused_head_min_blocks()
+        {
             return Err(sink);
         }
         let len = sink.len();
@@ -843,6 +859,9 @@ mod tests {
 
     #[cfg(dryoc_stream_kernel)]
     mod vector_path {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        use wasm_bindgen_test::wasm_bindgen_test as test;
+
         use super::*;
 
         /// Every kernel the CPU supports. Every little-endian AArch64 CPU

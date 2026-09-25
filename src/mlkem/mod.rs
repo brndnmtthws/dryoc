@@ -11,8 +11,9 @@
 //! Polynomials are 256 signed 16-bit coefficients modulo `q = 3329`. The
 //! three costly polynomial operations (forward NTT, inverse NTT and the
 //! NTT-domain multiply-add) go through [`Arith`], which picks a vector
-//! backend at runtime when the CPU has one. Every backend computes exactly
-//! the values of the portable code in `mlkem_soft.rs`. Everything else
+//! backend at runtime when the CPU has one (NEON, AVX2), or at compile time
+//! on WebAssembly builds with `simd128` enabled. Every backend computes
+//! exactly the values of the portable code in `mlkem_soft.rs`. Everything else
 //! (sampling, compression, encoding) is shared. Secret-dependent code has
 //! no secret-dependent branches or memory indices: compression uses
 //! multiplications instead of division, and the decapsulation comparison
@@ -34,6 +35,8 @@ use crate::keccak::{
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod mlkem_neon;
 mod mlkem_soft;
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+mod mlkem_wasm32;
 #[cfg(target_arch = "x86_64")]
 mod mlkem_x86_64;
 
@@ -76,6 +79,9 @@ pub(crate) enum Arith {
     /// The runtime-detected AVX2 kernels in `mlkem_x86_64.rs`.
     #[cfg(target_arch = "x86_64")]
     X86_64(mlkem_x86_64::Kernel),
+    /// The `simd128` kernels in `mlkem_wasm32.rs`.
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    Wasm32(mlkem_wasm32::Kernel),
 }
 
 impl Arith {
@@ -90,6 +96,10 @@ impl Arith {
         if let Some(kernel) = mlkem_x86_64::detect() {
             return Self::X86_64(kernel);
         }
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        if let Some(kernel) = mlkem_wasm32::detect() {
+            return Self::Wasm32(kernel);
+        }
         Self::Soft
     }
 
@@ -101,6 +111,8 @@ impl Arith {
         let all = all.chain(mlkem_neon::Kernel::all().into_iter().map(Self::Neon));
         #[cfg(target_arch = "x86_64")]
         let all = all.chain(mlkem_x86_64::Kernel::all().into_iter().map(Self::X86_64));
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        let all = all.chain(mlkem_wasm32::Kernel::all().into_iter().map(Self::Wasm32));
         all.collect()
     }
 
@@ -112,6 +124,8 @@ impl Arith {
             Self::Neon(kernel) => kernel.ntt(r),
             #[cfg(target_arch = "x86_64")]
             Self::X86_64(kernel) => kernel.ntt(r),
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+            Self::Wasm32(kernel) => kernel.ntt(r),
         }
     }
 
@@ -123,6 +137,8 @@ impl Arith {
             Self::Neon(kernel) => kernel.invntt_tomont(r),
             #[cfg(target_arch = "x86_64")]
             Self::X86_64(kernel) => kernel.invntt_tomont(r),
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+            Self::Wasm32(kernel) => kernel.invntt_tomont(r),
         }
     }
 
@@ -134,6 +150,8 @@ impl Arith {
             Self::Neon(kernel) => kernel.basemul_acc(r, a, b),
             #[cfg(target_arch = "x86_64")]
             Self::X86_64(kernel) => kernel.basemul_acc(r, a, b),
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+            Self::Wasm32(kernel) => kernel.basemul_acc(r, a, b),
         }
     }
 
