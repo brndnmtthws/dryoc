@@ -95,7 +95,12 @@
 //! If the `serde` feature is enabled, the
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
 //! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) traits will be
-//! implemented for [`HeapBytes`] and [`HeapByteArray`].
+//! implemented for [`HeapBytes`] and [`HeapByteArray`] and their locked forms.
+//! When deserializing a variable-length [`HeapBytes`] or [`LockedBytes`], the
+//! length the input claims sizes at most a 4 KiB first allocation, the buffer
+//! then grows with the bytes actually read, and allocation or locking failures
+//! are returned as deserialization errors. Owned byte buffers handed over by a
+//! deserializer are wiped before they are freed.
 //!
 //! ## Example
 //!
@@ -175,11 +180,52 @@ mod int {
         NoAccess,
     }
 
-    #[derive(Clone)]
+    /// Where a protected value's bytes are: an address and a length taken
+    /// while the bytes were readable. Page protection and locking calls use
+    /// it instead of a slice, because a reference to `PROT_NONE` pages is
+    /// invalid even when it is never read. It holds a plain address rather
+    /// than a pointer, so it leaves `Send`/`Sync` of the containing types
+    /// unchanged; it is only ever passed to the OS, never dereferenced.
+    #[derive(Clone, Copy)]
+    pub(super) struct Region {
+        addr: usize,
+        pub(super) len: usize,
+    }
+
+    impl Region {
+        pub(super) fn of(bytes: &[u8]) -> Self {
+            Self {
+                addr: bytes.as_ptr().addr(),
+                len: bytes.len(),
+            }
+        }
+
+        pub(super) fn ptr(self) -> *mut u8 {
+            core::ptr::without_provenance_mut(self.addr)
+        }
+    }
+
     pub(super) struct InternalData<A> {
         pub(super) a: A,
         pub(super) lm: LockMode,
         pub(super) pm: ProtectMode,
+        /// The region of `a`, recorded when it was last made no-access.
+        /// Only meaningful while `pm` is [`ProtectMode::NoAccess`]; see
+        /// [`InternalData::region`].
+        pub(super) noaccess_region: Region,
+    }
+
+    impl<A: crate::types::Bytes> InternalData<A> {
+        /// Returns the region of `a`'s bytes. A readable value is asked
+        /// directly, since resizing may have moved its bytes. A no-access
+        /// value cannot be referenced, so it reports the region recorded when
+        /// it was made no-access; no operation moves a no-access value.
+        pub(super) fn region(&self) -> Region {
+            match self.pm {
+                ProtectMode::NoAccess => self.noaccess_region,
+                ProtectMode::ReadOnly | ProtectMode::ReadWrite => Region::of(self.a.as_slice()),
+            }
+        }
     }
 }
 
@@ -413,8 +459,8 @@ impl<T: Zeroize + NewBytes + Clone> Clone for UnlockedRO<T> {
 
 pub use ptypes::*;
 
-fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
-    if data.is_empty() {
+fn dryoc_mlock(region: int::Region) -> Result<(), std::io::Error> {
+    if region.len == 0 {
         // no-op
         return Ok(());
     }
@@ -424,18 +470,20 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         {
             // tell the kernel not to include this memory in a core dump
             use libc::{MADV_DONTDUMP, madvise};
-            // SAFETY: `data` is a valid, non-empty byte slice. `madvise` may
-            // accept any address range and reports errors through its return
-            // value; this advisory call does not change Rust aliasing rules.
+            // SAFETY: `region` is the non-empty byte range of a live protected
+            // allocation. `madvise` takes the address range by value, does not
+            // access the bytes, and reports errors through its return value;
+            // no reference to the bytes is created.
             unsafe {
-                madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DONTDUMP);
+                madvise(region.ptr() as *mut c_void, region.len, MADV_DONTDUMP);
             }
         }
 
         use libc::{c_void, mlock as c_mlock};
-        // SAFETY: `data` is a valid, non-empty byte slice. The OS only pins the
-        // mapped pages for this address range and reports failure via `ret`.
-        let ret = unsafe { c_mlock(data.as_ptr() as *const c_void, data.len()) };
+        // SAFETY: `region` is the non-empty byte range of a live protected
+        // allocation. The OS only pins the mapped pages for this address range
+        // and reports failure via `ret`.
+        let ret = unsafe { c_mlock(region.ptr() as *const c_void, region.len) };
         match ret {
             0 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -446,9 +494,10 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
         use winapi::shared::minwindef::LPVOID;
         use winapi::um::memoryapi::VirtualLock;
 
-        // SAFETY: `data` is a valid, non-empty byte slice. `VirtualLock` pins
-        // the corresponding pages and reports failure through its return value.
-        let res = unsafe { VirtualLock(data.as_ptr() as LPVOID, data.len()) };
+        // SAFETY: `region` is the non-empty byte range of a live protected
+        // allocation. `VirtualLock` pins the corresponding pages and reports
+        // failure through its return value.
+        let res = unsafe { VirtualLock(region.ptr() as LPVOID, region.len) };
         if res != 0 {
             Ok(())
         } else {
@@ -457,8 +506,8 @@ fn dryoc_mlock(data: &[u8]) -> Result<(), std::io::Error> {
     }
 }
 
-fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
-    if data.is_empty() {
+fn dryoc_munlock(region: int::Region) -> Result<(), std::io::Error> {
+    if region.len == 0 {
         // no-op
         return Ok(());
     }
@@ -468,17 +517,19 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
         {
             // undo MADV_DONTDUMP
             use libc::{MADV_DODUMP, madvise};
-            // SAFETY: `data` is a valid, non-empty byte slice. This reverses
-            // the advisory dump flag for the same address range.
+            // SAFETY: `region` is the non-empty byte range of a live protected
+            // allocation. This reverses the advisory dump flag for the same
+            // address range without accessing the bytes.
             unsafe {
-                madvise(data.as_ptr() as *mut c_void, data.len(), MADV_DODUMP);
+                madvise(region.ptr() as *mut c_void, region.len, MADV_DODUMP);
             }
         }
 
         use libc::{c_void, munlock as c_munlock};
-        // SAFETY: `data` is a valid, non-empty byte slice. The OS unpins the
-        // mapped pages for this address range and reports failure via `ret`.
-        let ret = unsafe { c_munlock(data.as_ptr() as *const c_void, data.len()) };
+        // SAFETY: `region` is the non-empty byte range of a live protected
+        // allocation. The OS unpins the mapped pages for this address range
+        // and reports failure via `ret`.
+        let ret = unsafe { c_munlock(region.ptr() as *const c_void, region.len) };
         match ret {
             0 => Ok(()),
             _ => Err(std::io::Error::last_os_error()),
@@ -489,9 +540,10 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
         use winapi::shared::minwindef::LPVOID;
         use winapi::um::memoryapi::VirtualUnlock;
 
-        // SAFETY: `data` is a valid, non-empty byte slice. `VirtualUnlock`
-        // unpins the corresponding pages and reports failure via `res`.
-        let res = unsafe { VirtualUnlock(data.as_ptr() as LPVOID, data.len()) };
+        // SAFETY: `region` is the non-empty byte range of a live protected
+        // allocation. `VirtualUnlock` unpins the corresponding pages and
+        // reports failure via `res`.
+        let res = unsafe { VirtualUnlock(region.ptr() as LPVOID, region.len) };
         if res != 0 {
             Ok(())
         } else {
@@ -500,39 +552,27 @@ fn dryoc_munlock(data: &[u8]) -> Result<(), std::io::Error> {
     }
 }
 
-fn dryoc_mprotect_readonly(data: &[u8]) -> Result<(), std::io::Error> {
-    dryoc_mprotect_ptr(
-        data.as_ptr() as *mut u8,
-        data.len(),
-        PageProtectMode::ReadOnly,
-    )
+fn dryoc_mprotect_readonly(region: int::Region) -> Result<(), std::io::Error> {
+    dryoc_mprotect_ptr(region.ptr(), region.len, PageProtectMode::ReadOnly)
 }
 
-fn dryoc_mprotect_readwrite(data: &[u8]) -> Result<(), std::io::Error> {
-    dryoc_mprotect_ptr(
-        data.as_ptr() as *mut u8,
-        data.len(),
-        PageProtectMode::ReadWrite,
-    )
+fn dryoc_mprotect_readwrite(region: int::Region) -> Result<(), std::io::Error> {
+    dryoc_mprotect_ptr(region.ptr(), region.len, PageProtectMode::ReadWrite)
 }
 
 fn dryoc_mprotect_readwrite_ptr(data: *mut u8, len: usize) -> Result<(), std::io::Error> {
     dryoc_mprotect_ptr(data, len, PageProtectMode::ReadWrite)
 }
 
-fn dryoc_mprotect_noaccess(data: &[u8]) -> Result<(), std::io::Error> {
-    dryoc_mprotect_ptr(
-        data.as_ptr() as *mut u8,
-        data.len(),
-        PageProtectMode::NoAccess,
-    )
+fn dryoc_mprotect_noaccess(region: int::Region) -> Result<(), std::io::Error> {
+    dryoc_mprotect_ptr(region.ptr(), region.len, PageProtectMode::NoAccess)
 }
 
-fn dryoc_mprotect_mode(data: &[u8], mode: &int::ProtectMode) -> Result<(), std::io::Error> {
+fn dryoc_mprotect_mode(region: int::Region, mode: &int::ProtectMode) -> Result<(), std::io::Error> {
     match mode {
-        int::ProtectMode::ReadOnly => dryoc_mprotect_readonly(data),
-        int::ProtectMode::ReadWrite => dryoc_mprotect_readwrite(data),
-        int::ProtectMode::NoAccess => dryoc_mprotect_noaccess(data),
+        int::ProtectMode::ReadOnly => dryoc_mprotect_readonly(region),
+        int::ProtectMode::ReadWrite => dryoc_mprotect_readwrite(region),
+        int::ProtectMode::NoAccess => dryoc_mprotect_noaccess(region),
     }
 }
 
@@ -607,11 +647,13 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Protecte
     }
 
     fn new_with(a: A) -> Self {
+        let noaccess_region = int::Region::of(a.as_slice());
         Self {
             i: Some(int::InternalData {
                 a,
                 lm: int::LockMode::Unlocked,
                 pm: int::ProtectMode::ReadWrite,
+                noaccess_region,
             }),
             p: PhantomData,
             l: PhantomData,
@@ -661,7 +703,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode> Unlock<A, PM>
 {
     fn munlock(mut self) -> Result<Protected<A, PM, traits::Unlocked>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_munlock(old.a.as_slice())?;
+            dryoc_munlock(old.region())?;
             // update internal state
             old.lm = int::LockMode::Unlocked;
             Ok(Protected::<A, PM, traits::Unlocked>::new())
@@ -674,7 +716,7 @@ impl<A: Zeroize + Bytes + Default, PM: traits::ProtectMode> Lock<A, PM>
 {
     fn mlock(mut self) -> Result<Protected<A, PM, traits::Locked>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_mlock(old.a.as_slice())?;
+            dryoc_mlock(old.region())?;
             // update internal state
             old.lm = int::LockMode::Locked;
             Ok(Protected::<A, PM, traits::Locked>::new())
@@ -687,7 +729,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectR
 {
     fn mprotect_readonly(mut self) -> Result<Protected<A, traits::ReadOnly, LM>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_mprotect_readonly(old.a.as_slice())?;
+            dryoc_mprotect_readonly(old.region())?;
             // update internal state
             old.pm = int::ProtectMode::ReadOnly;
             Ok(Protected::<A, traits::ReadOnly, LM>::new())
@@ -700,7 +742,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectR
 {
     fn mprotect_readwrite(mut self) -> Result<Protected<A, traits::ReadWrite, LM>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_mprotect_readwrite(old.a.as_slice())?;
+            dryoc_mprotect_readwrite(old.region())?;
             // update internal state
             old.pm = int::ProtectMode::ReadWrite;
             Ok(Protected::<A, traits::ReadWrite, LM>::new())
@@ -715,8 +757,10 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode> ProtectNoAccess<A, PM>
         mut self,
     ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_mprotect_noaccess(old.a.as_slice())?;
-            // update internal state
+            let region = old.region();
+            dryoc_mprotect_noaccess(region)?;
+            // update internal state; the bytes cannot be referenced from now on
+            old.noaccess_region = region;
             old.pm = int::ProtectMode::NoAccess;
             Ok(Protected::<A, traits::NoAccess, traits::Unlocked>::new())
         })
@@ -1066,16 +1110,19 @@ impl ProtectedBuffer {
         }
 
         let raw = allocate_raw_region(len)?;
-        let mut buffer = Self {
+        // SAFETY: `raw.data` starts the read-write user region between the
+        // guard pages, which holds `raw.rounded_size >= len` bytes owned by
+        // this call. Filling it through the raw pointer initializes the bytes
+        // before any slice over them is created.
+        unsafe { raw.data.as_ptr().write_bytes(value, len) };
+        Ok(Self {
             base: Some(raw.base),
             data: raw.data,
             len,
             capacity: len,
             rounded_size: raw.rounded_size,
             total_size: raw.total_size,
-        };
-        buffer.as_mut_slice().fill(value);
-        Ok(buffer)
+        })
     }
 
     fn from_slice(src: &[u8]) -> Result<Self, std::io::Error> {
@@ -1115,14 +1162,22 @@ impl ProtectedBuffer {
     }
 
     fn resize(&mut self, new_len: usize, value: u8) {
+        self.try_resize(new_len, value)
+            .expect("protected resize failed");
+    }
+
+    /// Fallible [`ProtectedBuffer::resize`]: returns an error instead of
+    /// panicking when the new region cannot be allocated.
+    fn try_resize(&mut self, new_len: usize, value: u8) -> Result<(), std::io::Error> {
         if new_len == self.len {
-            return;
+            return Ok(());
         }
 
-        let mut resized = Self::new_filled(new_len, value).expect("protected resize failed");
+        let mut resized = Self::new_filled(new_len, value)?;
         let len_to_copy = std::cmp::min(self.len, new_len);
         resized.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
         std::mem::swap(self, &mut resized);
+        Ok(())
     }
 
     fn copy_from_slice(&mut self, other: &[u8]) {
@@ -1435,29 +1490,51 @@ impl ResizableBytes for HeapBytes {
     }
 }
 
+/// Fallible resizing, used by deserialization to report allocation and
+/// locking failures as errors instead of panicking.
+#[cfg(feature = "serde")]
+impl HeapBytes {
+    pub(crate) fn try_resize(&mut self, new_len: usize, value: u8) -> Result<(), error::Error> {
+        Ok(self.0.try_resize(new_len, value)?)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Protected<HeapBytes, traits::ReadWrite, traits::Locked> {
+    pub(crate) fn try_resize(&mut self, new_len: usize, value: u8) -> Result<(), error::Error> {
+        if new_len == self.len() {
+            return Ok(());
+        }
+        let mut new = HeapBytes::default();
+        new.try_resize(new_len, value)?;
+        self.replace_locked(new)
+    }
+}
+
+impl<A: Zeroize + NewBytes + Lockable<A>> Protected<A, traits::ReadWrite, traits::Locked> {
+    /// Locks `new`, copies as much of the current bytes into it as fits, and
+    /// makes it the current region. Locked memory cannot be resized in place,
+    /// so resizing swaps in a new locked region; the old one is wiped and
+    /// unlocked when it drops.
+    fn replace_locked(&mut self, new: A) -> Result<(), error::Error> {
+        let mut locked = new.mlock()?;
+        let len_to_copy = std::cmp::min(locked.len(), self.len());
+        locked.as_mut_slice()[..len_to_copy].copy_from_slice(&self.as_slice()[..len_to_copy]);
+        std::mem::swap(&mut locked.i, &mut self.i);
+        Ok(())
+    }
+}
+
 impl<A: Zeroize + NewBytes + ResizableBytes + Lockable<A>> ResizableBytes
     for Protected<A, traits::ReadWrite, traits::Locked>
 {
     fn resize(&mut self, new_len: usize, value: u8) {
-        match &mut self.i {
-            Some(d) => {
-                // because it's locked, we'll do a swaparoo here instead of a
-                // plain resize
-                let mut new = A::new_bytes();
-                // resize the new array
-                new.resize(new_len, value);
-                // need to actually lock the memory now, because it was
-                // previously locked
-                let mut locked = new.mlock().expect("unable to lock on resize");
-                let len_to_copy = std::cmp::min(new_len, d.a.as_slice().len());
-                locked.i.as_mut().unwrap().a.as_mut_slice()[..len_to_copy]
-                    .copy_from_slice(&d.a.as_slice()[..len_to_copy]);
-                std::mem::swap(&mut locked.i, &mut self.i);
-                // when dropped, the old region will unlock automatically in
-                // Drop
-            }
-            None => panic!("invalid array"),
+        if new_len == self.len() {
+            return;
         }
+        let mut new = A::new_bytes();
+        new.resize(new_len, value);
+        self.replace_locked(new).expect("unable to lock on resize");
     }
 }
 
@@ -1675,9 +1752,12 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
             return;
         };
 
-        let writable = data.a.as_slice().is_empty()
+        // Protection and locking calls use `region`, since the bytes cannot be
+        // referenced until they are writable again.
+        let region = data.region();
+        let writable = region.len == 0
             || data.pm == int::ProtectMode::ReadWrite
-            || match dryoc_mprotect_readwrite(data.a.as_slice()) {
+            || match dryoc_mprotect_readwrite(region) {
                 Ok(()) => true,
                 Err(err) => abort_protected_memory_failure("making memory writable for drop", err),
             };
@@ -1687,7 +1767,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
         }
 
         if data.lm == int::LockMode::Locked {
-            match dryoc_munlock(data.a.as_slice()) {
+            match dryoc_munlock(region) {
                 Ok(()) => data.lm = int::LockMode::Unlocked,
                 Err(err) => abort_protected_memory_failure("unlocking memory for drop", err),
             }
@@ -1707,13 +1787,14 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
         let Some(data) = &mut self.i else {
             return;
         };
-        if data.a.as_slice().is_empty() {
+        let region = data.region();
+        if region.len == 0 {
             return;
         }
 
         let previous_mode = data.pm.clone();
         if previous_mode != int::ProtectMode::ReadWrite
-            && let Err(error) = dryoc_mprotect_readwrite(data.a.as_slice())
+            && let Err(error) = dryoc_mprotect_readwrite(region)
         {
             abort_protected_memory_failure("making memory writable for zeroization", error);
         }
@@ -1721,7 +1802,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
         data.a.zeroize();
 
         if previous_mode != int::ProtectMode::ReadWrite
-            && let Err(error) = dryoc_mprotect_mode(data.a.as_slice(), &previous_mode)
+            && let Err(error) = dryoc_mprotect_mode(region, &previous_mode)
         {
             abort_protected_memory_failure("restoring memory protection after zeroization", error);
         }
@@ -2167,8 +2248,9 @@ mod tests {
     fn test_mprotect_handles_single_byte_slice() {
         let mut vec = HeapBytes::from(&[1u8][..]);
 
-        dryoc_mprotect_readonly(vec.as_slice()).expect("readonly mprotect failed");
-        dryoc_mprotect_readwrite(vec.as_slice()).expect("readwrite mprotect failed");
+        let region = int::Region::of(vec.as_slice());
+        dryoc_mprotect_readonly(region).expect("readonly mprotect failed");
+        dryoc_mprotect_readwrite(region).expect("readwrite mprotect failed");
         vec[0] = 2;
 
         assert_eq!(vec[0], 2);
@@ -2184,8 +2266,9 @@ mod tests {
         let mut vec = HeapBytes::default();
         vec.resize(pagesize, 1);
 
-        dryoc_mprotect_readonly(vec.as_slice()).expect("readonly mprotect failed");
-        dryoc_mprotect_readwrite(vec.as_slice()).expect("readwrite mprotect failed");
+        let region = int::Region::of(vec.as_slice());
+        dryoc_mprotect_readonly(region).expect("readonly mprotect failed");
+        dryoc_mprotect_readwrite(region).expect("readwrite mprotect failed");
         vec[0] = 2;
         vec[pagesize - 1] = 3;
 
@@ -2204,13 +2287,16 @@ mod tests {
         let mut vec = HeapBytes::default();
         vec.resize(pagesize + 1, 0);
 
-        dryoc_mprotect_noaccess(vec.as_slice()).expect("noaccess mprotect failed");
+        // Taken while readable; the no-access pages must not be referenced.
+        let region = int::Region::of(vec.as_slice());
+        let data = vec.as_mut_slice().as_mut_ptr();
+        dryoc_mprotect_noaccess(region).expect("noaccess mprotect failed");
 
         let child = unsafe { libc::fork() };
         assert!(child >= 0, "fork failed");
 
         if child == 0 {
-            let tail = unsafe { vec.as_slice().as_ptr().add(pagesize) as *mut u8 };
+            let tail = unsafe { data.add(pagesize) };
             unsafe {
                 std::ptr::write_volatile(tail, 1);
                 libc::_exit(0);
@@ -2219,7 +2305,7 @@ mod tests {
 
         let mut status = 0;
         let wait_ret = unsafe { libc::waitpid(child, &mut status, 0) };
-        dryoc_mprotect_readwrite(vec.as_slice()).expect("readwrite mprotect failed");
+        dryoc_mprotect_readwrite(region).expect("readwrite mprotect failed");
 
         assert_eq!(wait_ret, child);
         assert!(
@@ -2338,6 +2424,27 @@ mod tests {
         let unlocked = cloned.munlock().expect("unlock failed");
         assert_eq!(unlocked.as_slice(), b"Clone me");
         assert_eq!(original.as_slice(), b"clone me");
+    }
+
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "tarpaulin can segfault while tracing mlock/mprotect tests"
+    )]
+    #[test]
+    fn locked_resize_to_the_same_length_keeps_its_region() {
+        // Only one page: a same-length resize must not lock a second region.
+        if !can_lock_pages(1) {
+            return;
+        }
+        let mut locked = HeapBytes::from_slice_into_locked(b"keep").expect("locked");
+        let data = locked.as_slice().as_ptr();
+
+        locked.resize(4, 0);
+
+        assert_eq!(locked.as_slice().as_ptr(), data);
+        assert_eq!(locked.as_slice(), b"keep");
+        let state = locked.i.as_ref().expect("protected state missing");
+        assert_eq!(state.lm, int::LockMode::Locked);
     }
 
     #[cfg_attr(

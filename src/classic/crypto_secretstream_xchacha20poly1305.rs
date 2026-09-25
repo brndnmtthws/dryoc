@@ -115,11 +115,21 @@ pub type Nonce = [u8; CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES];
 pub type Header = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
 
 /// Stream state data
-#[derive(PartialEq, Eq, Clone, Default, Zeroize, ZeroizeOnDrop)]
+///
+/// Equality compares the key and nonce in constant time.
+#[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
 pub struct State {
     k: Key,
     nonce: Nonce,
 }
+
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        (self.k.ct_eq(&other.k) & self.nonce.ct_eq(&other.nonce)).into()
+    }
+}
+
+impl Eq for State {}
 
 impl State {
     /// Returns a new stream state with an empty key and nonce.

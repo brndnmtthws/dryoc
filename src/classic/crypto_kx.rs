@@ -36,10 +36,7 @@
 use zeroize::Zeroizing;
 
 use super::crypto_core::{crypto_scalarmult, crypto_scalarmult_base};
-use super::crypto_generichash::{
-    crypto_generichash, crypto_generichash_final, crypto_generichash_init,
-    crypto_generichash_update,
-};
+use super::crypto_generichash::crypto_generichash;
 use crate::constants::{
     CRYPTO_KX_PUBLICKEYBYTES, CRYPTO_KX_SECRETKEYBYTES, CRYPTO_KX_SEEDBYTES,
     CRYPTO_KX_SESSIONKEYBYTES, CRYPTO_SCALARMULT_BYTES,
@@ -88,20 +85,27 @@ pub fn crypto_kx_keypair() -> (PublicKey, SecretKey) {
     (pk, sk)
 }
 
+/// Derives both session keys as BLAKE2b-512(`shared_secret` || `client_pk` ||
+/// `server_pk`). The secret is borrowed, so the caller's [`Zeroizing`] owner
+/// wipes it; the hash input is assembled in wiping storage and hashed in one
+/// call, because moving an incremental hash state into its finalizer leaves
+/// an unwiped copy of the buffered secret in this frame.
 fn crypto_kx(
     x1: &mut SessionKey,
     x2: &mut SessionKey,
     client_pk: &PublicKey,
     server_pk: &PublicKey,
-    shared_secret: Zeroizing<[u8; CRYPTO_SCALARMULT_BYTES]>,
+    shared_secret: &[u8; CRYPTO_SCALARMULT_BYTES],
 ) -> Result<(), Error> {
-    let mut keys = Zeroizing::new([0u8; 2 * CRYPTO_KX_SESSIONKEYBYTES]);
+    let mut input = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES + 2 * CRYPTO_KX_PUBLICKEYBYTES]);
+    let (secret, public_keys) = input.split_at_mut(CRYPTO_SCALARMULT_BYTES);
+    let (client, server) = public_keys.split_at_mut(CRYPTO_KX_PUBLICKEYBYTES);
+    secret.copy_from_slice(shared_secret);
+    client.copy_from_slice(client_pk);
+    server.copy_from_slice(server_pk);
 
-    let mut hasher = crypto_generichash_init(None, 2 * CRYPTO_KX_SESSIONKEYBYTES)?;
-    crypto_generichash_update(&mut hasher, &shared_secret[..]);
-    crypto_generichash_update(&mut hasher, client_pk);
-    crypto_generichash_update(&mut hasher, server_pk);
-    crypto_generichash_final(hasher, &mut keys[..])?;
+    let mut keys = Zeroizing::new([0u8; 2 * CRYPTO_KX_SESSIONKEYBYTES]);
+    crypto_generichash(&mut keys[..], &input[..], None)?;
 
     x1.copy_from_slice(&keys[..CRYPTO_KX_SESSIONKEYBYTES]);
     x2.copy_from_slice(&keys[CRYPTO_KX_SESSIONKEYBYTES..]);
@@ -129,7 +133,7 @@ pub fn crypto_kx_client_session_keys(
 
     crypto_scalarmult(&mut shared_secret, client_sk, server_pk)?;
 
-    crypto_kx(rx, tx, client_pk, server_pk, shared_secret)
+    crypto_kx(rx, tx, client_pk, server_pk, &shared_secret)
 }
 
 /// Computes server session keys for `rx` and `tx`, using `server_pk`,
@@ -152,7 +156,7 @@ pub fn crypto_kx_server_session_keys(
 
     crypto_scalarmult(&mut shared_secret, server_sk, client_pk)?;
 
-    crypto_kx(tx, rx, client_pk, server_pk, shared_secret)
+    crypto_kx(tx, rx, client_pk, server_pk, &shared_secret)
 }
 
 #[cfg(all(test, dryoc_native_tests))]

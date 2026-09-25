@@ -227,7 +227,8 @@ arithmetic, which are unsafe in Rust. Some optimized implementations also use
 small, carefully bounded unsafe blocks. The in-crate unsafe inventory includes
 wincode schema implementations for vector-backed boxes and AEAD envelopes,
 BLAKE2b parameter byte views, protected memory guarded heap buffers with their
-fixed-size byte views and OS protection calls, 16-byte volatile zeroization of
+fixed-size byte views and OS protection calls (made on recorded address
+ranges, so no-access pages are never referenced), 16-byte volatile zeroization of
 secret buffers, the x86-64 backends
 (detected AVX2, AVX-512 and AVX-512 IFMA entry points for ChaCha20,
 XSalsa20, Poly1305, the Argon2 block compression, the BLAKE2b compression,
@@ -243,7 +244,8 @@ the ChaCha20 and XSalsa20 rounds, scalar `asm!` blocks for the ChaCha20 and
 BLAKE2b rounds and the Curve25519 field products, and detected
 `sha2`/`sha3` instruction `asm!` loops for the SHA-256 and SHA-512
 compression functions, and the detected SHA3-extension Keccak permutation.
-CPU features are detected at runtime with the `std`
-feature and taken from the compile-time target features without it.
+`PwHash::into_parts` moves fields out of a value with a zeroizing `Drop`
+(`ManuallyDrop` + `ptr::read`). CPU features are detected at runtime with the
+`std` feature and taken from the compile-time target features without it.
 The [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 lists every non-test use of unsafe code in this crate.
