@@ -27,8 +27,10 @@ pub(super) fn double_round(x: &mut [u32; 16]) {
 }
 
 /// Applies the 20 ChaCha rounds (10 double rounds) to `x` in place, without
-/// the final feed-forward addition.
-#[inline]
+/// the final feed-forward addition. `#[inline(always)]`: out of line (x86-64
+/// at opt-level `z` and `s`) it took the working copy of the key state
+/// through memory.
+#[inline(always)]
 pub(crate) fn rounds(x: &mut [u32; 16]) {
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     super::chacha20_aarch64::rounds(x);
@@ -50,16 +52,20 @@ pub(super) fn block_input(state: &[u32; 16], counter: u64) -> [u32; 16] {
 
 /// Computes the ChaCha20 keystream block for `state` with words 12 and 13
 /// replaced by the little-endian halves of `counter`, serialising the result
-/// into `out`. The working copies only flow through inlined code, so they
-/// live in registers or compiler spill slots, out of Rust's reach; wiping
-/// them would only force them into stack slots. Callers wipe `out`.
+/// into `out`. The working copies only flow through inlined code (the
+/// feed-forward is spelled out with [`each_word`](crate::stream::each_word):
+/// a `zip` over them was out of line at opt-level `z` and `s` and took their
+/// addresses), so they live in registers or compiler spill slots, out of
+/// Rust's reach; wiping them would only force them into stack slots. Callers
+/// wipe `out`.
 pub(crate) fn block(state: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
     let initial = block_input(state, counter);
     let mut x = initial;
     rounds(&mut x);
-    for ((chunk, word), init) in out.as_chunks_mut::<4>().0.iter_mut().zip(&x).zip(&initial) {
-        *chunk = word.wrapping_add(*init).to_le_bytes();
-    }
+    let out = out.as_chunks_mut::<4>().0;
+    crate::stream::each_word!(I, {
+        out[I] = x[I].wrapping_add(initial[I]).to_le_bytes();
+    });
 }
 
 #[cfg(test)]

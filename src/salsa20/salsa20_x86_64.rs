@@ -5,14 +5,14 @@
 //! be transposed once at the end, right before being XORed into the data.
 //! Control flow and memory access are independent of the key and nonce.
 //!
-//! Wiping: the lane sets and scalar words stay inside each kernel (the finish
-//! and XOR helpers are macros; as `#[inline]` functions they were kept out
-//! of line and received stack copies of the lane state and input), so they
-//! live in registers or compiler spill slots (the AVX2 set does not fit the
-//! 16 `ymm` registers), which are out of Rust's reach and not wiped: a wipe
-//! would only force them into stack slots. The one addressable copy, the
-//! memory-resident words of the scalar companion block (an `asm!` memory
-//! operand), is zeroized once per kernel call.
+//! Wiping: the lane sets and scalar words stay inside each kernel (the input,
+//! transpose, finish and XOR helpers are macros; as `#[inline]` functions they
+//! were kept out of line and received stack copies of the lane state and
+//! input), so they live in registers or compiler spill slots (the AVX2 set does
+//! not fit the 16 `ymm` registers), which are out of Rust's reach and not
+//! wiped: a wipe would only force them into stack slots. The one addressable
+//! copy, the memory-resident words of the scalar companion block (an `asm!`
+//! memory operand), is zeroized once per kernel call.
 
 use core::arch::asm;
 use core::arch::x86_64::{
@@ -57,6 +57,9 @@ impl super::Kernel for Kernel {
         2 * 64
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: it only forwards `&`
+    /// to the cipher's own state, which `XSalsa20` wipes on drop, and the
+    /// caller's buffers.
     #[inline]
     fn xor_chunk(
         self,
@@ -105,6 +108,9 @@ impl super::Kernel for Kernel {
         self.0.fuses_extra_block()
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: like
+    /// [`xor_chunk`](super::Kernel::xor_chunk) it only forwards `&` to the
+    /// cipher's own state and the caller's buffers (`extra` included).
     #[inline]
     fn xor_chunk_with_block(
         self,
@@ -179,7 +185,7 @@ fn xor_chunk_avx2(
 ) {
     let mut dest = Dest::new(LANES, input, output, partial);
 
-    let initial = input_lanes::<8, 9>(state, counter);
+    let initial = input_lanes!(state, counter, 8, 9);
     let mut x = initial;
     for _ in 0..10 {
         super::salsa20_double_round!(step_avx2, x);
@@ -214,7 +220,7 @@ fn xor_chunk_avx512vl(
 ) {
     let mut dest = Dest::new(LANES, input, output, partial);
 
-    let initial = input_lanes::<8, 9>(state, counter);
+    let initial = input_lanes!(state, counter, 8, 9);
     let mut x = initial;
     for _ in 0..10 {
         super::salsa20_double_round!(step_avx512vl, x);
@@ -249,7 +255,7 @@ fn xor_chunk_avx512(
 ) {
     let mut dest = Dest::new(LANES512, input, output, partial);
 
-    let initial = input_lanes512::<8, 9>(state, counter);
+    let initial = input_lanes512!(state, counter, 8, 9);
     let mut x = initial;
     for _ in 0..10 {
         super::salsa20_double_round!(step_avx512, x);
@@ -453,7 +459,7 @@ fn xor_chunk_avx512_with_block(
 ) {
     let mut dest = Dest::new(LANES512, input, output, partial);
 
-    let initial = input_lanes512::<8, 9>(state, counter);
+    let initial = input_lanes512!(state, counter, 8, 9);
     let mut x = initial;
     let scalar_initial = super::salsa20_soft::block_input(state, extra_counter);
     let (mut regs, mut mem) = split_words(&scalar_initial);

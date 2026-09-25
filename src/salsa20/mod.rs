@@ -144,6 +144,12 @@ trait Kernel: Copy + core::fmt::Debug {
 }
 
 /// XSalsa20 keystream generator with byte-granular continuity across calls.
+///
+/// The driver helpers (`advance_counter`, `apply_blocks`, `apply_buffered`,
+/// `run_chunk(s)`, the scalar block, the slice and `zip` helpers) may be out
+/// of line at opt-level `z` and `s`, which adds no copy: they only get `&` or
+/// `&mut` to `self`, whose state and keystream `buffer` are wiped on drop,
+/// the caller's buffers, and the `staged` scratch, wiped once per call.
 pub(crate) struct XSalsa20 {
     /// Salsa20 input words; words 8 and 9 (the block counter) are always zero
     /// here and supplied from `counter` when a block is generated.

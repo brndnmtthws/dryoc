@@ -7,14 +7,14 @@
 //! XORed into the data. Control flow and memory access are independent of the
 //! key and nonce.
 //!
-//! Wiping: the lane sets stay inside each kernel (the finish and XOR helpers
-//! are macros; as `#[inline]` functions they were kept out of line and
-//! received stack copies of the lane state and input), so they live in
+//! Wiping: the lane sets stay inside each kernel (the input, transpose, finish
+//! and XOR helpers are macros; as `#[inline]` functions they were kept out of
+//! line and received stack copies of the lane state and input), so they live in
 //! registers or compiler spill slots (the AVX2 set does not fit the 16 `ymm`
-//! registers), which are out of Rust's reach and not wiped: a wipe would
-//! only force them into stack slots. The one addressable copy, the scalar
-//! companion block whose words `10..16` are an `asm!` memory operand, is
-//! zeroized once per kernel call.
+//! registers), which are out of Rust's reach and not wiped: a wipe would only
+//! force them into stack slots. The one addressable copy, the scalar companion
+//! block whose words `10..16` are an `asm!` memory operand, is zeroized once
+//! per kernel call.
 
 use core::arch::asm;
 use core::arch::x86_64::{
@@ -218,7 +218,7 @@ fn xor_chunk_avx2(
 
     let rot16 = rot16_table();
     let rot8 = rot8_table();
-    let initial = input_lanes::<12, 13>(state, counter);
+    let initial = input_lanes!(state, counter, 12, 13);
     let mut x = initial;
     for _ in 0..10 {
         super::chacha20_double_round!(quarter_round, x, rot16, rot8);
@@ -257,7 +257,7 @@ fn xor_chunk_avx512vl(
 ) {
     let mut dest = Dest::new(LANES, input, output, partial);
 
-    let initial = input_lanes::<12, 13>(state, counter);
+    let initial = input_lanes!(state, counter, 12, 13);
     let mut x = initial;
     for _ in 0..10 {
         super::chacha20_double_round!(quarter_round_vl, x);
@@ -298,7 +298,7 @@ fn xor_chunk_avx512(
 ) {
     let mut dest = Dest::new(LANES512, input, output, partial);
 
-    let initial = input_lanes512::<12, 13>(state, counter);
+    let initial = input_lanes512!(state, counter, 12, 13);
     let mut x = initial;
     for _ in 0..10 {
         super::chacha20_double_round!(quarter_round512, x);
@@ -486,7 +486,7 @@ fn xor_chunk_avx512_with_block(
 ) {
     let mut dest = Dest::new(LANES512, input, output, partial);
 
-    let initial = input_lanes512::<12, 13>(state, counter);
+    let initial = input_lanes512!(state, counter, 12, 13);
     let mut x = initial;
     let scalar_initial = super::chacha20_soft::block_input(state, extra_counter);
     let mut s = scalar_initial;

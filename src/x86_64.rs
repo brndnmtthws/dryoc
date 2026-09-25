@@ -8,11 +8,9 @@
 use core::arch::x86_64::{
     __m256i, __m512i, _mm256_add_epi32, _mm256_cmpgt_epi32, _mm256_loadu_si256,
     _mm256_permute2x128_si256, _mm256_set1_epi32, _mm256_setr_epi32, _mm256_storeu_si256,
-    _mm256_sub_epi32, _mm256_unpackhi_epi32, _mm256_unpackhi_epi64, _mm256_unpacklo_epi32,
-    _mm256_unpacklo_epi64, _mm256_xor_si256, _mm512_add_epi32, _mm512_cmplt_epu32_mask,
-    _mm512_loadu_si512, _mm512_mask_add_epi32, _mm512_set1_epi32, _mm512_setr_epi32,
-    _mm512_shuffle_i32x4, _mm512_storeu_si512, _mm512_unpackhi_epi32, _mm512_unpackhi_epi64,
-    _mm512_unpacklo_epi32, _mm512_unpacklo_epi64, _mm512_xor_si512,
+    _mm256_sub_epi32, _mm256_unpackhi_epi64, _mm256_unpacklo_epi64, _mm256_xor_si256,
+    _mm512_add_epi32, _mm512_cmplt_epu32_mask, _mm512_loadu_si512, _mm512_mask_add_epi32,
+    _mm512_set1_epi32, _mm512_setr_epi32, _mm512_storeu_si512,
 };
 
 // The 64-bit lane rotations serve the Argon2 kernels, which need `alloc`, and
@@ -279,7 +277,8 @@ pub(crate) fn store_words512(words: &mut [u64; 8], v: __m512i) {
 
 /// The 32-bit lanes `counter + 0 .. counter + 8` of a 64-bit block counter
 /// split into low and high words, `(lo, hi)`, the high word carrying where
-/// the low word wrapped.
+/// the low word wrapped. Out of line at opt-level `z`, which adds no copy:
+/// it only sees the block counter.
 #[inline]
 #[target_feature(enable = "avx2")]
 pub(crate) fn counter_lanes(counter: u64) -> (__m256i, __m256i) {
@@ -294,60 +293,98 @@ pub(crate) fn counter_lanes(counter: u64) -> (__m256i, __m256i) {
     (lo_lanes, hi_lanes)
 }
 
-/// The cipher input for blocks `counter .. counter + 8`, one block per
-/// lane: every word of `state` broadcast, with the low and high halves of
-/// the block counter in words `LO` and `HI`.
-#[inline]
-#[target_feature(enable = "avx2")]
-pub(crate) fn input_lanes<const LO: usize, const HI: usize>(
-    state: &[u32; 16],
-    counter: u64,
-) -> [__m256i; 16] {
-    let mut x = [_mm256_set1_epi32(0); 16];
-    for (lane, &word) in x.iter_mut().zip(state) {
-        *lane = _mm256_set1_epi32(word as i32);
-    }
-    (x[LO], x[HI]) = counter_lanes(counter);
-    x
+/// Every word of the `&[u32; 16]` `$state` broadcast with `$set1`
+/// (`_mm256_set1_epi32` or `_mm512_set1_epi32`), spelled out: a `zip` over
+/// `state` built the lanes in a stack array behind an out-of-line
+/// `Iter::size` at opt-level `z` and `s`.
+macro_rules! broadcast_words {
+    ($set1:path, $state:expr) => {{
+        let state: &[u32; 16] = $state;
+        [
+            $set1(state[0] as i32),
+            $set1(state[1] as i32),
+            $set1(state[2] as i32),
+            $set1(state[3] as i32),
+            $set1(state[4] as i32),
+            $set1(state[5] as i32),
+            $set1(state[6] as i32),
+            $set1(state[7] as i32),
+            $set1(state[8] as i32),
+            $set1(state[9] as i32),
+            $set1(state[10] as i32),
+            $set1(state[11] as i32),
+            $set1(state[12] as i32),
+            $set1(state[13] as i32),
+            $set1(state[14] as i32),
+            $set1(state[15] as i32),
+        ]
+    }};
 }
+pub(crate) use broadcast_words;
 
-/// Transposes the 8x8 word matrix held in `r` (vector `i` = word `i` of
-/// blocks `0..8`) so that vector `j` of the result holds words `0..8` of block
-/// `j`.
-#[inline]
-#[target_feature(enable = "avx2")]
-pub(crate) fn transpose(r: [__m256i; 8]) -> [__m256i; 8] {
-    // Pairs of words interleaved within each 128-bit half.
-    let t0 = _mm256_unpacklo_epi32(r[0], r[1]);
-    let t1 = _mm256_unpackhi_epi32(r[0], r[1]);
-    let t2 = _mm256_unpacklo_epi32(r[2], r[3]);
-    let t3 = _mm256_unpackhi_epi32(r[2], r[3]);
-    let t4 = _mm256_unpacklo_epi32(r[4], r[5]);
-    let t5 = _mm256_unpackhi_epi32(r[4], r[5]);
-    let t6 = _mm256_unpacklo_epi32(r[6], r[7]);
-    let t7 = _mm256_unpackhi_epi32(r[6], r[7]);
-    // Each half of `u<k>` now holds words `0..4` (`k < 4`) or `4..8` (`k >=
-    // 4`) of one block: the low half of block `k % 4`, the high half of block
-    // `k % 4 + 4`.
-    let u0 = _mm256_unpacklo_epi64(t0, t2);
-    let u1 = _mm256_unpackhi_epi64(t0, t2);
-    let u2 = _mm256_unpacklo_epi64(t1, t3);
-    let u3 = _mm256_unpackhi_epi64(t1, t3);
-    let u4 = _mm256_unpacklo_epi64(t4, t6);
-    let u5 = _mm256_unpackhi_epi64(t4, t6);
-    let u6 = _mm256_unpacklo_epi64(t5, t7);
-    let u7 = _mm256_unpackhi_epi64(t5, t7);
-    [
-        _mm256_permute2x128_si256::<0x20>(u0, u4),
-        _mm256_permute2x128_si256::<0x20>(u1, u5),
-        _mm256_permute2x128_si256::<0x20>(u2, u6),
-        _mm256_permute2x128_si256::<0x20>(u3, u7),
-        _mm256_permute2x128_si256::<0x31>(u0, u4),
-        _mm256_permute2x128_si256::<0x31>(u1, u5),
-        _mm256_permute2x128_si256::<0x31>(u2, u6),
-        _mm256_permute2x128_si256::<0x31>(u3, u7),
-    ]
+/// The cipher input for blocks `$counter .. $counter + 8`, one block per
+/// lane (a `[__m256i; 16]`): every word of `$state` broadcast, with the low
+/// and high halves of the block counter in words `$lo` and `$hi`.
+///
+/// A macro rather than a function so it expands inside each kernel: as a
+/// `#[target_feature]` function (which cannot be `#[inline(always)]`) it was
+/// out of line at opt-level `z` and returned the broadcast key words through
+/// a stack buffer.
+macro_rules! input_lanes {
+    ($state:expr, $counter:expr, $lo:literal, $hi:literal) => {{
+        let mut x =
+            $crate::x86_64::broadcast_words!(::core::arch::x86_64::_mm256_set1_epi32, $state);
+        (x[$lo], x[$hi]) = $crate::x86_64::counter_lanes($counter);
+        x
+    }};
 }
+pub(crate) use input_lanes;
+
+/// Transposes the 8x8 word matrix held in the `[__m256i; 8]` `$r` (vector
+/// `i` = word `i` of blocks `0..8`) so that vector `j` of the result holds
+/// words `0..8` of block `j`. A macro for the same reason as
+/// [`input_lanes`]: out of line at opt-level `z`, the keystream went in and
+/// out through the stack.
+macro_rules! transpose {
+    ($r:expr) => {{
+        use ::core::arch::x86_64::{
+            __m256i, _mm256_permute2x128_si256, _mm256_unpackhi_epi32, _mm256_unpackhi_epi64,
+            _mm256_unpacklo_epi32, _mm256_unpacklo_epi64,
+        };
+        let r: [__m256i; 8] = $r;
+        // Pairs of words interleaved within each 128-bit half.
+        let t0 = _mm256_unpacklo_epi32(r[0], r[1]);
+        let t1 = _mm256_unpackhi_epi32(r[0], r[1]);
+        let t2 = _mm256_unpacklo_epi32(r[2], r[3]);
+        let t3 = _mm256_unpackhi_epi32(r[2], r[3]);
+        let t4 = _mm256_unpacklo_epi32(r[4], r[5]);
+        let t5 = _mm256_unpackhi_epi32(r[4], r[5]);
+        let t6 = _mm256_unpacklo_epi32(r[6], r[7]);
+        let t7 = _mm256_unpackhi_epi32(r[6], r[7]);
+        // Each half of `u<k>` now holds words `0..4` (`k < 4`) or `4..8` (`k >=
+        // 4`) of one block: the low half of block `k % 4`, the high half of
+        // block `k % 4 + 4`.
+        let u0 = _mm256_unpacklo_epi64(t0, t2);
+        let u1 = _mm256_unpackhi_epi64(t0, t2);
+        let u2 = _mm256_unpacklo_epi64(t1, t3);
+        let u3 = _mm256_unpackhi_epi64(t1, t3);
+        let u4 = _mm256_unpacklo_epi64(t4, t6);
+        let u5 = _mm256_unpackhi_epi64(t4, t6);
+        let u6 = _mm256_unpacklo_epi64(t5, t7);
+        let u7 = _mm256_unpackhi_epi64(t5, t7);
+        [
+            _mm256_permute2x128_si256::<0x20>(u0, u4),
+            _mm256_permute2x128_si256::<0x20>(u1, u5),
+            _mm256_permute2x128_si256::<0x20>(u2, u6),
+            _mm256_permute2x128_si256::<0x20>(u3, u7),
+            _mm256_permute2x128_si256::<0x31>(u0, u4),
+            _mm256_permute2x128_si256::<0x31>(u1, u5),
+            _mm256_permute2x128_si256::<0x31>(u2, u6),
+            _mm256_permute2x128_si256::<0x31>(u3, u7),
+        ]
+    }};
+}
+pub(crate) use transpose;
 
 /// Transposes the 4x4 matrix of 64-bit words held in `r`: word `j` of
 /// vector `i` becomes word `i` of vector `j`. The transpose is its own
@@ -414,8 +451,8 @@ macro_rules! finish_lanes {
         }
         // `lo[block]` holds words `0..8` of `block`, `hi[block]` words
         // `8..16`.
-        let lo = $crate::x86_64::transpose([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
-        let hi = $crate::x86_64::transpose([x[8], x[9], x[10], x[11], x[12], x[13], x[14], x[15]]);
+        let lo = $crate::x86_64::transpose!([x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7]]);
+        let hi = $crate::x86_64::transpose!([x[8], x[9], x[10], x[11], x[12], x[13], x[14], x[15]]);
         $crate::x86_64::xor_block!(lo[0], hi[0], 0, $dest);
         $crate::x86_64::xor_block!(lo[1], hi[1], 1, $dest);
         $crate::x86_64::xor_block!(lo[2], hi[2], 2, $dest);
@@ -448,7 +485,8 @@ pub(crate) fn store512(bytes: &mut [u8; 64], v: __m512i) {
 
 /// The 32-bit lanes `counter + 0 .. counter + 16` of a 64-bit block counter
 /// split into low and high words, `(lo, hi)`, the high word carrying where
-/// the low word wrapped.
+/// the low word wrapped. Out of line at opt-level `z`, which adds no copy:
+/// it only sees the block counter.
 #[inline]
 #[target_feature(enable = "avx512f")]
 pub(crate) fn counter_lanes512(counter: u64) -> (__m512i, __m512i) {
@@ -465,74 +503,132 @@ pub(crate) fn counter_lanes512(counter: u64) -> (__m512i, __m512i) {
     (lo_lanes, hi_lanes)
 }
 
-/// The cipher input for blocks `counter .. counter + 16`, one block per
-/// lane: every word of `state` broadcast, with the low and high halves of
-/// the block counter in words `LO` and `HI`.
-#[inline]
-#[target_feature(enable = "avx512f")]
-pub(crate) fn input_lanes512<const LO: usize, const HI: usize>(
-    state: &[u32; 16],
-    counter: u64,
-) -> [__m512i; 16] {
-    let mut x = [_mm512_set1_epi32(0); 16];
-    for (lane, &word) in x.iter_mut().zip(state) {
-        *lane = _mm512_set1_epi32(word as i32);
-    }
-    (x[LO], x[HI]) = counter_lanes512(counter);
-    x
+/// The cipher input for blocks `$counter .. $counter + 16`, one block per
+/// lane (a `[__m512i; 16]`): every word of `$state` broadcast, with the low
+/// and high halves of the block counter in words `$lo` and `$hi`. A macro
+/// for the same reason as [`input_lanes`].
+macro_rules! input_lanes512 {
+    ($state:expr, $counter:expr, $lo:literal, $hi:literal) => {{
+        let mut x =
+            $crate::x86_64::broadcast_words!(::core::arch::x86_64::_mm512_set1_epi32, $state);
+        (x[$lo], x[$hi]) = $crate::x86_64::counter_lanes512($counter);
+        x
+    }};
 }
+pub(crate) use input_lanes512;
 
-/// Transposes the 16x16 word matrix held in `r` (vector `i` = word `i` of
-/// blocks `0..16`) so that vector `j` of the result holds words `0..16` of
-/// block `j`, i.e. the whole keystream block.
-#[inline]
-#[target_feature(enable = "avx512f")]
-pub(crate) fn transpose512(r: [__m512i; 16]) -> [__m512i; 16] {
-    // Pairs of words interleaved within each 128-bit lane, then quads: after
-    // this, 128-bit lane `l` of `u[4 * g + k]` holds words `4 * g .. 4 * g +
-    // 4` of block `4 * l + k`.
-    let mut u = r;
-    for g in 0..4 {
-        let t0 = _mm512_unpacklo_epi32(r[4 * g], r[4 * g + 1]);
-        let t1 = _mm512_unpackhi_epi32(r[4 * g], r[4 * g + 1]);
-        let t2 = _mm512_unpacklo_epi32(r[4 * g + 2], r[4 * g + 3]);
-        let t3 = _mm512_unpackhi_epi32(r[4 * g + 2], r[4 * g + 3]);
-        u[4 * g] = _mm512_unpacklo_epi64(t0, t2);
-        u[4 * g + 1] = _mm512_unpackhi_epi64(t0, t2);
-        u[4 * g + 2] = _mm512_unpacklo_epi64(t1, t3);
-        u[4 * g + 3] = _mm512_unpackhi_epi64(t1, t3);
-    }
-    // Gather the four word quads of each block into one vector: first the
-    // quads `0..8` and `8..16` of blocks `k` and `k + 8` side by side, then
-    // the halves of one block together. `0x88` picks 128-bit lanes 0 and 2
-    // of both operands, `0xDD` lanes 1 and 3.
-    let mut out = r;
-    for k in 0..4 {
-        let v0 = _mm512_shuffle_i32x4::<0x88>(u[k], u[4 + k]);
-        let v1 = _mm512_shuffle_i32x4::<0xDD>(u[k], u[4 + k]);
-        let v2 = _mm512_shuffle_i32x4::<0x88>(u[8 + k], u[12 + k]);
-        let v3 = _mm512_shuffle_i32x4::<0xDD>(u[8 + k], u[12 + k]);
-        out[k] = _mm512_shuffle_i32x4::<0x88>(v0, v2);
-        out[k + 8] = _mm512_shuffle_i32x4::<0xDD>(v0, v2);
-        out[k + 4] = _mm512_shuffle_i32x4::<0x88>(v1, v3);
-        out[k + 12] = _mm512_shuffle_i32x4::<0xDD>(v1, v3);
-    }
-    out
+/// One word-quad step of [`transpose512`]: pairs of words of `$a, $b` and
+/// `$c, $d` interleaved within each 128-bit lane, then quads, as a tuple of
+/// four vectors.
+macro_rules! transpose512_quads {
+    ($a:expr, $b:expr, $c:expr, $d:expr) => {{
+        use ::core::arch::x86_64::{
+            _mm512_unpackhi_epi32, _mm512_unpackhi_epi64, _mm512_unpacklo_epi32,
+            _mm512_unpacklo_epi64,
+        };
+        let t0 = _mm512_unpacklo_epi32($a, $b);
+        let t1 = _mm512_unpackhi_epi32($a, $b);
+        let t2 = _mm512_unpacklo_epi32($c, $d);
+        let t3 = _mm512_unpackhi_epi32($c, $d);
+        (
+            _mm512_unpacklo_epi64(t0, t2),
+            _mm512_unpackhi_epi64(t0, t2),
+            _mm512_unpacklo_epi64(t1, t3),
+            _mm512_unpackhi_epi64(t1, t3),
+        )
+    }};
 }
+pub(crate) use transpose512_quads;
 
-/// XORs the 64-byte `keystream` into block `index` of `dest`.
-#[inline]
-#[target_feature(enable = "avx512f")]
-pub(crate) fn xor_block512(keystream: __m512i, index: usize, dest: &mut Dest<'_>) {
-    let Some((source, out)) = dest.block(index) else {
-        return;
-    };
-    let data = match source {
-        Some(source) => _mm512_xor_si512(load512(source), keystream),
-        None => _mm512_xor_si512(load512(out), keystream),
-    };
-    store512(out, data);
+/// One gather step of [`transpose512`]: from the quad vectors `u[k]`,
+/// `u[4 + k]`, `u[8 + k]` and `u[12 + k]`, the blocks `k`, `k + 4`, `k + 8`
+/// and `k + 12`, as a tuple in that order.
+macro_rules! transpose512_gather {
+    ($uk:expr, $uk4:expr, $uk8:expr, $uk12:expr) => {{
+        use ::core::arch::x86_64::_mm512_shuffle_i32x4;
+        let v0 = _mm512_shuffle_i32x4::<0x88>($uk, $uk4);
+        let v1 = _mm512_shuffle_i32x4::<0xDD>($uk, $uk4);
+        let v2 = _mm512_shuffle_i32x4::<0x88>($uk8, $uk12);
+        let v3 = _mm512_shuffle_i32x4::<0xDD>($uk8, $uk12);
+        (
+            _mm512_shuffle_i32x4::<0x88>(v0, v2),
+            _mm512_shuffle_i32x4::<0x88>(v1, v3),
+            _mm512_shuffle_i32x4::<0xDD>(v0, v2),
+            _mm512_shuffle_i32x4::<0xDD>(v1, v3),
+        )
+    }};
 }
+pub(crate) use transpose512_gather;
+
+/// Transposes the 16x16 word matrix held in the `[__m512i; 16]` `$r`
+/// (vector `i` = word `i` of blocks `0..16`) so that vector `j` of the
+/// result holds words `0..16` of block `j`, i.e. the whole keystream block.
+/// A macro for the same reason as [`transpose`]. Spelled out: indexed loops
+/// over working arrays copied from `$r` made opt-level `s` pass the 1 KiB of
+/// keystream to out-of-line `memcpy` calls.
+macro_rules! transpose512 {
+    ($r:expr) => {{
+        let [
+            r0,
+            r1,
+            r2,
+            r3,
+            r4,
+            r5,
+            r6,
+            r7,
+            r8,
+            r9,
+            r10,
+            r11,
+            r12,
+            r13,
+            r14,
+            r15,
+        ]: [::core::arch::x86_64::__m512i; 16] = $r;
+        // Pairs of words interleaved within each 128-bit lane, then quads:
+        // after this, 128-bit lane `l` of `u<4 * g + k>` holds words `4 * g ..
+        // 4 * g + 4` of block `4 * l + k`.
+        let (u0, u1, u2, u3) = $crate::x86_64::transpose512_quads!(r0, r1, r2, r3);
+        let (u4, u5, u6, u7) = $crate::x86_64::transpose512_quads!(r4, r5, r6, r7);
+        let (u8, u9, u10, u11) = $crate::x86_64::transpose512_quads!(r8, r9, r10, r11);
+        let (u12, u13, u14, u15) = $crate::x86_64::transpose512_quads!(r12, r13, r14, r15);
+        // Gather the four word quads of each block into one vector: first the
+        // quads `0..8` and `8..16` of blocks `k` and `k + 8` side by side, then
+        // the halves of one block together. `0x88` picks 128-bit lanes 0 and 2
+        // of both operands, `0xDD` lanes 1 and 3.
+        let (o0, o4, o8, o12) = $crate::x86_64::transpose512_gather!(u0, u4, u8, u12);
+        let (o1, o5, o9, o13) = $crate::x86_64::transpose512_gather!(u1, u5, u9, u13);
+        let (o2, o6, o10, o14) = $crate::x86_64::transpose512_gather!(u2, u6, u10, u14);
+        let (o3, o7, o11, o15) = $crate::x86_64::transpose512_gather!(u3, u7, u11, u15);
+        [
+            o0, o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12, o13, o14, o15,
+        ]
+    }};
+}
+pub(crate) use transpose512;
+
+/// XORs the 64-byte keystream `$keystream` (an `__m512i`) into block
+/// `$index` of `$dest`. A macro for the same reason as [`input_lanes`]: out
+/// of line at opt-level `z`, the keystream was passed through a stack copy.
+macro_rules! xor_block512 {
+    ($keystream:expr, $index:expr, $dest:expr) => {{
+        let keystream: ::core::arch::x86_64::__m512i = $keystream;
+        if let Some((source, out)) = $dest.block($index) {
+            let data = match source {
+                Some(source) => ::core::arch::x86_64::_mm512_xor_si512(
+                    $crate::x86_64::load512(source),
+                    keystream,
+                ),
+                None => {
+                    ::core::arch::x86_64::_mm512_xor_si512($crate::x86_64::load512(out), keystream)
+                }
+            };
+            $crate::x86_64::store512(out, data);
+        }
+    }};
+}
+pub(crate) use xor_block512;
 
 /// Finalises a 16-block lane set held in the 16 vectors `$x` (lane =
 /// block): adds the input `$initial` back, transposes into block order and
@@ -544,20 +640,38 @@ macro_rules! finish_lanes512 {
         for (word, init) in x.iter_mut().zip($initial) {
             *word = ::core::arch::x86_64::_mm512_add_epi32(*word, *init);
         }
-        let blocks = $crate::x86_64::transpose512(x);
-        for (index, keystream) in blocks.iter().enumerate() {
-            $crate::x86_64::xor_block512(*keystream, index, $dest);
-        }
+        let blocks = $crate::x86_64::transpose512!(x);
+        // Spelled out per block, like [`finish_lanes`]: an iterator over
+        // `blocks` would take the keystream's address.
+        $crate::x86_64::xor_block512!(blocks[0], 0, $dest);
+        $crate::x86_64::xor_block512!(blocks[1], 1, $dest);
+        $crate::x86_64::xor_block512!(blocks[2], 2, $dest);
+        $crate::x86_64::xor_block512!(blocks[3], 3, $dest);
+        $crate::x86_64::xor_block512!(blocks[4], 4, $dest);
+        $crate::x86_64::xor_block512!(blocks[5], 5, $dest);
+        $crate::x86_64::xor_block512!(blocks[6], 6, $dest);
+        $crate::x86_64::xor_block512!(blocks[7], 7, $dest);
+        $crate::x86_64::xor_block512!(blocks[8], 8, $dest);
+        $crate::x86_64::xor_block512!(blocks[9], 9, $dest);
+        $crate::x86_64::xor_block512!(blocks[10], 10, $dest);
+        $crate::x86_64::xor_block512!(blocks[11], 11, $dest);
+        $crate::x86_64::xor_block512!(blocks[12], 12, $dest);
+        $crate::x86_64::xor_block512!(blocks[13], 13, $dest);
+        $crate::x86_64::xor_block512!(blocks[14], 14, $dest);
+        $crate::x86_64::xor_block512!(blocks[15], 15, $dest);
     }};
 }
 pub(crate) use finish_lanes512;
 
 /// XORs the keystream of a finished scalar block into `extra`: `x` holds
 /// the words after the rounds and `initial` the block's input, added back
-/// word by word (the feed-forward) before the XOR.
+/// word by word (the feed-forward) before the XOR. Spelled out with
+/// [`each_word`](crate::stream::each_word): at opt-level `z` a three-way
+/// `zip` over them was out of line and took both blocks' addresses.
 #[inline(always)]
 pub(crate) fn xor_scalar_words(x: &[u32; 16], initial: &[u32; 16], extra: &mut [u8; 64]) {
-    for ((chunk, word), init) in extra.as_chunks_mut::<4>().0.iter_mut().zip(x).zip(initial) {
-        *chunk = (u32::from_le_bytes(*chunk) ^ word.wrapping_add(*init)).to_le_bytes();
-    }
+    let extra = extra.as_chunks_mut::<4>().0;
+    crate::stream::each_word!(I, {
+        extra[I] = (u32::from_le_bytes(extra[I]) ^ x[I].wrapping_add(initial[I])).to_le_bytes();
+    });
 }

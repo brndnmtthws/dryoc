@@ -8,10 +8,13 @@
 //! independent of the key and nonce.
 //!
 //! Wiping: the lane sets, row blocks and scalar blocks only flow through
-//! registers, register-only `asm!` operands and inlined helpers, so they live
-//! in registers or compiler spill slots, which are out of Rust's reach and
-//! not wiped; a wipe would only force them into stack slots. The keystream
-//! goes straight into the caller's buffers, which the drivers wipe.
+//! registers, register-only `asm!` operands and inlined helpers (the input,
+//! finish and XOR helpers are macros: as `#[inline]` functions they were kept
+//! out of line at opt-level `z` and took the lanes, rows and keystream
+//! through stack copies), so they live in registers or compiler spill slots,
+//! which are out of Rust's reach and not wiped; a wipe would only force them
+//! into stack slots. The keystream goes straight into the caller's buffers,
+//! which the drivers wipe.
 
 use core::arch::aarch64::{
     uint8x16_t, uint32x4_t, vaddq_u32, veorq_u32, vextq_u32, vqtbl1q_u8, vreinterpretq_u8_u32,
@@ -20,7 +23,7 @@ use core::arch::aarch64::{
 };
 
 use super::chacha20_soft as soft;
-use crate::neon::{Dest, input_lanes as shared_input_lanes, load, transpose, words, xor_block};
+use crate::neon::{Dest, load, transpose, words, xor_block};
 
 /// Blocks per 4-lane vector set.
 const SET_BLOCKS: u64 = 4;
@@ -108,6 +111,9 @@ impl super::Kernel for Kernel {
         }
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: it only forwards `&`
+    /// to the cipher's own state, which `ChaCha20` wipes on drop, and the
+    /// caller's buffers.
     #[inline]
     fn xor_chunk(
         self,
@@ -230,26 +236,30 @@ macro_rules! scalar_quarter_round {
     };
 }
 
-/// The ChaCha20 input for blocks `counter .. counter + 4`, one block per
-/// lane; the 64-bit block counter lives in words 12 and 13.
-#[inline]
-#[target_feature(enable = "neon")]
-fn input_lanes(state: &[u32; 16], counter: u64) -> [uint32x4_t; 16] {
-    shared_input_lanes::<12, 13>(state, counter)
+/// The ChaCha20 input for blocks `$counter .. $counter + 4`, one block per
+/// lane; the 64-bit block counter lives in words 12 and 13. A macro, like
+/// [`crate::neon::input_lanes`], so the lanes never leave the kernel.
+macro_rules! input_lanes {
+    ($state:expr, $counter:expr) => {
+        crate::neon::input_lanes!($state, $counter, 12, 13)
+    };
 }
 
-/// The ChaCha20 input for block `counter`, one row per vector.
-#[inline]
-#[target_feature(enable = "neon")]
-fn input_rows(state: &[u32; 16], counter: u64) -> [uint32x4_t; 4] {
-    let input = soft::block_input(state, counter);
-    let rows = input.as_chunks::<4>().0;
-    [
-        words(rows[0]),
-        words(rows[1]),
-        words(rows[2]),
-        words(rows[3]),
-    ]
+/// The ChaCha20 input for block `$counter`, one row per vector (a
+/// `[uint32x4_t; 4]`). A macro, like [`input_lanes`]: as a function it was
+/// out of line at opt-level `z` and returned the key rows through a stack
+/// buffer.
+macro_rules! input_rows {
+    ($state:expr, $counter:expr) => {{
+        let input = soft::block_input($state, $counter);
+        let rows = input.as_chunks::<4>().0;
+        [
+            words(rows[0]),
+            words(rows[1]),
+            words(rows[2]),
+            words(rows[3]),
+        ]
+    }};
 }
 
 /// Finalises a lane set: adds the input back, transposes into block order
@@ -272,27 +282,38 @@ macro_rules! finish_lanes {
         let r1 = transpose(x[4], x[5], x[6], x[7]);
         let r2 = transpose(x[8], x[9], x[10], x[11]);
         let r3 = transpose(x[12], x[13], x[14], x[15]);
-        xor_block([r0[0], r1[0], r2[0], r3[0]], $base, $dest);
-        xor_block([r0[1], r1[1], r2[1], r3[1]], $base + 1, $dest);
-        xor_block([r0[2], r1[2], r2[2], r3[2]], $base + 2, $dest);
-        xor_block([r0[3], r1[3], r2[3], r3[3]], $base + 3, $dest);
+        xor_block!([r0[0], r1[0], r2[0], r3[0]], $base, $dest);
+        xor_block!([r0[1], r1[1], r2[1], r3[1]], $base + 1, $dest);
+        xor_block!([r0[2], r1[2], r2[2], r3[2]], $base + 2, $dest);
+        xor_block!([r0[3], r1[3], r2[3], r3[3]], $base + 3, $dest);
     }};
 }
 
-/// Finalises a row block: adds the input back and XORs the keystream into
-/// block `index` of `dest`.
-#[inline]
-#[target_feature(enable = "neon")]
-fn finish_rows(x: [uint32x4_t; 4], initial: &[uint32x4_t; 4], index: usize, dest: &mut Dest<'_>) {
-    let mut rows = [vreinterpretq_u8_u32(x[0]); 4];
-    for (row, (word, init)) in rows.iter_mut().zip(x.iter().zip(initial)) {
-        *row = vreinterpretq_u8_u32(vaddq_u32(*word, *init));
-    }
-    xor_block(rows, index, dest);
+/// Finalises a row block `$x`: adds the input `$initial` back and XORs the
+/// keystream into block `$index` of `$dest`. A macro for the same reason as
+/// [`finish_lanes`]: as a function it was out of line at opt-level `z` and
+/// took the rows and their input through the stack.
+macro_rules! finish_rows {
+    ($x:expr, $initial:expr, $index:expr, $dest:expr) => {{
+        let [x0, x1, x2, x3]: [uint32x4_t; 4] = $x;
+        let [i0, i1, i2, i3]: &[uint32x4_t; 4] = $initial;
+        xor_block!(
+            [
+                vreinterpretq_u8_u32(vaddq_u32(x0, *i0)),
+                vreinterpretq_u8_u32(vaddq_u32(x1, *i1)),
+                vreinterpretq_u8_u32(vaddq_u32(x2, *i2)),
+                vreinterpretq_u8_u32(vaddq_u32(x3, *i3)),
+            ],
+            $index,
+            $dest
+        );
+    }};
 }
 
 /// Finalises a scalar block: adds the input back and XORs the 64 keystream
-/// bytes into `output`.
+/// bytes into `output`. Spelled out with
+/// [`each_word`](crate::stream::each_word): at opt-level `z` a `zip` over
+/// `x` and `initial` was out of line and took both blocks' addresses.
 #[inline(always)]
 fn finish_scalar_block(
     x: &[u32; 16],
@@ -302,13 +323,13 @@ fn finish_scalar_block(
 ) {
     let input = input.map(|input| input.as_chunks::<4>().0);
     let output = output.as_chunks_mut::<4>().0;
-    for (index, (word, init)) in x.iter().zip(initial).enumerate() {
+    crate::stream::each_word!(I, {
         let source = match input {
-            Some(input) => &input[index],
-            None => &output[index],
+            Some(input) => input[I],
+            None => output[I],
         };
-        output[index] = (u32::from_le_bytes(*source) ^ word.wrapping_add(*init)).to_le_bytes();
-    }
+        output[I] = (u32::from_le_bytes(source) ^ x[I].wrapping_add(initial[I])).to_le_bytes();
+    });
 }
 
 /// XORs the keystream for blocks `counter .. counter + NEON_BLOCKS` into
@@ -348,10 +369,10 @@ fn xor_chunk_neon(
     const SCALAR_BASE: u64 = SET_BLOCKS + ROW_BLOCKS;
 
     let rot8 = load(&ROT8_TABLE);
-    let initial_v = input_lanes(state, counter);
-    let initial_r0 = input_rows(state, counter.wrapping_add(ROW_BASE));
-    let initial_r1 = input_rows(state, counter.wrapping_add(ROW_BASE + 1));
-    let initial_r2 = input_rows(state, counter.wrapping_add(ROW_BASE + 2));
+    let initial_v = input_lanes!(state, counter);
+    let initial_r0 = input_rows!(state, counter.wrapping_add(ROW_BASE));
+    let initial_r1 = input_rows!(state, counter.wrapping_add(ROW_BASE + 1));
+    let initial_r2 = input_rows!(state, counter.wrapping_add(ROW_BASE + 2));
     let initial_a = soft::block_input(state, counter.wrapping_add(SCALAR_BASE));
     let initial_b = soft::block_input(state, counter.wrapping_add(SCALAR_BASE + 1));
     let mut v = initial_v;
@@ -374,9 +395,9 @@ fn xor_chunk_neon(
     if let Some((source, out)) = dest.block(SCALAR_BASE as usize + 1) {
         finish_scalar_block(&b, &initial_b, source, out);
     }
-    finish_rows(r0, &initial_r0, ROW_BASE as usize, &mut dest);
-    finish_rows(r1, &initial_r1, ROW_BASE as usize + 1, &mut dest);
-    finish_rows(r2, &initial_r2, ROW_BASE as usize + 2, &mut dest);
+    finish_rows!(r0, &initial_r0, ROW_BASE as usize, &mut dest);
+    finish_rows!(r1, &initial_r1, ROW_BASE as usize + 1, &mut dest);
+    finish_rows!(r2, &initial_r2, ROW_BASE as usize + 2, &mut dest);
     finish_lanes!(v, &initial_v, 0, &mut dest);
 }
 
@@ -531,8 +552,8 @@ fn xor_chunk_sve2(
 ) {
     let mut dest = Dest::new(SVE2_BLOCKS as usize, input, output, partial);
 
-    let mut a = input_lanes(state, counter);
-    let mut b = input_lanes(state, counter.wrapping_add(SET_BLOCKS));
+    let mut a = input_lanes!(state, counter);
+    let mut b = input_lanes!(state, counter.wrapping_add(SET_BLOCKS));
     double_rounds_sve2(&mut a, &mut b);
     // The rounds occupy every vector register, so the initial lanes are
     // rebuilt from `state` afterwards (16 broadcast loads per set) rather
@@ -541,8 +562,8 @@ fn xor_chunk_sve2(
     // on the stack frame it happened to run in. `black_box` keeps the
     // compiler from merging the two computations into one spilled copy.
     let state = core::hint::black_box(state);
-    let initial_a = input_lanes(state, counter);
-    let initial_b = input_lanes(state, counter.wrapping_add(SET_BLOCKS));
+    let initial_a = input_lanes!(state, counter);
+    let initial_b = input_lanes!(state, counter.wrapping_add(SET_BLOCKS));
     finish_lanes!(a, &initial_a, 0, &mut dest);
     finish_lanes!(b, &initial_b, SET_BLOCKS as usize, &mut dest);
 }
@@ -645,10 +666,10 @@ fn xor_chunk_sve2_small(
 ) {
     let mut dest = Dest::new(SMALL_BLOCKS, input, output, partial);
 
-    let mut a = input_lanes(state, counter);
+    let mut a = input_lanes!(state, counter);
     double_rounds_sve2_set(&mut a);
     // Rebuilt after the rounds rather than spilled; see `xor_chunk_sve2`.
     let state = core::hint::black_box(state);
-    let initial = input_lanes(state, counter);
+    let initial = input_lanes!(state, counter);
     finish_lanes!(a, &initial, 0, &mut dest);
 }

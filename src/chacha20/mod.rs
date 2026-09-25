@@ -154,6 +154,12 @@ trait Kernel: Copy + core::fmt::Debug {
 /// partial block consumes a whole counter step and its unused keystream is
 /// discarded, matching libsodium's `_xor_ic` functions when chained. All
 /// callers work in whole blocks, so no partial-block continuity is kept.
+///
+/// The driver helpers (`apply_head`, `apply_using`, `kernel`, the scalar
+/// block, the slice and `zip` helpers) may be out of line at opt-level `z`
+/// and `s`, which adds no copy: they only get `&` or `&mut` to `state`,
+/// which is wiped on drop, the caller's buffers, and keystream scratch
+/// (`partial`, `staged`, `block`) that is wiped once per call.
 pub(crate) struct ChaCha20 {
     /// ChaCha20 input words; words 12 and 13 hold the current 64-bit block
     /// counter (low word first) in both layouts. In the IETF layout word 13
@@ -171,34 +177,74 @@ impl ChaCha20 {
     /// RFC 8439 / libsodium `_ietf` layout: word 12 is the block counter and
     /// words 13..16 hold the 96-bit nonce.
     pub(crate) fn ietf(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self {
-        let mut state = Self::keyed(key);
-        state[12] = counter;
-        state[13] = load_u32_le(&nonce[0..4]);
-        state[14] = load_u32_le(&nonce[4..8]);
-        state[15] = load_u32_le(&nonce[8..12]);
-        Self { state }
+        let [k0, k1, k2, k3, k4, k5, k6, k7] = Self::key_words(key);
+        Self {
+            state: [
+                SIGMA[0],
+                SIGMA[1],
+                SIGMA[2],
+                SIGMA[3],
+                k0,
+                k1,
+                k2,
+                k3,
+                k4,
+                k5,
+                k6,
+                k7,
+                counter,
+                load_u32_le(&nonce[0..4]),
+                load_u32_le(&nonce[4..8]),
+                load_u32_le(&nonce[8..12]),
+            ],
+        }
     }
 
     /// Original 64-bit counter layout (libsodium `crypto_stream_chacha20` and
     /// the XChaCha20 inner cipher): words 12 and 13 hold the block counter
     /// and words 14..16 the 64-bit nonce.
     pub(crate) fn legacy(key: &[u8; 32], nonce: &[u8; 8], counter: u64) -> Self {
-        let mut state = Self::keyed(key);
-        state[12] = counter as u32;
-        state[13] = (counter >> 32) as u32;
-        state[14] = load_u32_le(&nonce[0..4]);
-        state[15] = load_u32_le(&nonce[4..8]);
-        Self { state }
+        let [k0, k1, k2, k3, k4, k5, k6, k7] = Self::key_words(key);
+        Self {
+            state: [
+                SIGMA[0],
+                SIGMA[1],
+                SIGMA[2],
+                SIGMA[3],
+                k0,
+                k1,
+                k2,
+                k3,
+                k4,
+                k5,
+                k6,
+                k7,
+                counter as u32,
+                (counter >> 32) as u32,
+                load_u32_le(&nonce[0..4]),
+                load_u32_le(&nonce[4..8]),
+            ],
+        }
     }
 
-    /// The constant and key words; words 12..16 are left zero.
-    fn keyed(key: &[u8; 32]) -> [u32; 16] {
-        let mut state = [0u32; 16];
-        state[..4].copy_from_slice(&SIGMA);
-        for (word, bytes) in state[4..12].iter_mut().zip(key.as_chunks::<4>().0) {
-            *word = u32::from_le_bytes(*bytes);
-        }
-        state
+    /// The key as eight little-endian words. Spelled out and inlined so the
+    /// constructors build the state in place: a separate keyed state array
+    /// (filled through a `zip` and `copy_from_slice`) was a stack copy of the
+    /// key words, copied again into the result at opt-level `z` and `s` and
+    /// never wiped.
+    #[inline(always)]
+    fn key_words(key: &[u8; 32]) -> [u32; 8] {
+        let k = key.as_chunks::<4>().0;
+        [
+            u32::from_le_bytes(k[0]),
+            u32::from_le_bytes(k[1]),
+            u32::from_le_bytes(k[2]),
+            u32::from_le_bytes(k[3]),
+            u32::from_le_bytes(k[4]),
+            u32::from_le_bytes(k[5]),
+            u32::from_le_bytes(k[6]),
+            u32::from_le_bytes(k[7]),
+        ]
     }
 
     /// XORs the keystream from the current block into `data`.
