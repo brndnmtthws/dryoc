@@ -47,7 +47,7 @@
 //! use the byte format to exchange boxes with other HPKE implementations.
 //!
 //! [rfc9180]: https://www.rfc-editor.org/rfc/rfc9180.html
-//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/
+//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/06/
 //! [hpke-pq]: https://datatracker.ietf.org/doc/draft-ietf-hpke-pq/05/
 //! [hpke-hpke]: https://datatracker.ietf.org/doc/draft-ietf-hpke-hpke/04/
 //!
