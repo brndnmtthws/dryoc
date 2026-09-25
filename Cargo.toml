@@ -13,8 +13,8 @@ version = "2.0.0"
 
 [dependencies]
 curve25519-dalek = "5.0"
+getrandom = "0.4"
 keccak = { version = "0.2", features = ["parallel"] }
-rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
 serde = { version = "1.0", optional = true, features = ["derive"] }
 sha2 = { version = "0.11", features = ["zeroize"] }
 subtle = "2.6"
@@ -45,7 +45,7 @@ base64 = "0.23"
 chacha20 = { version = "0.10", features = ["legacy", "zeroize"] }
 hex = "0.4"
 libc = "0.2"
-num-bigint = { version = "0.5", features = ["rand_0_10"] }
+num-bigint = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 salsa20 = { version = "0.11", features = ["zeroize"] }
