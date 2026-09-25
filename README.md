@@ -261,7 +261,8 @@ the Ed25519 basepoint table lookup and the ML-KEM polynomial arithmetic (with
 the ChaCha20 and XSalsa20 rounds, scalar `asm!` blocks for the ChaCha20 and
 BLAKE2b rounds and the Curve25519 field products, and detected
 `sha2`/`sha3` instruction `asm!` loops for the SHA-256 and SHA-512
-compression functions. `PwHash::into_parts` moves fields out of a value with
+compression functions, and the detected SHA3-extension Keccak permutation.
+`PwHash::into_parts` moves fields out of a value with
 a zeroizing `Drop` (`ManuallyDrop` + `ptr::read`). CPU features are detected
 at runtime with the `std` feature and taken from the compile-time target
 features without it. Each detected kernel is entered through one safe wrapper

@@ -7,9 +7,43 @@
 
 use core::mem;
 
+/// Expands `$body` sixteen times, once per word of a block, with the
+/// constant `$i` set to the word's index `0..16`: the feed-forward of the
+/// scalar blocks, where the working state is indexed rather than iterated.
+/// A `zip` over the block words (or a loop indexing them) takes their
+/// addresses: the iterator constructors are out of line at opt-level `z`
+/// and `s`, and a loop that is not unrolled keeps the words in a stack
+/// array.
+#[rustfmt::skip]
+macro_rules! each_word {
+    ($i:ident, $body:block) => {
+        { const $i: usize = 0; $body }
+        { const $i: usize = 1; $body }
+        { const $i: usize = 2; $body }
+        { const $i: usize = 3; $body }
+        { const $i: usize = 4; $body }
+        { const $i: usize = 5; $body }
+        { const $i: usize = 6; $body }
+        { const $i: usize = 7; $body }
+        { const $i: usize = 8; $body }
+        { const $i: usize = 9; $body }
+        { const $i: usize = 10; $body }
+        { const $i: usize = 11; $body }
+        { const $i: usize = 12; $body }
+        { const $i: usize = 13; $body }
+        { const $i: usize = 14; $body }
+        { const $i: usize = 15; $body }
+    };
+}
+pub(crate) use each_word;
+
 /// Destination of keystream bytes: either a buffer XORed in place, or an
 /// `input` buffer XORed into a distinct `output` buffer. Each XOR consumes
 /// the front of the sink.
+///
+/// `take` and `xor` (and the slice splits and `zip` inside them) are out of
+/// line at opt-level `z`, which adds no copy: they only see the caller's
+/// buffers and keystream scratch that the drivers wipe once per call.
 pub(crate) trait Sink {
     fn len(&self) -> usize;
 
@@ -58,7 +92,10 @@ pub(crate) struct BufferToBuffer<'a> {
 
 /// XORs the raw keystream of the scalar block `counter` into `extra`,
 /// zeroizing the block copy afterwards. Shared by the ChaCha20 and XSalsa20
-/// kernel drivers for companion blocks that no lane set covers.
+/// kernel drivers for companion blocks that no lane set covers. `block` and
+/// the `zip` are out of line at opt-level `z` and `s`, which adds no copy:
+/// they only get `state` (the cipher's own, wiped on drop), `extra` and the
+/// scratch `ks`, which is wiped here.
 #[cfg(any(
     dryoc_stream_kernel,
     all(feature = "simd_backend", feature = "nightly")
@@ -137,7 +174,8 @@ impl<'a> Dest<'a> {
     }
 
     /// `(source, destination)` for block `i`, where a `None` source means
-    /// XOR in place.
+    /// XOR in place. The `input.map` closure is out of line at opt-level
+    /// `z`, which adds no copy: it only sees the input blocks and `i`.
     #[inline(always)]
     pub(crate) fn block(&mut self, i: usize) -> Option<(Option<&[u8; 64]>, &mut [u8; 64])> {
         if i < self.output.len() {

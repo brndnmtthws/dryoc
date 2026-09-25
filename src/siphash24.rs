@@ -8,6 +8,28 @@ fn rotl64(x: u64, b: u32) -> u64 {
     x.rotate_left(b)
 }
 
+/// One SipRound on the key-derived state.
+///
+/// `#[inline(always)]`: as a closure it stayed out of line at opt-level `z`,
+/// which put the four state words in memory for the `&mut` arguments.
+#[inline(always)]
+fn round(v0: &mut u64, v1: &mut u64, v2: &mut u64, v3: &mut u64) {
+    *v0 = v0.wrapping_add(*v1);
+    *v1 = rotl64(*v1, 13);
+    *v1 ^= *v0;
+    *v0 = rotl64(*v0, 32);
+    *v2 = v2.wrapping_add(*v3);
+    *v3 = rotl64(*v3, 16);
+    *v3 ^= *v2;
+    *v0 = v0.wrapping_add(*v3);
+    *v3 = rotl64(*v3, 21);
+    *v3 ^= *v0;
+    *v2 = v2.wrapping_add(*v1);
+    *v1 = rotl64(*v1, 17);
+    *v1 ^= *v2;
+    *v2 = rotl64(*v2, 32);
+}
+
 pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
     // "somepseudorandomlygeneratedbytes"
     let mut v0 = 0x736f6d6570736575u64;
@@ -22,23 +44,6 @@ pub(crate) fn siphash24(output: &mut Hash, input: &[u8], key: &Key) {
     v2 ^= k0;
     v1 ^= k1;
     v0 ^= k0;
-
-    let round = |v0: &mut u64, v1: &mut u64, v2: &mut u64, v3: &mut u64| {
-        *v0 = v0.wrapping_add(*v1);
-        *v1 = rotl64(*v1, 13);
-        *v1 ^= *v0;
-        *v0 = rotl64(*v0, 32);
-        *v2 = v2.wrapping_add(*v3);
-        *v3 = rotl64(*v3, 16);
-        *v3 ^= *v2;
-        *v0 = v0.wrapping_add(*v3);
-        *v3 = rotl64(*v3, 21);
-        *v3 ^= *v0;
-        *v2 = v2.wrapping_add(*v1);
-        *v1 = rotl64(*v1, 17);
-        *v1 ^= *v2;
-        *v2 = rotl64(*v2, 32);
-    };
 
     let (chunks, remainder) = input.as_chunks::<8>();
 

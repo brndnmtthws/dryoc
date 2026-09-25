@@ -29,18 +29,22 @@ pub(super) fn block_input(input: &[u32; 16], counter: u64) -> [u32; 16] {
 
 /// Computes the Salsa20/20 keystream block for `input` with words 8 and 9
 /// replaced by the little-endian halves of `counter`, serialising the result
-/// into `out`. The working copies only flow through inlined code, so they
-/// live in registers or compiler spill slots, out of Rust's reach; wiping
-/// them would only force them into stack slots. Callers wipe `out`.
+/// into `out`. The working copies only flow through inlined code (the
+/// feed-forward is spelled out with [`each_word`](crate::stream::each_word):
+/// a `zip` over them was out of line at opt-level `z` and `s` and took their
+/// addresses), so they live in registers or compiler spill slots, out of
+/// Rust's reach; wiping them would only force them into stack slots. Callers
+/// wipe `out`.
 pub(crate) fn block(input: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
     let initial = block_input(input, counter);
     let mut x = initial;
     for _ in 0..10 {
         double_round(&mut x);
     }
-    for ((chunk, word), init) in out.as_chunks_mut::<4>().0.iter_mut().zip(&x).zip(&initial) {
-        *chunk = word.wrapping_add(*init).to_le_bytes();
-    }
+    let out = out.as_chunks_mut::<4>().0;
+    crate::stream::each_word!(I, {
+        out[I] = x[I].wrapping_add(initial[I]).to_le_bytes();
+    });
 }
 
 #[cfg(test)]

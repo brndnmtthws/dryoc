@@ -33,6 +33,10 @@ fn clamp(
     s
 }
 
+/// `Point::to_montgomery` may stay out of line (it does at opt-level `z`,
+/// `s` and `2`), which adds no copy: it only gets `&point`, wiped here, and
+/// wipes its own `Z - Y` and inverse. The `zeroize` calls only get `&mut`
+/// to the storage they wipe.
 pub(crate) fn crypto_scalarmult_curve25519_base(
     q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
@@ -84,6 +88,9 @@ fn ladder_bmi2(
 }
 
 /// The RFC 7748 Montgomery ladder; see [`crypto_scalarmult_curve25519`].
+///
+/// The `zeroize` calls (out of line at opt-level `z` and `s`) only get
+/// `&mut` to the storage they wipe.
 #[inline(always)]
 fn ladder(
     q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
@@ -133,7 +140,7 @@ fn ladder(
 
     let mut zinv = z2.invert();
     let mut shared = x2.mul(&zinv);
-    *q = shared.to_bytes();
+    *q = shared.to_bytes_inline();
 
     clamped.zeroize();
     zinv.zeroize();

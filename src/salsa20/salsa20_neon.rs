@@ -6,10 +6,13 @@
 //! Control flow and memory access are independent of the key and nonce.
 //!
 //! Wiping: the vector set and scalar blocks only flow through registers,
-//! register-only `asm!` operands and inlined helpers, so they live in
-//! registers or compiler spill slots, which are out of Rust's reach and not
-//! wiped; a wipe would only force them into stack slots. The keystream goes
-//! straight into the caller's buffers, which the drivers wipe.
+//! register-only `asm!` operands and inlined helpers (the input and XOR
+//! helpers are macros: as `#[inline]` functions they were kept out of line
+//! at opt-level `z` and took the lanes and keystream through stack copies),
+//! so they live in registers or compiler spill slots, which are out of
+//! Rust's reach and not wiped; a wipe would only force them into stack
+//! slots. The keystream goes straight into the caller's buffers, which the
+//! drivers wipe.
 
 use core::arch::aarch64::{
     uint32x4_t, vaddq_u32, veor3q_u32, veorq_u32, vshlq_n_u32, vshrq_n_u32, vsliq_n_u32,
@@ -17,7 +20,7 @@ use core::arch::aarch64::{
 
 use super::salsa20_soft as soft;
 use crate::aarch64::{Neon, Sha3, Sve2};
-use crate::neon::{Dest, input_lanes as shared_input_lanes, transpose, xor_block};
+use crate::neon::{Dest, transpose, xor_block};
 
 /// Blocks per 4-lane vector set.
 const SET_BLOCKS: u64 = 4;
@@ -98,6 +101,9 @@ impl super::Kernel for Kernel {
         }
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: it only forwards `&`
+    /// to the cipher's own state, which `XSalsa20` wipes on drop, and the
+    /// caller's buffers.
     #[inline]
     fn xor_chunk(
         self,
@@ -141,12 +147,13 @@ macro_rules! step_sha3 {
     };
 }
 
-/// The Salsa20 input for blocks `counter .. counter + 4`, one block per lane;
-/// the 64-bit block counter lives in words 8 and 9.
-#[inline]
-#[target_feature(enable = "neon")]
-fn input_lanes(state: &[u32; 16], counter: u64) -> [uint32x4_t; 16] {
-    shared_input_lanes::<8, 9>(state, counter)
+/// The Salsa20 input for blocks `$counter .. $counter + 4`, one block per
+/// lane; the 64-bit block counter lives in words 8 and 9. A macro, like
+/// [`crate::neon::input_lanes`], so the lanes never leave the kernel.
+macro_rules! input_lanes {
+    ($state:expr, $counter:expr) => {
+        crate::neon::input_lanes!($state, $counter, 8, 9)
+    };
 }
 
 /// Finalises a 4-block vector set: adds the input back, transposes into block
@@ -166,15 +173,17 @@ macro_rules! finish_set {
         let r1 = transpose(x[4], x[5], x[6], x[7]);
         let r2 = transpose(x[8], x[9], x[10], x[11]);
         let r3 = transpose(x[12], x[13], x[14], x[15]);
-        xor_block([r0[0], r1[0], r2[0], r3[0]], 0, $dest);
-        xor_block([r0[1], r1[1], r2[1], r3[1]], 1, $dest);
-        xor_block([r0[2], r1[2], r2[2], r3[2]], 2, $dest);
-        xor_block([r0[3], r1[3], r2[3], r3[3]], 3, $dest);
+        xor_block!([r0[0], r1[0], r2[0], r3[0]], 0, $dest);
+        xor_block!([r0[1], r1[1], r2[1], r3[1]], 1, $dest);
+        xor_block!([r0[2], r1[2], r2[2], r3[2]], 2, $dest);
+        xor_block!([r0[3], r1[3], r2[3], r3[3]], 3, $dest);
     }};
 }
 
 /// Finalises a scalar block: adds the input back and XORs the 64 keystream
-/// bytes into `output`.
+/// bytes into `output`. Spelled out with
+/// [`each_word`](crate::stream::each_word): at opt-level `z` a `zip` over
+/// `x` and `initial` was out of line and took both blocks' addresses.
 #[inline(always)]
 fn finish_scalar_block(
     x: &[u32; 16],
@@ -184,13 +193,13 @@ fn finish_scalar_block(
 ) {
     let input = input.map(|input| input.as_chunks::<4>().0);
     let output = output.as_chunks_mut::<4>().0;
-    for (index, (word, init)) in x.iter().zip(initial).enumerate() {
+    crate::stream::each_word!(I, {
         let source = match input {
-            Some(input) => &input[index],
-            None => &output[index],
+            Some(input) => input[I],
+            None => output[I],
         };
-        output[index] = (u32::from_le_bytes(*source) ^ word.wrapping_add(*init)).to_le_bytes();
-    }
+        output[I] = (u32::from_le_bytes(source) ^ x[I].wrapping_add(initial[I])).to_le_bytes();
+    });
 }
 
 /// Defines `$unchecked`, which XORs the keystream for blocks `counter ..
@@ -233,7 +242,7 @@ macro_rules! define_xor_chunk {
         ) {
             let mut dest = Dest::new(NEON_BLOCKS as usize, input, output, partial);
 
-            let initial_v = input_lanes(state, counter);
+            let initial_v = input_lanes!(state, counter);
             let mut v = initial_v;
             for phase in 0..2 {
                 let block_a = SET_BLOCKS as usize + 2 * phase;
@@ -467,7 +476,7 @@ fn xor_chunk_sve2_unchecked(
 ) {
     let mut dest = Dest::new(SVE2_BLOCKS as usize, input, output, partial);
 
-    let mut v = input_lanes(state, counter);
+    let mut v = input_lanes!(state, counter);
     let initial_s = soft::block_input(state, counter.wrapping_add(SET_BLOCKS));
     let mut s = initial_s;
     double_rounds_sve2(&mut v, &mut s);
@@ -479,7 +488,7 @@ fn xor_chunk_sve2_unchecked(
     // the kernel's speed depend on the frame it runs in. `black_box` keeps
     // the compiler from merging the two computations into one spilled copy.
     let state = core::hint::black_box(state);
-    let initial_v = input_lanes(state, counter);
+    let initial_v = input_lanes!(state, counter);
     finish_set!(v, &initial_v, &mut dest);
 }
 

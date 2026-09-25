@@ -64,7 +64,8 @@ macro_rules! sha2_hasher {
             /// for the HMAC key pads: one compression with no buffering.
             ///
             /// The key-equivalent chaining state is compressed in place, so
-            /// the only copy is the hasher's own, which is wiped on drop.
+            /// the only copy is the hasher's own, which is wiped on drop (out
+            /// of line at opt-level `z`, it still gets only `&mut self`).
             #[inline]
             pub(crate) fn absorb_key_block(&mut self, block: &[u8; $block_bytes]) {
                 debug_assert!(self.len == 0 && self.buflen == 0);
@@ -113,9 +114,12 @@ macro_rules! sha2_hasher {
                     ::zeroize::Zeroize::zeroize(&mut state);
                     return;
                 }
+                // Finish in place: moving the hasher into `finalize_into_bytes`
+                // copies it (at every opt-level) and leaves the moved-from
+                // chaining state, key-derived for a long HMAC key, unwiped.
                 let mut hasher = Self::new();
                 hasher.update(input);
-                hasher.finalize_into_bytes(output)
+                hasher.finalize_in_place(output);
             }
 
             #[doc = concat!("One-time interface to compute ", $algo, " digest for `input`.")]
@@ -165,9 +169,11 @@ macro_rules! sha2_hasher {
             }
 
             /// Consumes hasher and return final computed hash.
-            pub fn finalize<Output: $crate::types::NewByteArray<$digest_bytes>>(self) -> Output {
+            pub fn finalize<Output: $crate::types::NewByteArray<$digest_bytes>>(mut self) -> Output {
+                // In place, so `self` is not copied into another frame and
+                // its own storage is what drops (wipes).
                 let mut hash = Output::new_byte_array();
-                self.finalize_into_bytes(&mut hash);
+                self.finalize_in_place(hash.as_mut_array());
                 hash
             }
 
@@ -205,8 +211,10 @@ macro_rules! sha2_hasher {
             /// Consumes hasher and returns final computed hash as a
             /// [`Vec`](alloc::vec::Vec).
             #[cfg(feature = "alloc")]
-            pub fn finalize_to_vec(self) -> alloc::vec::Vec<u8> {
-                self.finalize::<$crate::types::StackByteArray<$digest_bytes>>().to_vec()
+            pub fn finalize_to_vec(mut self) -> alloc::vec::Vec<u8> {
+                let mut hash = $crate::types::StackByteArray::<$digest_bytes>::new();
+                self.finalize_in_place(hash.as_mut_array());
+                hash.to_vec()
             }
         }
 

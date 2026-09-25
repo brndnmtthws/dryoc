@@ -37,6 +37,10 @@ const IV: [u32; 8] = [
 
 /// Compresses whole blocks into `state`, using the hardware `sha2` extension
 /// when the running CPU has it.
+///
+/// Out of line at opt-level `z` (with the kernels it calls at `z`, `s` and
+/// `2`), which adds no copy: they only get `&mut` to the hasher's own state
+/// or to `compute_into_bytes`' wiped local, and `&` to the blocks.
 #[inline]
 fn compress(state: &mut [u32; 8], blocks: &[[u8; BLOCK_BYTES]]) {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]

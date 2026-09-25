@@ -184,12 +184,15 @@ fn permute4_avx2_unchecked<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4])
         unreachable!("25 lanes are six blocks of four and one more");
     };
     for (j, block) in blocks.iter_mut().enumerate() {
-        let rows = states.each_ref().map(|state| state.as_chunks::<4>().0[j]);
+        // Loaded straight from the states: an `each_ref().map` of the rows
+        // stayed out of line at opt-level `z` and `s` and returned copies of
+        // the state words through memory.
+        let [s0, s1, s2, s3] = &states;
         *block = transpose_words([
-            load_words(&rows[0]),
-            load_words(&rows[1]),
-            load_words(&rows[2]),
-            load_words(&rows[3]),
+            load_words(&s0.as_chunks::<4>().0[j]),
+            load_words(&s1.as_chunks::<4>().0[j]),
+            load_words(&s2.as_chunks::<4>().0[j]),
+            load_words(&s3.as_chunks::<4>().0[j]),
         ]);
     }
     *last = _mm256_setr_epi64x(

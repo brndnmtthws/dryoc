@@ -46,26 +46,42 @@ fn block_to_fe(block: &[u8], hibit: u64) -> Fe {
     ]
 }
 
-#[inline]
+/// The clamped `r` as 26-bit limbs, clamped in limb form (the poly1305-donna
+/// masks) rather than on a byte copy of the key: at opt-level `z` the copy's
+/// `copy_from_slice` is out of line and got `&mut` to that unwiped local.
+#[inline(always)]
 fn key_to_r(key: &[u8]) -> Fe {
-    let mut r = [0u8; 16];
-    r.copy_from_slice(&key[..16]);
-    r[3] &= 15;
-    r[7] &= 15;
-    r[11] &= 15;
-    r[15] &= 15;
-    r[4] &= 252;
-    r[8] &= 252;
-    r[12] &= 252;
-    block_to_fe(&r, 0)
+    let t0 = load_u32_le(&key[0..4]) as u64;
+    let t1 = load_u32_le(&key[4..8]) as u64;
+    let t2 = load_u32_le(&key[8..12]) as u64;
+    let t3 = load_u32_le(&key[12..16]) as u64;
+
+    [
+        t0 & 0x3ff_ffff,
+        ((t0 >> 26) | (t1 << 6)) & 0x3ff_ff03,
+        ((t1 >> 20) | (t2 << 12)) & 0x3ff_c0ff,
+        ((t2 >> 14) | (t3 << 18)) & 0x3f0_3fff,
+        (t3 >> 8) & 0x00f_ffff,
+    ]
+}
+
+// The limb helpers below take the accumulator and key powers by value, so
+// they are `#[inline(always)]` and spell out their limbs: at opt-level `z` an
+// out-of-line helper, or the `array::from_fn` closure specialisation, gets
+// those limbs through unwiped stack temporaries. Inlined, they stay in
+// registers and spill slots, which are not wiped.
+#[inline(always)]
+fn fe_add(lhs: Fe, rhs: Fe) -> Fe {
+    [
+        lhs[0].wrapping_add(rhs[0]),
+        lhs[1].wrapping_add(rhs[1]),
+        lhs[2].wrapping_add(rhs[2]),
+        lhs[3].wrapping_add(rhs[3]),
+        lhs[4].wrapping_add(rhs[4]),
+    ]
 }
 
 #[inline(always)]
-fn fe_add(lhs: Fe, rhs: Fe) -> Fe {
-    core::array::from_fn(|i| lhs[i].wrapping_add(rhs[i]))
-}
-
-#[inline]
 fn fe_carry(mut h: Fe) -> Fe {
     let mut c = h[0] >> 26;
     h[0] &= MASK26;
@@ -130,12 +146,24 @@ fn fe_mul(lhs: Fe, rhs: Fe) -> Fe {
 
 #[inline(always)]
 fn fe4_splat(x: Fe) -> Fe4 {
-    core::array::from_fn(|i| Simd::splat(x[i]))
+    [
+        Simd::splat(x[0]),
+        Simd::splat(x[1]),
+        Simd::splat(x[2]),
+        Simd::splat(x[3]),
+        Simd::splat(x[4]),
+    ]
 }
 
 #[inline(always)]
 fn fe4_add(lhs: Fe4, rhs: Fe4) -> Fe4 {
-    core::array::from_fn(|i| lhs[i] + rhs[i])
+    [
+        lhs[0] + rhs[0],
+        lhs[1] + rhs[1],
+        lhs[2] + rhs[2],
+        lhs[3] + rhs[3],
+        lhs[4] + rhs[4],
+    ]
 }
 
 #[inline(always)]
@@ -199,15 +227,30 @@ fn blocks_to_fe4(input: &[u8], group: usize, h: Fe) -> Fe4 {
         }
     }
 
-    core::array::from_fn(|i| Simd::from(limbs[i]))
+    [
+        Simd::from(limbs[0]),
+        Simd::from(limbs[1]),
+        Simd::from(limbs[2]),
+        Simd::from(limbs[3]),
+        Simd::from(limbs[4]),
+    ]
 }
 
-#[inline]
+#[inline(always)]
+fn lane_sum(v: Simd<u64, LANES>) -> u64 {
+    let lanes = v.to_array();
+    lanes[0] + lanes[1] + lanes[2] + lanes[3]
+}
+
+#[inline(always)]
 fn sum_lanes(v: Fe4) -> Fe {
-    fe_carry(core::array::from_fn(|i| {
-        let lanes = v[i].to_array();
-        lanes[0] + lanes[1] + lanes[2] + lanes[3]
-    }))
+    fe_carry([
+        lane_sum(v[0]),
+        lane_sum(v[1]),
+        lane_sum(v[2]),
+        lane_sum(v[3]),
+        lane_sum(v[4]),
+    ])
 }
 
 impl Poly1305 {
@@ -307,8 +350,13 @@ impl Poly1305 {
             t = fe4_add(fe4_mul(t, r4), blocks_to_fe4(input, group, [0; 5]));
         }
 
-        let powers =
-            core::array::from_fn(|i| Simd::from([self.r4[i], self.r3[i], self.r2[i], self.r[i]]));
+        let powers = [
+            Simd::from([self.r4[0], self.r3[0], self.r2[0], self.r[0]]),
+            Simd::from([self.r4[1], self.r3[1], self.r2[1], self.r[1]]),
+            Simd::from([self.r4[2], self.r3[2], self.r2[2], self.r[2]]),
+            Simd::from([self.r4[3], self.r3[3], self.r2[3], self.r[3]]),
+            Simd::from([self.r4[4], self.r3[4], self.r2[4], self.r[4]]),
+        ];
 
         self.h = sum_lanes(fe4_mul(t, powers));
     }
@@ -351,8 +399,12 @@ impl Poly1305 {
         let f0 = f0 as u128 + self.pad[0] as u128;
         let f1 = f1 as u128 + self.pad[1] as u128 + (f0 >> 64);
 
-        output[0..8].copy_from_slice(&(f0 as u64).to_le_bytes());
-        output[8..16].copy_from_slice(&(f1 as u64).to_le_bytes());
+        // Array stores rather than `copy_from_slice`, which at opt-level `z`
+        // and `s` stays out of line and takes the tag words by reference from
+        // an unwiped stack temporary.
+        let (words, _) = output.as_chunks_mut::<8>();
+        words[0] = (f0 as u64).to_le_bytes();
+        words[1] = (f1 as u64).to_le_bytes();
 
         self.zeroize();
     }

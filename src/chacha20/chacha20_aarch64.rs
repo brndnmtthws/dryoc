@@ -83,7 +83,9 @@ macro_rules! round {
 }
 
 /// The 20 ChaCha rounds over the 16 state words held in registers.
-#[inline]
+/// `#[inline(always)]`: out of line (opt-level `z`) it took the caller's
+/// working copy of the key state through memory.
+#[inline(always)]
 pub(super) fn rounds(x: &mut [u32; 16]) {
     let [
         mut x0,

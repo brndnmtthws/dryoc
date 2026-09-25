@@ -74,25 +74,37 @@ pub fn crypto_core_hchacha20(
     let input = input.as_array();
     let key = key.as_array();
     let (c0, c1, c2, c3) = constants.unwrap_or((SIGMA[0], SIGMA[1], SIGMA[2], SIGMA[3]));
+    // Loads and stores spelled out: at opt-level `z` and `s` the `zip`
+    // length helpers are out of line and got iterators over `x`, which kept
+    // the key-loaded state in stack memory nothing wipes.
+    let (k, _) = key.as_chunks::<4>();
+    let (n, _) = input.as_chunks::<4>();
     let mut x = [c0, c1, c2, c3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    for (word, bytes) in x[4..12].iter_mut().zip(key.as_chunks::<4>().0) {
-        *word = u32::from_le_bytes(*bytes);
-    }
-    for (word, bytes) in x[12..].iter_mut().zip(input.as_chunks::<4>().0) {
-        *word = u32::from_le_bytes(*bytes);
-    }
+    x[4] = u32::from_le_bytes(k[0]);
+    x[5] = u32::from_le_bytes(k[1]);
+    x[6] = u32::from_le_bytes(k[2]);
+    x[7] = u32::from_le_bytes(k[3]);
+    x[8] = u32::from_le_bytes(k[4]);
+    x[9] = u32::from_le_bytes(k[5]);
+    x[10] = u32::from_le_bytes(k[6]);
+    x[11] = u32::from_le_bytes(k[7]);
+    x[12] = u32::from_le_bytes(n[0]);
+    x[13] = u32::from_le_bytes(n[1]);
+    x[14] = u32::from_le_bytes(n[2]);
+    x[15] = u32::from_le_bytes(n[3]);
 
     crate::chacha20::rounds(&mut x);
 
-    // Words 0..4 and 12..16 of the permuted state, read by reference rather
-    // than gathered into a by-value copy.
-    let (head, tail) = output.as_chunks_mut::<4>().0.split_at_mut(4);
-    for (chunk, word) in head.iter_mut().zip(&x[..4]) {
-        *chunk = word.to_le_bytes();
-    }
-    for (chunk, word) in tail.iter_mut().zip(&x[12..]) {
-        *chunk = word.to_le_bytes();
-    }
+    // Words 0..4 and 12..16 of the permuted state.
+    let (out, _) = output.as_chunks_mut::<4>();
+    out[0] = x[0].to_le_bytes();
+    out[1] = x[1].to_le_bytes();
+    out[2] = x[2].to_le_bytes();
+    out[3] = x[3].to_le_bytes();
+    out[4] = x[12].to_le_bytes();
+    out[5] = x[13].to_le_bytes();
+    out[6] = x[14].to_le_bytes();
+    out[7] = x[15].to_le_bytes();
 }
 
 /// Checks whether `p` is a valid prime-order Ed25519 point.
@@ -253,14 +265,17 @@ pub fn crypto_core_hsalsa20(
         x15 ^= salsa20_rotl32(x14, x13, 18);
     }
 
-    output[0..4].copy_from_slice(&x0.to_le_bytes());
-    output[4..8].copy_from_slice(&x5.to_le_bytes());
-    output[8..12].copy_from_slice(&x10.to_le_bytes());
-    output[12..16].copy_from_slice(&x15.to_le_bytes());
-    output[16..20].copy_from_slice(&x6.to_le_bytes());
-    output[20..24].copy_from_slice(&x7.to_le_bytes());
-    output[24..28].copy_from_slice(&x8.to_le_bytes());
-    output[28..32].copy_from_slice(&x9.to_le_bytes());
+    // Array chunk stores: at opt-level `z` and `s` `copy_from_slice` is out
+    // of line and took each subkey word through a stack temporary.
+    let (out, _) = output.as_chunks_mut::<4>();
+    out[0] = x0.to_le_bytes();
+    out[1] = x5.to_le_bytes();
+    out[2] = x10.to_le_bytes();
+    out[3] = x15.to_le_bytes();
+    out[4] = x6.to_le_bytes();
+    out[5] = x7.to_le_bytes();
+    out[6] = x8.to_le_bytes();
+    out[7] = x9.to_le_bytes();
 }
 
 #[cfg(test)]

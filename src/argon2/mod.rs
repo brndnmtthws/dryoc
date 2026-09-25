@@ -168,7 +168,10 @@ use argon2_soft::fill_block as fill_block_portable;
 /// `P(R) ^ R` for `R = prev_block ^ ref_block`, XORing the previous contents
 /// of `dst` in as well when `xor_old` (the second and later passes). Uses the
 /// runtime-detected x86-64 kernel when there is one, else the portable
-/// backend.
+/// backend. Out of line at opt-level `z` and `s` (as is
+/// [`prepare_in_place`] at `z`), which adds no copy: it only gets
+/// references to the memory region's blocks and to `Block` locals, all of
+/// which wipe themselves on drop.
 #[inline]
 fn fill_block(
     dst: &mut Block,
@@ -185,6 +188,12 @@ fn fill_block(
     fill_block_portable(dst, prev_block, ref_block, xor_old, scratch);
 }
 
+/// The password-derived memory. Each [`Block`] wipes itself on drop, so the
+/// region's drop glue (out of line at opt-level `z` and `s`) wipes all of
+/// it. [`Argon2Instance::initialize`] reserves the exact size before the
+/// blocks are created, so the vector never reallocates and leaves no copy
+/// behind; `Vec` helpers that stay out of line only move pointers and
+/// lengths, or the zero block that `resize` clones.
 #[derive(Default)]
 struct BlockRegion {
     memory: Vec<Block>,
@@ -402,13 +411,15 @@ pub(crate) fn argon2_hash(
 
     // 2. Initial hashing
     // H_0 + 8 extra bytes to produce the first blocks
-    // Hashing all inputs
-    let blockhash = argon2_initial_hash(&context, type_)?;
-    // Zeroing 8 extra bytes
+    // Hashing all inputs. `blockhash` stays in this one wiped-on-drop buffer:
+    // returning it or passing it by value moved the prehash through
+    // temporaries that were never wiped.
+    let mut blockhash = Zeroizing::new([0u8; ARGON2_PREHASH_SEED_LENGTH]);
+    argon2_initial_hash(&context, type_, &mut blockhash)?;
 
     // 3. Creating first blocks, we always have at least two blocks in a
     // slice
-    argon2_fill_first_blocks(blockhash, &mut instance)?;
+    argon2_fill_first_blocks(&mut blockhash, &mut instance)?;
 
     for pass in 0..instance.passes {
         argon2_fill_memory_blocks(&mut instance, pass);
@@ -438,7 +449,8 @@ fn argon2_finalize(context: Argon2Context, instance: Argon2Instance) -> Result<(
 fn argon2_initial_hash(
     context: &Argon2Context,
     type_: Argon2Type,
-) -> Result<Zeroizing<[u8; ARGON2_PREHASH_SEED_LENGTH]>, Error> {
+    blockhash: &mut [u8; ARGON2_PREHASH_SEED_LENGTH],
+) -> Result<(), Error> {
     let mut blake2b = blake2b::State::init(ARGON2_PREHASH_DIGEST_LENGTH as u8, None, None, None)?;
     blake2b.update(&context.lanes.to_le_bytes());
     blake2b.update(&(context.output.len() as u32).to_le_bytes());
@@ -474,9 +486,10 @@ fn argon2_initial_hash(
         None => blake2b.update(&(0u32.to_le_bytes())), // ad, unused
     }
 
-    let mut blockhash = Zeroizing::new([0u8; ARGON2_PREHASH_SEED_LENGTH]);
-    blake2b.finalize(&mut blockhash[..ARGON2_PREHASH_DIGEST_LENGTH])?;
-    Ok(blockhash)
+    // In place: `finalize` takes the state by value, and the copy that makes
+    // left the password-absorbing original unwiped. `blake2b` wipes itself
+    // when it drops here.
+    blake2b.finalize_in_place(&mut blockhash[..ARGON2_PREHASH_DIGEST_LENGTH])
 }
 
 #[derive(Default)]
@@ -731,7 +744,7 @@ fn xor_block(dst: &mut Block, src: &Block) {
 }
 
 fn argon2_fill_first_blocks(
-    mut blockhash: Zeroizing<[u8; ARGON2_PREHASH_SEED_LENGTH]>,
+    blockhash: &mut [u8; ARGON2_PREHASH_SEED_LENGTH],
     instance: &mut Argon2Instance,
 ) -> Result<(), Error> {
     let mut blockhash_bytes = Zeroizing::new([0u8; ARGON2_BLOCK_SIZE]);
@@ -760,6 +773,10 @@ fn argon2_fill_first_blocks(
     Ok(())
 }
 
+/// Reads the little-endian words of `input` into `block`. Out of line at
+/// opt-level `z` on x86-64 (and its `zip` length helper at `z` and `s`),
+/// which adds no copy: it only gets references to a memory-region block and
+/// to the caller's wiped-on-drop byte buffer.
 fn load_block(block: &mut Block, input: &[u8]) {
     let (words, _) = input.as_chunks::<8>();
     for (word, bytes) in block.v.iter_mut().zip(words) {

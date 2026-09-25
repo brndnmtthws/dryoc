@@ -109,7 +109,11 @@ macro_rules! round {
 
 /// The twelve BLAKE2b rounds over the working state `v` with the message
 /// words of `block`.
-#[inline]
+///
+/// `#[inline(always)]`, as are the rounds it selects: out of line (at
+/// opt-level `z`, once there is a second caller) they would take the working
+/// state `v` through memory.
+#[inline(always)]
 fn rounds(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
     #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
     super::blake2b_aarch64::rounds(v, block);
@@ -122,11 +126,53 @@ fn rounds(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
     miri,
     test
 ))]
+#[inline(always)]
 fn rounds_portable(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
-    let mut m = [0u64; 16];
-    for (word, chunk) in m.iter_mut().zip(block.as_chunks::<8>().0) {
-        *word = u64::from_le_bytes(*chunk);
-    }
+    // Spelled out: the `zip` loop this replaces stayed out of line at
+    // opt-level `z` and `s`, taking the message words (the key, in a keyed
+    // hash's first block) through a memory array.
+    let (
+        [
+            c0,
+            c1,
+            c2,
+            c3,
+            c4,
+            c5,
+            c6,
+            c7,
+            c8,
+            c9,
+            c10,
+            c11,
+            c12,
+            c13,
+            c14,
+            c15,
+        ],
+        [],
+    ) = block.as_chunks::<8>()
+    else {
+        unreachable!("a block is sixteen words")
+    };
+    let m = [
+        u64::from_le_bytes(*c0),
+        u64::from_le_bytes(*c1),
+        u64::from_le_bytes(*c2),
+        u64::from_le_bytes(*c3),
+        u64::from_le_bytes(*c4),
+        u64::from_le_bytes(*c5),
+        u64::from_le_bytes(*c6),
+        u64::from_le_bytes(*c7),
+        u64::from_le_bytes(*c8),
+        u64::from_le_bytes(*c9),
+        u64::from_le_bytes(*c10),
+        u64::from_le_bytes(*c11),
+        u64::from_le_bytes(*c12),
+        u64::from_le_bytes(*c13),
+        u64::from_le_bytes(*c14),
+        u64::from_le_bytes(*c15),
+    ];
     round!(v, m, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
     round!(v, m, 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3);
     round!(v, m, 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4);
@@ -143,6 +189,10 @@ fn rounds_portable(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
 
 /// Compresses `block` into `sh`, through the runtime-detected x86-64 kernel
 /// when there is one, else the portable rounds.
+///
+/// Out of line at opt-level `z` (on x86-64 at every level), which adds no
+/// copy: it only gets `&mut` to the chaining value it updates (the state's
+/// own, or `hash_single_block`'s wiped one) and `&` to the block.
 #[inline]
 fn compress(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKBYTES]) {
     #[cfg(target_arch = "x86_64")]
@@ -156,8 +206,8 @@ fn compress(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKB
 /// One BLAKE2b compression without the x86-64 kernels.
 ///
 /// The working state `v` and the message words only flow through inlined
-/// rounds, so they live in registers and compiler spill slots, which are
-/// out of Rust's reach and are not wiped.
+/// rounds with constant indices, so they live in registers and compiler
+/// spill slots, which are out of Rust's reach and are not wiped.
 #[inline]
 fn compress_portable(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u8; BLOCKBYTES]) {
     let mut v = [
@@ -181,9 +231,16 @@ fn compress_portable(sh: &mut [u64; 8], st: &[u64; 2], sf: &[u64; 2], block: &[u
 
     rounds(&mut v, block);
 
-    for i in 0..8 {
-        sh[i] ^= v[i] ^ v[i + 8];
-    }
+    // Spelled out: at opt-level `z` a loop over `i` kept `v` in a stack
+    // array.
+    sh[0] ^= v[0] ^ v[8];
+    sh[1] ^= v[1] ^ v[9];
+    sh[2] ^= v[2] ^ v[10];
+    sh[3] ^= v[3] ^ v[11];
+    sh[4] ^= v[4] ^ v[12];
+    sh[5] ^= v[5] ^ v[13];
+    sh[6] ^= v[6] ^ v[14];
+    sh[7] ^= v[7] ^ v[15];
 }
 
 impl State {
@@ -267,7 +324,7 @@ impl State {
     /// [`State::finalize`] without consuming `self`, for callers that keep
     /// the state where it is (moving it out leaves unwiped copies) and let it
     /// drop there.
-    fn finalize_in_place(&mut self, output: &mut [u8]) -> Result<(), Error> {
+    pub(crate) fn finalize_in_place(&mut self, output: &mut [u8]) -> Result<(), Error> {
         validate_length!(
             1,
             OUTBYTES,
@@ -284,15 +341,22 @@ impl State {
         self.buf[self.buflen..].fill(0);
         compress(&mut self.h, &self.t, &self.f, &self.buf);
 
+        // Stored word by word: `copy_from_slice` of each word's bytes stayed
+        // out of line at opt-level `z` and `s`, taking every chaining word
+        // (those past a short output are never released) through a stack
+        // temporary.
         let mut buffer = [0u8; OUTBYTES];
-        buffer[0..8].copy_from_slice(&self.h[0].to_le_bytes());
-        buffer[8..16].copy_from_slice(&self.h[1].to_le_bytes());
-        buffer[16..24].copy_from_slice(&self.h[2].to_le_bytes());
-        buffer[24..32].copy_from_slice(&self.h[3].to_le_bytes());
-        buffer[32..40].copy_from_slice(&self.h[4].to_le_bytes());
-        buffer[40..48].copy_from_slice(&self.h[5].to_le_bytes());
-        buffer[48..56].copy_from_slice(&self.h[6].to_le_bytes());
-        buffer[56..64].copy_from_slice(&self.h[7].to_le_bytes());
+        let ([b0, b1, b2, b3, b4, b5, b6, b7], []) = buffer.as_chunks_mut::<8>() else {
+            unreachable!("the digest is eight words")
+        };
+        *b0 = self.h[0].to_le_bytes();
+        *b1 = self.h[1].to_le_bytes();
+        *b2 = self.h[2].to_le_bytes();
+        *b3 = self.h[3].to_le_bytes();
+        *b4 = self.h[4].to_le_bytes();
+        *b5 = self.h[5].to_le_bytes();
+        *b6 = self.h[6].to_le_bytes();
+        *b7 = self.h[7].to_le_bytes();
         output.copy_from_slice(&buffer[..output.len()]);
         zeroize_bytes(&mut buffer);
 
