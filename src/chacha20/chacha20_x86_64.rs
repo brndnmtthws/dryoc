@@ -65,6 +65,9 @@ impl super::Kernel for Kernel {
         2
     }
 
+    /// Out of line at opt-level `z`, which adds no copy: it only forwards `&`
+    /// to the cipher's own state, which `ChaCha20` wipes on drop, and the
+    /// caller's buffers.
     #[inline]
     fn xor_chunk(
         self,

@@ -88,6 +88,9 @@ struct ProjectiveNiels {
 
 impl ProjectiveNiels {
     /// `-self`: swap the sums and negate `2 d T`.
+    ///
+    /// Only used by the variable-time verification ladder on public points,
+    /// so it may stay out of line.
     fn neg(&self) -> ProjectiveNiels {
         ProjectiveNiels {
             y_plus_x: self.y_minus_x,
@@ -166,6 +169,12 @@ impl Niels {
     };
 
     /// Negates in place when `mask` is all ones.
+    ///
+    /// `#[inline(always)]`: [`select`] applies it to the secret-selected
+    /// entry, and at opt-level `z` and `s` LLVM kept it out of line, taking
+    /// `next` (which stays in registers with NEON) and the negated copy
+    /// through memory.
+    #[inline(always)]
     fn conditional_negate(&mut self, mask: u64) {
         let swapped = Niels {
             y_plus_x: self.y_minus_x,
@@ -244,6 +253,9 @@ impl Point {
     }
 
     /// `-self`.
+    ///
+    /// Only used on public points (`-A` in signature verification), so it
+    /// may stay out of line.
     pub(crate) fn neg(&self) -> Point {
         Point {
             x: self.x.neg(),

@@ -310,11 +310,19 @@ impl Fe {
 
     /// Replaces `self` with `other` when `mask` is all ones and leaves it when
     /// `mask` is zero, with the same operations either way.
+    ///
+    /// Spelled out: a `zip` over `other.0` copies the (secret) limbs into an
+    /// iterator, and at opt-level `z` the iterator's `next` is out of line,
+    /// which puts that copy and both operands in memory.
     #[inline(always)]
     pub(crate) fn conditional_assign(&mut self, other: &Fe, mask: u64) {
-        for (x, y) in self.0.iter_mut().zip(other.0) {
-            *x ^= mask & (*x ^ y);
-        }
+        let [x0, x1, x2, x3, x4] = &mut self.0;
+        let [y0, y1, y2, y3, y4] = &other.0;
+        *x0 ^= mask & (*x0 ^ y0);
+        *x1 ^= mask & (*x1 ^ y1);
+        *x2 ^= mask & (*x2 ^ y2);
+        *x3 ^= mask & (*x3 ^ y3);
+        *x4 ^= mask & (*x4 ^ y4);
     }
 
     /// Whether the canonical encoding is odd (the Ed25519 sign bit).

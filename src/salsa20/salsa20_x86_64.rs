@@ -407,23 +407,29 @@ fn scalar_double_round(regs: &mut [u32; 9], mem: &mut [u32; 7]) {
 }
 
 /// Splits a block state into the register and memory words of
-/// [`scalar_double_round`].
+/// [`scalar_double_round`]. Spelled out: `array::map` with a closure and
+/// index loops are kept out of line at opt-level `z` and `s`, where they
+/// would take the key-derived state words through memory.
 #[inline(always)]
 fn split_words(x: &[u32; 16]) -> ([u32; 9], [u32; 7]) {
-    (REG_WORDS.map(|i| x[i]), MEM_WORDS.map(|i| x[i]))
+    const _: () = assert!(
+        matches!(REG_WORDS, [0, 1, 4, 5, 9, 10, 11, 14, 15])
+            && matches!(MEM_WORDS, [2, 3, 6, 7, 8, 12, 13])
+    );
+    (
+        [x[0], x[1], x[4], x[5], x[9], x[10], x[11], x[14], x[15]],
+        [x[2], x[3], x[6], x[7], x[8], x[12], x[13]],
+    )
 }
 
-/// Inverse of [`split_words`].
+/// Inverse of [`split_words`], spelled out for the same reason.
 #[inline(always)]
 fn join_words(regs: &[u32; 9], mem: &[u32; 7]) -> [u32; 16] {
-    let mut x = [0u32; 16];
-    for (&i, &word) in REG_WORDS.iter().zip(regs) {
-        x[i] = word;
-    }
-    for (&i, &word) in MEM_WORDS.iter().zip(mem) {
-        x[i] = word;
-    }
-    x
+    let [r0, r1, r4, r5, r9, r10, r11, r14, r15] = *regs;
+    let [m2, m3, m6, m7, m8, m12, m13] = *mem;
+    [
+        r0, r1, m2, m3, r4, r5, m6, m7, m8, r9, r10, r11, m12, m13, r14, r15,
+    ]
 }
 
 /// [`xor_chunk_avx512`] plus one unrelated block: the sixteen lanes and,
