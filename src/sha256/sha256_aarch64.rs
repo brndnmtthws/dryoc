@@ -7,6 +7,8 @@
 //! constant load ahead of both. LLVM reorders the intrinsic form into a
 //! dependency chain that runs ~15% slower on Neoverse V-class cores.
 
+use crate::aarch64::Sha2;
+
 /// SHA-256 round constants (FIPS 180-4 section 4.2.2).
 const K32: [u32; 64] = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -20,15 +22,8 @@ const K32: [u32; 64] = [
 ];
 
 /// Compresses `blocks` into `state` using the `sha2` instructions.
-///
-/// # Safety
-///
-/// The caller must have confirmed `has_aarch64_feature!("sha2")`.
 #[target_feature(enable = "sha2")]
-// SAFETY: an `unsafe fn` only because of the `sha2` target feature; the asm
-// below reads exactly `blocks.len()` 64-byte blocks and the 256-byte `K32`
-// table and reads/writes the state through a valid reference.
-pub(super) unsafe fn compress(state: &mut [u32; 8], blocks: &[[u8; 64]]) {
+fn compress_unchecked(state: &mut [u32; 8], blocks: &[[u8; 64]]) {
     if blocks.is_empty() {
         return;
     }
@@ -185,4 +180,12 @@ pub(super) unsafe fn compress(state: &mut [u32; 8], blocks: &[[u8; 64]]) {
             options(nostack),
             );
     }
+}
+
+/// [`compress_unchecked`], safe to call with a [`Sha2`] token.
+#[inline(always)]
+pub(super) fn compress(_: Sha2, state: &mut [u32; 8], blocks: &[[u8; 64]]) {
+    // SAFETY: a `Sha2` token exists only after detection of `sha2`,
+    // the feature the compression is compiled for.
+    unsafe { compress_unchecked(state, blocks) }
 }

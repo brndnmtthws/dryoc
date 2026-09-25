@@ -339,22 +339,38 @@ impl Point {
     /// nonzero digit.
     ///
     /// On x86-64 with BMI2 the loop runs in a copy compiled for `mulx` (see
-    /// [`crate::x86_64::has_bmi2`]); the arithmetic is the same code.
+    /// [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
     pub(crate) fn double_scalar_mul_basepoint_vartime(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
         #[cfg(target_arch = "x86_64")]
-        if crate::x86_64::has_bmi2() {
-            // SAFETY: `double_scalar_mul_basepoint_vartime_bmi2` requires the
-            // `bmi2` target feature, which the feature check above confirmed
-            // is present.
-            return unsafe { self.double_scalar_mul_basepoint_vartime_bmi2(a, b) };
+        if let Some(bmi2) = crate::x86_64::Bmi2::new() {
+            return self.double_scalar_mul_basepoint_vartime_bmi2(bmi2, a, b);
         }
         self.double_scalar_mul_basepoint_vartime_impl(a, b)
     }
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "bmi2")]
-    fn double_scalar_mul_basepoint_vartime_bmi2(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
+    fn double_scalar_mul_basepoint_vartime_bmi2_unchecked(
+        &self,
+        a: &[u8; 32],
+        b: &[u8; 32],
+    ) -> Point {
         self.double_scalar_mul_basepoint_vartime_impl(a, b)
+    }
+
+    /// [`Point::double_scalar_mul_basepoint_vartime_bmi2_unchecked`], safe to
+    /// call with a [`crate::x86_64::Bmi2`] token.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn double_scalar_mul_basepoint_vartime_bmi2(
+        &self,
+        _: crate::x86_64::Bmi2,
+        a: &[u8; 32],
+        b: &[u8; 32],
+    ) -> Point {
+        // SAFETY: a `Bmi2` token exists only after detection of
+        // `bmi2`, the feature the loop copy is compiled for.
+        unsafe { self.double_scalar_mul_basepoint_vartime_bmi2_unchecked(a, b) }
     }
 
     /// Odd multiples `self, 3 self, ..., 15 self`, cached for mixed addition.
@@ -489,12 +505,8 @@ fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
 #[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
 fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     #[cfg(target_arch = "x86_64")]
-    if crate::x86_64::has_avx512f() {
-        // SAFETY: `has_avx512f` confirmed the `avx512f` feature the function
-        // requires, together with the `avx2` that rustc's `avx512f` implies;
-        // it uses safe value intrinsics and the `x86_64::store_words512`
-        // helper.
-        return unsafe { edwards25519_x86_64::select_row(row, magnitude, out) };
+    if let Some(avx512) = crate::x86_64::Avx512::new() {
+        return edwards25519_x86_64::select_row(avx512, row, magnitude, out);
     }
     select_row_scalar(row, magnitude, out)
 }
@@ -584,21 +596,29 @@ fn naf<const W: usize>(scalar: &[u8; 32]) -> [i8; 256] {
 /// reduced modulo the group order or a clamped X25519/Ed25519 secret scalar.
 ///
 /// On x86-64 with BMI2 the loop runs in a copy compiled for `mulx` (see
-/// [`crate::x86_64::has_bmi2`]); the arithmetic is the same code.
+/// [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
 pub(crate) fn mul_base(scalar: &[u8; 32]) -> Point {
     #[cfg(target_arch = "x86_64")]
-    if crate::x86_64::has_bmi2() {
-        // SAFETY: `mul_base_bmi2` requires the `bmi2` target feature, which
-        // the feature check above confirmed is present.
-        return unsafe { mul_base_bmi2(scalar) };
+    if let Some(bmi2) = crate::x86_64::Bmi2::new() {
+        return mul_base_bmi2(bmi2, scalar);
     }
     mul_base_impl(scalar)
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2")]
-fn mul_base_bmi2(scalar: &[u8; 32]) -> Point {
+fn mul_base_bmi2_unchecked(scalar: &[u8; 32]) -> Point {
     mul_base_impl(scalar)
+}
+
+/// [`mul_base_bmi2_unchecked`], safe to call with a [`crate::x86_64::Bmi2`]
+/// token.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn mul_base_bmi2(_: crate::x86_64::Bmi2, scalar: &[u8; 32]) -> Point {
+    // SAFETY: a `Bmi2` token exists only after detection of `bmi2`,
+    // the feature the loop copy is compiled for.
+    unsafe { mul_base_bmi2_unchecked(scalar) }
 }
 
 #[inline(always)]
@@ -1151,17 +1171,16 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_avx512_select_row_matches_scalar() {
-        if !crate::x86_64::has_avx512f() {
+        let Some(avx512) = crate::x86_64::Avx512::new() else {
             return;
-        }
+        };
         let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         for (k, row) in TABLES.base.iter().enumerate() {
             for magnitude in 0..=8u8 {
                 let expected = lookup(|out| select_row_scalar(row, magnitude, out));
-                // SAFETY: `avx512f` was detected above.
-                let avx512 =
-                    lookup(|out| unsafe { edwards25519_x86_64::select_row(row, magnitude, out) });
-                assert_eq!(avx512, expected, "row {k}, magnitude {magnitude}");
+                let selected =
+                    lookup(|out| edwards25519_x86_64::select_row(avx512, row, magnitude, out));
+                assert_eq!(selected, expected, "row {k}, magnitude {magnitude}");
                 assert_eq!(
                     lookup(|out| select_row(row, magnitude, out)),
                     expected,

@@ -30,30 +30,28 @@ use core::arch::x86_64::{
 
 use super::{Block, finish_in_place, prepare_in_place};
 use crate::x86_64::{
-    load_words, load_words512, ror16_table, ror24_table, ror32, ror63, store_words, store_words512,
+    Avx2, Avx512, load_words, load_words512, ror16_table, ror24_table, ror32, ror63, store_words,
+    store_words512,
 };
 
-/// A vector kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] after checking the CPU features the
-/// kernel is compiled for, which is what makes [`Kernel::fill_block`] safe.
+/// A vector kernel the running CPU has been verified to support: each
+/// variant holds the token for the CPU feature its kernel is compiled for,
+/// which is what makes [`Kernel::fill_block`] safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kernel {
     /// AVX2: two 16-word states per round call in eight `ymm` registers.
-    Avx2,
+    Avx2(Avx2),
     /// AVX-512F: two 16-word states side by side in four `zmm` registers.
-    Avx512,
+    Avx512(Avx512),
 }
 
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if crate::x86_64::has_avx512f() {
-        Some(Kernel::Avx512)
-    } else if has_x86_feature!("avx2") {
-        Some(Kernel::Avx2)
+    if let Some(avx512) = Avx512::new() {
+        Some(Kernel::Avx512(avx512))
     } else {
-        None
+        Avx2::new().map(Kernel::Avx2)
     }
 }
 
@@ -62,11 +60,11 @@ impl Kernel {
     #[cfg(test)]
     pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         let mut kernels = alloc::vec::Vec::new();
-        if has_x86_feature!("avx2") {
-            kernels.push(Kernel::Avx2);
+        if let Some(avx2) = Avx2::new() {
+            kernels.push(Kernel::Avx2(avx2));
         }
-        if crate::x86_64::has_avx512f() {
-            kernels.push(Kernel::Avx512);
+        if let Some(avx512) = Avx512::new() {
+            kernels.push(Kernel::Avx512(avx512));
         }
         kernels
     }
@@ -85,13 +83,8 @@ impl Kernel {
     ) {
         prepare_in_place(dst, prev_block, ref_block, xor_old, scratch);
         match self {
-            // SAFETY: `Kernel::Avx2` is only constructed after
-            // `has_x86_feature!("avx2")` succeeded.
-            Kernel::Avx2 => unsafe { permute_avx2(dst) },
-            // SAFETY: `Kernel::Avx512` is only constructed after
-            // `x86_64::has_avx512f()` confirmed `avx512f` and the `avx2`
-            // that rustc's `avx512f` implies.
-            Kernel::Avx512 => unsafe { permute_avx512(dst) },
+            Kernel::Avx2(avx2) => permute_avx2(avx2, dst),
+            Kernel::Avx512(avx512) => permute_avx512(avx512, dst),
         }
         finish_in_place(dst, prev_block, ref_block, xor_old, scratch);
     }
@@ -161,7 +154,7 @@ fn round(s: [__m256i; 8], r24: __m256i, r16: __m256i) -> [__m256i; 8] {
 /// 16-word rows, then over every pair of 16-word columns.
 #[inline(never)]
 #[target_feature(enable = "avx2")]
-fn permute_avx2(block: &mut Block) {
+fn permute_avx2_unchecked(block: &mut Block) {
     let r24 = ror24_table();
     let r16 = ror16_table();
     // `v[k]` holds block words `4k .. 4k + 4`.
@@ -215,6 +208,14 @@ fn permute_avx2(block: &mut Block) {
     }
 }
 
+/// [`permute_avx2_unchecked`], safe to call with an [`Avx2`] token.
+#[inline(always)]
+fn permute_avx2(_: Avx2, block: &mut Block) {
+    // SAFETY: an `Avx2` token exists only after detection of `avx2`,
+    // the feature the kernel is compiled for.
+    unsafe { permute_avx2_unchecked(block) }
+}
+
 /// `x + y + 2 * lo32(x) * lo32(y)` per lane; see [`fblamka`].
 #[inline]
 #[target_feature(enable = "avx512f")]
@@ -261,7 +262,7 @@ fn round512(s: [__m512i; 4]) -> [__m512i; 4] {
 /// every pair of 16-word rows, then over every pair of 16-word columns.
 #[inline(never)]
 #[target_feature(enable = "avx512f")]
-fn permute_avx512(block: &mut Block) {
+fn permute_avx512_unchecked(block: &mut Block) {
     // `v[k]` holds block words `8k .. 8k + 8`.
     let v = block.v.as_chunks_mut::<8>().0;
 
@@ -324,4 +325,12 @@ fn permute_avx512(block: &mut Block) {
             );
         }
     }
+}
+
+/// [`permute_avx512_unchecked`], safe to call with an [`Avx512`] token.
+#[inline(always)]
+fn permute_avx512(_: Avx512, block: &mut Block) {
+    // SAFETY: an `Avx512` token exists only after detection of
+    // `avx512f`, the feature the kernel is compiled for.
+    unsafe { permute_avx512_unchecked(block) }
 }

@@ -107,11 +107,11 @@ impl Poly1305 {
     /// bulk paths for long runs when available.
     fn full_blocks(&mut self, input: &[u8]) {
         #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
-        if input.len() >= NEON_MIN_BYTES && has_aarch64_feature!("neon") {
+        if input.len() >= NEON_MIN_BYTES
+            && let Some(neon) = crate::aarch64::Neon::new()
+        {
             let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
-            // SAFETY: `poly1305_neon::blocks` requires the `neon` target
-            // feature, which the feature check above confirmed is present.
-            unsafe { super::poly1305_neon::blocks(&mut self.h, &self.r, &input[..bulk]) };
+            super::poly1305_neon::blocks(neon, &mut self.h, &self.r, &input[..bulk]);
             self.blocks(&input[bulk..], false);
             return;
         }
@@ -476,12 +476,11 @@ mod tests {
     fn neon_blocks_match_scalar() {
         use super::super::poly1305_neon::{CHUNK, blocks};
 
-        if !has_aarch64_feature!("neon") {
+        let Some(neon) = crate::aarch64::Neon::new() else {
             return;
-        }
+        };
         check_bulk_matches_scalar("neon", CHUNK, &[1, 2, 3, 4, 8, 16, 25], |h, r, input| {
-            // SAFETY: `neon` was detected above.
-            unsafe { blocks(h, r, input) }
+            blocks(neon, h, r, input)
         });
     }
 
@@ -492,17 +491,14 @@ mod tests {
     fn avx2_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK, blocks};
 
-        if !has_x86_feature!("avx2") {
+        let Some(token) = crate::x86_64::Avx2::new() else {
             return;
-        }
+        };
         check_bulk_matches_scalar(
             "avx2",
             CHUNK,
             &[1, 2, 3, 4, 8, 16, 25, 32],
-            |h, r, input| {
-                // SAFETY: `avx2` was detected above.
-                unsafe { blocks(h, r, input) }
-            },
+            |h, r, input| blocks(token, h, r, input),
         );
     }
 
@@ -513,18 +509,14 @@ mod tests {
     fn avx512_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK512, blocks_avx512};
 
-        if !crate::x86_64::has_avx512f() {
+        let Some(token) = crate::x86_64::Avx512::new() else {
             return;
-        }
+        };
         check_bulk_matches_scalar(
             "avx512",
             CHUNK512,
             &[1, 2, 3, 4, 8, 16, 25, 32],
-            |h, r, input| {
-                // SAFETY: `avx512f` (with the `avx2` it implies) was detected
-                // above.
-                unsafe { blocks_avx512(h, r, input) }
-            },
+            |h, r, input| blocks_avx512(token, h, r, input),
         );
     }
 
@@ -535,18 +527,14 @@ mod tests {
     fn ifma_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK_IFMA, blocks_ifma};
 
-        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
+        let Some(token) = crate::x86_64::Avx512Ifma::new() else {
             return;
-        }
+        };
         check_bulk_matches_scalar(
             "ifma",
             CHUNK_IFMA,
             &[1, 2, 3, 4, 8, 16, 25, 32, 63, 64],
-            |h, r, input| {
-                // SAFETY: `avx512f` (with the `avx2` it implies) and
-                // `avx512ifma` were detected above.
-                unsafe { blocks_ifma(h, r, input) }
-            },
+            |h, r, input| blocks_ifma(token, h, r, input),
         );
     }
 
@@ -557,18 +545,14 @@ mod tests {
     fn ifma2_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK_IFMA2, blocks_ifma2};
 
-        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
+        let Some(token) = crate::x86_64::Avx512Ifma::new() else {
             return;
-        }
+        };
         check_bulk_matches_scalar(
             "ifma2",
             CHUNK_IFMA2,
             &[1, 2, 3, 4, 8, 16, 25, 32],
-            |h, r, input| {
-                // SAFETY: `avx512f` (with the `avx2` it implies) and
-                // `avx512ifma` were detected above.
-                unsafe { blocks_ifma2(h, r, input) }
-            },
+            |h, r, input| blocks_ifma2(token, h, r, input),
         );
     }
 

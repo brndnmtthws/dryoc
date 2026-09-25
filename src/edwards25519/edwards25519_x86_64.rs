@@ -12,12 +12,12 @@ use core::arch::x86_64::{
 
 use super::Niels;
 use crate::fe25519::Fe;
-use crate::x86_64::store_words512;
+use crate::x86_64::{Avx512, store_words512};
 
 /// Constant-time table row lookup into `out`: entry `magnitude - 1` for
 /// `magnitude` in `1..=8`, the identity for `0`. The caller wipes `out`.
 #[target_feature(enable = "avx512f")]
-pub(super) fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
+fn select_row_unchecked(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     // Limbs 0..8 and 8..15 of an entry (y_plus_x, y_minus_x, xy2d), the
     // second word padded with a zero lane.
     let words = |n: &Niels| {
@@ -69,4 +69,14 @@ pub(super) fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
         y_minus_x: Fe([lo[5], lo[6], lo[7], hi[0], hi[1]]),
         xy2d: Fe([hi[2], hi[3], hi[4], hi[5], hi[6]]),
     };
+}
+
+/// [`select_row_unchecked`], safe to call with an [`Avx512`] token.
+#[inline(always)]
+pub(super) fn select_row(_: Avx512, row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
+    // SAFETY: an `Avx512` token exists only after detection of `avx512f`,
+    // the feature the lookup is compiled for, together with the `avx2` that
+    // rustc's `avx512f` implies; it uses safe value intrinsics and the
+    // `x86_64::store_words512` helper.
+    unsafe { select_row_unchecked(row, magnitude, out) }
 }

@@ -41,19 +41,18 @@ use core::arch::aarch64::{
 
 use super::mlkem_soft::{BARRETT_V, INVNTT_F, QINV, ZETAS};
 use super::{Poly, Q};
+use crate::aarch64::Neon;
 
-/// A kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] (and, in tests, `Kernel::all`)
-/// after `has_aarch64_feature!("neon")` succeeds, which is what makes
-/// the `#[target_feature(enable = "neon")]` calls in its methods sound.
+/// A kernel the running CPU has been verified to support: it holds the
+/// [`Neon`] token that makes its methods' calls into the
+/// `#[target_feature(enable = "neon")]` kernels safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Kernel(());
+pub(crate) struct Kernel(Neon);
 
 /// The NEON kernel, if the running CPU supports it.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    has_aarch64_feature!("neon").then_some(Kernel(()))
+    Neon::new().map(Kernel)
 }
 
 impl Kernel {
@@ -65,21 +64,17 @@ impl Kernel {
 
     #[inline]
     pub(super) fn ntt(self, r: &mut Poly) {
-        // SAFETY: a `Kernel` exists only after `has_aarch64_feature!`
-        // confirmed `neon`, the only feature `ntt` is compiled for.
-        unsafe { ntt(r) }
+        ntt(self.0, r)
     }
 
     #[inline]
     pub(super) fn invntt_tomont(self, r: &mut Poly) {
-        // SAFETY: as in `Kernel::ntt`; `invntt_tomont` requires only `neon`.
-        unsafe { invntt_tomont(r) }
+        invntt_tomont(self.0, r)
     }
 
     #[inline]
     pub(super) fn basemul_acc<const K: usize>(self, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
-        // SAFETY: as in `Kernel::ntt`; `basemul_acc` requires only `neon`.
-        unsafe { basemul_acc(r, a, b) }
+        basemul_acc(self.0, r, a, b)
     }
 }
 
@@ -323,7 +318,7 @@ fn rows(r: &mut Poly) -> &mut [[i16; 8]; 32] {
 
 /// `mlkem_soft::ntt`.
 #[target_feature(enable = "neon")]
-fn ntt(r: &mut Poly) {
+fn ntt_unchecked(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 128, 64, 32 on rows j, j + 4, ..., j + 28.
     for j in 0..4 {
@@ -349,9 +344,17 @@ fn ntt(r: &mut Poly) {
     }
 }
 
+/// [`ntt_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn ntt(_: Neon, r: &mut Poly) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { ntt_unchecked(r) }
+}
+
 /// `mlkem_soft::invntt_tomont`.
 #[target_feature(enable = "neon")]
-fn invntt_tomont(r: &mut Poly) {
+fn invntt_tomont_unchecked(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 2, 4, 8, 16 on 64 consecutive coefficients.
     for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
@@ -380,6 +383,14 @@ fn invntt_tomont(r: &mut Poly) {
     }
 }
 
+/// [`invntt_tomont_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn invntt_tomont(_: Neon, r: &mut Poly) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { invntt_tomont_unchecked(r) }
+}
+
 /// The polynomial as sixteen pairs of rows of eight coefficients.
 #[inline]
 fn pairs(r: &Poly) -> &[[[i16; 8]; 2]; 16] {
@@ -389,7 +400,7 @@ fn pairs(r: &Poly) -> &[[[i16; 8]; 2]; 16] {
 /// `mlkem_soft::basemul_acc`, sixteen coefficients at a time with the even
 /// (constant) and odd (linear) coefficients of each residue de-interleaved.
 #[target_feature(enable = "neon")]
-fn basemul_acc<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
+fn basemul_acc_unchecked<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
     let split = |[lo, hi]: &[[i16; 8]; 2]| {
         let (lo, hi) = (load(lo), load(hi));
         (vuzp1q_s16(lo, hi), vuzp2q_s16(lo, hi))
@@ -423,6 +434,14 @@ fn basemul_acc<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
     }
 }
 
+/// [`basemul_acc_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn basemul_acc<const K: usize>(_: Neon, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { basemul_acc_unchecked::<K>(r, a, b) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,11 +449,10 @@ mod tests {
     use crate::test_prelude::*;
 
     /// Lane `i` of `v`.
+    #[target_feature(enable = "neon")]
     fn lanes(v: int16x8_t) -> [i16; 8] {
         let mut out = [0; 8];
-        // SAFETY: test-only; only called from `check_lanes`, whose caller
-        // detected `neon`.
-        unsafe { store(&mut out, v) };
+        store(&mut out, v);
         out
     }
 
@@ -478,8 +496,9 @@ mod tests {
     /// their whole input ranges.
     #[test]
     fn test_lanes_match_scalar_exhaustive() {
-        assert!(has_aarch64_feature!("neon"));
-        // SAFETY: test-only; `neon` was detected above.
+        let _neon = Neon::new().expect("NEON must be detected on this machine");
+        // SAFETY: test-only; the `Neon` token above proves `neon`, the one
+        // feature `check_lanes` is compiled for.
         unsafe { check_lanes() };
     }
 }
