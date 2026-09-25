@@ -22,7 +22,7 @@
 //! If the `wincode_0_6` feature is enabled,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
-//! implemented for [`VecBox`] and [`VecEnvelope`].
+//! implemented for `VecBox` and `VecEnvelope`.
 //!
 //! ## Rustaceous API example
 //!
@@ -62,7 +62,9 @@
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
 
-use std::marker::PhantomData;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -93,7 +95,7 @@ mod sealed {
 /// algorithms while still allowing dryoc to add future AEAD constructions
 /// without changing the container types.
 pub trait AeadAlgorithm:
-    sealed::Sealed + Clone + Copy + std::fmt::Debug + Default + Eq + PartialEq
+    sealed::Sealed + Clone + Copy + core::fmt::Debug + Default + Eq + PartialEq
 {
 }
 
@@ -130,13 +132,18 @@ pub type DryocAead<Mac, Data> = AeadBox<XChaCha20Poly1305Ietf, Mac, Data>;
 pub type DryocAeadEnvelope<Nonce, Mac, Data> =
     AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>;
 /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD box.
+#[cfg(feature = "alloc")]
 pub type VecBox = DryocAead<Mac, Vec<u8>>;
 /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD envelope.
+#[cfg(feature = "alloc")]
 pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
 
 /// Algorithm-specific aliases for XChaCha20-Poly1305-IETF.
 pub mod xchacha20poly1305_ietf {
-    #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+    #[cfg(any(
+        all(feature = "protected", any(unix, windows)),
+        all(doc, not(doctest), feature = "std")
+    ))]
     pub use super::protected;
     pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, XChaCha20Poly1305Ietf};
 
@@ -150,9 +157,11 @@ pub mod xchacha20poly1305_ietf {
     pub type DryocAead<Mac, Data> = super::DryocAead<Mac, Data>;
     /// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
     pub type DryocAeadEnvelope<Nonce, Mac, Data> = super::DryocAeadEnvelope<Nonce, Mac, Data>;
-    /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD box.
+    /// [`Vec`](alloc::vec::Vec)-based XChaCha20-Poly1305-IETF AEAD box.
+    #[cfg(feature = "alloc")]
     pub type VecBox = super::VecBox;
-    /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD envelope.
+    /// [`Vec`](alloc::vec::Vec)-based XChaCha20-Poly1305-IETF AEAD envelope.
+    #[cfg(feature = "alloc")]
     pub type VecEnvelope = super::VecEnvelope;
 }
 
@@ -187,6 +196,9 @@ pub mod xchacha20poly1305_ietf {
 /// assert_eq!(message, decrypted.as_slice());
 /// ```
 pub mod chacha20poly1305_ietf {
+    #[cfg(feature = "alloc")]
+    use alloc::vec::Vec;
+
     pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, ChaCha20Poly1305Ietf};
     use crate::constants::{
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
@@ -206,11 +218,16 @@ pub mod chacha20poly1305_ietf {
     pub type DryocAeadEnvelope<Nonce, Mac, Data> =
         AeadEnvelope<ChaCha20Poly1305Ietf, Nonce, Mac, Data>;
     /// [`Vec`]-based ChaCha20-Poly1305-IETF AEAD box.
+    #[cfg(feature = "alloc")]
     pub type VecBox = DryocAead<Mac, Vec<u8>>;
     /// [`Vec`]-based ChaCha20-Poly1305-IETF AEAD envelope.
+    #[cfg(feature = "alloc")]
     pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
 
-    #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+    #[cfg(any(
+        all(feature = "protected", any(unix, windows)),
+        all(doc, not(doctest), feature = "std")
+    ))]
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
     pub mod protected {
         //! Protected-memory aliases for ChaCha20-Poly1305-IETF.
@@ -231,7 +248,10 @@ pub mod chacha20poly1305_ietf {
     }
 }
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`AeadBox`] and [`AeadEnvelope`]
@@ -319,7 +339,7 @@ macro_rules! impl_wincode_aead {
 
             fn read(
                 mut reader: impl wincode::io::Reader<'de>,
-                dst: &mut std::mem::MaybeUninit<Self::Dst>,
+                dst: &mut core::mem::MaybeUninit<Self::Dst>,
             ) -> wincode::ReadResult<()> {
                 let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
                 let tag = <[u8; $abytes] as wincode::SchemaRead<'de, C>>::get(reader)?;
@@ -370,7 +390,7 @@ macro_rules! impl_wincode_aead {
 
             fn read(
                 mut reader: impl wincode::io::Reader<'de>,
-                dst: &mut std::mem::MaybeUninit<Self::Dst>,
+                dst: &mut core::mem::MaybeUninit<Self::Dst>,
             ) -> wincode::ReadResult<()> {
                 let nonce =
                     <[u8; $npubbytes] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
@@ -461,7 +481,7 @@ macro_rules! impl_aead_algorithm {
 
         impl<
             'a,
-            Mac: ByteArray<$abytes> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+            Mac: ByteArray<$abytes> + core::convert::TryFrom<&'a [u8]> + Zeroize,
             Data: Bytes + From<&'a [u8]> + Zeroize,
         > AeadBox<$algorithm, Mac, Data>
         {
@@ -521,8 +541,8 @@ macro_rules! impl_aead_algorithm {
 
         impl<
             'a,
-            Nonce: ByteArray<$npubbytes> + std::convert::TryFrom<&'a [u8]> + Zeroize,
-            Mac: ByteArray<$abytes> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+            Nonce: ByteArray<$npubbytes> + core::convert::TryFrom<&'a [u8]> + Zeroize,
+            Mac: ByteArray<$abytes> + core::convert::TryFrom<&'a [u8]> + Zeroize,
             Data: Bytes + From<&'a [u8]> + Zeroize,
         > AeadEnvelope<$algorithm, Nonce, Mac, Data>
         {
@@ -583,6 +603,7 @@ macro_rules! impl_aead_algorithm {
             }
         }
 
+        #[cfg(feature = "alloc")]
         impl AeadBox<$algorithm, StackByteArray<$abytes>, Vec<u8>> {
             /// Encrypts a message and returns a [`VecBox`].
             ///
@@ -624,6 +645,7 @@ macro_rules! impl_aead_algorithm {
             }
         }
 
+        #[cfg(feature = "alloc")]
         impl
             AeadEnvelope<$algorithm, StackByteArray<$npubbytes>, StackByteArray<$abytes>, Vec<u8>>
         {
@@ -703,6 +725,7 @@ macro_rules! impl_aead_envelope_seal {
             }
         }
 
+        #[cfg(feature = "alloc")]
         impl
             AeadEnvelope<$algorithm, StackByteArray<$npubbytes>, StackByteArray<$abytes>, Vec<u8>>
         {
@@ -801,6 +824,7 @@ impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
 
 impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, Data> {
     /// Copies `self` into a new [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -855,6 +879,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
     AeadEnvelope<Algorithm, Nonce, Mac, Data>
 {
     /// Copies `self` into a new [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -925,7 +950,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes> PartialEq
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

@@ -33,7 +33,9 @@
 //! * See the [libsodium documentation](https://doc.libsodium.org/key_derivation)
 //!   for more about key derivation
 
-use std::fmt;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -80,7 +82,10 @@ impl<
 /// Stack-allocated type alias for [`Kdf`]. Provided for convenience.
 pub type StackKdf = Kdf<Key, Context>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`Kdf`]
@@ -173,6 +178,7 @@ impl<
     /// and
     /// [`CRYPTO_KDF_BLAKE2B_BYTES_MAX`](crate::constants::CRYPTO_KDF_BLAKE2B_BYTES_MAX),
     /// inclusive.
+    #[cfg(feature = "alloc")]
     pub fn derive_subkey_to_vec(&self, subkey_id: u64, length: usize) -> Result<Vec<u8>, Error> {
         validate_subkey_length(length)?;
         let mut subkey = vec![0u8; length];
@@ -207,7 +213,7 @@ impl Kdf<Key, Context> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
     use crate::constants::{
@@ -248,7 +254,7 @@ mod tests {
     ];
 
     fn kat_kdf() -> StackKdf {
-        let key: [u8; CRYPTO_KDF_KEYBYTES] = std::array::from_fn(|i| i as u8);
+        let key: [u8; CRYPTO_KDF_KEYBYTES] = core::array::from_fn(|i| i as u8);
         Kdf::from_parts(Key::from(key), Context::from(*b"KDF test"))
     }
 

@@ -18,6 +18,9 @@
 //! let hash = state.finalize_to_vec();
 //! assert_eq!(hash.len(), 32);
 //! ```
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use crate::constants::{CRYPTO_HASH_SHA3256_BYTES, CRYPTO_HASH_SHA3512_BYTES};
 use crate::keccak::{DOMAIN_SHA3, RATE_256, RATE_512, ROUNDS_FULL, Sponge};
 use crate::types::*;
@@ -87,6 +90,7 @@ macro_rules! sha3_hasher {
                 stringify!($name),
                 "::compute`], returning a [`Vec`]. Provided for\nconvenience."
             )]
+            #[cfg(feature = "alloc")]
             pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
                 Self::compute::<_, StackByteArray<$digest_bytes>>(input).to_vec()
             }
@@ -113,6 +117,7 @@ macro_rules! sha3_hasher {
             }
 
             /// Consumes hasher and returns final computed hash as a [`Vec`].
+            #[cfg(feature = "alloc")]
             pub fn finalize_to_vec(self) -> Vec<u8> {
                 self.finalize::<StackByteArray<$digest_bytes>>().to_vec()
             }
@@ -154,6 +159,7 @@ sha3_hasher! {
 #[cfg(test)]
 pub(crate) mod test_vectors {
     pub(crate) use crate::keccak::{RATE_256 as SHA3_256_RATE, RATE_512 as SHA3_512_RATE};
+    use crate::test_prelude::*;
 
     fn hex(s: &str) -> Vec<u8> {
         hex::decode(s).expect("hex failed")
@@ -295,7 +301,7 @@ pub(crate) mod test_vectors {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::test_vectors::*;
     use super::*;
@@ -348,7 +354,7 @@ mod tests {
             let mut state = Sha3256::new();
             state.update(b"");
             for byte in &message {
-                state.update(std::slice::from_ref(byte));
+                state.update(core::slice::from_ref(byte));
                 state.update(b"");
             }
             assert_eq!(state.finalize_to_vec(), expected, "len {}", message.len());
@@ -360,7 +366,7 @@ mod tests {
             let mut state = Sha3512::new();
             state.update(b"");
             for byte in &message {
-                state.update(std::slice::from_ref(byte));
+                state.update(core::slice::from_ref(byte));
                 state.update(b"");
             }
             assert_eq!(state.finalize_to_vec(), expected, "len {}", message.len());

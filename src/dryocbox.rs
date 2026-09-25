@@ -29,7 +29,7 @@
 //! for [`DryocBox`]. With `wincode_0_6`,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
-//! implemented for [`VecBox`].
+//! implemented for `VecBox`.
 //!
 //! ## Rustaceous API example
 //!
@@ -96,8 +96,11 @@
 //!   for more about authenticated public-key encryption
 //! * For shared-key encryption, see [`DryocSecretBox`](crate::dryocsecretbox)
 //! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
-//! * See the [`protected`] module for an example that stores keys in protected
+//! * See the `protected` module for an example that stores keys in protected
 //!   memory
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -124,7 +127,10 @@ pub type Mac = StackByteArray<CRYPTO_BOX_MACBYTES>;
 /// boxes.
 pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`DryocBox`]
@@ -214,6 +220,7 @@ pub struct DryocBox<
 }
 
 /// [Vec]-based authenticated public-key box.
+#[cfg(feature = "alloc")]
 pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
 
 #[cfg(feature = "wincode_0_6")]
@@ -254,7 +261,7 @@ unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for Vec
 
     fn read(
         mut reader: impl wincode::io::Reader<'de>,
-        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+        dst: &mut core::mem::MaybeUninit<Self::Dst>,
     ) -> wincode::ReadResult<()> {
         let ephemeral_pk = <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaRead<
             'de,
@@ -419,8 +426,8 @@ impl<
 
 impl<
     'a,
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
+    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
     Data: Bytes + From<&'a [u8]> + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
@@ -486,6 +493,7 @@ impl<
     }
 
     /// Copies `self` into a new [`Vec`]
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -630,6 +638,7 @@ impl<
     }
 }
 
+#[cfg(feature = "alloc")]
 impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Encrypts a message using `sender_secret_key` for `recipient_public_key`,
     /// and returns a new [`DryocBox`] with ciphertext and tag.
@@ -798,11 +807,12 @@ impl<
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
     use crate::constants::CRYPTO_BOX_SEEDBYTES;
     use crate::precalc::PrecalcSecretKey;
+    use crate::test_prelude::*;
 
     #[test]
     fn unseal_requires_an_ephemeral_public_key() {

@@ -6,7 +6,7 @@
 //! eight entries are always read, and the blend mask comes from a vector
 //! compare of the digit.
 
-use std::arch::x86_64::{
+use core::arch::x86_64::{
     _mm512_cmpeq_epi64_mask, _mm512_mask_blend_epi64, _mm512_set1_epi64, _mm512_setr_epi64,
 };
 

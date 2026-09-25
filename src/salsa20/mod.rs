@@ -76,7 +76,7 @@ pub(crate) use salsa20_quarter_round;
     dryoc_stream_kernel,
     all(feature = "simd_backend", feature = "nightly")
 ))]
-trait Kernel: Copy + std::fmt::Debug {
+trait Kernel: Copy + core::fmt::Debug {
     /// Blocks produced per run.
     fn blocks(self) -> usize;
 
@@ -484,6 +484,7 @@ mod tests {
     use salsa20::{Key as SalsaKey, XNonce, XSalsa20 as RustCryptoXSalsa20};
 
     use super::*;
+    use crate::test_prelude::*;
 
     /// Keystream for `len` bytes computed one block at a time with the scalar
     /// block function only.

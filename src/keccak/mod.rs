@@ -158,7 +158,7 @@ impl<const RATE: usize, const ROUNDS: usize, const N: usize> ParSponge<RATE, ROU
     /// XORs `inputs[i]` into the rate of lane `i`.
     pub(crate) fn absorb(&mut self, mut inputs: [&[u8]; N]) {
         loop {
-            self.permute(std::array::from_fn(|i| {
+            self.permute(core::array::from_fn(|i| {
                 !inputs[i].is_empty() && self.offsets[i] == RATE
             }));
             let mut done = true;
@@ -195,7 +195,7 @@ impl<const RATE: usize, const ROUNDS: usize, const N: usize> ParSponge<RATE, ROU
     /// blocks; lanes given an empty output are left as they are.
     pub(crate) fn squeeze(&mut self, mut outputs: [&mut [u8]; N]) {
         loop {
-            self.permute(std::array::from_fn(|i| {
+            self.permute(core::array::from_fn(|i| {
                 !outputs[i].is_empty() && self.offsets[i] == RATE
             }));
             let mut done = true;
@@ -203,7 +203,7 @@ impl<const RATE: usize, const ROUNDS: usize, const N: usize> ParSponge<RATE, ROU
                 self.states.iter().zip(&mut self.offsets).zip(&mut outputs)
             {
                 let take = output.len().min(RATE - *offset);
-                let (chunk, rest) = std::mem::take(output).split_at_mut(take);
+                let (chunk, rest) = core::mem::take(output).split_at_mut(take);
                 extract(state, *offset, chunk);
                 *offset += take;
                 *output = rest;
@@ -365,6 +365,7 @@ fn state_byte(state: &[u64; 25], pos: usize) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// Byte-at-a-time model of the lane layout: byte `i` of the state is
     /// byte `i % 8` (little-endian) of lane `i / 8`.
@@ -378,7 +379,7 @@ mod tests {
     #[test]
     fn test_lane_io_matches_byte_model() {
         let initial: [u64; 25] =
-            std::array::from_fn(|i| 0x0123_4567_89ab_cdefu64.rotate_left(i as u32 * 7));
+            core::array::from_fn(|i| 0x0123_4567_89ab_cdefu64.rotate_left(i as u32 * 7));
         for offset in 0..=RATE_128 {
             for len in 0..=(RATE_128 - offset) {
                 let bytes: Vec<u8> = (0..len).map(|i| (i * 37 + offset) as u8).collect();
@@ -445,22 +446,22 @@ mod tests {
         for round in 0..lengths.len() {
             let pick =
                 |lane: usize, salt: usize| lengths[(lane * 5 + round + salt) % lengths.len()];
-            let inputs: [Vec<u8>; N] = std::array::from_fn(|lane| {
+            let inputs: [Vec<u8>; N] = core::array::from_fn(|lane| {
                 (0..pick(lane, 0))
                     .map(|i| (i * 7 + lane * 31 + round) as u8)
                     .collect()
             });
             let splits: [usize; N] =
-                std::array::from_fn(|lane| inputs[lane].len() * (lane % 3) / 2);
+                core::array::from_fn(|lane| inputs[lane].len() * (lane % 3) / 2);
             let squeezes: [[usize; 2]; N] =
-                std::array::from_fn(|lane| [pick(lane, 3), pick(lane, 6)]);
+                core::array::from_fn(|lane| [pick(lane, 3), pick(lane, 6)]);
 
             let mut par = ParSponge::<RATE, ROUNDS, N>::new();
-            par.absorb(std::array::from_fn(|lane| &inputs[lane][..splits[lane]]));
-            par.absorb(std::array::from_fn(|lane| &inputs[lane][splits[lane]..]));
+            par.absorb(core::array::from_fn(|lane| &inputs[lane][..splits[lane]]));
+            par.absorb(core::array::from_fn(|lane| &inputs[lane][splits[lane]..]));
             par.pad(DOMAIN_SHAKE);
             let mut outputs: [[Vec<u8>; 2]; N] =
-                std::array::from_fn(|lane| squeezes[lane].map(|len| vec![0; len]));
+                core::array::from_fn(|lane| squeezes[lane].map(|len| vec![0; len]));
             for half in 0..2 {
                 par.squeeze(outputs.each_mut().map(|o| &mut o[half][..]));
             }
@@ -505,7 +506,8 @@ mod tests {
                 seed ^= seed << 17;
                 seed
             };
-            let initial: [[u64; 25]; 9] = std::array::from_fn(|_| std::array::from_fn(|_| next()));
+            let initial: [[u64; 25]; 9] =
+                core::array::from_fn(|_| core::array::from_fn(|_| next()));
             let keccak = keccak::Keccak::new();
             let permuted = initial.map(|mut state| {
                 keccak.with_p1600::<ROUNDS>(|p1600| p1600(&mut state));

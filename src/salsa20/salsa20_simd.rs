@@ -10,7 +10,7 @@
 //! reach and not wiped; a wipe would only force it into stack slots. The
 //! keystream goes straight into the caller's buffers, which the driver wipes.
 
-use std::simd::{Simd, simd_swizzle};
+use core::simd::{Simd, simd_swizzle};
 
 use crate::stream::Dest;
 
@@ -36,7 +36,7 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         vec![Kernel]
     }
 }

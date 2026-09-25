@@ -1736,6 +1736,7 @@ fn abort_protected_memory_failure(_operation: &str, _error: std::io::Error) -> !
 #[cfg(test)]
 pub(crate) mod test_util {
     use super::*;
+    use crate::test_prelude::*;
 
     /// Whether this process may hold `pages` more one-page locked allocations
     /// at once. Tests that need locked memory check this first and return
@@ -1753,7 +1754,7 @@ pub(crate) mod test_util {
         match probes {
             Ok(_) => true,
             Err(error::Error::Io(err)) if is_lock_quota_error(&err) => {
-                eprintln!("skipping: this process cannot lock {pages} page(s): {err}");
+                std::eprintln!("skipping: this process cannot lock {pages} page(s): {err}");
                 false
             }
             Err(err) => panic!("locking a fresh page failed: {err}"),
@@ -1785,6 +1786,7 @@ mod tests {
 
     use super::test_util::can_lock_pages;
     use super::*;
+    use crate::test_prelude::*;
 
     #[test]
     fn protected_byte_array_debug_redacts_contents() {

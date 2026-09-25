@@ -207,7 +207,7 @@ impl Fe {
         #[cfg(target_arch = "x86_64")]
         if crate::x86_64::has_bmi2() {
             // SAFETY: `invert_bmi2` requires the `bmi2` target feature, which
-            // the runtime check above confirmed is present.
+            // the feature check above confirmed is present.
             return unsafe { self.invert_bmi2() };
         }
         self.invert_impl()
@@ -246,7 +246,7 @@ impl Fe {
         #[cfg(target_arch = "x86_64")]
         if crate::x86_64::has_bmi2() {
             // SAFETY: `sqrt_ratio_i_bmi2` requires the `bmi2` target feature,
-            // which the runtime check above confirmed is present.
+            // which the feature check above confirmed is present.
             return unsafe { Self::sqrt_ratio_i_bmi2(u, v) };
         }
         Self::sqrt_ratio_i_impl(u, v)
@@ -340,6 +340,7 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::*;
+    use crate::test_prelude::*;
     use crate::utils::test_util::{XorShift64, hex32 as hex};
 
     /// The field prime `2^255 - 19`.
@@ -411,7 +412,7 @@ mod tests {
         let mut operands = edge_operands();
         for i in 0..if cfg!(miri) { 4 } else { 96 } {
             let mask = (1u64 << if i % 2 == 0 { 54 } else { 51 }) - 1;
-            operands.push(Fe(std::array::from_fn(|_| rng.next_u64() & mask)));
+            operands.push(Fe(core::array::from_fn(|_| rng.next_u64() & mask)));
             operands.push(Fe::from_bytes(&rng.next_bytes32()));
         }
         // Subtrahends must be reduced; production only ever subtracts
@@ -608,7 +609,7 @@ mod tests {
             .map(|i| {
                 let bits = if i % 2 == 0 { 54 } else { 51 };
                 let mask = (1u64 << bits) - 1;
-                let mut limbs = || Fe(std::array::from_fn(|_| rng.next_u64() & mask));
+                let mut limbs = || Fe(core::array::from_fn(|_| rng.next_u64() & mask));
                 (limbs(), limbs())
             })
             .collect();

@@ -1,8 +1,8 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{
-    BLOCKBYTES, HALFOUTBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES,
-    blake2b_longhash, increment_counter,
+    BLOCKBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES, blake2b_longhash,
+    increment_counter,
 };
 use crate::error::Error;
 use crate::utils::{load_u64_le, zeroize_bytes};
@@ -397,6 +397,8 @@ blake2b_longhash!();
 
 #[cfg(test)]
 mod tests {
+    use crate::test_prelude::*;
+
     #[cfg(feature = "nightly")]
     extern crate test;
     use std::sync::LazyLock;
@@ -447,7 +449,7 @@ mod tests {
         };
         for kernel in super::super::blake2b_x86_64::Kernel::all() {
             for _ in 0..200 {
-                let h: [u64; 8] = std::array::from_fn(|_| next());
+                let h: [u64; 8] = core::array::from_fn(|_| next());
                 let t = [next(), next()];
                 let f = [next(), next()];
                 let mut block = [0u8; BLOCKBYTES];
@@ -604,6 +606,7 @@ mod tests {
             fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
             fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
             fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
+            #[cfg(feature = "alloc")]
             fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
         }
 
@@ -690,6 +693,7 @@ mod tests {
         }
 
         #[test]
+        #[cfg(feature = "alloc")]
         fn test_blake2b_long() {
             crate::native_test_util::init();
             use crate::rng::copy_randombytes;
@@ -716,6 +720,7 @@ mod tests {
         }
 
         #[test]
+        #[cfg(feature = "alloc")]
         fn test_blake2b_long_rand_length() {
             crate::native_test_util::init();
             use crate::rng::copy_randombytes;
@@ -812,7 +817,7 @@ mod tests {
                         output.len(),
                         test::black_box(input.as_ptr()),
                         input.len() as u64,
-                        std::ptr::null(),
+                        core::ptr::null(),
                         0,
                     )
                 };

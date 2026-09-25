@@ -174,6 +174,7 @@ mod tests {
 
     use super::*;
     use crate::sha3::test_vectors::{SHA3_256_RATE, SHA3_512_RATE, sha3_256, sha3_512};
+    use crate::test_prelude::*;
 
     fn hex(s: &str) -> Vec<u8> {
         hex::decode(s).expect("hex failed")
@@ -225,7 +226,7 @@ mod tests {
         let mut bytes = init();
         update(&mut bytes, b"");
         for byte in message {
-            update(&mut bytes, std::slice::from_ref(byte));
+            update(&mut bytes, core::slice::from_ref(byte));
             update(&mut bytes, b"");
         }
 

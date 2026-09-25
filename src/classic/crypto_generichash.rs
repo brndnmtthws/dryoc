@@ -143,6 +143,7 @@ mod tests {
         CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
         CRYPTO_GENERICHASH_KEYBYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MIN,
     };
+    use crate::test_prelude::*;
 
     fn message(len: usize) -> Vec<u8> {
         (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()
@@ -157,7 +158,7 @@ mod tests {
                 output.len(),
                 input.as_ptr(),
                 input.len() as u64,
-                key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                key.map_or(core::ptr::null(), <[u8]>::as_ptr),
                 key.map_or(0, <[u8]>::len),
             )
         };
@@ -196,7 +197,7 @@ mod tests {
                     let rc = unsafe {
                         libsodium_sys::crypto_generichash_init(
                             &mut sodium,
-                            key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                            key.map_or(core::ptr::null(), <[u8]>::as_ptr),
                             key.map_or(0, <[u8]>::len),
                             outlen,
                         )
@@ -223,7 +224,7 @@ mod tests {
                             unsafe {
                                 libsodium_sys::crypto_generichash_update(
                                     &mut sodium,
-                                    std::ptr::null(),
+                                    core::ptr::null(),
                                     0,
                                 )
                             },

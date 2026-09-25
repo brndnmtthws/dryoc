@@ -212,6 +212,7 @@ pub fn crypto_sign_final_verify(
 mod consistency_tests {
     use super::*;
     use crate::constants::CRYPTO_SIGN_BYTES;
+    use crate::test_prelude::*;
     use crate::utils::test_util::XorShift64;
 
     /// A combined signed message is the detached signature followed by the
@@ -269,7 +270,7 @@ mod consistency_tests {
 
         let mut byte_at_a_time = crypto_sign_init();
         for byte in &message {
-            crypto_sign_update(&mut byte_at_a_time, std::slice::from_ref(byte));
+            crypto_sign_update(&mut byte_at_a_time, core::slice::from_ref(byte));
         }
         crypto_sign_final_verify(byte_at_a_time, &reference, &public_key).unwrap();
 
@@ -302,6 +303,7 @@ mod consistency_tests {
 mod tests {
     use super::*;
     use crate::constants::{CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES};
+    use crate::test_prelude::*;
 
     #[test]
     fn combined_signing_rejects_invalid_buffer_lengths() {

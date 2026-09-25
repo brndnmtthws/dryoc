@@ -1,10 +1,10 @@
-use std::simd::{Simd, simd_swizzle};
+use core::simd::{Simd, simd_swizzle};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{
-    BLOCKBYTES, HALFOUTBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES,
-    blake2b_longhash, increment_counter,
+    BLOCKBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES, blake2b_longhash,
+    increment_counter,
 };
 use crate::error::Error;
 use crate::utils::load_u64_le;
@@ -557,6 +557,8 @@ blake2b_longhash!();
 
 #[cfg(test)]
 mod tests {
+    use crate::test_prelude::*;
+
     #[cfg(feature = "nightly")]
     extern crate test;
     use std::sync::LazyLock;
@@ -568,7 +570,7 @@ mod tests {
     use super::*;
 
     static_assertions::assert_impl_all!(State: zeroize::ZeroizeOnDrop);
-    const _: () = assert!(std::mem::needs_drop::<State>());
+    const _: () = assert!(core::mem::needs_drop::<State>());
 
     #[cfg(dryoc_native_tests)]
     #[repr(C)]

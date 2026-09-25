@@ -59,6 +59,9 @@
 //!     .expect_err("verify should have failed");
 //! ```
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use crate::classic::crypto_auth::{
     AuthState, crypto_auth, crypto_auth_final, crypto_auth_init, crypto_auth_update,
     crypto_auth_verify,
@@ -73,7 +76,10 @@ pub type Key = StackByteArray<CRYPTO_AUTH_KEYBYTES>;
 /// Stack-allocated message authentication code for secret-key authentication.
 pub type Mac = StackByteArray<CRYPTO_AUTH_BYTES>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`Auth`]
@@ -131,6 +137,7 @@ impl Auth {
     /// Computes the message authentication code and returns it as a [`Vec`].
     ///
     /// This is a convenience wrapper around [`Auth::compute`].
+    #[cfg(feature = "alloc")]
     pub fn compute_to_vec<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>, Input: Bytes>(
         key: Key,
         input: &Input,
@@ -182,6 +189,7 @@ impl Auth {
     /// Finalizes this secret-key authenticator, returning the message
     /// authentication code as a [`Vec`]. Convenience wrapper around
     /// [`Auth::finalize`].
+    #[cfg(feature = "alloc")]
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize::<Mac>().to_vec()
     }
@@ -203,7 +211,7 @@ impl Auth {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

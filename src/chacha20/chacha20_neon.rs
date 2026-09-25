@@ -13,7 +13,7 @@
 //! not wiped; a wipe would only force them into stack slots. The keystream
 //! goes straight into the caller's buffers, which the drivers wipe.
 
-use std::arch::aarch64::{
+use core::arch::aarch64::{
     uint8x16_t, uint32x4_t, vaddq_u32, veorq_u32, vextq_u32, vqtbl1q_u8, vreinterpretq_u8_u32,
     vreinterpretq_u16_u32, vreinterpretq_u32_u8, vreinterpretq_u32_u16, vrev32q_u16, vshrq_n_u32,
     vsliq_n_u32,
@@ -62,9 +62,9 @@ pub(super) enum Kernel {
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if std::arch::is_aarch64_feature_detected!("sve2") {
+    if has_aarch64_feature!("sve2") {
         Some(Kernel::Sve2)
-    } else if std::arch::is_aarch64_feature_detected!("neon") {
+    } else if has_aarch64_feature!("neon") {
         Some(Kernel::Neon)
     } else {
         None
@@ -74,12 +74,12 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
-        let mut kernels = Vec::new();
-        if std::arch::is_aarch64_feature_detected!("neon") {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
+        let mut kernels = alloc::vec::Vec::new();
+        if has_aarch64_feature!("neon") {
             kernels.push(Kernel::Neon);
         }
-        if std::arch::is_aarch64_feature_detected!("sve2") {
+        if has_aarch64_feature!("sve2") {
             kernels.push(Kernel::Sve2);
         }
         kernels
@@ -119,10 +119,10 @@ impl super::Kernel for Kernel {
     ) {
         match self {
             // SAFETY: `Kernel::Neon` is only constructed after
-            // `is_aarch64_feature_detected!("neon")` succeeded.
+            // `has_aarch64_feature!("neon")` succeeded.
             Kernel::Neon => unsafe { xor_chunk_neon(state, counter, input, output, partial) },
             // SAFETY: `Kernel::Sve2` is only constructed after
-            // `is_aarch64_feature_detected!("sve2")` succeeded (SVE2 implies
+            // `has_aarch64_feature!("sve2")` succeeded (SVE2 implies
             // NEON).
             Kernel::Sve2 => unsafe { xor_chunk_sve2(state, counter, input, output, partial) },
         }
@@ -143,7 +143,7 @@ impl super::Kernel for Kernel {
         match self {
             Kernel::Neon => self.xor_chunk(state, counter, input, output, partial),
             // SAFETY: `Kernel::Sve2` is only constructed after
-            // `is_aarch64_feature_detected!("sve2")` succeeded.
+            // `has_aarch64_feature!("sve2")` succeeded.
             Kernel::Sve2 => unsafe { xor_chunk_sve2_small(state, counter, input, output, partial) },
         }
     }
@@ -499,7 +499,7 @@ fn double_rounds_sve2(a: &mut [uint32x4_t; 16], b: &mut [uint32x4_t; 16]) {
     // are computed exactly as the scalar reference does, whatever the vector
     // length. No flags, memory or stack are touched.
     unsafe {
-        std::arch::asm!(
+        core::arch::asm!(
             sve2_double_rounds!(),
             inout("v0") a[0], inout("v1") a[1], inout("v2") a[2], inout("v3") a[3],
             inout("v4") a[4], inout("v5") a[5], inout("v6") a[6], inout("v7") a[7],
@@ -540,7 +540,7 @@ fn xor_chunk_sve2(
     // the stack and reload them; those spills made the kernel's speed depend
     // on the stack frame it happened to run in. `black_box` keeps the
     // compiler from merging the two computations into one spilled copy.
-    let state = std::hint::black_box(state);
+    let state = core::hint::black_box(state);
     let initial_a = input_lanes(state, counter);
     let initial_b = input_lanes(state, counter.wrapping_add(SET_BLOCKS));
     finish_lanes!(a, &initial_a, 0, &mut dest);
@@ -620,7 +620,7 @@ fn double_rounds_sve2_set(a: &mut [uint32x4_t; 16]) {
     // are computed exactly as the scalar reference does, whatever the vector
     // length. No flags, memory or stack are touched.
     unsafe {
-        std::arch::asm!(
+        core::arch::asm!(
             sve2_double_rounds_set!(),
             inout("v0") a[0], inout("v1") a[1], inout("v2") a[2], inout("v3") a[3],
             inout("v4") a[4], inout("v5") a[5], inout("v6") a[6], inout("v7") a[7],
@@ -648,7 +648,7 @@ fn xor_chunk_sve2_small(
     let mut a = input_lanes(state, counter);
     double_rounds_sve2_set(&mut a);
     // Rebuilt after the rounds rather than spilled; see `xor_chunk_sve2`.
-    let state = std::hint::black_box(state);
+    let state = core::hint::black_box(state);
     let initial = input_lanes(state, counter);
     finish_lanes!(a, &initial, 0, &mut dest);
 }

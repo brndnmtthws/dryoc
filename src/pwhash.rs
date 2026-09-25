@@ -102,8 +102,12 @@
 //!
 //! * See the [libsodium documentation](https://doc.libsodium.org/password_hashing)
 //!   for more about password hashing
-//! * See the [`protected`] module for examples that keep passwords and keys in
+//! * See the `protected` module for examples that keep passwords and keys in
 //!   protected memory
+
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+use alloc::string::String;
+use alloc::vec::Vec;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -302,7 +306,10 @@ pub struct PwHash<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> {
 /// `Vec<u8>`-based PwHash type alias, provided for convenience.
 pub type VecPwHash = PwHash<Hash, Salt>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`PwHash`]
@@ -447,7 +454,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Ha
     }
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroize>
     PwHash<Hash, Salt>
@@ -541,7 +548,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     ///     .verify(b"invalid password")
     ///     .expect_err("verification should have failed");
     /// ```
-    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
+    #[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
     pub fn to_encoded_string(&self) -> Result<String, Error> {
         let (t_cost, m_cost) =
@@ -677,7 +684,7 @@ impl PwHash<Hash, Salt> {
         Self::hash_interactive(password)
     }
 
-    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
+    #[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
     /// Parses the `hashed_password` string, returning a new hash instance upon
     /// success. Wraps [`PwHash::from_string`], provided for convenience.
@@ -695,6 +702,7 @@ impl PwHash<Hash, Salt> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// libsodium `crypto_pwhash` outputs for password `"password"`, salt
     /// `"0123456789abcdef"`, 32 output bytes, and the minimum cost of each

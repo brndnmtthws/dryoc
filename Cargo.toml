@@ -12,14 +12,14 @@ rust-version = "1.89"
 version = "2.0.0"
 
 [dependencies]
-curve25519-dalek = "5.0"
+curve25519-dalek = { version = "5.0", default-features = false, features = ["zeroize"] }
 getrandom = "0.4"
 keccak = { version = "0.2", features = ["parallel"] }
-serde = { version = "1.0", optional = true, features = ["derive"] }
-sha2 = { version = "0.11", features = ["zeroize"] }
-subtle = "2.6"
-wincode = { version = "0.6", optional = true, features = ["derive"] }
-zeroize = { version = "1.9", features = ["zeroize_derive"] }
+serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+subtle = { version = "2.6", default-features = false, features = ["i128"] }
+wincode = { version = "0.6", optional = true, default-features = false, features = ["derive"] }
+zeroize = { version = "1.9", default-features = false, features = ["zeroize_derive"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [
@@ -42,6 +42,7 @@ wasm-bindgen-test = "0.3"
 
 [dev-dependencies]
 base64 = "0.23"
+curve25519-dalek = { version = "5.0", default-features = false, features = ["precomputed-tables"] }
 chacha20 = { version = "0.10", features = ["legacy", "zeroize"] }
 hex = "0.4"
 libc = "0.2"
@@ -52,6 +53,14 @@ salsa20 = { version = "0.11", features = ["zeroize"] }
 static_assertions = "1.1"
 wincode = "0.6"
 
+[[test]]
+name = "integration_tests"
+required-features = ["alloc"]
+
+[[test]]
+name = "wasm_tests"
+required-features = ["alloc"]
+
 [target.'cfg(not(any(miri, all(target_arch = "wasm32", target_os = "unknown"))))'.dev-dependencies]
 libsodium-sys-stable = "1.24"
 
@@ -59,12 +68,14 @@ libsodium-sys-stable = "1.24"
 proptest = "1"
 
 [features]
-base64 = []
-default = ["base64", "protected"]
+base64 = ["alloc"]
+default = ["base64", "protected", "std"]
 nightly = ["protected"]
-protected = []
+protected = ["std"]
 simd_backend = []
-wincode_0_6 = ["dep:wincode"]
+alloc = ["serde?/alloc", "wincode?/alloc", "zeroize/alloc"]
+std = ["alloc", "serde?/std", "wincode?/std"]
+wincode_0_6 = ["alloc", "dep:wincode"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

@@ -36,7 +36,7 @@
 //!
 //! Every function is generic over its key, ciphertext and secret types, so
 //! secret keys and shared secrets can live in locked memory; see
-//! [`protected`] (with the `protected` feature).
+//! `protected` (with the `protected` feature).
 
 /// Generates one algorithm's typed API from its Classic functions.
 macro_rules! kem_api {
@@ -59,7 +59,7 @@ macro_rules! kem_api {
         $dec_sk:ident |
         $dec:expr $(,)?
     ) => {
-        use std::fmt;
+        use core::fmt;
 
         #[cfg(feature = "serde")]
         use serde::{Deserialize, Serialize};
@@ -229,7 +229,7 @@ macro_rules! kem_api {
             Ok((ciphertext, shared_secret))
         }
 
-        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest), feature = "std")))]
         #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
         pub mod protected {
             //! # Protected memory type aliases

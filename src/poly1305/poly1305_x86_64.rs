@@ -30,7 +30,7 @@
 //! there are no secret-dependent branches or memory accesses. The only
 //! branches depend on the input length and the detected CPU features.
 
-use std::arch::x86_64::{
+use core::arch::x86_64::{
     __m256i, __m512i, _mm256_extract_epi64, _mm256_permute2x128_si256, _mm256_permute4x64_epi64,
     _mm256_unpackhi_epi64, _mm256_unpacklo_epi64, _mm512_add_epi64, _mm512_and_si512,
     _mm512_madd52hi_epu64, _mm512_madd52lo_epu64, _mm512_mask_blend_epi64, _mm512_or_si512,
@@ -75,14 +75,14 @@ const IFMA2_MIN_BYTES: usize = 1024;
 #[inline]
 pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize {
     if input.len() >= IFMA_MIN_BYTES
-        && std::arch::is_x86_feature_detected!("avx512f")
-        && std::arch::is_x86_feature_detected!("avx512ifma")
+        && has_x86_feature!("avx512f")
+        && has_x86_feature!("avx512ifma")
     {
         let mut bulk = 0;
         if input.len() >= IFMA2_MIN_BYTES {
             bulk = input.len() - input.len() % CHUNK_IFMA2;
             // SAFETY: `blocks_ifma2` requires the `avx512f` and `avx512ifma`
-            // target features, which the runtime checks above confirmed are
+            // target features, which the feature checks above confirmed are
             // present.
             unsafe { blocks_ifma2(h, r, &input[..bulk]) };
         }
@@ -93,24 +93,24 @@ pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize
         if rest >= CHUNK_IFMA {
             let end = input.len() - rest % CHUNK_IFMA;
             // SAFETY: `blocks_ifma` requires the `avx512f` and `avx512ifma`
-            // target features, which the runtime checks above confirmed are
+            // target features, which the feature checks above confirmed are
             // present.
             unsafe { blocks_ifma(h, r, &input[bulk..end]) };
             bulk = end;
         }
         return bulk;
     }
-    if input.len() >= AVX512_MIN_BYTES && std::arch::is_x86_feature_detected!("avx512f") {
+    if input.len() >= AVX512_MIN_BYTES && has_x86_feature!("avx512f") {
         let bulk = input.len() - input.len() % CHUNK512;
         // SAFETY: `blocks_avx512` requires the `avx512f` target feature,
-        // which the runtime check above confirmed is present.
+        // which the feature check above confirmed is present.
         unsafe { blocks_avx512(h, r, &input[..bulk]) };
         return bulk;
     }
-    if input.len() >= AVX2_MIN_BYTES && std::arch::is_x86_feature_detected!("avx2") {
+    if input.len() >= AVX2_MIN_BYTES && has_x86_feature!("avx2") {
         let bulk = input.len() - input.len() % CHUNK;
         // SAFETY: `blocks` requires the `avx2` target feature, which the
-        // runtime check above confirmed is present.
+        // feature check above confirmed is present.
         unsafe { blocks(h, r, &input[..bulk]) };
         return bulk;
     }
@@ -228,7 +228,7 @@ fn lane_sum512(v: __m512i) -> u64 {
 ///
 /// - `$name`: the module; leading attributes (docs) are applied to it.
 /// - `$feature`: the `#[target_feature(enable = ...)]` string (also used for
-///   the tests' `is_x86_feature_detected!`).
+///   the tests' `has_x86_feature!`).
 /// - `$lanes`: 64-bit lanes per vector, the blocks per chain per iteration.
 /// - `$vec`: the vector type.
 /// - `$set1`: `fn(i64) -> $vec`, the value in every lane.
@@ -264,7 +264,7 @@ macro_rules! poly1305_26 {
     ) => {
         $(#[$meta])*
         mod $name {
-            use std::arch::x86_64::{
+            use core::arch::x86_64::{
                 $add_epi64, $and, $mul_epu32, $or, $set1, $slli_epi64, $srli_epi64, $vec,
             };
 
@@ -553,7 +553,7 @@ macro_rules! poly1305_26 {
                 /// (`top`), for carry-heavy keys.
                 #[test]
                 fn vector_powers_match_serial_chain() {
-                    if !std::arch::is_x86_feature_detected!($feature) {
+                    if !has_x86_feature!($feature) {
                         return;
                     }
                     for r in &carry_keys() {
@@ -922,6 +922,7 @@ pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
 mod tests {
     use super::*;
     use crate::poly1305::pack_limbs26;
+    use crate::test_prelude::*;
 
     /// The tree-shaped key powers equal the serial chain `r, r*r, r*r*r,
     /// ...` for keys with carry-heavy limbs, for both kernel widths.
@@ -991,9 +992,7 @@ mod tests {
     /// blocks are all ones.
     #[test]
     fn test_ifma_step_matches_scalar_and_bound() {
-        if !std::arch::is_x86_feature_detected!("avx512f")
-            || !std::arch::is_x86_feature_detected!("avx512ifma")
-        {
+        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
             return;
         }
         let blocks = [0xffu8; CHUNK_IFMA];
@@ -1038,9 +1037,7 @@ mod tests {
     /// `mul_reduce44` documents.
     #[test]
     fn test_ifma_vector_powers_match_serial_chain() {
-        if !std::arch::is_x86_feature_detected!("avx512f")
-            || !std::arch::is_x86_feature_detected!("avx512ifma")
-        {
+        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
             return;
         }
         let assert_bound = |words: [[u64; 8]; 3], what: &str| {

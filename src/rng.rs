@@ -1,8 +1,19 @@
+//! Random bytes come from the operating system through
+//! [`getrandom`](https://docs.rs/getrandom), which does not need `std`. On
+//! targets without a supported system source, such as bare-metal
+//! `thumbv7em-none-eabihf` or `aarch64-unknown-none`, the application must
+//! provide a
+//! [getrandom custom backend](https://docs.rs/getrandom/latest/getrandom/#custom-backend).
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 /// Provides random data up to `len` from the OS's random number generator.
 ///
 /// # Panics
 ///
 /// Panics if the operating system's random number generator fails.
+#[cfg(feature = "alloc")]
 pub fn randombytes_buf(len: usize) -> Vec<u8> {
     let mut r: Vec<u8> = vec![0; len];
     copy_randombytes(r.as_mut_slice());
@@ -32,6 +43,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn randombytes_buf_returns_requested_length_and_fresh_data() {
         assert!(randombytes_buf(0).is_empty());
 

@@ -32,13 +32,15 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
   ML-KEM-768 and X25519, and post-quantum sealed boxes built on X-Wing
 * WebAssembly support through the `wasm32-unknown-unknown` target
+* `no_std` support, with or without `alloc`; see [Cargo features](#cargo-features)
 * Protected memory on Unix and Windows, enabled by default with the
   `protected` feature
 * Password-hash string helpers, enabled by default with the `base64` feature
 * Optional [Serde](https://serde.rs/) and
   [wincode](https://crates.io/crates/wincode) serialization
 * Optimized AArch64 and x86-64 implementations; those that need optional CPU
-  extensions are selected at runtime, and CPUs without them use portable code
+  extensions are selected at runtime (at compile time without `std`), and CPUs
+  without them use portable code
 * Optional [portable SIMD](https://doc.rust-lang.org/std/simd/index.html)
   implementations on nightly Rust with `features = ["simd_backend", "nightly"]`
 * Curve25519 and Ed25519 group arithmetic implemented in dryoc;
@@ -92,11 +94,51 @@ needs a feature gate; older nightlies fail to compile with `--features nightly`.
 Optimized AArch64 and x86-64 implementations are built in and do not require
 the `simd_backend` feature. Implementations that need optional CPU extensions,
 such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,
-are selected at runtime when the CPU supports them. The AArch64 `asm!`
+are selected at runtime when the CPU supports them, or from the compile-time
+target features without `std` (see [Cargo features](#cargo-features)). The
+AArch64 `asm!`
 implementations of the BLAKE2b rounds, the scalar ChaCha20 rounds, and
 Curve25519 field multiplication use only baseline instructions and are used on
 that architecture outside Miri. Curve25519 and Ed25519 group operations are
 also unaffected by the `simd_backend` feature.
+
+## Cargo features
+
+| Feature | Default | Enables |
+| --- | --- | --- |
+| `std` | Yes | `alloc`, runtime CPU feature detection, and the `Error::Io` variant |
+| `alloc` | With `std` | APIs that allocate: the `Vec<u8>` byte-trait implementations, the `VecBox`, `VecEnvelope`, `VecSignedMessage` and `VecPwHash` aliases, the `*_to_vec` and `*_to_vecbox` helpers, `randombytes_buf`, and password hashing (`pwhash` and `crypto_pwhash`) |
+| `protected` | Yes | Protected memory on Unix and Windows; implies `std` |
+| `base64` | Yes | Password-hash string helpers; implies `alloc` |
+| `serde` | No | Serde support; the `Vec`-based types also need `alloc` |
+| `wincode_0_6` | No | wincode 0.6 support for the `Vec`-based boxes; implies `alloc` |
+| `simd_backend` | No | Portable SIMD implementations; requires `nightly` |
+| `nightly` | No | Nightly-only APIs (see [Rust version](#rust-version)); implies `protected` |
+
+dryoc is `#![no_std]`. With no features at all, everything that works on
+fixed-size arrays and caller-provided slices is available: the Classic API
+except `crypto_pwhash`, the stack-allocated Rustaceous types, and the
+primitives. Enable `alloc` on targets with a global allocator for the
+`Vec`-based APIs:
+
+```toml
+dryoc = { version = "2", default-features = false, features = ["alloc"] }
+```
+
+Without `std`, implementations that need optional CPU extensions are chosen
+from the target features enabled at compile time, for example with
+`-C target-feature=+avx2` or `-C target-cpu=native`, in the same priority order
+as runtime detection; the portable implementations are used otherwise.
+
+Random generation uses [getrandom](https://docs.rs/getrandom), which does not
+need `std`. Bare-metal targets such as `thumbv7em-none-eabihf` and
+`aarch64-unknown-none` have no system entropy source: build them with
+`RUSTFLAGS='--cfg getrandom_backend="custom"'` and provide a
+[custom backend](https://docs.rs/getrandom/latest/getrandom/#custom-backend).
+
+Upgrading from dryoc 1.x: `default-features = false` used to keep every API
+except protected memory and the password-hash strings. Add
+`features = ["std"]` (or `["alloc"]` on targets without `std`) to keep them.
 
 ## Optional serialization
 
@@ -187,19 +229,20 @@ wincode schema implementations for vector-backed boxes and AEAD envelopes,
 BLAKE2b parameter byte views, protected memory guarded heap buffers with their
 fixed-size byte views and OS protection calls, 16-byte volatile zeroization of
 secret buffers, the x86-64 backends
-(runtime-detected AVX2, AVX-512 and AVX-512 IFMA entry points for ChaCha20,
+(detected AVX2, AVX-512 and AVX-512 IFMA entry points for ChaCha20,
 XSalsa20, Poly1305, the Argon2 block compression, the BLAKE2b compression,
 the ML-KEM polynomial arithmetic and the 4-way Keccak permutation,
 `asm!` scalar ChaCha20 and Salsa20 double rounds that run beside the AVX-512
 lane sets, an AVX-512
 Ed25519 basepoint table lookup, and BMI2-compiled copies of the Curve25519
 scalar multiplication, inversion and square-root loops), and the AArch64
-backends: runtime-detected NEON entry points for Poly1305, XSalsa20, ChaCha20,
+backends: detected NEON entry points for Poly1305, XSalsa20, ChaCha20,
 the Ed25519 basepoint table lookup and the ML-KEM polynomial arithmetic (with
 16-byte coefficient-row loads and stores), register-only SVE2 `asm!` blocks for
 the ChaCha20 and XSalsa20 rounds, scalar `asm!` blocks for the ChaCha20 and
-BLAKE2b rounds and the Curve25519 field products, and runtime-detected
+BLAKE2b rounds and the Curve25519 field products, and detected
 `sha2`/`sha3` instruction `asm!` loops for the SHA-256 and SHA-512
-compression functions.
+compression functions. CPU features are detected at runtime with the `std`
+feature and taken from the compile-time target features without it.
 The [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 lists every non-test use of unsafe code in this crate.

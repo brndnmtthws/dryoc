@@ -484,6 +484,7 @@ mod vector_tests {
     use super::regression_tests::ED25519_GROUP_ORDER;
     use super::*;
     use crate::scalarmult_curve25519::test_vectors::field_prime_plus;
+    use crate::test_prelude::*;
     use crate::utils::test_util::hex32 as hex;
 
     /// RFC 8032 section 7.1 vector: seed, public key, message and signature.

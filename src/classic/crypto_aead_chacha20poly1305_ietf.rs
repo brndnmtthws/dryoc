@@ -174,6 +174,7 @@ mod tests {
         Aead, check_failures_leave_outputs_untouched,
     };
     use crate::error::{Error, LengthConstraint};
+    use crate::test_prelude::*;
 
     #[test]
     fn test_message_len_bound_is_ietf_max() {

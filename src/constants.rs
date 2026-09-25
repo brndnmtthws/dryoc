@@ -303,7 +303,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_libsodium_constants() {
-        use std::ffi::CStr;
+        use core::ffi::CStr;
 
         use libsodium_sys::*;
 

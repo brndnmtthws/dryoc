@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use core::fmt::{Display, Formatter};
 
 /// The input, output, or operation associated with an [`Error`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,7 +91,7 @@ pub enum ErrorContext {
 }
 
 impl Display for ErrorContext {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             Self::AssociatedData => "associated data",
             Self::AeadCiphertext => "AEAD ciphertext",
@@ -154,7 +154,7 @@ pub enum LengthConstraint {
 }
 
 impl Display for LengthConstraint {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Exact(expected) => write!(f, "exactly {expected}"),
             Self::AtLeast(min) => write!(f, "at least {min}"),
@@ -175,7 +175,7 @@ pub enum ValueConstraint {
 }
 
 impl Display for ValueConstraint {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Between { min, max } => write!(f, "between {min} and {max} (inclusive)"),
             Self::AllowedBits { mask } => {
@@ -251,7 +251,9 @@ pub enum Error {
         context: ErrorContext,
     },
 
-    /// An operating-system I/O operation failed.
+    /// An operating-system I/O operation failed. Only protected memory, which
+    /// requires the `std` feature, returns it.
+    #[cfg(feature = "std")]
     Io(std::io::Error),
 }
 
@@ -276,11 +278,13 @@ impl Error {
         Self::ArithmeticOverflow { context }
     }
 
+    #[cfg(feature = "alloc")]
     pub(crate) const fn allocation_failed(context: ErrorContext) -> Self {
         Self::AllocationFailed { context }
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
@@ -288,7 +292,7 @@ impl From<std::io::Error> for Error {
 }
 
 impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::AuthenticationFailed => f.write_str("authentication failed"),
             Self::InvalidLength {
@@ -317,13 +321,15 @@ impl Display for Error {
             Self::AllocationFailed { context } => {
                 write!(f, "unable to allocate memory for {context}")
             }
+            #[cfg(feature = "std")]
             Self::Io(error) => write!(f, "I/O error: {error}"),
         }
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for Error {
+    #[cfg(feature = "std")]
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
             _ => None,
@@ -406,6 +412,7 @@ macro_rules! validate_length {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     #[test]
     fn contexts_have_clear_human_readable_names() {
@@ -593,8 +600,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn wrapped_errors_preserve_their_source() {
-        use std::error::Error as _;
+        use core::error::Error as _;
 
         let error = Error::from(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,

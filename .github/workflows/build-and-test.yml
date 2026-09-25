@@ -84,7 +84,7 @@ jobs:
               | head -n 1
           )"
           cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
-      - run: mbx nextest run --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode_0_6
+      - run: mbx nextest run --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
 
@@ -147,16 +147,23 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: minimal
+          # `--no-default-features` alone is `no_std` without `alloc`.
+          - name: no-std
             flags: --no-default-features
-          - name: base64-only
-            flags: --no-default-features --features base64
-          - name: serde-only
-            flags: --no-default-features --features serde
-          - name: wincode_0_6-only
-            flags: --no-default-features --features wincode_0_6
-          - name: optional-features
+          - name: alloc-only
+            flags: --no-default-features --features alloc
+          - name: alloc-optional-features
             flags: --no-default-features --features serde,base64,wincode_0_6
+          - name: std-only
+            flags: --no-default-features --features std
+          - name: base64-only
+            flags: --no-default-features --features std,base64
+          - name: serde-only
+            flags: --no-default-features --features std,serde
+          - name: wincode_0_6-only
+            flags: --no-default-features --features std,wincode_0_6
+          - name: optional-features
+            flags: --no-default-features --features std,serde,base64,wincode_0_6
           - name: protected-only
             flags: --no-default-features --features protected
           - name: serde-protected
@@ -203,6 +210,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - run: mbx nextest run --all-targets --features serde,wincode_0_6
+      - run: mbx check --no-default-features
+      - run: mbx check --no-default-features --features alloc
 
   all-features:
     name: all features / nightly
@@ -251,6 +260,64 @@ jobs:
       - run: mbx doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+
+  no-std:
+    name: no_std / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - thumbv7em-none-eabihf
+          - aarch64-unknown-none
+    env:
+      # Bare-metal targets have no system entropy source; applications supply
+      # a getrandom custom backend, and a library build needs only the cfg.
+      RUSTFLAGS: --cfg getrandom_backend="custom"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain with ${{ matrix.target }}
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: clippy
+          targets: ${{ matrix.target }}
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: no-std-${{ matrix.target }}
+      - run: mbx build --target ${{ matrix.target }} --no-default-features
+      - run: mbx build --target ${{ matrix.target }} --no-default-features --features alloc
+      - run: mbx clippy --target ${{ matrix.target }} --no-default-features --features alloc -- -D warnings
+
+  # Without `std`, CPU-specific kernels are chosen from the compile-time target
+  # features; this runs the suite through the AVX2 and BMI2 kernels that way.
+  no-std-target-features:
+    name: no_std / x86-64 AVX2 and BMI2 target features
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Ctarget-feature=+avx2,+bmi2
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+          toolchain: stable
+          profile: minimal
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: no-std-target-features
+      - name: Install cargo-nextest
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked cargo-nextest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: mbx nextest run --all-targets --no-default-features
+        env:
+          RUST_BACKTRACE: 1
+      - run: mbx nextest run --all-targets --no-default-features --features alloc
+        env:
+          RUST_BACKTRACE: 1
 
   miri:
     name: Miri / ${{ matrix.name }}
@@ -352,6 +419,8 @@ jobs:
       - wasm
       - platform
       - feature-matrix
+      - no-std
+      - no-std-target-features
       - msrv
       - all-features
       - docs

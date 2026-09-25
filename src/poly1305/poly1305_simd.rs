@@ -1,4 +1,4 @@
-use std::simd::Simd;
+use core::simd::Simd;
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -236,7 +236,7 @@ impl Poly1305 {
     pub fn update(&mut self, input: &[u8]) {
         let mut m = input;
         if self.buflen > 0 {
-            let input_block_end = std::cmp::min(BLOCK_SIZE - self.buflen, input.len());
+            let input_block_end = core::cmp::min(BLOCK_SIZE - self.buflen, input.len());
             let mut block = self.buffer.to_le_bytes();
             block[self.buflen..self.buflen + input_block_end]
                 .copy_from_slice(&m[..input_block_end]);
@@ -364,9 +364,10 @@ mod tests {
 
     use super::*;
     use crate::poly1305::poly1305_soft;
+    use crate::test_prelude::*;
 
     static_assertions::assert_impl_all!(Poly1305: zeroize::ZeroizeOnDrop);
-    const _: () = assert!(std::mem::needs_drop::<Poly1305>());
+    const _: () = assert!(core::mem::needs_drop::<Poly1305>());
 
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     extern crate test;

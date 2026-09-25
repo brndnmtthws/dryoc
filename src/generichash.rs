@@ -40,6 +40,9 @@
 //! );
 //! ```
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use crate::classic::crypto_generichash::{
     GenericHashState, crypto_generichash, crypto_generichash_final, crypto_generichash_init,
     crypto_generichash_update,
@@ -53,7 +56,10 @@ pub type Hash = StackByteArray<CRYPTO_GENERICHASH_BYTES>;
 /// Stack-allocated secret key for use with the generic hash algorithm.
 pub type Key = StackByteArray<CRYPTO_GENERICHASH_KEYBYTES>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`GenericHash`]
@@ -128,6 +134,7 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     ///
     /// Returns an error if the underlying BLAKE2b finalization rejects the
     /// output. Initialization normally guarantees a valid output length.
+    #[cfg(feature = "alloc")]
     pub fn finalize_to_vec(self) -> Result<Vec<u8>, Error> {
         Ok(self.finalize::<StackByteArray<OUTPUT_LENGTH>>()?.to_vec())
     }
@@ -179,6 +186,7 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     /// # Errors
     ///
     /// Returns an error under the same conditions as [`GenericHash::hash`].
+    #[cfg(feature = "alloc")]
     pub fn hash_to_vec<Input: Bytes, Key: ByteArray<KEY_LENGTH>>(
         input: &Input,
         key: Option<&Key>,
@@ -231,6 +239,7 @@ impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
     /// The default lengths are valid, so this method does not return an error
     /// for valid [`ByteArray`] implementations. Its return type matches the
     /// generic hashing interface.
+    #[cfg(feature = "alloc")]
     pub fn hash_with_defaults_to_vec<
         Input: Bytes + ?Sized,
         Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>,
@@ -242,7 +251,7 @@ impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 
@@ -377,7 +386,7 @@ mod tests {
     ];
 
     fn sequential_key<const LENGTH: usize>() -> StackByteArray<LENGTH> {
-        StackByteArray::from(std::array::from_fn::<u8, LENGTH, _>(|i| i as u8))
+        StackByteArray::from(core::array::from_fn::<u8, LENGTH, _>(|i| i as u8))
     }
 
     /// Hashes `FOX` one-shot and in three incremental splits, checking both
@@ -528,7 +537,7 @@ mod tests {
                     outlen,
                     input.as_ptr(),
                     input.len() as u64,
-                    key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                    key.map_or(core::ptr::null(), <[u8]>::as_ptr),
                     key.map_or(0, <[u8]>::len),
                 )
             };

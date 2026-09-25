@@ -220,8 +220,8 @@ mod tests {
             seed
         };
         for round in 0..8 {
-            let mut a: Poly = std::array::from_fn(|_| (next() % 6657) as i16 - 3328);
-            let mut b: Poly = std::array::from_fn(|_| (next() % 6657) as i16 - 3328);
+            let mut a: Poly = core::array::from_fn(|_| (next() % 6657) as i16 - 3328);
+            let mut b: Poly = core::array::from_fn(|_| (next() % 6657) as i16 - 3328);
             if round == 0 {
                 a = [3328; N];
                 b = [-3328; N];

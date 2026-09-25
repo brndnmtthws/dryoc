@@ -126,6 +126,7 @@ pub(super) fn mul_121666(a: &[u64; 5]) -> [u64; 5] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// The chain squaring equals the plain squaring and the big-integer
     /// square modulo `p` on reduced inputs with limbs at and around their
@@ -144,7 +145,7 @@ mod tests {
             cases.push(a);
         }
         for _ in 0..500 {
-            cases.push(std::array::from_fn(|_| rng.next_u64() % (bound + 1)));
+            cases.push(core::array::from_fn(|_| rng.next_u64() % (bound + 1)));
         }
         for a in cases {
             let chained = square_chain(&a);

@@ -21,18 +21,32 @@ than convenience refactors.
 - Rust 2024 reserves `gen` as a keyword. Random generation APIs are named
   `generate` (for example, `Key::generate()`); the legacy `gen`/`r#gen`
   aliases were removed.
-- Default features are `base64` and `protected`.
+- The crate is `#![no_std]`. Default features are `base64`, `protected`, and
+  `std`.
+- Core features:
+  - `std`: implies `alloc`; runtime CPU feature detection and `Error::Io`.
+    Without it, `has_x86_feature!`/`has_aarch64_feature!` (in `src/lib.rs`)
+    fall back to compile-time `cfg!(target_feature = ...)`; use those macros,
+    never `std::arch::is_*_feature_detected!` directly.
+  - `alloc`: every API that allocates (`Vec<u8>` byte-trait impls, `Vec*`
+    aliases, `*_to_vec`/`*_to_vecbox`, `randombytes_buf`, password hashing).
+    Gate such items with `#[cfg(feature = "alloc")]` and import
+    `alloc::vec::Vec`/`alloc::string::String` explicitly; APIs over arrays and
+    caller-provided slices must build with no features.
+  - Unit tests may use `std`; import the `Vec`/`String` prelude items with
+    `use crate::test_prelude::*;` and gate tests that call `alloc` APIs.
 - Optional features:
   - `serde`: serialization support for supported types.
-  - `base64`: password-hash string helpers; enabled by default and does not add
-    a dependency.
+  - `base64`: password-hash string helpers; implies `alloc`, enabled by
+    default, and does not add a dependency.
   - `wincode_0_6`: direct binary serialization support for Rustaceous box
-    types with wincode 0.6. wincode is pre-1.0 and public API, so each
-    supported wincode version gets its own `wincode_<major>_<minor>` feature;
-    add new versions alongside, never rename or repoint an existing one.
-  - `protected`: protected memory APIs on Unix/Windows; enabled by default and
-    does not add a dependency beyond target OS bindings already used by the
-    crate.
+    types with wincode 0.6; implies `alloc`. wincode is pre-1.0 and public
+    API, so each supported wincode version gets its own
+    `wincode_<major>_<minor>` feature; add new versions alongside, never rename
+    or repoint an existing one.
+  - `protected`: protected memory APIs on Unix/Windows; implies `std`, enabled
+    by default, and does not add a dependency beyond target OS bindings already
+    used by the crate.
   - `nightly`: extra doc cfg support, portable SIMD for `simd_backend`, and
     the `Allocator` implementation for protected memory. Requires
     `nightly-2026-09-24` or later (the allocator API is ungated there).
@@ -46,7 +60,13 @@ Use focused commands while developing, then broaden coverage before handing off:
 
 ```sh
 cargo check
+cargo check --no-default-features
+cargo check --no-default-features --features alloc
+RUSTFLAGS='--cfg getrandom_backend="custom"' \
+  cargo build --target thumbv7em-none-eabihf --no-default-features --features alloc
 cargo test
+cargo test --no-default-features
+cargo test --no-default-features --features std
 cargo test --features serde
 cargo test --features base64
 cargo test --features wincode_0_6
@@ -60,6 +80,8 @@ CI uses `cargo nextest` when available:
 
 ```sh
 cargo nextest run --features default
+cargo nextest run --no-default-features
+cargo nextest run --no-default-features --features alloc
 cargo nextest run --features serde
 cargo nextest run --features base64
 cargo nextest run --features wincode_0_6
@@ -163,7 +185,8 @@ cargo fuzz run fuzz-hashes
 - `src/classic/`: libsodium-compatible API modules.
 - `src/blake2b/`, `src/poly1305/`, `src/argon2/`, `src/salsa20/`,
   `src/chacha20/`, `src/sha256/`, `src/sha512/`, `src/fe25519/`,
-  `src/edwards25519/`, `src/scalarmult_curve25519.rs`: primitive
+  `src/edwards25519/` (with the precomputed basepoint tables in
+  `tables.rs`), `src/scalarmult_curve25519.rs`: primitive
   implementations and backend selection. An algorithm directory holds a
   `mod.rs` that selects the backend, plus one file per backend it has, named
   `<algo>_soft.rs` (portable Rust), `<algo>_simd.rs` (nightly portable SIMD),

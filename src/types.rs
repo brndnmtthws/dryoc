@@ -1,5 +1,7 @@
-use std::fmt;
-use std::ops::{Deref, DerefMut};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::fmt;
+use core::ops::{Deref, DerefMut};
 
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -235,6 +237,7 @@ impl<const LENGTH: usize> MutBytes for [u8; LENGTH] {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl Bytes for Vec<u8> {
     #[inline]
     fn as_slice(&self) -> &[u8] {
@@ -252,12 +255,14 @@ impl Bytes for Vec<u8> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl NewBytes for Vec<u8> {
     fn new_bytes() -> Self {
         vec![]
     }
 }
 
+#[cfg(feature = "alloc")]
 impl MutBytes for Vec<u8> {
     #[inline]
     fn as_mut_slice(&mut self) -> &mut [u8] {
@@ -269,6 +274,7 @@ impl MutBytes for Vec<u8> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl ResizableBytes for Vec<u8> {
     fn resize(&mut self, new_len: usize, value: u8) {
         self.resize(new_len, value);
@@ -361,25 +367,25 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> core::convert::AsRef<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8; LENGTH] {
         &self.0
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> core::convert::AsMut<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
         &mut self.0
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsRef<[u8]> for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> core::convert::AsRef<[u8]> for StackByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
 
-impl<const LENGTH: usize> std::convert::AsMut<[u8]> for StackByteArray<LENGTH> {
+impl<const LENGTH: usize> core::convert::AsMut<[u8]> for StackByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8] {
         self.0.as_mut()
     }
@@ -405,7 +411,7 @@ impl<const LENGTH: usize> DerefMut for StackByteArray<LENGTH> {
 /// `s.as_slice()`).
 macro_rules! impl_slice_index {
     (impl[$($generics:tt)*] $ty:ty, |$s:ident| $get:expr, |$sm:ident| $get_mut:expr) => {
-        impl<$($generics)*> std::ops::Index<usize> for $ty {
+        impl<$($generics)*> core::ops::Index<usize> for $ty {
             type Output = u8;
 
             #[inline]
@@ -414,7 +420,7 @@ macro_rules! impl_slice_index {
                 &$get[index]
             }
         }
-        impl<$($generics)*> std::ops::IndexMut<usize> for $ty {
+        impl<$($generics)*> core::ops::IndexMut<usize> for $ty {
             #[inline]
             fn index_mut(&mut self, index: usize) -> &mut Self::Output {
                 let $sm = self;
@@ -424,15 +430,15 @@ macro_rules! impl_slice_index {
         impl_slice_index!(@ranges impl[$($generics)*] $ty, |$s| $get, |$sm| $get_mut);
     };
     (@ranges impl[$($generics:tt)*] $ty:ty, |$s:ident| $get:expr, |$sm:ident| $get_mut:expr) => {
-        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::Range<usize>, |$s| $get, |$sm| $get_mut);
-        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeFull, |$s| $get, |$sm| $get_mut);
-        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeFrom<usize>, |$s| $get, |$sm| $get_mut);
-        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeInclusive<usize>, |$s| $get, |$sm| $get_mut);
-        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeTo<usize>, |$s| $get, |$sm| $get_mut);
-        impl_slice_index!(@range impl[$($generics)*] $ty, std::ops::RangeToInclusive<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, core::ops::Range<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, core::ops::RangeFull, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, core::ops::RangeFrom<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, core::ops::RangeInclusive<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, core::ops::RangeTo<usize>, |$s| $get, |$sm| $get_mut);
+        impl_slice_index!(@range impl[$($generics)*] $ty, core::ops::RangeToInclusive<usize>, |$s| $get, |$sm| $get_mut);
     };
     (@range impl[$($generics:tt)*] $ty:ty, $range:ty, |$s:ident| $get:expr, |$sm:ident| $get_mut:expr) => {
-        impl<$($generics)*> std::ops::Index<$range> for $ty {
+        impl<$($generics)*> core::ops::Index<$range> for $ty {
             type Output = [u8];
 
             #[inline]
@@ -441,7 +447,7 @@ macro_rules! impl_slice_index {
                 &$get[index]
             }
         }
-        impl<$($generics)*> std::ops::IndexMut<$range> for $ty {
+        impl<$($generics)*> core::ops::IndexMut<$range> for $ty {
             #[inline]
             fn index_mut(&mut self, index: $range) -> &mut Self::Output {
                 let $sm = self;
@@ -453,7 +459,10 @@ macro_rules! impl_slice_index {
 
 // Only `protected.rs` imports this macro; it is compiled out on targets
 // without the protected feature.
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 pub(crate) use impl_slice_index;
 
 impl_slice_index!(impl[const LENGTH: usize] StackByteArray<LENGTH>, |s| s.0, |s| s.0);
@@ -497,6 +506,7 @@ mod tests {
     const SRC: [u8; 6] = [10, 20, 30, 40, 50, 60];
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn bytes_views_agree_with_the_source_for_every_container() {
         fn check<B: Bytes + ?Sized>(bytes: &B, expected: &[u8]) {
             assert_eq!(bytes.as_slice(), expected);
@@ -520,6 +530,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn mut_bytes_copy_from_slice_and_mutation_reach_the_source() {
         fn check<B: MutBytes + ?Sized>(bytes: &mut B) {
             bytes.copy_from_slice(&SRC);
@@ -547,6 +558,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn new_bytes_and_new_byte_array_start_zeroed() {
         assert!(<Vec<u8> as NewBytes>::new_bytes().is_empty());
         assert_eq!(<[u8; 4] as NewBytes>::new_bytes(), [0; 4]);
@@ -562,6 +574,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn generate_fills_the_whole_fixed_length_array() {
         let array = <[u8; 32] as NewByteArray<32>>::generate();
         assert_ne!(array, [0; 32]);
@@ -572,6 +585,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "alloc")]
     fn resizable_vec_concat_preserves_prefix_then_data() {
         let out: Vec<u8> = concat_bytes(b"ab", b"cde");
         assert_eq!(out, b"abcde");

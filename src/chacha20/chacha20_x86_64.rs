@@ -16,8 +16,8 @@
 //! companion block whose words `10..16` are an `asm!` memory operand, is
 //! zeroized once per kernel call.
 
-use std::arch::asm;
-use std::arch::x86_64::{
+use core::arch::asm;
+use core::arch::x86_64::{
     __m256i, _mm256_add_epi32, _mm256_or_si256, _mm256_rol_epi32, _mm256_setr_epi8,
     _mm256_shuffle_epi8, _mm256_slli_epi32, _mm256_srli_epi32, _mm256_xor_si256, _mm512_add_epi32,
     _mm512_rol_epi32, _mm512_xor_si512,
@@ -48,7 +48,7 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         LaneSet::all().into_iter().map(Kernel).collect()
     }
 }
@@ -77,7 +77,7 @@ impl super::Kernel for Kernel {
         let small = LaneSet::fits_ymm(output.len(), partial.is_some());
         match self.0 {
             // SAFETY: a `LaneSet` is only constructed by `LaneSet::detect`
-            // (and, in tests, `LaneSet::all`) after `is_x86_feature_detected!`
+            // (and, in tests, `LaneSet::all`) after `has_x86_feature!`
             // confirmed the features its variant needs; `LaneSet::Avx2`
             // requires `avx2`.
             LaneSet::Avx2 => unsafe { xor_chunk_avx2(state, counter, input, output, partial) },
@@ -499,6 +499,7 @@ fn xor_chunk_avx512_with_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// The register-scheduled scalar double round equals the portable one
     /// for random states.
@@ -524,7 +525,7 @@ mod tests {
     /// sets and extra blocks before and after them.
     #[test]
     fn test_avx512_with_block_matches_run_and_scalar_block() {
-        if !std::arch::is_x86_feature_detected!("avx512f") {
+        if !has_x86_feature!("avx512f") {
             return;
         }
         let mut state = [0u32; 16];

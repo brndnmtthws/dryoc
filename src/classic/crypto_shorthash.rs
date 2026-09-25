@@ -55,12 +55,13 @@ pub fn crypto_shorthash(output: &mut Hash, input: &[u8], key: &Key) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// The SipHash-2-4 reference vectors (key `00..0f`, message `00..n-1`)
     /// at the word boundaries: 0, 7, 8, 9, 15 and 16 bytes.
     #[test]
     fn test_shorthash_reference_vectors() {
-        let key: Key = std::array::from_fn(|i| i as u8);
+        let key: Key = core::array::from_fn(|i| i as u8);
         for (len, expected) in [
             (0usize, [0x31, 0x0e, 0x0e, 0xdd, 0x47, 0xdb, 0x6f, 0x72]),
             (7, [0x37, 0xd1, 0x01, 0x8b, 0xf5, 0x00, 0x02, 0xab]),
@@ -81,7 +82,7 @@ mod tests {
     fn test_shorthash_matches_libsodium() {
         use crate::native_test_util::shorthash_siphash24;
 
-        let key: Key = std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
+        let key: Key = core::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
         for len in [0usize, 1, 7, 8, 9, 63, 64, 65] {
             let input: Vec<u8> = (0..len as u32).map(|i| (i * 31 % 251) as u8).collect();
             let mut output = Hash::default();

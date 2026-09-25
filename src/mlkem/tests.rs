@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 
 use super::*;
 use crate::keccak::Sponge;
+use crate::test_prelude::*;
 
 /// Parses a vector file: `#` comments, then blank-line-separated records of
 /// `key = value` lines. Works line by line, so a CRLF checkout (Windows)

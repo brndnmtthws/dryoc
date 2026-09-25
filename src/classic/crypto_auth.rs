@@ -116,6 +116,8 @@ pub fn crypto_auth_final(state: AuthState, output: &mut [u8; CRYPTO_AUTH_BYTES])
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(dryoc_native_tests)]
+    use crate::test_prelude::*;
 
     const KEY: Key = {
         let mut key = [0u8; CRYPTO_AUTH_KEYBYTES];

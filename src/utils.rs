@@ -25,7 +25,7 @@ pub fn sodium_increment(bytes: &mut [u8]) {
 
 #[inline]
 pub(crate) fn xor_buf(out: &mut [u8], in_: &[u8]) {
-    let len = std::cmp::min(out.len(), in_.len());
+    let len = core::cmp::min(out.len(), in_.len());
     for i in 0..len {
         out[i] ^= in_[i];
     }
@@ -151,7 +151,7 @@ fn zeroize_wide<T: zeroize::DefaultIsZeroes>(head: &mut [T], words: &mut [u128],
     head.zeroize();
     for word in words {
         // SAFETY: `word` is a valid, aligned, exclusively borrowed `u128`.
-        unsafe { std::ptr::write_volatile(word, 0) };
+        unsafe { core::ptr::write_volatile(word, 0) };
     }
     tail.zeroize();
 }

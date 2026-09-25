@@ -12,7 +12,7 @@
 //! rotates with `vprorq`. Control flow and memory access are independent of
 //! the data.
 
-use std::arch::x86_64::{
+use core::arch::x86_64::{
     __m256i, __m512i, _mm256_add_epi64, _mm256_mul_epu32, _mm256_permute2x128_si256,
     _mm256_permute4x64_epi64, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_xor_si256,
     _mm512_add_epi64, _mm512_mul_epu32, _mm512_permutex_epi64, _mm512_permutex2var_epi64,
@@ -40,9 +40,9 @@ pub(super) enum Kernel {
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if std::arch::is_x86_feature_detected!("avx512f") {
+    if has_x86_feature!("avx512f") {
         Some(Kernel::Avx512)
-    } else if std::arch::is_x86_feature_detected!("avx2") {
+    } else if has_x86_feature!("avx2") {
         Some(Kernel::Avx2)
     } else {
         None
@@ -52,12 +52,12 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
-        let mut kernels = Vec::new();
-        if std::arch::is_x86_feature_detected!("avx2") {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
+        let mut kernels = alloc::vec::Vec::new();
+        if has_x86_feature!("avx2") {
             kernels.push(Kernel::Avx2);
         }
-        if std::arch::is_x86_feature_detected!("avx512f") {
+        if has_x86_feature!("avx512f") {
             kernels.push(Kernel::Avx512);
         }
         kernels
@@ -78,10 +78,10 @@ impl Kernel {
         prepare_in_place(dst, prev_block, ref_block, xor_old, scratch);
         match self {
             // SAFETY: `Kernel::Avx2` is only constructed after
-            // `is_x86_feature_detected!("avx2")` succeeded.
+            // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { permute_avx2(dst) },
             // SAFETY: `Kernel::Avx512` is only constructed after
-            // `is_x86_feature_detected!("avx512f")` succeeded.
+            // `has_x86_feature!("avx512f")` succeeded.
             Kernel::Avx512 => unsafe { permute_avx512(dst) },
         }
         finish_in_place(dst, prev_block, ref_block, xor_old, scratch);

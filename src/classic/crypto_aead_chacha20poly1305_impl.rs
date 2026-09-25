@@ -288,6 +288,7 @@ pub(crate) use impl_chacha20poly1305_aead;
 pub(crate) mod test_util {
     use super::Tag;
     use crate::error::Error;
+    use crate::test_prelude::*;
 
     type Key = [u8; 32];
     type Aad<'a> = Option<&'a [u8]>;
@@ -546,7 +547,7 @@ pub(crate) mod test_util {
                         message_len as libc::c_ulonglong,
                         ad.as_ptr(),
                         ad_len as libc::c_ulonglong,
-                        std::ptr::null(),
+                        core::ptr::null(),
                         nonce.as_ref().as_ptr(),
                         key.as_ptr(),
                     )

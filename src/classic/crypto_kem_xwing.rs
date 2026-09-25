@@ -438,7 +438,7 @@ mod native_tests {
                 assert_eq!(ciphertext, so_ciphertext, "enc seed {enc_seed:02x?}");
                 assert_eq!(sent, so_sent, "enc seed {enc_seed:02x?}");
 
-                for ciphertext in std::iter::once(ciphertext).chain(tampered(&ciphertext)) {
+                for ciphertext in core::iter::once(ciphertext).chain(tampered(&ciphertext)) {
                     let mut received = [0u8; CRYPTO_KEM_XWING_SHAREDSECRETBYTES];
                     crypto_kem_xwing_dec(&mut received, &ciphertext, &secret_key).expect("dec");
                     let so_received = sodium::crypto_kem_xwing_dec(&ciphertext, &secret_key)

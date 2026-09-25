@@ -7,7 +7,7 @@
 //! Use a [`DryocSecretBox`] when all parties already share a secret key. The
 //! key can be generated directly or derived with [`Kdf`](crate::kdf),
 //! [`Session`](crate::kx), or a password-hashing function such as
-//! [`crypto_pwhash`](crate::classic::crypto_pwhash).
+//! `classic::crypto_pwhash`.
 //!
 //! Anyone who knows the key can create valid messages. In a group, a secretbox
 //! proves that a member created the message, not which member created it.
@@ -22,7 +22,7 @@
 //! for [`DryocSecretBox`]. With `wincode_0_6`,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
-//! implemented for [`VecBox`].
+//! implemented for `VecBox`.
 //!
 //! ## Rustaceous API example
 //!
@@ -55,8 +55,11 @@
 //!   for more about secret boxes
 //! * For public-key encryption, see [`DryocBox`](crate::dryocbox)
 //! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
-//! * See the [`protected`] module for an example that stores keys in protected
+//! * See the `protected` module for an example that stores keys in protected
 //!   memory
+
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -76,7 +79,10 @@ pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
 /// Stack-allocated secret box message authentication code.
 pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`DryocSecretBox`]
@@ -133,7 +139,7 @@ pub mod protected {
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// An authenticated secret-key encrypted box, compatible with a libsodium box.
-/// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
+/// Use with either `VecBox` or `protected::LockedBox` type aliases.
 ///
 /// Refer to [crate::dryocsecretbox] for sample usage.
 pub struct DryocSecretBox<
@@ -145,6 +151,7 @@ pub struct DryocSecretBox<
 }
 
 /// [Vec]-based authenticated secret box.
+#[cfg(feature = "alloc")]
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 
 #[cfg(feature = "wincode_0_6")]
@@ -179,7 +186,7 @@ unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for Vec
 
     fn read(
         mut reader: impl wincode::io::Reader<'de>,
-        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+        dst: &mut core::mem::MaybeUninit<Self::Dst>,
     ) -> wincode::ReadResult<()> {
         let tag =
             <[u8; CRYPTO_SECRETBOX_MACBYTES] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
@@ -238,7 +245,7 @@ impl<
 
 impl<
     'a,
-    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
     Data: Bytes + From<&'a [u8]> + Zeroize,
 > DryocSecretBox<Mac, Data>
 {
@@ -270,6 +277,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 
     /// Copies `self` into a new [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -321,6 +329,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 }
 
+#[cfg(feature = "alloc")]
 impl DryocSecretBox<Mac, Vec<u8>> {
     /// Encrypts a message using `secret_key` and returns a new
     /// [`DryocSecretBox`] with ciphertext and tag.
@@ -403,9 +412,10 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// NaCl `tests/secretbox.c` vector: `firstkey`, `nonce`, the 131-byte
     /// message, and the 147-byte `tag || ciphertext` output.
@@ -723,7 +733,10 @@ mod tests {
             }
         }
 
-        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+        #[cfg(any(
+            all(feature = "protected", any(unix, windows)),
+            all(doc, not(doctest), feature = "std")
+        ))]
         #[cfg(all(feature = "protected", any(unix, windows)))]
         #[test]
         fn test_dryocbox_locked() {
