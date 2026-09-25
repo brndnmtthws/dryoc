@@ -7,7 +7,7 @@ use super::{
 use crate::error::Error;
 use crate::utils::{load_u64_le, zeroize_bytes};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct State {
     h: [u64; 8],
     t: [u64; 2],

@@ -1,0 +1,10 @@
+/target
+/.venv
+__pycache__/
+*.so
+*.pyd
+/dist
+.mypy_cache/
+.pytest_cache/
+# Committed: the lockfile pins the dependencies of the shipped binary wheels.
+!/Cargo.lock

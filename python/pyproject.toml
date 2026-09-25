@@ -1,0 +1,52 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "dryoc"
+dynamic = ["version"]
+description = "Don't Roll Your Own Crypto: Pythonic bindings to the dryoc pure-Rust, libsodium-compatible cryptography library"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Brenden Matthews", email = "brenden@brndn.io" }]
+keywords = ["cryptography", "libsodium", "nacl", "encryption", "signatures", "post-quantum"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Free Threading :: 3 - Stable",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Rust",
+  "Topic :: Security :: Cryptography",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/brndnmtthws/dryoc"
+Documentation = "https://github.com/brndnmtthws/dryoc/tree/main/python#readme"
+Repository = "https://github.com/brndnmtthws/dryoc"
+Issues = "https://github.com/brndnmtthws/dryoc/issues"
+Changelog = "https://github.com/brndnmtthws/dryoc/releases"
+
+[dependency-groups]
+test = ["pytest>=9.1", "pynacl>=1.6.2", "mypy>=2.3"]
+dev = [{ include-group = "test" }, "maturin>=1.15,<2"]
+
+[tool.maturin]
+module-name = "dryoc._dryoc"
+python-source = "python"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]
+xfail_strict = true

@@ -57,7 +57,9 @@ than convenience refactors.
     ungated there).
   - `simd_backend`: SIMD-backed internals; in CI this is used with `nightly`.
 - Do not commit a `Cargo.lock` for routine library changes unless the project
-  policy changes.
+  policy changes. The one exception is `python/Cargo.lock`, which is committed
+  because it pins the dependencies of the shipped binary wheels
+  (`python/.gitignore` un-ignores it).
 
 ## Common Commands
 
@@ -120,6 +122,33 @@ Fuzzing lives in `fuzz/` and is isolated as its own workspace:
 cargo fuzz run fuzz-hashes
 ```
 
+The Python bindings live in `python/`, also an isolated workspace. Run these
+from `python/` (CI runs the same set):
+
+```sh
+python -m venv .venv && .venv/bin/pip install 'maturin>=1.15,<2' pytest pynacl mypy
+.venv/bin/maturin develop --release
+.venv/bin/python -m pytest -ra
+.venv/bin/python -m mypy.stubtest dryoc
+.venv/bin/python -m mypy --strict python/dryoc tests
+cargo clippy -- -D warnings
+cargo +nightly fmt --check
+.venv/bin/maturin build --release --out dist    # abi3 wheel, CPython >= 3.10
+.venv/bin/maturin sdist --out dist
+```
+
+`python/Cargo.toml`'s `version` must equal the root crate's `version`: the
+wheel takes its version from it, and `publish.yml` refuses a release tag when
+the two differ. Bump both together.
+
+`python/Cargo.lock` records the root crate's version and its whole dependency
+graph, and every Python build uses `--locked`. Any change to the root version
+or root dependencies therefore requires
+`cargo update -p dryoc --manifest-path python/Cargo.toml` and committing the
+updated `python/Cargo.lock` in the same change. `publish.yml` checks this with
+`cargo metadata --locked --manifest-path python/Cargo.toml` before anything
+is published.
+
 ## Formatting And Lints
 
 - Follow `.rustfmt.toml`; it uses unstable rustfmt options, so formatting checks
@@ -145,6 +174,9 @@ cargo fuzz run fuzz-hashes
   globals. Prefer the `src/native_test_util.rs` wrappers, which call
   `native_test_util::init()`; any test that calls `libsodium_sys` (or a
   libsodium symbol declared in `extern "C"`) directly must call it first.
+- Python tests (`python/tests/`) use PyNaCl as a test-only libsodium oracle.
+  PyNaCl must never become a runtime dependency. The interop module skips
+  itself with an explicit reason when PyNaCl is unavailable.
 
 ## Crypto-Specific Rules
 
@@ -244,6 +276,26 @@ cargo fuzz run fuzz-hashes
   1.0.22) shared by the `dryoc_native_tests` compatibility tests.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
+- `python/`: PyPI package `dryoc`, built with PyO3 and maturin as one
+  `abi3-py310` extension module (`dryoc._dryoc`). It is its own Cargo
+  workspace (like `fuzz/`), so root `cargo package` and `cargo publish` never
+  include it. `src/` holds the PyO3 code, `python/dryoc/` the pure-Python
+  modules and `.pyi` stubs, and `tests/` the pytest suite, which reads the
+  vectors in `src/mlkem/test-vectors/`. It uses only Rustaceous APIs (plus
+  Classic functions internally where the Rustaceous API has no runtime-sized
+  equivalent) and must stay free of `unsafe`. Rules:
+  - Every pyclass is `frozen`. Mutable state (hashers, MACs, streams,
+    `Ed25519ph`) goes behind `util::Locked`, which serializes calls without
+    deadlocking with the GIL.
+  - Inputs are extracted through `util::Buf`: `bytes` is borrowed, every other
+    buffer is copied into a zeroizing vector before use. Anything passed into
+    `py.detach` (or `util::maybe_detach`) must be one of those, never a view of
+    a mutable Python buffer.
+  - Secret classes keep constant-time `__eq__`, `__hash__ = None` and a
+    redacted repr (`util::secret_key_class!` for single-key classes; hand-written
+    classes such as key pairs and `kx.SessionKeys` do the same).
+  - The module declares `gil_used = false`. Keep that valid: no global mutable
+    state other than `PyOnceLock` caches.
 
 ## Dependency Policy
 

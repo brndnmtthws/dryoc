@@ -451,6 +451,113 @@ jobs:
           path: fuzz/artifacts/
           if-no-files-found: ignore
 
+  python:
+    name: Python / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-latest
+          - windows-latest
+        python-version:
+          - "3.10"
+          - "3.x"
+        include:
+          - os: ubuntu-latest
+            python-version: "3.14t"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: build
+          manylinux: ${{ matrix.python-version == '3.14t' && 'off' || '' }}
+          args: --release --locked --out dist ${{ matrix.python-version == '3.14t' && '-i python3.14t' || '' }}
+          working-directory: python
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade 'pip>=25.1'
+          python -m pip install --group test
+        working-directory: python
+      - name: Install built wheel
+        run: python -m pip install dist/*.whl
+        working-directory: python
+      - name: Verify imports use installed wheel
+        run: python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+        working-directory: python
+      - name: Verify interoperability dependency is installed
+        run: python -c "import nacl"
+        working-directory: python
+      - name: Run Python tests
+        run: pytest -p no:cacheprovider tests
+        working-directory: python
+      - name: Setup nightly Rust validation tools
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.x'
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          components: clippy rustfmt
+      - name: Lint Python and Rust code
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.x'
+        run: |
+          python -m mypy.stubtest dryoc
+          python -m mypy --strict python/dryoc tests
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo +nightly fmt --check
+        working-directory: python
+
+  python-sdist:
+    name: Python / source distribution round trip
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Build source distribution
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: python
+      - name: Build wheel from source distribution
+        run: |
+          python -m pip install 'maturin>=1.15,<2'
+          mkdir extracted
+          tar -xzf python/dist/*.tar.gz -C extracted
+          mv extracted/dryoc-* extracted/sdist
+          cd extracted/sdist
+          maturin build --release --locked --out "$GITHUB_WORKSPACE/python/dist"
+      - name: Install test dependencies from extracted project
+        run: |
+          python -m pip install --upgrade 'pip>=25.1'
+          python -m pip install --group test
+        working-directory: extracted/sdist
+      - name: Install built wheel
+        run: python -m pip install "$GITHUB_WORKSPACE"/python/dist/*.whl
+        working-directory: extracted/sdist
+      - name: Verify wheel imports and interop dependency
+        run: |
+          python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+          python -c "import nacl"
+        working-directory: extracted/sdist
+      - name: Run tests from extracted source distribution
+        run: pytest -p no:cacheprovider tests
+        working-directory: extracted/sdist/python
+
   # Single job for branch protection to require. `always()` matters: without
   # it a failed upstream job skips this one, and GitHub treats a skipped
   # required check as passing.
@@ -470,6 +577,8 @@ jobs:
       - docs
       - miri
       - fuzz
+      - python
+      - python-sdist
     runs-on: ubuntu-latest
     steps:
       - name: Check that every job succeeded
