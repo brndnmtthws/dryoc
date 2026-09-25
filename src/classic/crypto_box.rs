@@ -181,10 +181,12 @@ pub fn crypto_box_detached(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let key = Zeroizing::new(crypto_box_beforenm(
+    let mut key = Zeroizing::new(Key::default());
+    crypto_box_curve25519xsalsa20poly1305_beforenm_into(
+        &mut key,
         recipient_public_key,
         sender_secret_key,
-    )?);
+    )?;
 
     crypto_box_detached_afternm(ciphertext, mac, message, nonce, &key)
 }
@@ -201,10 +203,12 @@ pub fn crypto_box_detached_inplace(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let key = Zeroizing::new(crypto_box_beforenm(
+    let mut key = Zeroizing::new(Key::default());
+    crypto_box_curve25519xsalsa20poly1305_beforenm_into(
+        &mut key,
         recipient_public_key,
         sender_secret_key,
-    )?);
+    )?;
 
     crypto_box_detached_afternm_inplace(message, mac, nonce, &key);
 
@@ -347,10 +351,12 @@ pub fn crypto_box_easy_inplace(
         crate::ErrorContext::Data
     );
 
-    let key = Zeroizing::new(crypto_box_beforenm(
+    let mut key = Zeroizing::new(Key::default());
+    crypto_box_curve25519xsalsa20poly1305_beforenm_into(
+        &mut key,
         recipient_public_key,
         sender_secret_key,
-    )?);
+    )?;
 
     data.rotate_right(CRYPTO_BOX_MACBYTES);
 
@@ -441,10 +447,12 @@ pub fn crypto_box_open_detached(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let key = Zeroizing::new(crypto_box_beforenm(
+    let mut key = Zeroizing::new(Key::default());
+    crypto_box_curve25519xsalsa20poly1305_beforenm_into(
+        &mut key,
         recipient_public_key,
         sender_secret_key,
-    )?);
+    )?;
 
     crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, &key)?;
 
@@ -464,10 +472,12 @@ pub fn crypto_box_open_detached_inplace(
     recipient_public_key: &PublicKey,
     sender_secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let key = Zeroizing::new(crypto_box_beforenm(
+    let mut key = Zeroizing::new(Key::default());
+    crypto_box_curve25519xsalsa20poly1305_beforenm_into(
+        &mut key,
         recipient_public_key,
         sender_secret_key,
-    )?);
+    )?;
 
     crypto_box_open_detached_afternm_inplace(data, mac, nonce, &key)?;
 
