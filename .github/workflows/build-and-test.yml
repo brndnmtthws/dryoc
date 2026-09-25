@@ -82,30 +82,42 @@ jobs:
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: wasm-${{ matrix.name }}
-      - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-      - name: Install matching wasm-bindgen test runner
+      - name: Resolve wasm-bindgen version
+        id: wasm-bindgen
         run: |
-          WASM_BINDGEN_VERSION="$(
+          version="$(
             cargo tree --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6 \
               | sed -n 's/.*wasm-bindgen v\([0-9.]*\).*/\1/p' \
               | head -n 1
           )"
-          cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Prebuilt release binaries; `cargo install` spent ~1m40s compiling.
+      - name: Install matching wasm-bindgen test runner
+        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        with:
+          packages: --locked wasm-bindgen-cli@${{ steps.wasm-bindgen.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       # RUSTFLAGS only on the wasm32 steps: with `--target` it applies to the
       # wasm32 artifacts and not to host build scripts or installed tools.
       # The simd128 kernels do not depend on `std`, so the `no_std` builds
       # (with and without `alloc`) are tested too.
+      #
+      # `cargo test --tests` rather than nextest: nextest starts one
+      # wasm-bindgen-test-runner (wasm-bindgen pass plus Node) per test, which
+      # cost 2-7s each and dominated the job; `cargo test` starts one per
+      # binary. `--tests` keeps nextest's target set (no doctests). opt-level
+      # 1 keeps debug assertions and overflow checks but cuts the ML-KEM
+      # accumulated-vector test from ~60s; dropping debuginfo shrinks the wasm
+      # the runner processes.
       - run: |
           for features in "" alloc std,serde,base64,wincode_0_6; do
-            mbx nextest run --target wasm32-unknown-unknown --no-default-features --features "$features"
+            mbx test --target wasm32-unknown-unknown --tests --no-default-features --features "$features"
           done
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          CARGO_PROFILE_TEST_OPT_LEVEL: "1"
+          CARGO_PROFILE_TEST_DEBUG: "0"
           RUSTFLAGS: ${{ matrix.rustflags }}
       - run: |
           for features in "" alloc std,serde,base64,wincode_0_6; do
