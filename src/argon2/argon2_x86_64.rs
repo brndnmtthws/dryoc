@@ -14,18 +14,19 @@
 //!
 //! Zeroization: the permutation runs in place on the caller's `dst` block,
 //! and the XORs around it use the caller's `scratch` block. Both are
-//! [`Block`]s, which wipe themselves on drop. The vectors of the two
-//! kernels live only in registers: the optimized `permute_avx2` and
-//! `permute_avx512` touch no stack memory and call no functions. Rust cannot
-//! reliably wipe registers, and wiping these values would force them into
-//! memory, so the kernels add no wipes of their own.
+//! [`Block`]s, which wipe themselves on drop. `permute_avx2` and
+//! `permute_avx512` are out of line at every opt-level, which adds no copy:
+//! they only get `&mut` to `dst`. Every step on the vectors inside them is a
+//! macro or a few-intrinsic `#[inline]` helper, so at every opt-level they
+//! touch no stack memory and call no functions and the vectors live only in
+//! registers. Rust cannot reliably wipe registers, and wiping these values
+//! would force them into memory, so the kernels add no wipes of their own.
 
 use core::arch::x86_64::{
     __m256i, __m512i, _mm256_add_epi64, _mm256_mul_epu32, _mm256_permute2x128_si256,
-    _mm256_permute4x64_epi64, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_xor_si256,
-    _mm512_add_epi64, _mm512_mul_epu32, _mm512_permutex_epi64, _mm512_permutex2var_epi64,
-    _mm512_ror_epi64, _mm512_setr_epi64, _mm512_setzero_si512, _mm512_shuffle_i64x2,
-    _mm512_xor_si512,
+    _mm256_permute4x64_epi64, _mm256_shuffle_epi8, _mm256_xor_si256, _mm512_add_epi64,
+    _mm512_mul_epu32, _mm512_permutex_epi64, _mm512_permutex2var_epi64, _mm512_ror_epi64,
+    _mm512_setr_epi64, _mm512_shuffle_i64x2, _mm512_xor_si512,
 };
 
 use super::{Block, finish_in_place, prepare_in_place};
@@ -122,39 +123,71 @@ macro_rules! g {
 }
 
 /// One message-less BLAKE2b round over two independent 16-word states held
-/// as `(a0, b0, c0, d0)` and `(a1, b1, c1, d1)`, interleaved statement by
-/// statement so the two dependency chains overlap.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn round(s: [__m256i; 8], r24: __m256i, r16: __m256i) -> [__m256i; 8] {
-    let [
-        mut a0,
-        mut b0,
-        mut c0,
-        mut d0,
-        mut a1,
-        mut b1,
-        mut c1,
-        mut d1,
-    ] = s;
-    g!(a0, b0, c0, d0, r24, r16);
-    g!(a1, b1, c1, d1, r24, r16);
-    // Rotate rows 1..4 by 1..3 lanes so each diagonal is a column.
-    b0 = _mm256_permute4x64_epi64::<0x39>(b0);
-    c0 = _mm256_permute4x64_epi64::<0x4E>(c0);
-    d0 = _mm256_permute4x64_epi64::<0x93>(d0);
-    b1 = _mm256_permute4x64_epi64::<0x39>(b1);
-    c1 = _mm256_permute4x64_epi64::<0x4E>(c1);
-    d1 = _mm256_permute4x64_epi64::<0x93>(d1);
-    g!(a0, b0, c0, d0, r24, r16);
-    g!(a1, b1, c1, d1, r24, r16);
-    b0 = _mm256_permute4x64_epi64::<0x93>(b0);
-    c0 = _mm256_permute4x64_epi64::<0x4E>(c0);
-    d0 = _mm256_permute4x64_epi64::<0x39>(d0);
-    b1 = _mm256_permute4x64_epi64::<0x93>(b1);
-    c1 = _mm256_permute4x64_epi64::<0x4E>(c1);
-    d1 = _mm256_permute4x64_epi64::<0x39>(d1);
-    [a0, b0, c0, d0, a1, b1, c1, d1]
+/// in `($a0, $b0, $c0, $d0)` and `($a1, $b1, $c1, $d1)`, interleaved
+/// statement by statement so the two dependency chains overlap. A macro
+/// rather than a `#[target_feature]` fn, which cannot be `#[inline(always)]`:
+/// at opt-level `z` LLVM kept such a `round` out of line and passed it the
+/// two states (a copy of the password-derived block) and its result through
+/// memory.
+macro_rules! round {
+    (
+        $a0:ident,
+        $b0:ident,
+        $c0:ident,
+        $d0:ident,
+        $a1:ident,
+        $b1:ident,
+        $c1:ident,
+        $d1:ident,
+        $r24:ident,
+        $r16:ident
+    ) => {
+        g!($a0, $b0, $c0, $d0, $r24, $r16);
+        g!($a1, $b1, $c1, $d1, $r24, $r16);
+        // Rotate rows 1..4 by 1..3 lanes so each diagonal is a column.
+        $b0 = _mm256_permute4x64_epi64::<0x39>($b0);
+        $c0 = _mm256_permute4x64_epi64::<0x4E>($c0);
+        $d0 = _mm256_permute4x64_epi64::<0x93>($d0);
+        $b1 = _mm256_permute4x64_epi64::<0x39>($b1);
+        $c1 = _mm256_permute4x64_epi64::<0x4E>($c1);
+        $d1 = _mm256_permute4x64_epi64::<0x93>($d1);
+        g!($a0, $b0, $c0, $d0, $r24, $r16);
+        g!($a1, $b1, $c1, $d1, $r24, $r16);
+        $b0 = _mm256_permute4x64_epi64::<0x93>($b0);
+        $c0 = _mm256_permute4x64_epi64::<0x4E>($c0);
+        $d0 = _mm256_permute4x64_epi64::<0x39>($d0);
+        $b1 = _mm256_permute4x64_epi64::<0x93>($b1);
+        $c1 = _mm256_permute4x64_epi64::<0x4E>($c1);
+        $d1 = _mm256_permute4x64_epi64::<0x39>($d1);
+    };
+}
+
+/// Row `$row` (`a` to `d` for 0 to 3) of the column states `2 * $i` and
+/// `2 * $i + 1`: the low and the high 128-bit halves of vectors `8 * $row +
+/// $i` and `8 * $row + 4 + $i`.
+macro_rules! load_column_rows {
+    ($v:ident, $i:ident, $row:literal) => {{
+        let lo = load_words(&$v[8 * $row + $i]);
+        let hi = load_words(&$v[8 * $row + 4 + $i]);
+        (
+            _mm256_permute2x128_si256::<0x20>(lo, hi),
+            _mm256_permute2x128_si256::<0x31>(lo, hi),
+        )
+    }};
+}
+
+/// Inverse of `load_column_rows!`.
+macro_rules! store_column_rows {
+    ($v:ident, $i:ident, $row:literal, $x0:ident, $x1:ident) => {
+        store_words(
+            &mut $v[8 * $row + $i],
+            _mm256_permute2x128_si256::<0x20>($x0, $x1),
+        );
+        store_words(
+            &mut $v[8 * $row + 4 + $i],
+            _mm256_permute2x128_si256::<0x31>($x0, $x1),
+        );
+    };
 }
 
 /// The permutation `P` over the block in place: a round over every pair of
@@ -172,20 +205,23 @@ fn permute_avx2(block: &mut Block) {
     // in `a, b, c, d` order.
     for i in 0..4 {
         let w = &mut v[8 * i..8 * i + 8];
-        let s = [
-            load_words(&w[0]),
-            load_words(&w[1]),
-            load_words(&w[2]),
-            load_words(&w[3]),
-            load_words(&w[4]),
-            load_words(&w[5]),
-            load_words(&w[6]),
-            load_words(&w[7]),
-        ];
-        let s = round(s, r24, r16);
-        for (word, vector) in w.iter_mut().zip(s) {
-            store_words(word, vector);
-        }
+        let mut a0 = load_words(&w[0]);
+        let mut b0 = load_words(&w[1]);
+        let mut c0 = load_words(&w[2]);
+        let mut d0 = load_words(&w[3]);
+        let mut a1 = load_words(&w[4]);
+        let mut b1 = load_words(&w[5]);
+        let mut c1 = load_words(&w[6]);
+        let mut d1 = load_words(&w[7]);
+        round!(a0, b0, c0, d0, a1, b1, c1, d1, r24, r16);
+        store_words(&mut w[0], a0);
+        store_words(&mut w[1], b0);
+        store_words(&mut w[2], c0);
+        store_words(&mut w[3], d0);
+        store_words(&mut w[4], a1);
+        store_words(&mut w[5], b1);
+        store_words(&mut w[6], c1);
+        store_words(&mut w[7], d1);
     }
 
     // Column `2i` is the word pairs `(16k + 4i, 16k + 4i + 1)` for `k` in
@@ -194,24 +230,15 @@ fn permute_avx2(block: &mut Block) {
     // is the low halves of vectors `i` and `4 + i`, row `a` of column `2i + 1`
     // their high halves, and so on for `b`, `c`, `d`.
     for i in 0..4 {
-        let mut s = [_mm256_setzero_si256(); 8];
-        for row in 0..4 {
-            let lo = load_words(&v[8 * row + i]);
-            let hi = load_words(&v[8 * row + 4 + i]);
-            s[row] = _mm256_permute2x128_si256::<0x20>(lo, hi);
-            s[4 + row] = _mm256_permute2x128_si256::<0x31>(lo, hi);
-        }
-        let s = round(s, r24, r16);
-        for row in 0..4 {
-            store_words(
-                &mut v[8 * row + i],
-                _mm256_permute2x128_si256::<0x20>(s[row], s[4 + row]),
-            );
-            store_words(
-                &mut v[8 * row + 4 + i],
-                _mm256_permute2x128_si256::<0x31>(s[row], s[4 + row]),
-            );
-        }
+        let (mut a0, mut a1) = load_column_rows!(v, i, 0);
+        let (mut b0, mut b1) = load_column_rows!(v, i, 1);
+        let (mut c0, mut c1) = load_column_rows!(v, i, 2);
+        let (mut d0, mut d1) = load_column_rows!(v, i, 3);
+        round!(a0, b0, c0, d0, a1, b1, c1, d1, r24, r16);
+        store_column_rows!(v, i, 0, a0, a1);
+        store_column_rows!(v, i, 1, b0, b1);
+        store_column_rows!(v, i, 2, c0, c1);
+        store_column_rows!(v, i, 3, d0, d1);
     }
 }
 
@@ -239,22 +266,20 @@ macro_rules! g512 {
 }
 
 /// One message-less BLAKE2b round over the two 16-word states held side by
-/// side in `(a, b, c, d)`, one state per 256-bit half. `vpermq` with an
+/// side in `($a, $b, $c, $d)`, one state per 256-bit half. `vpermq` with an
 /// immediate permutes within each half, so the diagonal rotation is the
-/// same as for one state.
-#[inline]
-#[target_feature(enable = "avx512f")]
-fn round512(s: [__m512i; 4]) -> [__m512i; 4] {
-    let [mut a, mut b, mut c, mut d] = s;
-    g512!(a, b, c, d);
-    b = _mm512_permutex_epi64::<0x39>(b);
-    c = _mm512_permutex_epi64::<0x4E>(c);
-    d = _mm512_permutex_epi64::<0x93>(d);
-    g512!(a, b, c, d);
-    b = _mm512_permutex_epi64::<0x93>(b);
-    c = _mm512_permutex_epi64::<0x4E>(c);
-    d = _mm512_permutex_epi64::<0x39>(d);
-    [a, b, c, d]
+/// same as for one state. A macro for the same reason as `round!`.
+macro_rules! round512 {
+    ($a:ident, $b:ident, $c:ident, $d:ident) => {
+        g512!($a, $b, $c, $d);
+        $b = _mm512_permutex_epi64::<0x39>($b);
+        $c = _mm512_permutex_epi64::<0x4E>($c);
+        $d = _mm512_permutex_epi64::<0x93>($d);
+        g512!($a, $b, $c, $d);
+        $b = _mm512_permutex_epi64::<0x93>($b);
+        $c = _mm512_permutex_epi64::<0x4E>($c);
+        $d = _mm512_permutex_epi64::<0x39>($d);
+    };
 }
 
 /// The permutation `P` over the block in place with AVX-512: a round over
@@ -274,54 +299,59 @@ fn permute_avx512(block: &mut Block) {
         let r1 = load_words512(&w[1]);
         let r2 = load_words512(&w[2]);
         let r3 = load_words512(&w[3]);
-        let s = round512([
-            _mm512_shuffle_i64x2::<0x44>(r0, r2),
-            _mm512_shuffle_i64x2::<0xEE>(r0, r2),
-            _mm512_shuffle_i64x2::<0x44>(r1, r3),
-            _mm512_shuffle_i64x2::<0xEE>(r1, r3),
-        ]);
-        store_words512(&mut w[0], _mm512_shuffle_i64x2::<0x44>(s[0], s[1]));
-        store_words512(&mut w[1], _mm512_shuffle_i64x2::<0x44>(s[2], s[3]));
-        store_words512(&mut w[2], _mm512_shuffle_i64x2::<0xEE>(s[0], s[1]));
-        store_words512(&mut w[3], _mm512_shuffle_i64x2::<0xEE>(s[2], s[3]));
+        let mut a = _mm512_shuffle_i64x2::<0x44>(r0, r2);
+        let mut b = _mm512_shuffle_i64x2::<0xEE>(r0, r2);
+        let mut c = _mm512_shuffle_i64x2::<0x44>(r1, r3);
+        let mut d = _mm512_shuffle_i64x2::<0xEE>(r1, r3);
+        round512!(a, b, c, d);
+        store_words512(&mut w[0], _mm512_shuffle_i64x2::<0x44>(a, b));
+        store_words512(&mut w[1], _mm512_shuffle_i64x2::<0x44>(c, d));
+        store_words512(&mut w[2], _mm512_shuffle_i64x2::<0xEE>(a, b));
+        store_words512(&mut w[3], _mm512_shuffle_i64x2::<0xEE>(c, d));
     }
 
     // Column `c` is the word pairs `(16k + 2c, 16k + 2c + 1)` for `k` in
     // `0..8`: 128-bit lane `c % 4` of vectors `2k + c / 4`. For the four
     // columns `4j .. 4j + 4`, row `a` of each is in vectors `j` and `2 + j`,
     // row `b` in `4 + j` and `6 + j`, and so on. Columns `4j + 2h` and
-    // `4j + 2h + 1` (lanes `2h` and `2h + 1`) form one side-by-side pair.
-    let gather = [
-        _mm512_setr_epi64(0, 1, 8, 9, 2, 3, 10, 11),
-        _mm512_setr_epi64(4, 5, 12, 13, 6, 7, 14, 15),
-    ];
+    // `4j + 2h + 1` (lanes `2h` and `2h + 1`) form one side-by-side pair,
+    // state `h`. Spelled out rather than looping over arrays of rows and
+    // states, which kept those arrays in memory at opt-level `z`.
+    let gather0 = _mm512_setr_epi64(0, 1, 8, 9, 2, 3, 10, 11);
+    let gather1 = _mm512_setr_epi64(4, 5, 12, 13, 6, 7, 14, 15);
     let scatter_lo = _mm512_setr_epi64(0, 1, 4, 5, 8, 9, 12, 13);
     let scatter_hi = _mm512_setr_epi64(2, 3, 6, 7, 10, 11, 14, 15);
     for j in 0..2 {
-        let mut rows = [[_mm512_setzero_si512(); 2]; 4];
-        for (row, pair) in rows.iter_mut().enumerate() {
-            *pair = [
-                load_words512(&v[4 * row + j]),
-                load_words512(&v[4 * row + 2 + j]),
-            ];
-        }
-        let mut states = [[_mm512_setzero_si512(); 4]; 2];
-        for (h, state) in states.iter_mut().enumerate() {
-            for (row, pair) in rows.iter().enumerate() {
-                state[row] = _mm512_permutex2var_epi64(pair[0], gather[h], pair[1]);
-            }
-        }
-        let s0 = round512(states[0]);
-        let s1 = round512(states[1]);
-        for row in 0..4 {
-            store_words512(
-                &mut v[4 * row + j],
-                _mm512_permutex2var_epi64(s0[row], scatter_lo, s1[row]),
-            );
-            store_words512(
-                &mut v[4 * row + 2 + j],
-                _mm512_permutex2var_epi64(s0[row], scatter_hi, s1[row]),
-            );
-        }
+        let (a_lo, a_hi) = (load_words512(&v[j]), load_words512(&v[2 + j]));
+        let (b_lo, b_hi) = (load_words512(&v[4 + j]), load_words512(&v[6 + j]));
+        let (c_lo, c_hi) = (load_words512(&v[8 + j]), load_words512(&v[10 + j]));
+        let (d_lo, d_hi) = (load_words512(&v[12 + j]), load_words512(&v[14 + j]));
+        let mut a0 = _mm512_permutex2var_epi64(a_lo, gather0, a_hi);
+        let mut b0 = _mm512_permutex2var_epi64(b_lo, gather0, b_hi);
+        let mut c0 = _mm512_permutex2var_epi64(c_lo, gather0, c_hi);
+        let mut d0 = _mm512_permutex2var_epi64(d_lo, gather0, d_hi);
+        let mut a1 = _mm512_permutex2var_epi64(a_lo, gather1, a_hi);
+        let mut b1 = _mm512_permutex2var_epi64(b_lo, gather1, b_hi);
+        let mut c1 = _mm512_permutex2var_epi64(c_lo, gather1, c_hi);
+        let mut d1 = _mm512_permutex2var_epi64(d_lo, gather1, d_hi);
+        round512!(a0, b0, c0, d0);
+        round512!(a1, b1, c1, d1);
+        store_words512(&mut v[j], _mm512_permutex2var_epi64(a0, scatter_lo, a1));
+        store_words512(&mut v[2 + j], _mm512_permutex2var_epi64(a0, scatter_hi, a1));
+        store_words512(&mut v[4 + j], _mm512_permutex2var_epi64(b0, scatter_lo, b1));
+        store_words512(&mut v[6 + j], _mm512_permutex2var_epi64(b0, scatter_hi, b1));
+        store_words512(&mut v[8 + j], _mm512_permutex2var_epi64(c0, scatter_lo, c1));
+        store_words512(
+            &mut v[10 + j],
+            _mm512_permutex2var_epi64(c0, scatter_hi, c1),
+        );
+        store_words512(
+            &mut v[12 + j],
+            _mm512_permutex2var_epi64(d0, scatter_lo, d1),
+        );
+        store_words512(
+            &mut v[14 + j],
+            _mm512_permutex2var_epi64(d0, scatter_hi, d1),
+        );
     }
 }

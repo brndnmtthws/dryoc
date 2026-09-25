@@ -267,7 +267,7 @@ impl State {
     /// [`State::finalize`] without consuming `self`, for callers that keep
     /// the state where it is (moving it out leaves unwiped copies) and let it
     /// drop there.
-    fn finalize_in_place(&mut self, output: &mut [u8]) -> Result<(), Error> {
+    pub(crate) fn finalize_in_place(&mut self, output: &mut [u8]) -> Result<(), Error> {
         validate_length!(
             1,
             OUTBYTES,
