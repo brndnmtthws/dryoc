@@ -69,9 +69,14 @@ fn open(
     mac_key.zeroize();
 
     computed_mac.update(input.unwrap_or(output));
-    let computed_mac = computed_mac.finalize_to_array();
+    // The computed tag is the valid tag for this input, so wipe it even when
+    // verification fails.
+    let mut computed_tag = Mac::default();
+    computed_mac.finalize(&mut computed_tag);
 
-    verify_ct(mac, &computed_mac)?;
+    let verified = verify_ct(mac, &computed_tag);
+    zeroize_bytes(&mut computed_tag);
+    verified?;
     match input {
         Some(input) => cipher.apply_keystream_b2b(input, output),
         None => cipher.apply_keystream(output),

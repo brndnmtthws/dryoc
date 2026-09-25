@@ -5,9 +5,10 @@
 //! the target down; instead every accepted string is checked for invariants
 //! that hold for libsodium's format:
 //!
-//! - all three entry points accept or reject the same strings;
+//! - parsing and verification accept valid strings, while `needs_rehash` and
+//!   string re-encoding also require the value to fit libsodium's fixed buffer;
 //! - the format is canonical (minimal decimals, unpadded base64 with zero pad
-//!   bits), so re-encoding an accepted string reproduces it exactly;
+//!   bits), so re-encoding an in-range accepted string reproduces it exactly;
 //! - an accepted string is `$argon2i$` or `$argon2id$`, then
 //!   `v=19$m=M,t=T,p=P$`, and needs no rehash for exactly its own `T` and `M`
 //!   KiB.
@@ -20,7 +21,9 @@
 #[cfg(feature = "base64")]
 use dryoc::classic::crypto_pwhash::{crypto_pwhash_str_needs_rehash, crypto_pwhash_str_verify};
 #[cfg(feature = "base64")]
-use dryoc::constants::{CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE, CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE};
+use dryoc::constants::{
+    CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE, CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE, CRYPTO_PWHASH_STRBYTES,
+};
 #[cfg(feature = "base64")]
 use dryoc::pwhash::PwHash;
 use libfuzzer_sys::fuzz_target;
@@ -60,18 +63,21 @@ fuzz_target!(|data: &[u8]| {
             CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
         );
         let parsed = PwHash::<Vec<u8>, Vec<u8>>::from_string(&hashed_password);
-        assert_eq!(rehash.is_ok(), parsed.is_ok(), "{hashed_password:?}");
+        if hashed_password.len() < CRYPTO_PWHASH_STRBYTES {
+            assert_eq!(rehash.is_ok(), parsed.is_ok(), "{hashed_password:?}");
+        }
 
         let Ok(parsed) = parsed else {
             // Rejected before any hashing, so this stays cheap.
             assert!(crypto_pwhash_str_verify(&hashed_password, b"password").is_err());
             return;
         };
-        assert_eq!(
-            parsed.to_encoded_string().expect("re-encode"),
-            hashed_password,
-            "not canonical"
-        );
+        if hashed_password.len() >= CRYPTO_PWHASH_STRBYTES {
+            assert!(rehash.is_err(), "oversized needs_rehash accepted");
+            assert!(parsed.to_encoded_string().is_err(), "oversized re-encode accepted");
+            return;
+        }
+        assert_eq!(parsed.to_encoded_string().expect("re-encode"), hashed_password, "not canonical");
         let (m_cost, t_cost) = costs(&hashed_password);
         let memlimit = usize::try_from(m_cost * 1024).expect("memlimit fits");
         assert_eq!(

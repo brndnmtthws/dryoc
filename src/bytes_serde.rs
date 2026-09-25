@@ -82,6 +82,17 @@ macro_rules! impl_deserialize_fixed {
                         }
                         $from_slice(v)
                     }
+
+                    /// Wipes the owned buffer that the deserializer handed
+                    /// over, which would otherwise be freed with its bytes.
+                    #[cfg(feature = "alloc")]
+                    fn visit_byte_buf<E>(self, v: alloc::vec::Vec<u8>) -> Result<Self::Value, E>
+                    where
+                        E: Error,
+                    {
+                        let v = zeroize::Zeroizing::new(v);
+                        self.visit_bytes(&v)
+                    }
                 }
 
                 deserializer.deserialize_bytes(ByteArrayVisitor::<LENGTH>)
@@ -91,15 +102,19 @@ macro_rules! impl_deserialize_fixed {
 }
 
 /// Implements [`Deserialize`] for a variable-length byte container, accepting
-/// a byte string or a sequence of bytes. Takes the same three arguments as
-/// [`impl_deserialize_fixed`], minus the length checks.
+/// a byte string or a sequence of bytes.
+///
+/// * `$ty`: the container type, with a fallible `try_resize(new_len, value)`.
+/// * `$new`: builds an empty `$ty` as a `Result<$ty, crate::error::Error>`.
+///
+/// Allocation and locking failures are returned as deserialization errors.
 // Only the `protected` module below uses this macro.
 #[cfg(any(
     all(feature = "protected", any(unix, windows)),
     all(doc, not(doctest), feature = "std")
 ))]
 macro_rules! impl_deserialize_bytes {
-    ($ty:ty, $new:expr, $from_slice:expr) => {
+    ($ty:ty, $new:expr) => {
         impl<'de> Deserialize<'de> for $ty {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
@@ -118,20 +133,27 @@ macro_rules! impl_deserialize_bytes {
                     where
                         A: SeqAccess<'de>,
                     {
-                        let mut arr = $new;
-                        let mut idx: usize = 0;
-                        let size_hint = seq.size_hint().unwrap_or(1);
-                        arr.resize(size_hint, 0);
+                        let mut arr = $new.map_err(A::Error::custom)?;
+                        // The size hint comes from the input, so it only sizes
+                        // a bounded first allocation; the buffer then doubles
+                        // as elements arrive and is trimmed once at the end.
+                        let initial = seq.size_hint().unwrap_or(0).min(MAX_PREALLOCATION);
+                        arr.try_resize(initial, 0).map_err(A::Error::custom)?;
+                        let mut len: usize = 0;
 
                         while let Some(elem) = seq.next_element()? {
-                            if idx >= arr.len() {
-                                arr.resize(idx + 1, 0);
+                            if len == arr.len() {
+                                let grown = len
+                                    .checked_mul(2)
+                                    .ok_or_else(|| A::Error::custom("byte sequence is too long"))?
+                                    .max(MIN_GROWTH);
+                                arr.try_resize(grown, 0).map_err(A::Error::custom)?;
                             }
-                            arr[idx] = elem;
-                            idx += 1;
+                            arr[len] = elem;
+                            len += 1;
                         }
 
-                        arr.resize(idx, 0);
+                        arr.try_resize(len, 0).map_err(A::Error::custom)?;
 
                         Ok(arr)
                     }
@@ -140,7 +162,20 @@ macro_rules! impl_deserialize_bytes {
                     where
                         E: Error,
                     {
-                        $from_slice(v)
+                        let mut arr = $new.map_err(E::custom)?;
+                        arr.try_resize(v.len(), 0).map_err(E::custom)?;
+                        arr.copy_from_slice(v);
+                        Ok(arr)
+                    }
+
+                    /// Wipes the owned buffer that the deserializer handed
+                    /// over, which would otherwise be freed with its bytes.
+                    fn visit_byte_buf<E>(self, v: alloc::vec::Vec<u8>) -> Result<Self::Value, E>
+                    where
+                        E: Error,
+                    {
+                        let v = zeroize::Zeroizing::new(v);
+                        self.visit_bytes(&v)
                     }
                 }
 
@@ -149,6 +184,21 @@ macro_rules! impl_deserialize_bytes {
         }
     };
 }
+
+/// The largest allocation a sequence's (untrusted) size hint can request
+/// before any of its elements have been read.
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
+const MAX_PREALLOCATION: usize = 4096;
+
+/// The smallest capacity a growing sequence buffer is resized to.
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
+const MIN_GROWTH: usize = 64;
 
 impl_serialize_bytes!([const LENGTH: usize] StackByteArray<LENGTH>);
 
@@ -186,13 +236,12 @@ mod protected {
 
     impl_serialize_bytes!(LockedRO<HeapBytes>);
 
-    impl_deserialize_bytes!(HeapBytes, HeapBytes::default(), |v| Ok(HeapBytes::from(v)));
-
     impl_deserialize_bytes!(
-        LockedBytes,
-        HeapBytes::new_locked().map_err(A::Error::custom)?,
-        |v| HeapBytes::from_slice_into_locked(v).map_err(E::custom)
+        HeapBytes,
+        Ok::<_, crate::error::Error>(HeapBytes::default())
     );
+
+    impl_deserialize_bytes!(LockedBytes, HeapBytes::new_locked());
 
     impl_deserialize_fixed!(
         Locked<HeapByteArray<LENGTH>>,
@@ -265,13 +314,15 @@ mod tests {
     }
 
     /// A variable-size container accepts any length from either input form,
-    /// regardless of what the sequence claims about its length.
+    /// regardless of what the sequence claims about its length. A claimed
+    /// length of `usize::MAX` must not be allocated up front, and sequences
+    /// longer than the first allocation grow to fit.
     #[cfg(all(feature = "protected", any(unix, windows)))]
     fn check_variable<T: for<'de> Deserialize<'de> + Bytes>() {
-        for len in [0usize, 1, 5, 17] {
+        for len in [0usize, 1, 5, 17, 200] {
             let data: alloc::vec::Vec<u8> = (1..=len as u8).collect();
             assert_eq!(from_bytes::<T>(&data).expect("bytes").as_slice(), &data);
-            for hint in [0, 1, len, 100] {
+            for hint in [0, 1, len, 100, usize::MAX] {
                 assert_eq!(
                     from_seq::<T>(&data, hint).expect("seq").as_slice(),
                     &data,

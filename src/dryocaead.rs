@@ -72,8 +72,11 @@ use zeroize::Zeroize;
 
 use crate::constants::{
     CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
+    CRYPTO_AEAD_CHACHA20POLY1305_IETF_MESSAGEBYTES_MAX,
     CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
-    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
+    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
+    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX,
+    CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
 };
 use crate::error::{Error, ErrorContext};
 pub use crate::types::*;
@@ -436,7 +439,8 @@ macro_rules! impl_aead_algorithm {
         $decrypt_detached:ident,keybytes:
         $keybytes:expr,npubbytes:
         $npubbytes:expr,abytes:
-        $abytes:expr
+        $abytes:expr,messagebytes_max:
+        $messagebytes_max:expr
     ) => {
         impl<Mac: NewByteArray<$abytes> + Zeroize, Data: NewBytes + ResizableBytes + Zeroize>
             AeadBox<$algorithm, Mac, Data>
@@ -459,6 +463,8 @@ macro_rules! impl_aead_algorithm {
             ) -> Result<Self, Error> {
                 use crate::classic::$module::$encrypt_detached;
 
+                // Reject oversized input before allocating output for it.
+                validate_length!(max $messagebytes_max, message.len(), ErrorContext::Message);
                 let mut new = Self {
                     algorithm: PhantomData,
                     tag: Mac::new_byte_array(),
@@ -523,6 +529,8 @@ macro_rules! impl_aead_algorithm {
             ) -> Result<Output, Error> {
                 use crate::classic::$module::$decrypt_detached;
 
+                // Reject oversized input before allocating output for it.
+                validate_length!(max $messagebytes_max, self.data.as_slice().len(), ErrorContext::Message);
                 let mut message = Output::new_bytes();
                 message.resize(self.data.as_slice().len(), 0);
 
@@ -587,6 +595,8 @@ macro_rules! impl_aead_algorithm {
             ) -> Result<Output, Error> {
                 use crate::classic::$module::$decrypt_detached;
 
+                // Reject oversized input before allocating output for it.
+                validate_length!(max $messagebytes_max, self.data.as_slice().len(), ErrorContext::Message);
                 let mut message = Output::new_bytes();
                 message.resize(self.data.as_slice().len(), 0);
 
@@ -757,7 +767,8 @@ impl_aead_algorithm! {
     decrypt_detached: crypto_aead_xchacha20poly1305_ietf_decrypt_detached,
     keybytes: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
     npubbytes: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
-    abytes: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES
+    abytes: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES,
+    messagebytes_max: CRYPTO_AEAD_XCHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
 }
 
 impl_aead_envelope_seal! {
@@ -774,7 +785,8 @@ impl_aead_algorithm! {
     decrypt_detached: crypto_aead_chacha20poly1305_ietf_decrypt_detached,
     keybytes: CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
     npubbytes: CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
-    abytes: CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES
+    abytes: CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES,
+    messagebytes_max: CRYPTO_AEAD_CHACHA20POLY1305_IETF_MESSAGEBYTES_MAX
 }
 
 impl<Algorithm: AeadAlgorithm, Mac: Zeroize, Data: Zeroize> Zeroize

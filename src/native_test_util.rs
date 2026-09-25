@@ -45,6 +45,7 @@ impl PlainState for ffi::crypto_xof_turboshake128_state {}
 impl PlainState for ffi::crypto_xof_turboshake256_state {}
 impl PlainState for ffi::crypto_sign_ed25519ph_state {}
 impl PlainState for ffi::crypto_secretstream_xchacha20poly1305_state {}
+impl PlainState for ffi::crypto_generichash_state {}
 
 /// A zero-filled state for a libsodium `init` function to set up. The
 /// `init` functions write only the part of the opaque storage they use, so
@@ -723,6 +724,73 @@ pub(crate) fn kdf_blake2b_derive_from_key<const N: usize>(
     };
     assert_eq!(rc, 0);
     subkey
+}
+
+/// Pointer and length for an optional generic-hash key. `Some` of an empty
+/// slice passes a non-null pointer with length 0, as a C caller with an empty
+/// key buffer would; `None` is null and 0.
+fn generichash_key_parts(key: Option<&[u8]>) -> (*const u8, usize) {
+    key.map_or((std::ptr::null(), 0), |key| (key.as_ptr(), key.len()))
+}
+
+/// `crypto_generichash` for an `outlen`-byte output, or `Err(())` when
+/// libsodium rejects the output or key length.
+pub(crate) fn generichash(outlen: usize, input: &[u8], key: Option<&[u8]>) -> Result<Vec<u8>, ()> {
+    init();
+    let (key, key_len) = generichash_key_parts(key);
+    let mut output = vec![0u8; outlen];
+    // SAFETY: `output` is writable for `outlen` bytes, `input` is readable for
+    // its length, and `key` is null with length 0 or readable for `key_len`
+    // bytes. libsodium checks the lengths and returns -1 when it rejects them.
+    let rc = unsafe {
+        ffi::crypto_generichash(
+            output.as_mut_ptr(),
+            outlen,
+            input.as_ptr(),
+            input.len() as c_ulonglong,
+            key,
+            key_len,
+        )
+    };
+    checked(rc, output)
+}
+
+/// `crypto_generichash_init` for `init_outlen`, `crypto_generichash_update`
+/// over each of `parts`, then `crypto_generichash_final` with a
+/// `final_outlen`-byte output. Returns `Err(())` when `init` rejects the
+/// output or key length. `final_outlen` must be 1 to 64: libsodium aborts the
+/// process for any other final length.
+pub(crate) fn generichash_multipart(
+    key: Option<&[u8]>,
+    init_outlen: usize,
+    parts: &[&[u8]],
+    final_outlen: usize,
+) -> Result<Vec<u8>, ()> {
+    init();
+    assert!(
+        (1..=64).contains(&final_outlen),
+        "libsodium aborts on a final length of {final_outlen}"
+    );
+    let (key, key_len) = generichash_key_parts(key);
+    let mut state: ffi::crypto_generichash_state = zeroed_state();
+    // SAFETY: `state` is a writable libsodium state and `key` is null with
+    // length 0 or readable for `key_len` bytes; libsodium checks the lengths.
+    let rc = unsafe { ffi::crypto_generichash_init(&mut state, key, key_len, init_outlen) };
+    checked(rc, ())?;
+    for part in parts {
+        // SAFETY: `state` was initialized above and `part` is readable for
+        // its length.
+        let rc = unsafe {
+            ffi::crypto_generichash_update(&mut state, part.as_ptr(), part.len() as c_ulonglong)
+        };
+        assert_eq!(rc, 0);
+    }
+    let mut output = vec![0u8; final_outlen];
+    // SAFETY: `state` was initialized above and `output` is writable for
+    // `final_outlen` bytes, a length libsodium accepts.
+    let rc =
+        unsafe { ffi::crypto_generichash_final(&mut state, output.as_mut_ptr(), final_outlen) };
+    checked(rc, output)
 }
 
 /// Defines a `crypto_kx_*_session_keys` wrapper returning `(rx, tx)`.
