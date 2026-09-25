@@ -95,12 +95,17 @@ cargo +nightly nextest run --features simd_backend,nightly
 
 The wasm tests run through `wasm-bindgen-test-runner` (from the
 `wasm-bindgen-cli` version matching the `wasm-bindgen` in `cargo tree`), once
-without and once with the `simd128` kernels:
+without and once with the `simd128` kernels. Use `cargo test --tests`, not
+nextest: nextest starts one runner (a wasm-bindgen pass plus Node) per test.
+`--tests` skips doctests, which are not run on wasm. CI also sets
+`CARGO_PROFILE_TEST_OPT_LEVEL=1` and `CARGO_PROFILE_TEST_DEBUG=0` for these
+runs (debug assertions and overflow checks stay on):
 
 ```sh
 export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
-cargo nextest run --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6
-RUSTFLAGS=-Ctarget-feature=+simd128 cargo nextest run --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6
+export CARGO_PROFILE_TEST_OPT_LEVEL=1 CARGO_PROFILE_TEST_DEBUG=0
+cargo test --target wasm32-unknown-unknown --tests --no-default-features --features std,serde,base64,wincode_0_6
+RUSTFLAGS=-Ctarget-feature=+simd128 cargo test --target wasm32-unknown-unknown --tests --no-default-features --features std,serde,base64,wincode_0_6
 ```
 
 Coverage is generated on nightly with:
