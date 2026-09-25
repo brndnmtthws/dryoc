@@ -4,11 +4,12 @@
 //! `RATE` and `ROUNDS` rounds: 24 for SHA-3 and SHAKE, 12 for TurboSHAKE
 //! (RFC 9861). It only absorbs, pads and squeezes; the wrappers decide when
 //! padding happens and which domain byte it uses. The permutation comes from
-//! the RustCrypto `keccak` crate, which selects the AArch64 SHA3-extension
-//! implementation at runtime when the CPU has it. [`ParSponge`] runs several
-//! independent sponges together through that crate's multi-state
-//! permutation, or four at a time through the AVX2 kernel in
-//! `keccak_x86_64.rs` when an x86-64 CPU has AVX2.
+//! the in-crate SHA3-extension kernel in `keccak_aarch64.rs` when an AArch64
+//! CPU has it, and otherwise from the RustCrypto `keccak` crate. [`ParSponge`]
+//! runs several independent sponges together: two at a time through the
+//! AArch64 kernel, four at a time through the AVX2 kernel in
+//! `keccak_x86_64.rs` when an x86-64 CPU has AVX2, and the rest through the
+//! crate.
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -17,8 +18,39 @@ use crate::constants::{
     CRYPTO_XOF_SHAKE256_BLOCKBYTES,
 };
 
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+mod keccak_aarch64;
 #[cfg(target_arch = "x86_64")]
 mod keccak_x86_64;
+
+/// The Keccak-f[1600] round constants, from the FIPS 202 `rc` LFSR (`x^8 +
+/// x^6 + x^5 + x^4 + 1`): bit `2^j - 1` of constant `i` is output `7 * i +
+/// j`. Keccak-p[1600, `ROUNDS`] uses the last `ROUNDS` of them.
+#[cfg(any(
+    all(target_arch = "aarch64", target_endian = "little", not(miri)),
+    target_arch = "x86_64"
+))]
+const RC: [u64; 24] = {
+    let mut rc = [0u64; 24];
+    let mut lfsr: u8 = 1;
+    let mut round = 0;
+    while round < 24 {
+        let mut j = 0;
+        while j < 7 {
+            if lfsr & 1 == 1 {
+                rc[round] |= 1 << ((1 << j) - 1);
+            }
+            lfsr = if lfsr & 0x80 == 0 {
+                lfsr << 1
+            } else {
+                (lfsr << 1) ^ 0x71
+            };
+            j += 1;
+        }
+        round += 1;
+    }
+    rc
+};
 
 /// SHAKE128 and TurboSHAKE128 absorb and squeeze 168 bytes per permutation.
 pub(crate) const RATE_128: usize = CRYPTO_XOF_SHAKE128_BLOCKBYTES;
@@ -61,10 +93,19 @@ impl<const RATE: usize, const ROUNDS: usize> Sponge<RATE, ROUNDS> {
     }
 
     /// Out of line at opt-level `z` and `s` (the `keccak` backend dispatch
-    /// and permutation also at `2`), which adds no copy: it and the backend
-    /// get only `&mut self.state`, the sponge's own state, which is permuted
-    /// in place and wiped on drop.
+    /// and permutation also at `2`), which adds no copy: it and the kernel or
+    /// backend get only `&mut self.state`, the sponge's own state, which is
+    /// permuted in place and wiped on drop. With the SHA3 extension the
+    /// in-crate kernel runs instead of the `keccak` crate's AArch64 backend,
+    /// whose single-state path leaves an unwiped `[state, zero]` copy (see
+    /// `keccak_aarch64.rs`).
     fn permute(&mut self) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if let Some(kernel) = keccak_aarch64::detect() {
+            kernel.permute1::<ROUNDS>(&mut self.state);
+            self.offset = 0;
+            return;
+        }
         let state = &mut self.state;
         self.keccak.with_p1600::<ROUNDS>(|p1600| p1600(state));
         self.offset = 0;
@@ -244,16 +285,23 @@ impl<const RATE: usize, const ROUNDS: usize, const N: usize> ZeroizeOnDrop
 
 /// Applies Keccak-p[1600, `ROUNDS`] to each state in `selected`.
 ///
-/// This is the one place multi-state permutations are chosen. On x86-64
-/// with AVX2, the selected states are permuted four at a time by the
-/// in-crate kernel in `keccak_x86_64.rs` (three leftover states with a
-/// spare one). The rest go to the `keccak` crate's backend in groups of its
-/// parallel width (two on AArch64 with the SHA3 extension, one otherwise).
+/// This is the one place multi-state permutations are chosen. On AArch64
+/// with the SHA3 extension, the in-crate kernel in `keccak_aarch64.rs`
+/// permutes them two at a time (an odd one alone). On x86-64 with AVX2, the
+/// in-crate kernel in `keccak_x86_64.rs` permutes them four at a time (three
+/// leftover states with a spare one). The rest go to the `keccak` crate's
+/// backend one at a time (its soft backend).
 fn permute_lanes<const ROUNDS: usize, const N: usize>(
     keccak: &keccak::Keccak,
     states: &mut [[u64; 25]; N],
     selected: [bool; N],
 ) {
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    if let Some(kernel) = keccak_aarch64::detect() {
+        let mut selected = selected;
+        kernel.permute_selected::<ROUNDS, N>(states, &mut selected);
+        return;
+    }
     #[cfg(target_arch = "x86_64")]
     let selected = {
         let mut selected = selected;
@@ -560,6 +608,60 @@ mod tests {
             }
         }
         for kernel in keccak_x86_64::Kernel::all() {
+            for seed in [0x9e37_79b9_7f4a_7c15, 0x2545_f491_4f6c_dd1d] {
+                check::<ROUNDS_FULL>(kernel, seed);
+                check::<ROUNDS_TURBO>(kernel, seed);
+            }
+        }
+    }
+
+    /// The AArch64 SHA3-extension kernel permutes like the `keccak` crate,
+    /// with 24 and 12 rounds, one state alone and pairs in consecutive and
+    /// scattered lanes (an odd leftover alone), and clears every flag.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    #[test]
+    fn test_aarch64_sha3_permute_matches_crate() {
+        fn check<const ROUNDS: usize>(kernel: keccak_aarch64::Kernel, seed: u64) {
+            let mut seed = seed;
+            let mut next = move || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed
+            };
+            let initial: [[u64; 25]; 7] =
+                core::array::from_fn(|_| core::array::from_fn(|_| next()));
+            let keccak = keccak::Keccak::new();
+            let permuted = initial.map(|mut state| {
+                keccak.with_p1600::<ROUNDS>(|p1600| p1600(&mut state));
+                state
+            });
+            let mut one = initial[0];
+            kernel.permute1::<ROUNDS>(&mut one);
+            assert_eq!(one, permuted[0], "{ROUNDS} rounds, one state");
+            let selections: [&[usize]; 4] = [&[0, 1], &[1, 4, 6], &[0, 2, 3, 5, 6], &[3]];
+            for lanes in selections {
+                let mut states = initial;
+                let mut selected = [false; 7];
+                for &lane in lanes {
+                    selected[lane] = true;
+                }
+                kernel.permute_selected::<ROUNDS, 7>(&mut states, &mut selected);
+                for lane in 0..7 {
+                    let expected = if lanes.contains(&lane) {
+                        permuted[lane]
+                    } else {
+                        initial[lane]
+                    };
+                    assert_eq!(
+                        states[lane], expected,
+                        "{ROUNDS} rounds, {lanes:?}, lane {lane}"
+                    );
+                }
+                assert_eq!(selected, [false; 7]);
+            }
+        }
+        for kernel in keccak_aarch64::Kernel::all() {
             for seed in [0x9e37_79b9_7f4a_7c15, 0x2545_f491_4f6c_dd1d] {
                 check::<ROUNDS_FULL>(kernel, seed);
                 check::<ROUNDS_TURBO>(kernel, seed);

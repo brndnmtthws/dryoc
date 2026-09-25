@@ -16,6 +16,7 @@ use core::arch::x86_64::{
 
 use zeroize::Zeroize;
 
+use super::RC;
 use crate::x86_64::{load_words, store_words, transpose_words};
 
 /// A vector kernel the running CPU has been verified to support.
@@ -96,31 +97,6 @@ impl Kernel {
         }
     }
 }
-
-/// The Keccak-f[1600] round constants, from the FIPS 202 `rc` LFSR (`x^8 +
-/// x^6 + x^5 + x^4 + 1`): bit `2^j - 1` of constant `i` is output `7 * i +
-/// j`. Keccak-p[1600, `ROUNDS`] uses the last `ROUNDS` of them.
-const RC: [u64; 24] = {
-    let mut rc = [0u64; 24];
-    let mut lfsr: u8 = 1;
-    let mut round = 0;
-    while round < 24 {
-        let mut j = 0;
-        while j < 7 {
-            if lfsr & 1 == 1 {
-                rc[round] |= 1 << ((1 << j) - 1);
-            }
-            lfsr = if lfsr & 0x80 == 0 {
-                lfsr << 1
-            } else {
-                (lfsr << 1) ^ 0x71
-            };
-            j += 1;
-        }
-        round += 1;
-    }
-    rc
-};
 
 /// The `rho` rotation of each lane `x + 5 * y`: `(t + 1)(t + 2) / 2 mod 64`
 /// for the lane that step `t` of the walk `(x, y) -> (y, 2x + 3y)` from
