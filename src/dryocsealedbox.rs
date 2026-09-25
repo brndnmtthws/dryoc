@@ -35,9 +35,10 @@
 //! [draft-ietf-hpke-hpke-04][hpke-hpke], the RFC 9180 revision in IESG review,
 //! is backwards-compatible with RFC 9180 for this ciphersuite.
 //!
-//! This byte format, written by [`DryocSealedBox::to_vec`] and read by
-//! [`DryocSealedBox::from_bytes`], is stable for the 2.x series. A different
-//! ciphersuite or profile would be a new type, so existing boxes stay readable.
+//! This byte format, written by [`DryocSealedBox::to_bytes`] (and `to_vec`)
+//! and read by [`DryocSealedBox::from_bytes`], is stable for the 2.x series. A
+//! different ciphersuite or profile would be a new type, so existing boxes stay
+//! readable.
 //!
 //! With the `serde` feature,
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
@@ -47,7 +48,7 @@
 //! use the byte format to exchange boxes with other HPKE implementations.
 //!
 //! [rfc9180]: https://www.rfc-editor.org/rfc/rfc9180.html
-//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/
+//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/06/
 //! [hpke-pq]: https://datatracker.ietf.org/doc/draft-ietf-hpke-pq/05/
 //! [hpke-hpke]: https://datatracker.ietf.org/doc/draft-ietf-hpke-hpke/04/
 //!
