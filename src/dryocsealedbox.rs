@@ -8,27 +8,48 @@
 //! and X25519, so recorded boxes stay confidential even if a quantum computer
 //! later breaks X25519.
 //!
-//! The format is HPKE (RFC 9180) in base mode, single-shot, with an empty
-//! `info` and no associated data, using the ciphersuite X-Wing (KEM
-//! `0x647a`), HKDF-SHA256 (KDF `0x0001`) and ChaCha20-Poly1305 (AEAD
-//! `0x0003`). A box is the 1120-byte X-Wing ciphertext, then the encrypted
-//! message, then a 16-byte tag, so any HPKE implementation that supports this
-//! ciphersuite can open it.
-//!
 //! Moving from [`DryocBox::seal`](crate::dryocbox::DryocBox::seal) takes two
 //! changes: generate the recipient's key pair with [`KeyPair`] from this
 //! module (a [`kem`](crate::kem) key pair), and use [`DryocSealedBox`] in
 //! place of [`DryocBox`](crate::dryocbox::DryocBox). The method names are the
 //! same. Boxes are larger: 1136 bytes of overhead instead of 48.
 //!
-//! The ciphersuite is fixed and not stored in the box, as in HPKE itself. A
-//! future ciphersuite would be a separate type, so boxes sealed with this one
-//! stay readable.
+//! ## Format
+//!
+//! The format is dryoc's application profile of [HPKE (RFC 9180)][rfc9180],
+//! which leaves the wire encoding to applications (section 10). The profile
+//! is base mode, single-shot, with an empty `info`, empty associated data and
+//! one fixed ciphersuite:
+//!
+//! * KEM `0x647A`, [X-Wing][xwing], as registered by IANA. The registry cites
+//!   draft-connolly-cfrg-xwing-kem-06; the draft's test vectors are identical
+//!   from -05 through -11.
+//! * KDF `0x0001`, HKDF-SHA256.
+//! * AEAD `0x0003`, ChaCha20-Poly1305.
+//!
+//! A box is HPKE's `(enc, ct)` output concatenated: `enc` (the 1120-byte
+//! X-Wing ciphertext), then the AEAD ciphertext, then its 16-byte tag. The box
+//! carries no suite identifier. Any HPKE implementation that supports this
+//! ciphersuite can open it. The tests check the implementation against the
+//! known-answer vector in [draft-ietf-hpke-pq-05][hpke-pq] Appendix A.5.
+//! [draft-ietf-hpke-hpke-04][hpke-hpke], the RFC 9180 revision in IESG review,
+//! is backwards-compatible with RFC 9180 for this ciphersuite.
+//!
+//! This byte format, written by [`DryocSealedBox::to_vec`] and read by
+//! [`DryocSealedBox::from_bytes`], is stable for the 2.x series. A different
+//! ciphersuite or profile would be a new type, so existing boxes stay readable.
 //!
 //! With the `serde` feature,
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
 //! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
-//! for [`DryocSealedBox`].
+//! for [`DryocSealedBox`] as a struct with the fields `enc`, `tag` and `data`,
+//! in that order. That representation is separate from the byte format above;
+//! use the byte format to exchange boxes with other HPKE implementations.
+//!
+//! [rfc9180]: https://www.rfc-editor.org/rfc/rfc9180.html
+//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/
+//! [hpke-pq]: https://datatracker.ietf.org/doc/draft-ietf-hpke-pq/05/
+//! [hpke-hpke]: https://datatracker.ietf.org/doc/draft-ietf-hpke-hpke/04/
 //!
 //! ## Example
 //!
@@ -125,7 +146,7 @@ pub mod protected {
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// A post-quantum sealed box: an HPKE-encrypted message for one recipient.
 ///
-/// Refer to [crate::dryocsealedbox] for sample usage.
+/// Refer to [crate::dryocsealedbox] for the byte format and sample usage.
 pub struct DryocSealedBox<
     EncapsulatedKey: ByteArray<CRYPTO_KEM_XWING_CIPHERTEXTBYTES> + Zeroize,
     Mac: ByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES> + Zeroize,
