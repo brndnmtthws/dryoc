@@ -4,6 +4,7 @@ categories = ["cryptography", "algorithms"]
 description = "Don't Roll Your Own Crypto: pure-Rust, hard to misuse cryptography library"
 documentation = "https://docs.rs/dryoc"
 edition = "2024"
+exclude = ["/release.py"]
 keywords = ["cryptography", "nacl", "libsodium", "curve25519", "crypto_box"]
 license = "MIT"
 name = "dryoc"
