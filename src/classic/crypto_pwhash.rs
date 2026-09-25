@@ -44,6 +44,11 @@
 //! println!("key = {}", general_purpose::STANDARD_NO_PAD.encode(&key));
 //! ```
 
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+use alloc::string::String;
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+use alloc::vec::Vec;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
@@ -736,6 +741,9 @@ pub fn crypto_pwhash_str_needs_rehash(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "base64")]
+    use alloc::borrow::ToOwned;
+
     use super::*;
 
     #[cfg(dryoc_native_tests)]
@@ -1139,7 +1147,7 @@ mod tests {
             libsodium_sys::crypto_pwhash_argon2id_MEMLIMIT_INTERACTIVE as usize,
         );
 
-        let pw_str = std::str::from_utf8(&pwhash)
+        let pw_str = core::str::from_utf8(&pwhash)
             .expect("from ut8 failed")
             .trim_end_matches('\x00');
 

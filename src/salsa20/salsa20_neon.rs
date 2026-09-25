@@ -11,7 +11,7 @@
 //! wiped; a wipe would only force them into stack slots. The keystream goes
 //! straight into the caller's buffers, which the drivers wipe.
 
-use std::arch::aarch64::{
+use core::arch::aarch64::{
     uint32x4_t, vaddq_u32, veor3q_u32, veorq_u32, vshlq_n_u32, vshrq_n_u32, vsliq_n_u32,
 };
 
@@ -51,11 +51,11 @@ enum Variant {
 /// The fastest kernel the running CPU supports, if any.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if !std::arch::is_aarch64_feature_detected!("neon") {
+    if !has_aarch64_feature!("neon") {
         None
-    } else if std::arch::is_aarch64_feature_detected!("sve2") {
+    } else if has_aarch64_feature!("sve2") {
         Some(Kernel(Variant::Sve2))
-    } else if std::arch::is_aarch64_feature_detected!("sha3") {
+    } else if has_aarch64_feature!("sha3") {
         Some(Kernel(Variant::Sha3))
     } else {
         Some(Kernel(Variant::Neon))
@@ -65,14 +65,14 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
-        let mut kernels = Vec::new();
-        if std::arch::is_aarch64_feature_detected!("neon") {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
+        let mut kernels = alloc::vec::Vec::new();
+        if has_aarch64_feature!("neon") {
             kernels.push(Kernel(Variant::Neon));
-            if std::arch::is_aarch64_feature_detected!("sha3") {
+            if has_aarch64_feature!("sha3") {
                 kernels.push(Kernel(Variant::Sha3));
             }
-            if std::arch::is_aarch64_feature_detected!("sve2") {
+            if has_aarch64_feature!("sve2") {
                 kernels.push(Kernel(Variant::Sve2));
             }
         }
@@ -111,7 +111,7 @@ impl super::Kernel for Kernel {
     ) {
         match self.0 {
             // SAFETY: a `Kernel` is only constructed after
-            // `is_aarch64_feature_detected!` confirmed the features its
+            // `has_aarch64_feature!` confirmed the features its
             // variant needs; `Variant::Neon` requires `neon`.
             Variant::Neon => unsafe { xor_chunk_neon(state, counter, input, output, partial) },
             // SAFETY: as above; `Variant::Sha3` requires `neon` and `sha3`.
@@ -414,7 +414,7 @@ fn double_rounds_sve2(v: &mut [uint32x4_t; 16], s: &mut [u32; 16]) {
     // reference does, whatever the vector length. No flags, memory or stack
     // are touched.
     unsafe {
-        std::arch::asm!(
+        core::arch::asm!(
             "mov z16.s, #0",
             asm_double_rounds!(),
             inout("v0") v[0], inout("v1") v[1], inout("v2") v[2], inout("v3") v[3],
@@ -456,7 +456,7 @@ fn xor_chunk_sve2(
     // kept across the asm block, which would spill them to the stack and make
     // the kernel's speed depend on the frame it runs in. `black_box` keeps
     // the compiler from merging the two computations into one spilled copy.
-    let state = std::hint::black_box(state);
+    let state = core::hint::black_box(state);
     let initial_v = input_lanes(state, counter);
     finish_set!(v, &initial_v, &mut dest);
 }

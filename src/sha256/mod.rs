@@ -40,8 +40,8 @@ const IV: [u32; 8] = [
 #[inline]
 fn compress(state: &mut [u32; 8], blocks: &[[u8; BLOCK_BYTES]]) {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-    if std::arch::is_aarch64_feature_detected!("sha2") {
-        // SAFETY: the runtime check above confirmed the `sha2` extension.
+    if has_aarch64_feature!("sha2") {
+        // SAFETY: the feature check above confirmed the `sha2` extension.
         unsafe { sha256_aarch64::compress(state, blocks) };
         return;
     }
@@ -68,11 +68,12 @@ sha2_hasher! {
     compress: compress,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use sha2::Digest as _;
 
     use super::*;
+    use crate::test_prelude::*;
 
     fn hex(s: &str) -> Vec<u8> {
         hex::decode(s).expect("hex failed")
@@ -157,12 +158,12 @@ mod tests {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
     #[test]
     fn test_hw_compress_matches_portable() {
-        if !std::arch::is_aarch64_feature_detected!("sha2") {
+        if !has_aarch64_feature!("sha2") {
             return;
         }
         let blocks: Vec<[u8; 64]> = (0..40u32)
             .map(|b| {
-                std::array::from_fn(|i| (b * 64 + i as u32).wrapping_mul(2654435761) as u8 >> 1)
+                core::array::from_fn(|i| (b * 64 + i as u32).wrapping_mul(2654435761) as u8 >> 1)
             })
             .collect();
         for n in 0..=blocks.len() {

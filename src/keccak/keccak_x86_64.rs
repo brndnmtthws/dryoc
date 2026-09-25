@@ -8,7 +8,7 @@
 //! is broadcast. Control flow and memory access are independent of the
 //! state.
 
-use std::arch::x86_64::{
+use core::arch::x86_64::{
     __m256i, _mm256_andnot_si256, _mm256_or_si256, _mm256_set1_epi64x, _mm256_setr_epi8,
     _mm256_setr_epi64x, _mm256_setzero_si256, _mm256_shuffle_epi8, _mm256_slli_epi64,
     _mm256_srli_epi64, _mm256_xor_si256,
@@ -32,7 +32,7 @@ pub(super) enum Kernel {
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if std::arch::is_x86_feature_detected!("avx2") {
+    if has_x86_feature!("avx2") {
         Some(Kernel::Avx2)
     } else {
         None
@@ -42,7 +42,7 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         detect().into_iter().collect()
     }
 
@@ -91,7 +91,7 @@ impl Kernel {
     fn permute4<const ROUNDS: usize>(self, states: [&mut [u64; 25]; 4]) {
         match self {
             // SAFETY: `Kernel::Avx2` is only constructed after
-            // `is_x86_feature_detected!("avx2")` succeeded.
+            // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { permute4_avx2::<ROUNDS>(states) },
         }
     }

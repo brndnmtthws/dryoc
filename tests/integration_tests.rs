@@ -1,5 +1,6 @@
 use std::vec;
 
+#[cfg(feature = "alloc")]
 use dryoc::precalc::PrecalcSecretKey;
 
 struct RejectingByteArray<const LENGTH: usize>([u8; LENGTH]);
@@ -44,9 +45,10 @@ fn test_structured_public_errors() {
         crypto_auth_hmacsha256, crypto_auth_hmacsha256_keygen, crypto_auth_hmacsha256_verify,
     };
     use dryoc::constants::{
-        CRYPTO_AUTH_HMACSHA256_BYTES, CRYPTO_BOX_MACBYTES, CRYPTO_BOX_PUBLICKEYBYTES,
-        CRYPTO_BOX_SEALBYTES, CRYPTO_BOX_SECRETKEYBYTES, CRYPTO_SECRETBOX_MACBYTES,
+        CRYPTO_AUTH_HMACSHA256_BYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
     };
+    #[cfg(feature = "alloc")]
+    use dryoc::constants::{CRYPTO_BOX_MACBYTES, CRYPTO_BOX_SEALBYTES, CRYPTO_SECRETBOX_MACBYTES};
     use dryoc::types::StackByteArray;
     use dryoc::{Error, LengthConstraint};
 
@@ -88,19 +90,23 @@ fn test_structured_public_errors() {
         }
     ));
 
+    #[cfg(feature = "alloc")]
     type RejectingAeadBox = dryoc::dryocaead::AeadBox<
         dryoc::dryocaead::XChaCha20Poly1305Ietf,
         RejectingByteArray<16>,
         Vec<u8>,
     >;
+    #[cfg(feature = "alloc")]
     let conversion_error = match RejectingAeadBox::from_bytes(&[0u8; 16]) {
         Ok(_) => panic!("a target type may reject a correctly sized tag"),
         Err(error) => error,
     };
+    #[cfg(feature = "alloc")]
     assert_eq!(
         conversion_error.to_string(),
         "invalid authentication tag encoding"
     );
+    #[cfg(feature = "alloc")]
     assert!(matches!(
         conversion_error,
         Error::InvalidEncoding {
@@ -185,6 +191,7 @@ fn test_structured_public_errors() {
         } if actual == dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES - 1
     ));
 
+    #[cfg(feature = "alloc")]
     assert!(matches!(
         dryoc::dryocbox::VecBox::from_bytes(&[]),
         Err(Error::InvalidLength {
@@ -193,6 +200,7 @@ fn test_structured_public_errors() {
             constraint: LengthConstraint::AtLeast(CRYPTO_BOX_MACBYTES),
         })
     ));
+    #[cfg(feature = "alloc")]
     assert!(matches!(
         dryoc::dryocbox::VecBox::from_sealed_bytes(&[]),
         Err(Error::InvalidLength {
@@ -201,6 +209,7 @@ fn test_structured_public_errors() {
             constraint: LengthConstraint::AtLeast(CRYPTO_BOX_SEALBYTES),
         })
     ));
+    #[cfg(feature = "alloc")]
     assert!(matches!(
         dryoc::dryocsecretbox::VecBox::from_bytes(&[]),
         Err(Error::InvalidLength {
@@ -282,12 +291,15 @@ fn test_xof_public_api() {
 
     let mut xof = TurboShake128::with_domain(0x07).expect("domain");
     xof.update(&[0xff, 0xff, 0xff]);
+    #[cfg(feature = "alloc")]
     let mut reader = xof.finalize();
+    #[cfg(feature = "alloc")]
     assert_eq!(reader.squeeze_to_vec(32), expected);
 
     // The standard-domain one-shot functions agree across both APIs.
     let mut one_shot = [0u8; 100];
     crypto_xof_turboshake128(&mut one_shot, b"public API message");
+    #[cfg(feature = "alloc")]
     assert_eq!(
         TurboShake128::compute_to_vec(b"public API message", 100),
         one_shot
@@ -496,7 +508,7 @@ fn test_kem_serde_json() {
     assert!(serde_json::from_str::<StackKeyPair>(&mlkem_json).is_err());
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 #[test]
 fn test_dryocsealedbox_serde_json() {
     use dryoc::Error;
@@ -696,6 +708,7 @@ fn test_classic_hmac_and_hkdf_public_api() {
     crypto_kdf_hkdf_sha512_expand(&mut okm512, b"context", &prk512).expect("expand failed");
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_rustaceous_hmac_and_hkdf_public_api() {
     use dryoc::hkdf::{HkdfSha256, HkdfSha256Prk, HkdfSha512};
@@ -959,6 +972,7 @@ fn test_stack_byte_array_serde_json_roundtrip_requires_exact_length() {
     }
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
@@ -1004,6 +1018,7 @@ fn test_dryocbox() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_dryocsecretbox() {
     use dryoc::dryocsecretbox::*;
@@ -1021,6 +1036,7 @@ fn test_dryocsecretbox() {
     assert_eq!(message, decrypted.as_slice());
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_dryocaead() {
     use dryoc::dryocaead::*;
@@ -1080,6 +1096,7 @@ fn test_crypto_aead_chacha20poly1305_ietf() {
     assert_eq!(plaintext, message);
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf() {
     use dryoc::classic::crypto_aead_chacha20poly1305_ietf::crypto_aead_chacha20poly1305_ietf_encrypt;
@@ -1129,7 +1146,7 @@ fn test_dryocaead_chacha20poly1305_ietf() {
     );
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
@@ -1160,7 +1177,7 @@ fn test_dryocaead_chacha20poly1305_ietf_wincode() {
     assert_eq!(decoded.open_to_vec(None, &key).expect("open"), b"message");
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 #[test]
 fn test_dryocbox_serde_json() {
     use dryoc::dryocbox::*;
@@ -1193,7 +1210,7 @@ fn test_dryocbox_serde_json() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 #[test]
 fn test_dryocsecretbox_serde_json() {
     use dryoc::dryocsecretbox::*;
@@ -1215,7 +1232,7 @@ fn test_dryocsecretbox_serde_json() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 #[test]
 fn test_dryocaead_serde_json() {
     use dryoc::dryocaead::*;
@@ -1682,6 +1699,7 @@ fn test_streams() {
     assert_eq!(tag3, Tag::FINAL.bits());
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_streams_rustaceous() {
     use dryoc::dryocstream::*;
@@ -1717,7 +1735,7 @@ fn test_streams_rustaceous() {
     assert_eq!(tag3, Tag::FINAL);
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 #[test]
 fn test_dryocbox_serde_known_good() {
     use dryoc::dryocbox::*;
@@ -1895,6 +1913,7 @@ fn test_streams_protected() {
     assert_eq!(tag3, Tag::FINAL);
 }
 
+#[cfg(feature = "alloc")]
 #[test]
 fn test_dryocbox_seal() {
     use dryoc::dryocbox::*;

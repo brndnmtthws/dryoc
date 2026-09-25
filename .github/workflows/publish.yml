@@ -47,10 +47,11 @@ jobs:
           fi
       - run: mbx nextest run --all-targets
       - run: mbx nextest run --all-targets --no-default-features
-      - run: mbx nextest run --all-targets --no-default-features --features serde,base64,wincode_0_6
+      - run: mbx nextest run --all-targets --no-default-features --features alloc
+      - run: mbx nextest run --all-targets --no-default-features --features std,serde,base64,wincode_0_6
       - run: mbx nextest run --all-targets --no-default-features --features serde,protected
       - run: mbx test --doc
-      - run: mbx doc --no-default-features --no-deps
+      - run: mbx doc --features serde,base64,wincode_0_6 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - run: mbx clippy --all-targets --features serde,base64,wincode_0_6 -- -D warnings

@@ -1,4 +1,4 @@
-use std::simd::{Simd, simd_swizzle};
+use core::simd::{Simd, simd_swizzle};
 
 use super::{Block, finish_in_place, prepare_in_place};
 

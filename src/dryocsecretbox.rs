@@ -58,6 +58,9 @@
 //! * See the [`protected`] module for an example that stores keys in protected
 //!   memory
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -76,7 +79,10 @@ pub type Nonce = StackByteArray<CRYPTO_SECRETBOX_NONCEBYTES>;
 /// Stack-allocated secret box message authentication code.
 pub type Mac = StackByteArray<CRYPTO_SECRETBOX_MACBYTES>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`DryocSecretBox`]
@@ -145,6 +151,7 @@ pub struct DryocSecretBox<
 }
 
 /// [Vec]-based authenticated secret box.
+#[cfg(feature = "alloc")]
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 
 #[cfg(feature = "wincode_0_6")]
@@ -179,7 +186,7 @@ unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for Vec
 
     fn read(
         mut reader: impl wincode::io::Reader<'de>,
-        dst: &mut std::mem::MaybeUninit<Self::Dst>,
+        dst: &mut core::mem::MaybeUninit<Self::Dst>,
     ) -> wincode::ReadResult<()> {
         let tag =
             <[u8; CRYPTO_SECRETBOX_MACBYTES] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
@@ -238,7 +245,7 @@ impl<
 
 impl<
     'a,
-    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
     Data: Bytes + From<&'a [u8]> + Zeroize,
 > DryocSecretBox<Mac, Data>
 {
@@ -270,6 +277,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 
     /// Copies `self` into a new [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -321,6 +329,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 }
 
+#[cfg(feature = "alloc")]
 impl DryocSecretBox<Mac, Vec<u8>> {
     /// Encrypts a message using `secret_key` and returns a new
     /// [`DryocSecretBox`] with ciphertext and tag.
@@ -403,9 +412,10 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// NaCl `tests/secretbox.c` vector: `firstkey`, `nonce`, the 131-byte
     /// message, and the 147-byte `tag || ciphertext` output.
@@ -723,7 +733,10 @@ mod tests {
             }
         }
 
-        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+        #[cfg(any(
+            all(feature = "protected", any(unix, windows)),
+            all(doc, not(doctest), feature = "std")
+        ))]
         #[cfg(all(feature = "protected", any(unix, windows)))]
         #[test]
         fn test_dryocbox_locked() {

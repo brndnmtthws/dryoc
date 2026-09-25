@@ -228,6 +228,8 @@ pub fn crypto_secretbox_open_easy_inplace(
 
 #[cfg(test)]
 mod tests {
+    use crate::test_prelude::*;
+
     #[cfg(all(feature = "nightly", dryoc_native_tests))]
     extern crate test;
 

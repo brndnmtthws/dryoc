@@ -80,7 +80,9 @@
 //! assert_eq!(generic_mac, concrete_mac);
 //! ```
 
-use std::marker::PhantomData;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
@@ -119,7 +121,10 @@ pub type HmacSha512256Key = StackByteArray<CRYPTO_AUTH_HMACSHA512256_KEYBYTES>;
 /// Stack-allocated message authentication code for HMAC-SHA-512-256.
 pub type HmacSha512256Mac = StackByteArray<CRYPTO_AUTH_HMACSHA512256_BYTES>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for HMAC
@@ -313,6 +318,7 @@ where
     }
 
     /// Convenience wrapper around [`Self::compute`] that returns a [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn compute_to_vec<Key: ByteArray<KEY_LENGTH>, Input: Bytes + ?Sized>(
         key: Key,
         input: &Input,
@@ -363,6 +369,7 @@ where
 
     /// Finalizes this authenticator, returning the message authentication code
     /// as a [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize::<StackByteArray<MAC_LENGTH>>().to_vec()
     }
@@ -394,7 +401,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

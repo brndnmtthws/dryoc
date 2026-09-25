@@ -150,6 +150,8 @@ crypto_xof! {
 mod tests {
     use super::*;
     use crate::error::ErrorContext;
+    #[cfg(dryoc_native_tests)]
+    use crate::test_prelude::*;
     use crate::xof::test_vectors::*;
 
     /// Checks one XOF's Classic functions against its vectors: the one-shot
@@ -175,7 +177,7 @@ mod tests {
                 if len <= 1024 {
                     $update(&mut state, b"").expect("update failed");
                     for byte in &message {
-                        $update(&mut state, std::slice::from_ref(byte)).expect("update failed");
+                        $update(&mut state, core::slice::from_ref(byte)).expect("update failed");
                         $update(&mut state, b"").expect("update failed");
                     }
                 } else {

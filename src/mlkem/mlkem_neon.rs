@@ -23,7 +23,7 @@
 //! every operation in the portable order. All control flow and memory access
 //! is independent of the coefficients.
 
-use std::arch::aarch64::{
+use core::arch::aarch64::{
     int16x8_t, vaddq_s16, vdupq_n_s16, vhsubq_s16, vld1q_s16, vmlsq_n_s16, vmulq_n_s16, vmulq_s16,
     vqdmulhq_n_s16, vqdmulhq_s16, vreinterpretq_s16_s32, vreinterpretq_s16_s64,
     vreinterpretq_s32_s16, vreinterpretq_s64_s16, vshrq_n_s16, vst1q_s16, vsubq_s16, vtrn1q_s32,
@@ -37,7 +37,7 @@ use super::{Poly, Q};
 /// A kernel the running CPU has been verified to support.
 ///
 /// Values are only created by [`detect`] (and, in tests, `Kernel::all`)
-/// after `is_aarch64_feature_detected!("neon")` succeeds, which is what makes
+/// after `has_aarch64_feature!("neon")` succeeds, which is what makes
 /// the `#[target_feature(enable = "neon")]` calls in its methods sound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Kernel(());
@@ -45,19 +45,19 @@ pub(crate) struct Kernel(());
 /// The NEON kernel, if the running CPU supports it.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    std::arch::is_aarch64_feature_detected!("neon").then_some(Kernel(()))
+    has_aarch64_feature!("neon").then_some(Kernel(()))
 }
 
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         detect().into_iter().collect()
     }
 
     #[inline]
     pub(super) fn ntt(self, r: &mut Poly) {
-        // SAFETY: a `Kernel` exists only after `is_aarch64_feature_detected!`
+        // SAFETY: a `Kernel` exists only after `has_aarch64_feature!`
         // confirmed `neon`, the only feature `ntt` is compiled for.
         unsafe { ntt(r) }
     }
@@ -319,7 +319,7 @@ fn ntt(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 128, 64, 32 on rows j, j + 4, ..., j + 28.
     for j in 0..4 {
-        let mut v: [int16x8_t; 8] = std::array::from_fn(|m| load(&rows[j + 4 * m]));
+        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[j + 4 * m]));
         ct_layer(&mut v, 4, 1);
         ct_layer(&mut v, 2, 2);
         ct_layer(&mut v, 1, 4);
@@ -329,7 +329,7 @@ fn ntt(r: &mut Poly) {
     }
     // Layers len = 16, 8, 4, 2 on 64 consecutive coefficients.
     for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        let mut v: [int16x8_t; 8] = std::array::from_fn(|m| load(&rows[m]));
+        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[m]));
         ct_layer(&mut v, 2, 8 + 2 * q);
         ct_layer(&mut v, 1, 16 + 4 * q);
         for i in 0..4 {
@@ -347,7 +347,7 @@ fn invntt_tomont(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 2, 4, 8, 16 on 64 consecutive coefficients.
     for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        let mut v: [int16x8_t; 8] = std::array::from_fn(|m| load(&rows[m]));
+        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[m]));
         for i in 0..4 {
             (v[2 * i], v[2 * i + 1]) = invntt_pair(v[2 * i], v[2 * i + 1], 4 * q + i);
         }
@@ -362,7 +362,7 @@ fn invntt_tomont(r: &mut Poly) {
     let f = vdupq_n_s16(INVNTT_F);
     let f_qinv = vdupq_n_s16(INVNTT_F.wrapping_mul(QINV));
     for j in 0..4 {
-        let mut v: [int16x8_t; 8] = std::array::from_fn(|m| load(&rows[j + 4 * m]));
+        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[j + 4 * m]));
         gs_layer(&mut v, 1, 7);
         gs_layer(&mut v, 2, 3);
         gs_layer(&mut v, 4, 1);
@@ -419,6 +419,7 @@ fn basemul_acc<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
 mod tests {
     use super::*;
     use crate::mlkem::mlkem_soft;
+    use crate::test_prelude::*;
 
     /// Lane `i` of `v`.
     fn lanes(v: int16x8_t) -> [i16; 8] {
@@ -469,7 +470,7 @@ mod tests {
     /// their whole input ranges.
     #[test]
     fn test_lanes_match_scalar_exhaustive() {
-        assert!(std::arch::is_aarch64_feature_detected!("neon"));
+        assert!(has_aarch64_feature!("neon"));
         // SAFETY: test-only; `neon` was detected above.
         unsafe { check_lanes() };
     }

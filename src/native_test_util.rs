@@ -11,6 +11,8 @@
 use libc::c_ulonglong;
 use libsodium_sys as ffi;
 
+use crate::test_prelude::*;
+
 /// Views `bytes` as an array of exactly `N` bytes, panicking otherwise.
 fn fixed<const N: usize>(bytes: &[u8]) -> &[u8; N] {
     bytes
@@ -73,6 +75,7 @@ const BOX_MACBYTES: usize = ffi::crypto_box_MACBYTES as usize;
 const BOX_SEALBYTES: usize = ffi::crypto_box_SEALBYTES as usize;
 
 /// `crypto_box_curve25519xsalsa20poly1305_seed_keypair`.
+#[cfg(feature = "alloc")]
 pub(crate) fn box_seed_keypair(seed: &[u8]) -> ([u8; 32], [u8; 32]) {
     init();
     let seed = fixed::<32>(seed);
@@ -138,6 +141,7 @@ pub(crate) fn box_open_easy(
 }
 
 /// `crypto_box_curve25519xsalsa20poly1305_beforenm`.
+#[cfg(feature = "alloc")]
 pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> [u8; 32] {
     init();
     let (pk, sk) = (fixed::<32>(pk), fixed::<32>(sk));
@@ -155,6 +159,7 @@ pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> [u8; 32] {
 }
 
 /// `crypto_box_easy_afternm`.
+#[cfg(feature = "alloc")]
 pub(crate) fn box_easy_afternm(message: &[u8], nonce: &[u8], key: &[u8]) -> Vec<u8> {
     init();
     let (nonce, key) = (fixed::<24>(nonce), fixed::<32>(key));
@@ -175,6 +180,7 @@ pub(crate) fn box_easy_afternm(message: &[u8], nonce: &[u8], key: &[u8]) -> Vec<
 }
 
 /// `crypto_box_open_easy_afternm`.
+#[cfg(feature = "alloc")]
 pub(crate) fn box_open_easy_afternm(
     ciphertext: &[u8],
     nonce: &[u8],
@@ -779,6 +785,7 @@ pub(crate) fn scalarmult_curve25519(scalar: &[u8], point: &[u8]) -> Result<[u8; 
 const PWHASH_ARGON2ID_STRBYTES: usize = ffi::crypto_pwhash_argon2id_STRBYTES as usize;
 
 /// `crypto_pwhash_argon2id` with `crypto_pwhash_argon2id_ALG_ARGON2ID13`.
+#[cfg(feature = "alloc")]
 pub(crate) fn pwhash_argon2id<const N: usize>(
     password: &[u8],
     salt: &[u8],
@@ -906,6 +913,7 @@ pub(crate) fn sign_ed25519_open(signed: &[u8], pk: &[u8]) -> Result<Vec<u8>, ()>
 }
 
 /// `crypto_sign_ed25519_detached`.
+#[cfg(feature = "alloc")]
 pub(crate) fn sign_ed25519_detached(message: &[u8], sk: &[u8]) -> [u8; 64] {
     init();
     let sk = fixed::<64>(sk);
@@ -992,25 +1000,32 @@ pub(crate) fn sign_ed25519ph_verify(parts: &[&[u8]], signature: &[u8], pk: &[u8]
 }
 
 /// `crypto_secretstream_xchacha20poly1305` tags.
+#[cfg(feature = "alloc")]
 pub(crate) const SECRETSTREAM_TAG_MESSAGE: u8 =
     ffi::crypto_secretstream_xchacha20poly1305_TAG_MESSAGE as u8;
+#[cfg(feature = "alloc")]
 pub(crate) const SECRETSTREAM_TAG_PUSH: u8 =
     ffi::crypto_secretstream_xchacha20poly1305_TAG_PUSH as u8;
+#[cfg(feature = "alloc")]
 pub(crate) const SECRETSTREAM_TAG_REKEY: u8 =
     ffi::crypto_secretstream_xchacha20poly1305_TAG_REKEY as u8;
+#[cfg(feature = "alloc")]
 pub(crate) const SECRETSTREAM_TAG_FINAL: u8 =
     ffi::crypto_secretstream_xchacha20poly1305_TAG_FINAL as u8;
 
+#[cfg(feature = "alloc")]
 const SECRETSTREAM_ABYTES: usize = ffi::crypto_secretstream_xchacha20poly1305_ABYTES as usize;
 
 /// One direction of a `crypto_secretstream_xchacha20poly1305` stream. It
 /// records when a `FINAL` tag has been pushed or pulled; a finalized stream
 /// refuses further pushes, pulls and rekeys.
+#[cfg(feature = "alloc")]
 pub(crate) struct SecretStream {
     finalized: bool,
     state: ffi::crypto_secretstream_xchacha20poly1305_state,
 }
 
+#[cfg(feature = "alloc")]
 impl SecretStream {
     /// `crypto_secretstream_xchacha20poly1305_init_pull`.
     pub(crate) fn init_pull(header: &[u8], key: &[u8]) -> Result<Self, ()> {

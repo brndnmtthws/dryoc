@@ -1,10 +1,10 @@
-use std::simd::{Simd, simd_swizzle};
+use core::simd::{Simd, simd_swizzle};
 
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::{
-    BLOCKBYTES, HALFOUTBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES,
-    blake2b_longhash, increment_counter,
+    BLOCKBYTES, IV, KEYBYTES, OUTBYTES, PERSONALBYTES, Params, SALTBYTES, blake2b_longhash,
+    increment_counter,
 };
 use crate::error::Error;
 use crate::utils::load_u64_le;
@@ -557,6 +557,8 @@ blake2b_longhash!();
 
 #[cfg(test)]
 mod tests {
+    use crate::test_prelude::*;
+
     #[cfg(feature = "nightly")]
     extern crate test;
     use std::sync::LazyLock;
@@ -568,7 +570,7 @@ mod tests {
     use super::*;
 
     static_assertions::assert_impl_all!(State: zeroize::ZeroizeOnDrop);
-    const _: () = assert!(std::mem::needs_drop::<State>());
+    const _: () = assert!(core::mem::needs_drop::<State>());
 
     #[cfg(dryoc_native_tests)]
     #[repr(C)]
@@ -588,6 +590,7 @@ mod tests {
         fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
         fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
         fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
+        #[cfg(feature = "alloc")]
         fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
     }
 
@@ -738,7 +741,7 @@ mod tests {
         assert_eq!(output, so_output);
     }
 
-    #[cfg(dryoc_native_tests)]
+    #[cfg(all(dryoc_native_tests, feature = "alloc"))]
     #[test]
     fn test_blake2b_long_simd() {
         crate::native_test_util::init();
@@ -765,7 +768,7 @@ mod tests {
         }
     }
 
-    #[cfg(dryoc_native_tests)]
+    #[cfg(all(dryoc_native_tests, feature = "alloc"))]
     #[test]
     fn test_blake2b_long_rand_length_simd() {
         crate::native_test_util::init();

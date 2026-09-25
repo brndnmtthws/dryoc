@@ -438,6 +438,8 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 mod tests {
     use super::*;
     use crate::dryocstream::Tag;
+    #[cfg(dryoc_native_tests)]
+    use crate::test_prelude::*;
 
     /// The length checks shared by Classic and Rustaceous push and pull
     /// accept exactly `MESSAGEBYTES_MAX` message bytes (libsodium's

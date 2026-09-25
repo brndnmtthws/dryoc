@@ -22,7 +22,7 @@
 //! operation, and control flow and memory access are independent of the
 //! data.
 
-use std::arch::x86_64::{
+use core::arch::x86_64::{
     __m256i, _mm256_add_epi16, _mm256_blend_epi16, _mm256_blend_epi32, _mm256_mulhi_epi16,
     _mm256_mullo_epi16, _mm256_permute2x128_si256, _mm256_set1_epi16, _mm256_setzero_si256,
     _mm256_slli_epi32, _mm256_slli_epi64, _mm256_srai_epi16, _mm256_srli_epi32, _mm256_srli_epi64,
@@ -46,7 +46,7 @@ pub(crate) enum Kernel {
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if std::arch::is_x86_feature_detected!("avx2") {
+    if has_x86_feature!("avx2") {
         Some(Kernel::Avx2)
     } else {
         None
@@ -56,7 +56,7 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         detect().into_iter().collect()
     }
 
@@ -65,7 +65,7 @@ impl Kernel {
     pub(super) fn ntt(self, r: &mut Poly) {
         match self {
             // SAFETY: `Kernel::Avx2` is only constructed after
-            // `is_x86_feature_detected!("avx2")` succeeded.
+            // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { ntt_avx2(r) },
         }
     }
@@ -75,7 +75,7 @@ impl Kernel {
     pub(super) fn invntt_tomont(self, r: &mut Poly) {
         match self {
             // SAFETY: `Kernel::Avx2` is only constructed after
-            // `is_x86_feature_detected!("avx2")` succeeded.
+            // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { invntt_tomont_avx2(r) },
         }
     }
@@ -85,7 +85,7 @@ impl Kernel {
     pub(super) fn basemul_acc<const K: usize>(self, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
         match self {
             // SAFETY: `Kernel::Avx2` is only constructed after
-            // `is_x86_feature_detected!("avx2")` succeeded.
+            // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { basemul_acc_avx2(r, a, b) },
         }
     }

@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::blake2b;
@@ -38,7 +40,7 @@ const fn min(a: u64, b: u64) -> u64 {
 // Max memory size is half the addressing space, topping at 2^32 blocks (4
 // TB)
 const ARGON2_MAX_MEMORY_BITS: u32 =
-    min(32, std::mem::size_of::<usize>() as u64 * 8 - 10 - 1) as u32;
+    min(32, core::mem::size_of::<usize>() as u64 * 8 - 10 - 1) as u32;
 const ARGON2_MAX_MEMORY: u32 = min(0xFFFFFFFF, 1u64 << ARGON2_MAX_MEMORY_BITS) as u32;
 
 // Minimum and maximum number of passes
@@ -774,6 +776,8 @@ fn store_block(output: &mut [u8], block: &Block) {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_prelude::*;
+
     #[cfg(feature = "nightly")]
     extern crate test;
 
@@ -781,8 +785,8 @@ mod tests {
 
     #[test]
     fn secret_working_types_zeroize_on_drop() {
-        assert!(std::mem::needs_drop::<Block>());
-        assert!(std::mem::needs_drop::<Argon2Instance>());
+        assert!(core::mem::needs_drop::<Block>());
+        assert!(core::mem::needs_drop::<Argon2Instance>());
     }
 
     #[test]
@@ -1202,7 +1206,7 @@ mod tests {
                     salt.len(),
                     so_hash.as_mut_ptr(),
                     so_hash.len(),
-                    std::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     0,
                     Argon2Type::Argon2id as i32,
                 );
@@ -1256,7 +1260,7 @@ mod tests {
                             salt.len(),
                             native.as_mut_ptr(),
                             native.len(),
-                            std::ptr::null_mut(),
+                            core::ptr::null_mut(),
                             0,
                             type_ as i32,
                         )
@@ -1296,7 +1300,7 @@ mod tests {
                         salt.len(),
                         hash.as_mut_ptr(),
                         hash.len(),
-                        std::ptr::null_mut(),
+                        core::ptr::null_mut(),
                         0,
                         Argon2Type::Argon2id as i32,
                     )

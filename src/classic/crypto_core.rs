@@ -270,6 +270,7 @@ mod tests {
     use super::*;
     use crate::classic::crypto_sign::crypto_sign_keypair;
     use crate::scalarmult_curve25519::test_vectors::low_order_u_encodings;
+    use crate::test_prelude::*;
 
     #[test]
     fn test_crypto_core_ed25519_is_valid_point() {
@@ -477,7 +478,7 @@ mod tests {
     /// 1.0.22's `crypto_core_hchacha20`).
     #[test]
     fn test_crypto_core_hchacha20_known_answers() {
-        let key: HChaCha20Key = std::array::from_fn(|i| i as u8);
+        let key: HChaCha20Key = core::array::from_fn(|i| i as u8);
         let input: HChaCha20Input = hex::decode("000000090000004a0000000031415927")
             .unwrap()
             .try_into()
@@ -761,7 +762,7 @@ mod tests {
                             so_out.as_mut_ptr(),
                             data.as_ptr(),
                             key.as_ptr(),
-                            c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+                            c.as_ref().map_or(core::ptr::null(), |c| c.as_ptr()),
                         )
                     };
                     assert_eq!(ret, 0);
@@ -794,7 +795,7 @@ mod tests {
                             so_out.as_mut_ptr(),
                             data.as_ptr(),
                             key.as_ptr(),
-                            c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+                            c.as_ref().map_or(core::ptr::null(), |c| c.as_ptr()),
                         )
                     };
                     assert_eq!(ret, 0);

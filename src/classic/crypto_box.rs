@@ -595,6 +595,7 @@ pub fn crypto_box_open_easy_inplace(
 mod tests {
     use super::*;
     use crate::rng::*;
+    use crate::test_prelude::*;
 
     #[test]
     fn test_crypto_box_easy_invalid() {
@@ -1246,6 +1247,7 @@ mod tests {
         }
 
         #[test]
+        #[cfg(feature = "alloc")]
         fn test_crypto_box_seed_keypair() {
             use base64::Engine as _;
             use base64::engine::general_purpose;

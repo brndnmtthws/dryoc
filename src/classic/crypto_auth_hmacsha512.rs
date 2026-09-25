@@ -96,6 +96,7 @@ pub fn crypto_auth_hmacsha512_final(state: HmacSha512State, output: &mut Mac) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     fn compute_hmac(key: &[u8], message: &[u8]) -> Mac {
         let mut mac = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
@@ -246,7 +247,7 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     fn sodium_hmac(key: &[u8], message: &[u8]) -> Mac {
         crate::native_test_util::init();
-        let mut state = unsafe { std::mem::zeroed() };
+        let mut state = unsafe { core::mem::zeroed() };
         assert_eq!(
             unsafe {
                 libsodium_sys::crypto_auth_hmacsha512_init(&mut state, key.as_ptr(), key.len())
@@ -255,7 +256,7 @@ mod tests {
         );
         assert_eq!(
             unsafe {
-                libsodium_sys::crypto_auth_hmacsha512_update(&mut state, std::ptr::null(), 0)
+                libsodium_sys::crypto_auth_hmacsha512_update(&mut state, core::ptr::null(), 0)
             },
             0
         );

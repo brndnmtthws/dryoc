@@ -105,6 +105,10 @@
 //! * See the [`protected`] module for examples that keep passwords and keys in
 //!   protected memory
 
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
+use alloc::string::String;
+use alloc::vec::Vec;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -302,7 +306,10 @@ pub struct PwHash<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> {
 /// `Vec<u8>`-based PwHash type alias, provided for convenience.
 pub type VecPwHash = PwHash<Hash, Salt>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`PwHash`]
@@ -695,6 +702,7 @@ impl PwHash<Hash, Salt> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// libsodium `crypto_pwhash` outputs for password `"password"`, salt
     /// `"0123456789abcdef"`, 32 output bytes, and the minimum cost of each

@@ -47,7 +47,7 @@ macro_rules! impl_deserialize_fixed {
                 impl<'de, const LENGTH: usize> Visitor<'de> for ByteArrayVisitor<LENGTH> {
                     type Value = $ty;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                         write!(formatter, "exactly {LENGTH} bytes")
                     }
 
@@ -94,7 +94,10 @@ macro_rules! impl_deserialize_fixed {
 /// a byte string or a sequence of bytes. Takes the same three arguments as
 /// [`impl_deserialize_fixed`], minus the length checks.
 // Only the `protected` module below uses this macro.
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 macro_rules! impl_deserialize_bytes {
     ($ty:ty, $new:expr, $from_slice:expr) => {
         impl<'de> Deserialize<'de> for $ty {
@@ -107,7 +110,7 @@ macro_rules! impl_deserialize_bytes {
                 impl<'de> Visitor<'de> for BytesVisitor {
                     type Value = $ty;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
                         write!(formatter, "bytes")
                     }
 
@@ -159,7 +162,10 @@ impl_deserialize_fixed!(
     }
 );
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 mod protected {
     use super::*;
     use crate::protected::*;
@@ -263,7 +269,7 @@ mod tests {
     #[cfg(all(feature = "protected", any(unix, windows)))]
     fn check_variable<T: for<'de> Deserialize<'de> + Bytes>() {
         for len in [0usize, 1, 5, 17] {
-            let data: Vec<u8> = (1..=len as u8).collect();
+            let data: alloc::vec::Vec<u8> = (1..=len as u8).collect();
             assert_eq!(from_bytes::<T>(&data).expect("bytes").as_slice(), &data);
             for hint in [0, 1, len, 100] {
                 assert_eq!(

@@ -151,6 +151,7 @@ pub fn crypto_kem_mlkem768_dec(
 pub(crate) mod native_tests {
     use super::*;
     use crate::native_test_util as sodium;
+    use crate::test_prelude::*;
     use crate::utils::test_util::XorShift64;
 
     /// Seeds for key generation or encapsulation: all-zero, all-ones, four
@@ -159,7 +160,7 @@ pub(crate) mod native_tests {
         let mut rng = XorShift64::new(0x6d6c_6b65_6d37_3638);
         let mut seeds = vec![[0u8; N], [0xff; N]];
         for _ in 0..4 {
-            seeds.push(std::array::from_fn(|_| rng.next_u64() as u8));
+            seeds.push(core::array::from_fn(|_| rng.next_u64() as u8));
         }
         for _ in 0..2 {
             let mut seed = [0u8; N];
@@ -219,7 +220,7 @@ pub(crate) mod native_tests {
                 assert_eq!(ciphertext, so_ciphertext, "enc seed {enc_seed:02x?}");
                 assert_eq!(sent, so_sent, "enc seed {enc_seed:02x?}");
 
-                for ciphertext in std::iter::once(ciphertext).chain(tampered(&ciphertext)) {
+                for ciphertext in core::iter::once(ciphertext).chain(tampered(&ciphertext)) {
                     let mut received = [0u8; CRYPTO_KEM_MLKEM768_SHAREDSECRETBYTES];
                     crypto_kem_mlkem768_dec(&mut received, &ciphertext, &secret_key);
                     let so_received = sodium::crypto_kem_mlkem768_dec(&ciphertext, &secret_key)

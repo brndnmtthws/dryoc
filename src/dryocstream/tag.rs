@@ -1,5 +1,5 @@
-use std::fmt;
-use std::ops::{
+use core::fmt;
+use core::ops::{
     BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not, Sub, SubAssign,
 };
 
@@ -428,6 +428,7 @@ impl Iterator for TagIterNames {
 #[cfg(test)]
 mod tests {
     use super::Tag;
+    use crate::test_prelude::*;
 
     #[test]
     fn tag_constructors_and_names_cover_known_and_unknown_bits() {

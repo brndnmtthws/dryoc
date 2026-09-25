@@ -36,6 +36,9 @@
 //! assert_eq!(digest.len(), 64);
 //! ```
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use crate::error::{Error, ErrorContext};
 use crate::keccak::{DOMAIN_SHAKE, RATE_128, RATE_256, ROUNDS_FULL, ROUNDS_TURBO, Sponge};
 use crate::types::*;
@@ -153,6 +156,7 @@ macro_rules! xof {
             #[doc = concat!(
                 "Computes `len` bytes of ", $algo, " of `input` with the standard domain."
             )]
+            #[cfg(feature = "alloc")]
             pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input, len: usize) -> Vec<u8> {
                 let mut output = vec![0u8; len];
                 Self::compute_into_bytes(&mut output, input);
@@ -179,6 +183,7 @@ macro_rules! xof {
             }
 
             /// Returns the next `len` bytes of the output stream.
+            #[cfg(feature = "alloc")]
             pub fn squeeze_to_vec(&mut self, len: usize) -> Vec<u8> {
                 let mut output = vec![0u8; len];
                 self.squeeze(&mut output);
@@ -218,6 +223,7 @@ xof! {
 #[cfg(test)]
 pub(crate) mod test_vectors {
     pub(crate) use crate::keccak::{RATE_128, RATE_256};
+    use crate::test_prelude::*;
 
     /// One known answer: `output` is the first `output.len()` bytes, or,
     /// when `skip` is nonzero, the bytes after skipping `skip` bytes.
@@ -547,7 +553,7 @@ pub(crate) mod test_vectors {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::test_vectors::*;
     use super::*;

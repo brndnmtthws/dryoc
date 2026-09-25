@@ -5,7 +5,7 @@
 // scalar-only builds see them as dead.
 #![cfg_attr(not(dryoc_stream_kernel), allow(dead_code))]
 
-use std::mem;
+use core::mem;
 
 /// Destination of keystream bytes: either a buffer XORed in place, or an
 /// `input` buffer XORed into a distinct `output` buffer. Each XOR consumes

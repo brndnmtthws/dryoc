@@ -42,7 +42,7 @@
 //! * See the [libsodium documentation](https://doc.libsodium.org/key_exchange)
 //!   for more about key exchange
 
-use std::fmt;
+use core::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -90,7 +90,10 @@ impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop>
 /// Stack-allocated type alias for [`Session`]. Provided for convenience.
 pub type StackSession = Session<SessionKey>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`Session`]
@@ -412,7 +415,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn serde_round_trip_keeps_rx_and_tx_in_place() {
         use crate::dryocsecretbox::{DryocSecretBox, Nonce, VecBox};

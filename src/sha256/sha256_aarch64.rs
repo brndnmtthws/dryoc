@@ -23,7 +23,7 @@ const K32: [u32; 64] = [
 ///
 /// # Safety
 ///
-/// The caller must have confirmed `is_aarch64_feature_detected!("sha2")`.
+/// The caller must have confirmed `has_aarch64_feature!("sha2")`.
 #[target_feature(enable = "sha2")]
 // SAFETY: an `unsafe fn` only because of the `sha2` target feature; the asm
 // below reads exactly `blocks.len()` 64-byte blocks and the 256-byte `K32`

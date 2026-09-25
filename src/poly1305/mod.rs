@@ -229,6 +229,8 @@ pub(crate) use poly1305_soft::*;
 #[cfg(test)]
 mod tests {
     use super::{BLOCK_SIZE, Key, Poly1305};
+    #[cfg(dryoc_native_tests)]
+    use crate::test_prelude::*;
 
     fn mac(key: &[u8; 32], chunks: &[&[u8]]) -> [u8; BLOCK_SIZE] {
         let mut mac = Poly1305::new(&Key::from(key));

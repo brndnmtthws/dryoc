@@ -51,7 +51,7 @@ pub(crate) use chacha20_double_round;
 
 /// A vector kernel producing several keystream blocks per run.
 #[cfg(dryoc_stream_kernel)]
-trait Kernel: Copy + std::fmt::Debug {
+trait Kernel: Copy + core::fmt::Debug {
     /// Blocks produced per run.
     fn blocks(self) -> usize;
 
@@ -500,6 +500,7 @@ mod tests {
     use chacha20::{ChaCha20 as RustCryptoChaCha20, ChaCha20Legacy};
 
     use super::*;
+    use crate::test_prelude::*;
 
     const LENS: [usize; 15] = [
         0, 1, 63, 64, 65, 255, 256, 257, 511, 512, 513, 1023, 1024, 4096, 65536,
@@ -512,7 +513,7 @@ mod tests {
     /// RFC 8439 section 2.3.2: the block function test vector.
     #[test]
     fn test_rfc8439_block() {
-        let key: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let key: [u8; 32] = core::array::from_fn(|i| i as u8);
         let nonce: [u8; 12] = hex("000000090000004a00000000").try_into().unwrap();
         let expected = hex(concat!(
             "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4e",
@@ -534,7 +535,7 @@ mod tests {
     /// RFC 8439 section 2.4.2: encryption starting at block 1.
     #[test]
     fn test_rfc8439_encryption() {
-        let key: [u8; 32] = std::array::from_fn(|i| i as u8);
+        let key: [u8; 32] = core::array::from_fn(|i| i as u8);
         let nonce: [u8; 12] = hex("000000000000004a00000000").try_into().unwrap();
         let plaintext = b"Ladies and Gentlemen of the class of '99: If I could offer you only one \
                           tip for the future, sunscreen would be it.";
@@ -598,8 +599,8 @@ mod tests {
 
     #[test]
     fn test_ietf_matches_rustcrypto_at_every_length() {
-        let key: [u8; 32] = std::array::from_fn(|i| (i * 3 + 1) as u8);
-        let nonce: [u8; 12] = std::array::from_fn(|i| (i * 5 + 7) as u8);
+        let key: [u8; 32] = core::array::from_fn(|i| (i * 3 + 1) as u8);
+        let nonce: [u8; 12] = core::array::from_fn(|i| (i * 5 + 7) as u8);
         let nonce_word = u64::from(load_u32_le(&nonce[0..4])) << 32;
         for len in LENS {
             for counter in [0u32, 1, 7] {
@@ -687,9 +688,9 @@ mod tests {
 
         #[test]
         fn test_matches_libsodium_stream_chacha20() {
-            let key: [u8; 32] = std::array::from_fn(|i| (i * 11 + 3) as u8);
-            let ietf_nonce: [u8; 12] = std::array::from_fn(|i| (i * 13 + 5) as u8);
-            let legacy_nonce: [u8; 8] = std::array::from_fn(|i| (i * 17 + 9) as u8);
+            let key: [u8; 32] = core::array::from_fn(|i| (i * 11 + 3) as u8);
+            let ietf_nonce: [u8; 12] = core::array::from_fn(|i| (i * 13 + 5) as u8);
+            let legacy_nonce: [u8; 8] = core::array::from_fn(|i| (i * 17 + 9) as u8);
             for len in LENS {
                 let plaintext = pattern(len);
 
@@ -733,8 +734,8 @@ mod tests {
         /// before `sodium_misuse`).
         #[test]
         fn test_counter_wraps_match_libsodium() {
-            let key: [u8; 32] = std::array::from_fn(|i| (i * 11 + 3) as u8);
-            let legacy_nonce: [u8; 8] = std::array::from_fn(|i| (i * 17 + 9) as u8);
+            let key: [u8; 32] = core::array::from_fn(|i| (i * 11 + 3) as u8);
+            let legacy_nonce: [u8; 8] = core::array::from_fn(|i| (i * 17 + 9) as u8);
             let lens = [1usize, 64, 65, 128, 129, 192, 193, 640, 641, 4096 + 3];
             for start in [0u64, u64::from(u32::MAX), u64::MAX] {
                 for len in lens {
@@ -753,7 +754,7 @@ mod tests {
                 }
             }
             for nonce in [
-                std::array::from_fn::<u8, 12, _>(|i| (i * 13 + 5) as u8),
+                core::array::from_fn::<u8, 12, _>(|i| (i * 13 + 5) as u8),
                 [0xffu8; 12],
             ] {
                 for len in lens {
@@ -800,7 +801,7 @@ mod tests {
                 ),
             ),
             (
-                std::array::from_fn(|i| i as u8),
+                core::array::from_fn(|i| i as u8),
                 [0, 0, 0, 0, 0, 0, 0, 2],
                 u64::from(u32::MAX),
                 concat!(
@@ -811,7 +812,7 @@ mod tests {
                 ),
             ),
             (
-                std::array::from_fn(|i| i as u8),
+                core::array::from_fn(|i| i as u8),
                 [0, 0, 0, 0, 0, 0, 0, 2],
                 u64::MAX,
                 concat!(

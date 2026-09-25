@@ -95,8 +95,8 @@ impl Arith {
 
     /// Every backend the running CPU supports, portable first.
     #[cfg(test)]
-    pub(crate) fn all() -> Vec<Self> {
-        let all = std::iter::once(Self::Soft);
+    pub(crate) fn all() -> alloc::vec::Vec<Self> {
+        let all = core::iter::once(Self::Soft);
         #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
         let all = all.chain(mlkem_neon::Kernel::all().into_iter().map(Self::Neon));
         #[cfg(target_arch = "x86_64")]
@@ -210,7 +210,7 @@ fn rej_uniform(poly: &mut Poly, filled: &mut usize, bytes: &[u8]) {
 /// squeezed together, then one more block at a time for the entries that
 /// still need coefficients.
 fn gen_matrix(rho: &[u8], transposed: bool) -> [PolyVec; K] {
-    let indices: [[u8; 2]; K * K] = std::array::from_fn(|n| {
+    let indices: [[u8; 2]; K * K] = core::array::from_fn(|n| {
         let (i, j) = ((n / K) as u8, (n % K) as u8);
         if transposed { [i, j] } else { [j, i] }
     });
@@ -260,7 +260,7 @@ fn gen_matrix(rho: &[u8], transposed: bool) -> [PolyVec; K] {
 fn cbd2<const M: usize>(polys: &mut [Poly; M], seed: &[u8; 32], nonces: [u8; M]) {
     let mut prf = ParSponge::<RATE_256, ROUNDS_FULL, M>::new();
     prf.absorb([&seed[..]; M]);
-    prf.absorb(nonces.each_ref().map(std::slice::from_ref));
+    prf.absorb(nonces.each_ref().map(core::slice::from_ref));
     prf.pad(DOMAIN_SHAKE);
     let mut buf = Zeroizing::new([[0u8; 64 * 2]; M]);
     prf.squeeze(buf.each_mut().map(|b| &mut b[..]));
@@ -438,7 +438,7 @@ impl<'a> PublicKey<'a> {
         let mut polys = Zeroizing::new([[0i16; N]; 2 * K + 2]);
         let (noise, mu) = polys.split_at_mut(2 * K + 1);
         let noise: &mut [Poly; 2 * K + 1] = noise.try_into().expect("2K + 1 polynomials");
-        cbd2(noise, coins, std::array::from_fn(|i| i as u8));
+        cbd2(noise, coins, core::array::from_fn(|i| i as u8));
         poly_from_msg(&mut mu[0], m);
         let (y, rest) = noise
             .split_first_chunk_mut::<K>()
@@ -484,7 +484,7 @@ pub(crate) fn keypair(
     let a = gen_matrix(rho, false);
     // `s` and `e` use nonces `0..2K`.
     let mut noise = Zeroizing::new([[0i16; N]; 2 * K]);
-    cbd2(&mut noise, sigma, std::array::from_fn(|i| i as u8));
+    cbd2(&mut noise, sigma, core::array::from_fn(|i| i as u8));
     let [s, e]: &mut [PolyVec; 2] = noise
         .as_chunks_mut::<K>()
         .0

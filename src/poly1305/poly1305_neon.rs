@@ -35,7 +35,7 @@
 //! there are no secret-dependent branches or memory accesses. The only
 //! branches depend on the input length.
 
-use std::arch::aarch64::*;
+use core::arch::aarch64::*;
 
 use zeroize::Zeroize;
 

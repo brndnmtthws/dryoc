@@ -69,7 +69,7 @@ impl Poly1305 {
     pub fn update(&mut self, input: &[u8]) {
         let mut m = input;
         if self.buflen > 0 {
-            let input_block_end = std::cmp::min(BLOCK_SIZE - self.buflen, input.len());
+            let input_block_end = core::cmp::min(BLOCK_SIZE - self.buflen, input.len());
             // copy start of incoming block into previous block
             let mut block = self.buffer.to_le_bytes();
             block[self.buflen..self.buflen + input_block_end]
@@ -107,10 +107,10 @@ impl Poly1305 {
     /// bulk paths for long runs when available.
     fn full_blocks(&mut self, input: &[u8]) {
         #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
-        if input.len() >= NEON_MIN_BYTES && std::arch::is_aarch64_feature_detected!("neon") {
+        if input.len() >= NEON_MIN_BYTES && has_aarch64_feature!("neon") {
             let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
             // SAFETY: `poly1305_neon::blocks` requires the `neon` target
-            // feature, which the runtime check above confirmed is present.
+            // feature, which the feature check above confirmed is present.
             unsafe { super::poly1305_neon::blocks(&mut self.h, &self.r, &input[..bulk]) };
             self.blocks(&input[bulk..], false);
             return;
@@ -265,6 +265,7 @@ impl Poly1305 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     #[cfg(all(feature = "nightly", not(tarpaulin)))]
     extern crate test;
@@ -274,7 +275,7 @@ mod tests {
         fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
 
         assert_zeroize_on_drop::<Poly1305>();
-        assert!(std::mem::needs_drop::<Poly1305>());
+        assert!(core::mem::needs_drop::<Poly1305>());
     }
 
     #[test]
@@ -401,7 +402,7 @@ mod tests {
         let mut tiny = [0u8; 32];
         tiny[0] = 1;
         tiny[3] = 0x40;
-        let patterned: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(37) ^ 0x5a);
+        let patterned: [u8; 32] = core::array::from_fn(|i| (i as u8).wrapping_mul(37) ^ 0x5a);
         [
             Key::from(&[0xffu8; 32]),
             Key::from(&tiny),
@@ -475,7 +476,7 @@ mod tests {
     fn neon_blocks_match_scalar() {
         use super::super::poly1305_neon::{CHUNK, blocks};
 
-        if !std::arch::is_aarch64_feature_detected!("neon") {
+        if !has_aarch64_feature!("neon") {
             return;
         }
         check_bulk_matches_scalar("neon", CHUNK, &[1, 2, 3, 4, 8, 16, 25], |h, r, input| {
@@ -491,7 +492,7 @@ mod tests {
     fn avx2_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK, blocks};
 
-        if !std::arch::is_x86_feature_detected!("avx2") {
+        if !has_x86_feature!("avx2") {
             return;
         }
         check_bulk_matches_scalar(
@@ -512,7 +513,7 @@ mod tests {
     fn avx512_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK512, blocks_avx512};
 
-        if !std::arch::is_x86_feature_detected!("avx512f") {
+        if !has_x86_feature!("avx512f") {
             return;
         }
         check_bulk_matches_scalar(
@@ -533,9 +534,7 @@ mod tests {
     fn ifma_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK_IFMA, blocks_ifma};
 
-        if !std::arch::is_x86_feature_detected!("avx512f")
-            || !std::arch::is_x86_feature_detected!("avx512ifma")
-        {
+        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
             return;
         }
         check_bulk_matches_scalar(
@@ -556,9 +555,7 @@ mod tests {
     fn ifma2_blocks_match_scalar() {
         use super::super::poly1305_x86_64::{CHUNK_IFMA2, blocks_ifma2};
 
-        if !std::arch::is_x86_feature_detected!("avx512f")
-            || !std::arch::is_x86_feature_detected!("avx512ifma")
-        {
+        if !has_x86_feature!("avx512f") || !has_x86_feature!("avx512ifma") {
             return;
         }
         check_bulk_matches_scalar(

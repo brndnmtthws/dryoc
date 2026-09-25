@@ -74,6 +74,9 @@
 //! * See the [`protected`] module for an example that stores keys in protected
 //!   memory
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use zeroize::Zeroize;
 
 use crate::classic::crypto_secretstream_xchacha20poly1305::{
@@ -110,7 +113,10 @@ pub type Nonce = StackByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
 /// Stack-allocated header data for authenticated secret streams.
 pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`DryocStream`]
@@ -181,7 +187,7 @@ pub mod protected {
 #[derive(PartialEq, Eq, Clone, Zeroize)]
 pub struct DryocStream<M> {
     state: State,
-    phantom: std::marker::PhantomData<M>,
+    phantom: core::marker::PhantomData<M>,
 }
 
 impl<M> Drop for DryocStream<M> {
@@ -222,7 +228,7 @@ impl DryocStream<Push> {
         (
             Self {
                 state,
-                phantom: std::marker::PhantomData,
+                phantom: core::marker::PhantomData,
             },
             header,
         )
@@ -266,6 +272,7 @@ impl DryocStream<Push> {
     ///
     /// Returns an error if `tag` contains unknown bits or the message exceeds
     /// the stream's maximum message length.
+    #[cfg(feature = "alloc")]
     pub fn push_to_vec<Input: Bytes>(
         &mut self,
         message: &Input,
@@ -293,7 +300,7 @@ impl DryocStream<Pull> {
         );
         Self {
             state,
-            phantom: std::marker::PhantomData,
+            phantom: core::marker::PhantomData,
         }
     }
 
@@ -348,6 +355,7 @@ impl DryocStream<Pull> {
     /// authentication fails because the key, header, associated data, stream
     /// position, or ciphertext does not match. Authenticated tag values
     /// containing unknown bits are also rejected without advancing the stream.
+    #[cfg(feature = "alloc")]
     pub fn pull_to_vec<Input: Bytes>(
         &mut self,
         ciphertext: &Input,
@@ -357,7 +365,7 @@ impl DryocStream<Pull> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod validation_tests {
     use super::*;
     use crate::constants::CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES;
@@ -551,7 +559,7 @@ mod validation_tests {
     }
 }
 
-#[cfg(all(test, dryoc_native_tests))]
+#[cfg(all(test, dryoc_native_tests, feature = "alloc"))]
 mod tests {
     use super::*;
     use crate::native_test_util::{
@@ -719,7 +727,7 @@ mod tests {
 
     #[test]
     fn test_stream_pull() {
-        use std::convert::TryFrom;
+        use core::convert::TryFrom;
 
         let message1 = b"Arbitrary data to encrypt";
         let message2 = b"split into";

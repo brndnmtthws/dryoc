@@ -168,6 +168,7 @@ pub fn crypto_onetimeauth_final(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_prelude::*;
 
     /// RFC 8439 section 2.5.2: key, message and tag.
     const RFC_KEY: Key = [

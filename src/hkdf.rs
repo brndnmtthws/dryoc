@@ -57,7 +57,9 @@
 //! The concrete expanders are type aliases over [`Hkdf`] and can also be used
 //! through [`HkdfVariant`] in generic code.
 
-use std::marker::PhantomData;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::marker::PhantomData;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -111,7 +113,10 @@ pub struct HkdfSha256Variant;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct HkdfSha512Variant;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for HKDF
@@ -290,6 +295,7 @@ where
     ///
     /// Returns an error if `output_len` is outside the range supported by the
     /// selected HKDF variant.
+    #[cfg(feature = "alloc")]
     pub fn extract_and_expand_to_vec<
         Salt: Bytes + ?Sized,
         Ikm: Bytes + ?Sized,
@@ -371,6 +377,7 @@ where
     ///
     /// Returns an error if `output_len` is outside the range supported by the
     /// selected HKDF variant.
+    #[cfg(feature = "alloc")]
     pub fn expand_to_vec<Context: Bytes + ?Sized>(
         &self,
         output_len: usize,
@@ -412,7 +419,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 
@@ -480,7 +487,7 @@ mod tests {
     fn assert_case<Variant, const PRK_LENGTH: usize>(case: &Case)
     where
         Variant: HkdfVariant<PRK_LENGTH>,
-        Variant::Prk: Clone + PartialEq + std::fmt::Debug,
+        Variant::Prk: Clone + PartialEq + core::fmt::Debug,
     {
         type H<V, const P: usize> = Hkdf<V, <V as HkdfVariant<P>>::Prk, P>;
 

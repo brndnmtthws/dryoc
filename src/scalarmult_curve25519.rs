@@ -52,7 +52,7 @@ pub(crate) fn crypto_scalarmult_curve25519(
     #[cfg(target_arch = "x86_64")]
     if crate::x86_64::has_bmi2() {
         // SAFETY: `ladder_bmi2` requires the `bmi2` target feature, which
-        // the runtime check above confirmed is present.
+        // the feature check above confirmed is present.
         return unsafe { ladder_bmi2(q, n, p) };
     }
     ladder(q, n, p)

@@ -5,7 +5,7 @@
 //! steps. Memory access is the same for every digit: all eight entries are
 //! always read.
 
-use std::arch::aarch64::*;
+use core::arch::aarch64::*;
 
 use subtle::ConstantTimeEq;
 

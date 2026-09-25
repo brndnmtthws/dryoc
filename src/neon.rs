@@ -3,7 +3,7 @@
 //! per-lane counter input, the lane-set transpose and the keystream XOR into
 //! a [`Dest`].
 
-use std::arch::aarch64::{
+use core::arch::aarch64::{
     uint8x16_t, uint32x4_t, vaddq_u32, vcltq_u32, vcombine_u64, vcreate_u64, vdupq_n_u32, veorq_u8,
     vgetq_lane_u64, vreinterpretq_u8_u64, vreinterpretq_u32_u64, vreinterpretq_u64_u8,
     vreinterpretq_u64_u32, vsubq_u32, vtrn1q_u32, vtrn1q_u64, vtrn2q_u32, vtrn2q_u64,

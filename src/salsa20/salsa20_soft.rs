@@ -103,8 +103,8 @@ mod tests {
     /// the highest block RustCrypto's Salsa20 will produce, against it.
     #[test]
     fn blocks_match_rustcrypto_across_counter_words() {
-        let key: [u8; 32] = std::array::from_fn(|i| (i * 7 + 1) as u8);
-        let nonce: [u8; 8] = std::array::from_fn(|i| (i * 5 + 3) as u8);
+        let key: [u8; 32] = core::array::from_fn(|i| (i * 7 + 1) as u8);
+        let nonce: [u8; 8] = core::array::from_fn(|i| (i * 5 + 3) as u8);
         let input = input(&key, &nonce);
         for counter in [
             0u64,
@@ -130,8 +130,8 @@ mod tests {
     #[test]
     fn last_blocks_match_libsodium() {
         crate::native_test_util::init();
-        let key: [u8; 32] = std::array::from_fn(|i| (i * 7 + 1) as u8);
-        let nonce: [u8; 8] = std::array::from_fn(|i| (i * 5 + 3) as u8);
+        let key: [u8; 32] = core::array::from_fn(|i| (i * 7 + 1) as u8);
+        let nonce: [u8; 8] = core::array::from_fn(|i| (i * 5 + 3) as u8);
         let mut expected = [0u8; 128];
         // SAFETY: `expected` is valid for its length as both input and
         // output (libsodium permits `c == m`); `nonce` and `key` are

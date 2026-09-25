@@ -3,7 +3,7 @@
 //!
 //! Precalculation avoids repeating the public-key operation when encrypting or
 //! decrypting multiple messages between the same sender and receiver.
-use std::fmt;
+use core::fmt;
 
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -125,7 +125,10 @@ impl PrecalcSecretKey<InnerKey> {
     }
 }
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory for [`PrecalcSecretKey`]
@@ -214,7 +217,7 @@ pub mod protected {
     }
 }
 
-impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> std::ops::Deref
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> core::ops::Deref
     for PrecalcSecretKey<InnerKey>
 {
     type Target = InnerKey;
@@ -224,7 +227,7 @@ impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> std::ops::Deref
     }
 }
 
-impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> std::ops::DerefMut
+impl<InnerKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize> core::ops::DerefMut
     for PrecalcSecretKey<InnerKey>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {

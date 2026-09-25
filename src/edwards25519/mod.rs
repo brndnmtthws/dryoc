@@ -13,9 +13,7 @@
 //!   scalars (signature verification, subgroup checks) by Straus's method over
 //!   width-5 / width-8 non-adjacent forms, with branches on the digits.
 //!
-//! Both tables are built once on first use (`LazyLock`).
-
-use std::sync::LazyLock;
+//! Both tables are precomputed constants in [`tables`].
 
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 use zeroize::Zeroize;
@@ -26,6 +24,9 @@ use crate::fe25519::{EDWARDS_D, Fe};
 mod edwards25519_neon;
 #[cfg(target_arch = "x86_64")]
 mod edwards25519_x86_64;
+mod tables;
+
+use tables::TABLES;
 
 /// `2 * d`, where `d = -121665 / 121666` is the curve constant.
 const EDWARDS_D2: Fe = Fe([
@@ -40,18 +41,6 @@ const EDWARDS_D2: Fe = Fe([
 const GROUP_ORDER: [u8; 32] = [
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
-];
-
-/// Basepoint x coordinate (RFC 8032 section 5.1).
-const BASE_X: [u8; 32] = [
-    0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9, 0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
-    0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0, 0xfe, 0x53, 0x6e, 0xcd, 0xd3, 0x36, 0x69, 0x21,
-];
-
-/// Basepoint y coordinate, `4 / 5`.
-const BASE_Y: [u8; 32] = [
-    0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-    0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
 ];
 
 /// Point in extended coordinates: `x = X / Z`, `y = Y / Z`, `x * y = T / Z`.
@@ -343,7 +332,7 @@ impl Point {
         #[cfg(target_arch = "x86_64")]
         if crate::x86_64::has_bmi2() {
             // SAFETY: `double_scalar_mul_basepoint_vartime_bmi2` requires the
-            // `bmi2` target feature, which the runtime check above confirmed
+            // `bmi2` target feature, which the feature check above confirmed
             // is present.
             return unsafe { self.double_scalar_mul_basepoint_vartime_bmi2(a, b) };
         }
@@ -426,19 +415,6 @@ impl Point {
         p
     }
 
-    /// Affine Niels form, canonically reduced.
-    fn to_niels(self) -> Niels {
-        let zinv = self.z.invert();
-        let x = self.x.mul(&zinv);
-        let y = self.y.mul(&zinv);
-        let canonical = |v: Fe| Fe::from_bytes(&v.to_bytes());
-        Niels {
-            y_plus_x: canonical(y.add(&x)),
-            y_minus_x: canonical(y.sub(&x)),
-            xy2d: canonical(x.mul(&y).mul(&EDWARDS_D2)),
-        }
-    }
-
     /// Ed25519 encoding: the y coordinate with the sign of x in the top bit.
     pub(crate) fn compress(&self) -> [u8; 32] {
         let zinv = self.z.invert();
@@ -465,57 +441,20 @@ struct Tables {
     odd: [Niels; 64],
 }
 
-static TABLES: LazyLock<Box<Tables>> = LazyLock::new(|| {
-    let base = {
-        let x = Fe::from_bytes(&BASE_X);
-        let y = Fe::from_bytes(&BASE_Y);
-        Point {
-            x,
-            y,
-            z: Fe::ONE,
-            t: x.mul(&y),
-        }
-    };
-    let mut tables = Box::new(Tables {
-        base: [[Niels::IDENTITY; 8]; 32],
-        odd: [Niels::IDENTITY; 64],
-    });
-    let mut window = base;
-    for row in tables.base.iter_mut() {
-        let step = window.to_niels();
-        let mut multiple = window;
-        for entry in row.iter_mut() {
-            *entry = multiple.to_niels();
-            multiple = multiple.add_niels(&step);
-        }
-        // 256 * window = 8 doublings.
-        for _ in 0..8 {
-            window = window.double();
-        }
-    }
-    let two_b = base.double().to_niels();
-    let mut multiple = base;
-    for entry in tables.odd.iter_mut() {
-        *entry = multiple.to_niels();
-        multiple = multiple.add_niels(&two_b);
-    }
-    tables
-});
-
 /// Constant-time table row lookup: entry `magnitude - 1` for `magnitude` in
 /// `1..=8`, the identity for `0` (the only values [`select`] passes). Every
 /// entry is read and merged under a mask that is all ones only for the
 /// matching one.
 fn select_row(row: &[Niels; 8], magnitude: u8) -> Niels {
     #[cfg(target_arch = "aarch64")]
-    if std::arch::is_aarch64_feature_detected!("neon") {
-        // SAFETY: the runtime check above confirmed the `neon` feature the
+    if has_aarch64_feature!("neon") {
+        // SAFETY: the feature check above confirmed the `neon` feature the
         // function requires; it uses only safe intrinsics on values.
         return unsafe { edwards25519_neon::select_row(row, magnitude) };
     }
     #[cfg(target_arch = "x86_64")]
-    if std::arch::is_x86_feature_detected!("avx512f") {
-        // SAFETY: the runtime check above confirmed the `avx512f` feature
+    if has_x86_feature!("avx512f") {
+        // SAFETY: the feature check above confirmed the `avx512f` feature
         // the function requires; it uses safe value intrinsics and the
         // `x86_64::store_words512` helper.
         return unsafe { edwards25519_x86_64::select_row(row, magnitude) };
@@ -610,7 +549,7 @@ pub(crate) fn mul_base(scalar: &[u8; 32]) -> Point {
     #[cfg(target_arch = "x86_64")]
     if crate::x86_64::has_bmi2() {
         // SAFETY: `mul_base_bmi2` requires the `bmi2` target feature, which
-        // the runtime check above confirmed is present.
+        // the feature check above confirmed is present.
         return unsafe { mul_base_bmi2(scalar) };
     }
     mul_base_impl(scalar)
@@ -663,6 +602,7 @@ mod tests {
     use curve25519_dalek::scalar::Scalar;
 
     use super::*;
+    use crate::test_prelude::*;
     use crate::utils::test_util::{XorShift64, hex32 as hex};
 
     /// `2d` really is twice `-121665 / 121666`.
@@ -709,35 +649,61 @@ mod tests {
         }
     }
 
-    /// Every fixed-base table entry is the basepoint multiple it claims to be.
+    /// The canonical affine Niels form of a curve25519-dalek point, derived
+    /// independently of [`TABLES`]: the point is decoded from dalek's
+    /// encoding and each coordinate reduced to canonical limbs.
+    fn niels_from_dalek(point: curve25519_dalek::EdwardsPoint) -> Niels {
+        let p = Point::decompress(&point.compress().to_bytes()).expect("valid dalek point");
+        let zinv = p.z.invert();
+        let x = p.x.mul(&zinv);
+        let y = p.y.mul(&zinv);
+        let canonical = |v: Fe| Fe::from_bytes(&v.to_bytes());
+        Niels {
+            y_plus_x: canonical(y.add(&x)),
+            y_minus_x: canonical(y.sub(&x)),
+            xy2d: canonical(x.mul(&y).mul(&EDWARDS_D2)),
+        }
+    }
+
+    /// Every limb of every fixed-base table entry equals the canonical Niels
+    /// form of the basepoint multiple it claims to be, as computed by dalek.
     #[test]
     fn test_table_matches_dalek() {
+        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         let mut scale = Scalar::ONE;
-        for row in TABLES.base.iter() {
+        for (k, row) in TABLES.base.iter().enumerate() {
             for (j, entry) in row.iter().enumerate() {
-                let expected = (ED25519_BASEPOINT_TABLE * &(scale * Scalar::from(j as u64 + 1)))
-                    .compress()
-                    .to_bytes();
-                assert_eq!(niels_to_point(entry).compress(), expected);
+                let multiple = ED25519_BASEPOINT_TABLE * &(scale * Scalar::from(j as u64 + 1));
+                assert_eq!(
+                    limbs(entry),
+                    limbs(&niels_from_dalek(multiple)),
+                    "base[{k}][{j}]"
+                );
+                assert_eq!(
+                    niels_to_point(entry).compress(),
+                    multiple.compress().to_bytes(),
+                    "base[{k}][{j}]"
+                );
             }
             scale *= Scalar::from(256u64);
         }
     }
 
-    /// Every odd-multiple entry used by the double-scalar multiplication is
-    /// `[2 j + 1] B`.
+    /// Every limb of every odd-multiple entry used by the double-scalar
+    /// multiplication equals the canonical Niels form of `[2 j + 1] B`.
     #[test]
     fn test_odd_table_matches_dalek() {
+        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         for (j, entry) in TABLES.odd.iter().enumerate() {
-            let expected = (ED25519_BASEPOINT_TABLE * &Scalar::from(2 * j as u64 + 1))
-                .compress()
-                .to_bytes();
-            assert_eq!(niels_to_point(entry).compress(), expected, "odd {j}");
+            let multiple = ED25519_BASEPOINT_TABLE * &Scalar::from(2 * j as u64 + 1);
+            assert_eq!(limbs(entry), limbs(&niels_from_dalek(multiple)), "odd {j}");
+            assert_eq!(
+                niels_to_point(entry).compress(),
+                multiple.compress().to_bytes(),
+                "odd {j}"
+            );
         }
-        assert_eq!(
-            niels_to_point(&TABLES.odd[0]).compress(),
-            niels_to_point(&TABLES.base[0][0]).compress()
-        );
+        assert_eq!(limbs(&TABLES.odd[0]), limbs(&TABLES.base[0][0]));
     }
 
     /// `[s]B` agrees with dalek for random reduced scalars, clamped-style
@@ -782,6 +748,7 @@ mod tests {
 
     /// RFC 8032 section 7.1 test 1: the public key of the all-zero-ish seed.
     #[test]
+    #[cfg(feature = "alloc")]
     fn test_rfc8032_public_key() {
         // Secret scalar a for seed 9d61b19d...; a = clamp(SHA-512(seed)[..32]).
         let seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
@@ -1124,7 +1091,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_avx512_select_row_matches_scalar() {
-        if !std::arch::is_x86_feature_detected!("avx512f") {
+        if !has_x86_feature!("avx512f") {
             return;
         }
         let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
@@ -1152,7 +1119,7 @@ mod tests {
     #[test]
     fn test_neon_select_row_matches_scalar() {
         assert!(
-            std::arch::is_aarch64_feature_detected!("neon"),
+            has_aarch64_feature!("neon"),
             "NEON path must run on this machine"
         );
         let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];

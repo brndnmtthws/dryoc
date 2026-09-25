@@ -5,7 +5,7 @@
 //!
 //! Refer to the [protected] mod for details on usage with protected memory.
 
-use std::fmt;
+use core::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -124,8 +124,8 @@ impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BO
 
 impl<
     'a,
-    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
-    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
 > KeyPair<PublicKey, SecretKey>
 {
     /// Constructs a new keypair from key slices, consuming them. Does not check
@@ -272,7 +272,10 @@ impl<
     }
 }
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory for [`KeyPair`]
@@ -412,7 +415,6 @@ impl<
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::kx::Session;
 
@@ -634,7 +636,7 @@ mod tests {
         assert!(low_order.is_err());
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn serde_round_trip_keeps_the_keypair_usable_for_boxes() {
         use crate::dryocbox::{DryocBox, Nonce, VecBox};

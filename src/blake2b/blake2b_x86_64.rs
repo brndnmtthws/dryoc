@@ -19,7 +19,7 @@
 //!
 //! Control flow and memory access are independent of the data.
 
-use std::arch::x86_64::{
+use core::arch::x86_64::{
     __m256i, _mm256_add_epi64, _mm256_alignr_epi8, _mm256_blend_epi32, _mm256_permute4x64_epi64,
     _mm256_ror_epi64, _mm256_setr_epi64x, _mm256_shuffle_epi32, _mm256_unpackhi_epi64,
     _mm256_unpacklo_epi64, _mm256_xor_si256,
@@ -43,10 +43,8 @@ pub(super) enum Kernel {
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if std::arch::is_x86_feature_detected!("avx2") {
-        if std::arch::is_x86_feature_detected!("avx512f")
-            && std::arch::is_x86_feature_detected!("avx512vl")
-        {
+    if has_x86_feature!("avx2") {
+        if has_x86_feature!("avx512f") && has_x86_feature!("avx512vl") {
             Some(Kernel::Avx512Vl)
         } else {
             Some(Kernel::Avx2)
@@ -59,13 +57,11 @@ pub(super) fn detect() -> Option<Kernel> {
 impl Kernel {
     /// Every kernel the running CPU supports.
     #[cfg(test)]
-    pub(super) fn all() -> Vec<Kernel> {
-        let mut kernels = Vec::new();
-        if std::arch::is_x86_feature_detected!("avx2") {
+    pub(super) fn all() -> alloc::vec::Vec<Kernel> {
+        let mut kernels = alloc::vec::Vec::new();
+        if has_x86_feature!("avx2") {
             kernels.push(Kernel::Avx2);
-            if std::arch::is_x86_feature_detected!("avx512f")
-                && std::arch::is_x86_feature_detected!("avx512vl")
-            {
+            if has_x86_feature!("avx512f") && has_x86_feature!("avx512vl") {
                 kernels.push(Kernel::Avx512Vl);
             }
         }
@@ -84,10 +80,10 @@ impl Kernel {
     ) {
         match self {
             // SAFETY: `Kernel::Avx2` is only constructed after
-            // `is_x86_feature_detected!("avx2")` succeeded.
+            // `has_x86_feature!("avx2")` succeeded.
             Kernel::Avx2 => unsafe { avx2::compress(h, t, f, block) },
             // SAFETY: `Kernel::Avx512Vl` is only constructed after
-            // `is_x86_feature_detected!` confirmed `avx2`, `avx512f` and
+            // `has_x86_feature!` confirmed `avx2`, `avx512f` and
             // `avx512vl`.
             Kernel::Avx512Vl => unsafe { avx512vl::compress(h, t, f, block) },
         }

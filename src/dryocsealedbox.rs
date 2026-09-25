@@ -73,6 +73,9 @@
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -109,7 +112,10 @@ pub type Mac = StackByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES>;
 pub const SEALBYTES: usize =
     CRYPTO_KEM_XWING_CIPHERTEXTBYTES + CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES;
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory type aliases for [`DryocSealedBox`]
@@ -159,6 +165,7 @@ pub struct DryocSealedBox<
 }
 
 /// [Vec]-based sealed box.
+#[cfg(feature = "alloc")]
 pub type VecBox = DryocSealedBox<EncapsulatedKey, Mac, Vec<u8>>;
 
 /// HPKE's `suite_id` for X-Wing, HKDF-SHA256 and ChaCha20-Poly1305.
@@ -176,11 +183,28 @@ fn labeled_extract(prk: &mut [u8; 32], salt: &[u8], label: &[u8], ikm: &[u8]) {
     crypto_kdf_hkdf_sha256_extract_final(state, prk);
 }
 
+/// HPKE's key-schedule context: the mode byte, `psk_id_hash` and `info_hash`.
+const KEY_SCHEDULE_CONTEXT_BYTES: usize = 1 + 2 * CRYPTO_KDF_HKDF_SHA256_KEYBYTES;
+
+/// Longest `LabeledExpand` info built here: the two-byte length, `HPKE-v1`,
+/// the suite id, the longest label (`base_nonce`) and the key-schedule
+/// context.
+const LABELED_INFO_MAX_BYTES: usize = 2
+    + <[u8]>::len(b"HPKE-v1")
+    + <[u8]>::len(SUITE_ID)
+    + <[u8]>::len(b"base_nonce")
+    + KEY_SCHEDULE_CONTEXT_BYTES;
+
 /// HPKE `LabeledExpand(prk, label, info, output.len())`.
 fn labeled_expand(output: &mut [u8], prk: &[u8; 32], label: &[u8], info: &[u8]) {
     let length = u16::try_from(output.len()).expect("short HPKE output");
-    let labeled_info = [&length.to_be_bytes()[..], b"HPKE-v1", SUITE_ID, label, info].concat();
-    crypto_kdf_hkdf_sha256_expand(output, &labeled_info, prk)
+    let mut labeled_info = [0u8; LABELED_INFO_MAX_BYTES];
+    let mut labeled_info_len = 0;
+    for part in [&length.to_be_bytes()[..], b"HPKE-v1", SUITE_ID, label, info] {
+        labeled_info[labeled_info_len..labeled_info_len + part.len()].copy_from_slice(part);
+        labeled_info_len += part.len();
+    }
+    crypto_kdf_hkdf_sha256_expand(output, &labeled_info[..labeled_info_len], prk)
         .expect("HPKE output lengths are within HKDF's limit");
 }
 
@@ -206,7 +230,11 @@ impl Context {
         labeled_extract(&mut psk_id_hash, b"", b"psk_id_hash", b"");
         let mut info_hash = [0u8; CRYPTO_KDF_HKDF_SHA256_KEYBYTES];
         labeled_extract(&mut info_hash, b"", b"info_hash", info);
-        let context = [&[0u8][..], &psk_id_hash, &info_hash].concat();
+        // Mode byte 0 (base mode), then the two hashes.
+        let mut context = [0u8; KEY_SCHEDULE_CONTEXT_BYTES];
+        let (psk_id_part, info_part) = context[1..].split_at_mut(CRYPTO_KDF_HKDF_SHA256_KEYBYTES);
+        psk_id_part.copy_from_slice(&psk_id_hash);
+        info_part.copy_from_slice(&info_hash);
         let mut secret = Zeroizing::new([0u8; CRYPTO_KDF_HKDF_SHA256_KEYBYTES]);
         labeled_extract(&mut secret, shared_secret, b"secret", b"");
         labeled_expand(&mut self.key, &secret, b"key", &context);
@@ -343,6 +371,7 @@ impl<
     }
 
     /// Copies the box's wire format into a new [`Vec`].
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -397,6 +426,7 @@ impl<
     }
 }
 
+#[cfg(feature = "alloc")]
 impl DryocSealedBox<EncapsulatedKey, Mac, Vec<u8>> {
     /// Encrypts `message` for `recipient_public_key` into a [`VecBox`].
     /// Provided for convenience.
@@ -428,7 +458,7 @@ impl DryocSealedBox<EncapsulatedKey, Mac, Vec<u8>> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
     use crate::mlkem::tests::{field, records};

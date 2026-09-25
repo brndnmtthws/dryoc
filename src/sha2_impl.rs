@@ -45,8 +45,8 @@ macro_rules! sha2_hasher {
         }
 
         const _: () = {
-            assert!(std::mem::size_of::<$word>() == $word_bytes);
-            assert!(std::mem::size_of::<$len>() == $length_bytes);
+            assert!(core::mem::size_of::<$word>() == $word_bytes);
+            assert!(core::mem::size_of::<$len>() == $length_bytes);
         };
 
         impl $name {
@@ -65,7 +65,7 @@ macro_rules! sha2_hasher {
             #[inline]
             pub(crate) fn from_block(block: &[u8; $block_bytes]) -> Self {
                 let mut state = $iv;
-                $compress(&mut state, std::slice::from_ref(block));
+                $compress(&mut state, core::slice::from_ref(block));
                 Self {
                     state,
                     buffer: [0u8; $block_bytes],
@@ -77,7 +77,7 @@ macro_rules! sha2_hasher {
             /// A fresh hasher whose length counter claims `len` bytes were
             /// already absorbed, for exercising the length field of the final
             /// block without feeding that many bytes.
-            #[cfg(test)]
+            #[cfg(all(test, feature = "alloc"))]
             pub(crate) fn with_absorbed_len(len: $len) -> Self {
                 Self { len, ..Self::new() }
             }
@@ -106,7 +106,7 @@ macro_rules! sha2_hasher {
                     block[$block_bytes - $length_bytes..]
                         .copy_from_slice(&((input.len() as $len) * 8).to_be_bytes());
                     let mut state = $iv;
-                    $compress(&mut state, std::slice::from_ref(&block));
+                    $compress(&mut state, core::slice::from_ref(&block));
                     for (chunk, word) in output.as_chunks_mut::<$word_bytes>().0.iter_mut().zip(state)
                     {
                         *chunk = word.to_be_bytes();
@@ -133,10 +133,11 @@ macro_rules! sha2_hasher {
             }
 
             #[doc = concat!(
-                "Wrapper around [`", stringify!($name), "::compute`], returning a [`Vec`]. Provided for\n",
+                "Wrapper around [`", stringify!($name), "::compute`], returning a [`Vec`](alloc::vec::Vec). Provided for\n",
                 "convenience."
             )]
-            pub fn compute_to_vec<Input: $crate::types::Bytes + ?Sized>(input: &Input) -> Vec<u8> {
+            #[cfg(feature = "alloc")]
+            pub fn compute_to_vec<Input: $crate::types::Bytes + ?Sized>(input: &Input) -> alloc::vec::Vec<u8> {
                 Self::compute::<_, $crate::types::StackByteArray<$digest_bytes>>(input).to_vec()
             }
 
@@ -153,7 +154,7 @@ macro_rules! sha2_hasher {
                     if self.buflen < $block_bytes {
                         return;
                     }
-                    $compress(&mut self.state, std::slice::from_ref(&self.buffer));
+                    $compress(&mut self.state, core::slice::from_ref(&self.buffer));
                     // Keep the invariant that bytes at and beyond `buflen` are zero.
                     self.buffer = [0u8; $block_bytes];
                     self.buflen = 0;
@@ -183,11 +184,11 @@ macro_rules! sha2_hasher {
                 debug_assert!(self.buffer[self.buflen..].iter().all(|&b| b == 0));
                 self.buffer[self.buflen] = 0x80;
                 if self.buflen + 1 > $block_bytes - $length_bytes {
-                    $compress(&mut self.state, std::slice::from_ref(&self.buffer));
+                    $compress(&mut self.state, core::slice::from_ref(&self.buffer));
                     self.buffer.fill(0);
                 }
                 self.buffer[$block_bytes - $length_bytes..].copy_from_slice(&bit_len);
-                $compress(&mut self.state, std::slice::from_ref(&self.buffer));
+                $compress(&mut self.state, core::slice::from_ref(&self.buffer));
 
                 let output = output.as_mut_array();
                 for (chunk, word) in output.as_chunks_mut::<$word_bytes>().0.iter_mut().zip(self.state)
@@ -196,8 +197,10 @@ macro_rules! sha2_hasher {
                 }
             }
 
-            /// Consumes hasher and returns final computed hash as a [`Vec`].
-            pub fn finalize_to_vec(self) -> Vec<u8> {
+            /// Consumes hasher and returns final computed hash as a
+            /// [`Vec`](alloc::vec::Vec).
+            #[cfg(feature = "alloc")]
+            pub fn finalize_to_vec(self) -> alloc::vec::Vec<u8> {
                 self.finalize::<$crate::types::StackByteArray<$digest_bytes>>().to_vec()
             }
         }
@@ -223,10 +226,11 @@ pub(crate) use sha2_hasher;
 
 /// The length field both instantiations share, on the inputs where a
 /// counter bug would show.
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use crate::sha256::Sha256;
     use crate::sha512::Sha512;
+    use crate::test_prelude::*;
 
     const SHA256_IV: [u32; 8] = [
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,

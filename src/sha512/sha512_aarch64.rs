@@ -273,7 +273,7 @@ macro_rules! sched {
 ///
 /// # Safety
 ///
-/// The caller must have confirmed `is_aarch64_feature_detected!("sha3")`.
+/// The caller must have confirmed `has_aarch64_feature!("sha3")`.
 #[target_feature(enable = "sha3")]
 // SAFETY: an `unsafe fn` only because of the `sha3` target feature; the
 // asm below reads exactly the two 128-byte blocks and the 640-byte `K64`
@@ -1231,7 +1231,7 @@ pub(super) unsafe fn compress2(
 ///
 /// # Safety
 ///
-/// The caller must have confirmed `is_aarch64_feature_detected!("sha3")`.
+/// The caller must have confirmed `has_aarch64_feature!("sha3")`.
 #[target_feature(enable = "sha3")]
 // SAFETY: an `unsafe fn` only because of the `sha3` target feature; the asm
 // below reads exactly `blocks.len()` 128-byte blocks and the 640-byte `K64`

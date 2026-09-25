@@ -84,7 +84,9 @@
 //! * See the [`protected`] module for examples that store keys in protected
 //!   memory
 
-use std::fmt;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -113,6 +115,7 @@ pub type Seed = StackByteArray<CRYPTO_SIGN_SEEDBYTES>;
 /// Stack-allocated signature for message signing.
 pub type Signature = StackByteArray<CRYPTO_SIGN_BYTES>;
 /// Heap-allocated message for message signing.
+#[cfg(feature = "alloc")]
 pub type Message = Vec<u8>;
 
 /// Extracts the Ed25519 seed from a signing secret key.
@@ -250,8 +253,8 @@ impl
 
 impl<
     'a,
-    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
-    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Constructs a new signing keypair from key slices, consuming them. Does
@@ -282,7 +285,10 @@ impl<
     }
 }
 
-#[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+#[cfg(any(
+    all(feature = "protected", any(unix, windows)),
+    all(doc, not(doctest), feature = "std")
+))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
 pub mod protected {
     //! # Protected memory for [`SigningKeyPair`] and [`SignedMessage`]
@@ -415,6 +421,7 @@ pub struct SignedMessage<
 }
 
 /// [Vec]-based signed message.
+#[cfg(feature = "alloc")]
 pub type VecSignedMessage = SignedMessage<Signature, Vec<u8>>;
 
 impl<
@@ -454,6 +461,7 @@ impl<
     /// The default fixed-size types satisfy the current implementation's
     /// requirements, so this function does not return an error in normal use.
     /// The [`Result`] is retained for API compatibility.
+    #[cfg(feature = "alloc")]
     pub fn sign_with_defaults<Message: Bytes>(
         &self,
         message: Message,
@@ -552,7 +560,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 
 impl<
     'a,
-    Signature: ByteArray<CRYPTO_SIGN_BYTES> + std::convert::TryFrom<&'a [u8]> + Zeroize,
+    Signature: ByteArray<CRYPTO_SIGN_BYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
     Message: Bytes + From<&'a [u8]> + Zeroize,
 > SignedMessage<Signature, Message>
 {
@@ -585,6 +593,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
     }
 
     /// Copies `self` into a new [`Vec`]
+    #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -621,7 +630,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
 

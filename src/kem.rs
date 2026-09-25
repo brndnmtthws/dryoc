@@ -59,7 +59,7 @@ macro_rules! kem_api {
         $dec_sk:ident |
         $dec:expr $(,)?
     ) => {
-        use std::fmt;
+        use core::fmt;
 
         #[cfg(feature = "serde")]
         use serde::{Deserialize, Serialize};
@@ -229,7 +229,7 @@ macro_rules! kem_api {
             Ok((ciphertext, shared_secret))
         }
 
-        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest))))]
+        #[cfg(any(all(feature = "protected", any(unix, windows)), all(doc, not(doctest), feature = "std")))]
         #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
         pub mod protected {
             //! # Protected memory type aliases

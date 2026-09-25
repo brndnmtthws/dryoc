@@ -27,6 +27,7 @@ pub(crate) mod blake2b_x86_64;
 
 pub(crate) const BLOCKBYTES: usize = 128;
 pub(crate) const OUTBYTES: usize = 64;
+#[cfg(feature = "alloc")]
 pub(crate) const HALFOUTBYTES: usize = OUTBYTES / 2;
 pub(crate) const KEYBYTES: usize = 64;
 pub(crate) const SALTBYTES: usize = 16;
@@ -150,8 +151,12 @@ macro_rules! blake2b_longhash {
     () => {
         /// Fills `output` (5 bytes or more) with the Argon2 long BLAKE2b:
         /// `H(len ‖ input)` for up to 64 bytes, otherwise a chain of 64-byte
-        /// hashes each contributing its first half.
+        /// hashes each contributing its first half. Only Argon2, which needs
+        /// `alloc`, uses it.
+        #[cfg(feature = "alloc")]
         pub fn longhash(output: &mut [u8], input: &[u8]) -> Result<(), Error> {
+            use crate::blake2b::HALFOUTBYTES;
+
             assert!(output.len() > 4);
             assert!(output.len() < u32::MAX as usize);
 
@@ -159,7 +164,7 @@ macro_rules! blake2b_longhash {
             let outlen_bytes = outlen.to_le_bytes();
 
             let mut state = State::init(
-                std::cmp::min(outlen, OUTBYTES as u32) as u8,
+                core::cmp::min(outlen, OUTBYTES as u32) as u8,
                 None,
                 None,
                 None,
@@ -204,6 +209,7 @@ pub(crate) use blake2b_longhash;
 #[cfg(all(test, feature = "simd_backend", feature = "nightly"))]
 mod tests {
     use super::{blake2b_simd as simd, blake2b_soft as soft};
+    use crate::test_prelude::*;
 
     /// Lengths around the block boundaries, the single-block fast path and a
     /// few longer messages.
@@ -331,6 +337,7 @@ mod tests {
     /// chaining steps of the long variant (both the exact multiple and the
     /// remainder branches).
     #[test]
+    #[cfg(feature = "alloc")]
     fn test_longhash_matches_soft() {
         let message = message(1000);
         for outlen in [5, 32, 63, 64, 65, 95, 96, 97, 128, 129, 1024, 1025] {
@@ -380,6 +387,7 @@ mod counter_tests {
 #[cfg(all(test, dryoc_native_tests))]
 mod native_tests {
     use super::*;
+    use crate::test_prelude::*;
 
     const LENS: [usize; 5] = [0, 127, 128, 129, 256];
     const OUTLENS: [usize; 6] = [1, 31, 32, 33, 63, 64];
@@ -407,10 +415,10 @@ mod native_tests {
                 outlen,
                 message.as_ptr(),
                 message.len() as u64,
-                key.map_or(std::ptr::null(), <[u8]>::as_ptr),
+                key.map_or(core::ptr::null(), <[u8]>::as_ptr),
                 key.map_or(0, <[u8]>::len),
-                salt.map_or(std::ptr::null(), |salt| salt.as_ptr()),
-                personal.map_or(std::ptr::null(), |personal| personal.as_ptr()),
+                salt.map_or(core::ptr::null(), |salt| salt.as_ptr()),
+                personal.map_or(core::ptr::null(), |personal| personal.as_ptr()),
             )
         };
         assert_eq!(rc, 0);
@@ -434,7 +442,7 @@ mod native_tests {
 
         let mut chunked = State::init(outlen as u8, key, salt, personal).expect("init");
         let mut start = 0;
-        for cut in cuts.iter().copied().chain(std::iter::once(message.len())) {
+        for cut in cuts.iter().copied().chain(core::iter::once(message.len())) {
             let cut = cut.min(message.len()).max(start);
             chunked.update(&message[start..cut]);
             chunked.update(&[]);
@@ -451,8 +459,8 @@ mod native_tests {
         let key: Vec<u8> = (0..KEYBYTES as u8)
             .map(|i| i.wrapping_mul(37).wrapping_add(11))
             .collect();
-        let salt: [u8; SALTBYTES] = std::array::from_fn(|i| 0xa0 + i as u8);
-        let personal: [u8; PERSONALBYTES] = std::array::from_fn(|i| 0x50 + i as u8);
+        let salt: [u8; SALTBYTES] = core::array::from_fn(|i| 0xa0 + i as u8);
+        let personal: [u8; PERSONALBYTES] = core::array::from_fn(|i| 0x50 + i as u8);
 
         for len in LENS {
             let message = message(len);
