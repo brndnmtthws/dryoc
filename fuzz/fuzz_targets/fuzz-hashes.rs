@@ -38,10 +38,7 @@ use dryoc::classic::crypto_onetimeauth::{
 };
 use dryoc::classic::crypto_shorthash::crypto_shorthash;
 use dryoc::classic::crypto_xof::*;
-use dryoc::constants::{
-    CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN, CRYPTO_GENERICHASH_KEYBYTES_MAX,
-    CRYPTO_GENERICHASH_KEYBYTES_MIN,
-};
+use dryoc::constants::{CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MAX};
 use dryoc::sha3::{Sha3256, Sha3512};
 use dryoc::xof::{Shake128, Shake256, TurboShake128, TurboShake256};
 use libfuzzer_sys::fuzz_target;
@@ -138,7 +135,7 @@ fuzz_target!(|data: &[u8]| {
     let hmac_key = fill::<256>(&mut data);
     let hmac_keylen = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) % 257;
     let long_hmac_keylen = 129 + usize::from(fill::<1>(&mut data)[0]) % 128;
-    let outlen = 16 + usize::from(fill::<1>(&mut data)[0]) % 49;
+    let outlen = 1 + usize::from(fill::<1>(&mut data)[0]) % 64;
     let xof_len = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) % 600;
     let xof_domain = 1 + fill::<1>(&mut data)[0] % 0x7f;
     let message_len = usize::from(u16::from_le_bytes(fill::<2>(&mut data))) & 0xfff;
@@ -341,10 +338,10 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(mac[..], expected[..32]);
 
     // BLAKE2b: one-shot (single-block fast path included) against streamed,
-    // unkeyed and keyed; keys and output lengths outside 16..=64 are rejected
-    // by both the one-shot and the incremental interface.
-    let generichash_key =
-        (hash_keylen >= CRYPTO_GENERICHASH_KEYBYTES_MIN).then_some(&hash_key[..hash_keylen]);
+    // unkeyed and keyed. As in libsodium, keys of 0 to 64 bytes (an empty key
+    // being no key) and outputs of 1 to 64 bytes are accepted by both the
+    // one-shot and the incremental interface, and longer ones are rejected.
+    let generichash_key = Some(&hash_key[..hash_keylen]);
     let mut expected = vec![0u8; outlen];
     crypto_generichash(&mut expected, &message, generichash_key).expect("generichash");
     let mut state = crypto_generichash_init(generichash_key, outlen).expect("generichash init");
@@ -352,18 +349,14 @@ fuzz_target!(|data: &[u8]| {
     let mut actual = vec![0u8; outlen];
     crypto_generichash_final(state, &mut actual).expect("generichash final");
     assert_eq!(actual, expected);
-    if hash_keylen < CRYPTO_GENERICHASH_KEYBYTES_MIN {
-        let short_key = Some(&hash_key[..hash_keylen]);
-        assert!(crypto_generichash(&mut actual, &message, short_key).is_err());
-        assert!(crypto_generichash_init(short_key, outlen).is_err());
+    if hash_keylen == 0 {
+        crypto_generichash(&mut actual, &message, None).expect("unkeyed generichash");
+        assert_eq!(actual, expected);
     }
     let long_key = [0u8; CRYPTO_GENERICHASH_KEYBYTES_MAX + 1];
     assert!(crypto_generichash(&mut actual, &message, Some(&long_key)).is_err());
     assert!(crypto_generichash_init(Some(&long_key), outlen).is_err());
-    for bad_outlen in [
-        CRYPTO_GENERICHASH_BYTES_MIN - 1,
-        CRYPTO_GENERICHASH_BYTES_MAX + 1,
-    ] {
+    for bad_outlen in [0, CRYPTO_GENERICHASH_BYTES_MAX + 1] {
         let mut output = vec![0u8; bad_outlen];
         assert!(crypto_generichash(&mut output, &message, generichash_key).is_err());
         assert!(crypto_generichash_init(generichash_key, bad_outlen).is_err());
