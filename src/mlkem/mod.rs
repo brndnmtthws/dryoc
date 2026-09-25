@@ -17,6 +17,16 @@
 //! no secret-dependent branches or memory indices: compression uses
 //! multiplications instead of division, and the decapsulation comparison
 //! and key selection are constant-time.
+//!
+//! Zeroization: secret polynomials, seeds and hash outputs live in
+//! `Zeroizing` buffers or are wiped explicitly, and the helpers work in
+//! place on them through references. At opt-level `z`, `s` or `2` several
+//! helpers are out of line (the [`Arith`] methods and backend kernels,
+//! `poly_reduce`, `poly_add_assign`, `encode12_vec`, `decode12_vec`, `g`,
+//! `h`), which adds no copy: they get only `&`/`&mut` to that storage or
+//! public data. `gen_matrix` and `rej_uniform` see only public data, and
+//! the `array::map` calls left in `gen_matrix` and `cbd2` map references,
+//! not secret values.
 
 use subtle::{ConditionallySelectable, ConstantTimeEq};
 use zeroize::{Zeroize, Zeroizing};
@@ -333,16 +343,30 @@ fn decode12_vec(v: &mut PolyVec, bytes: &[u8]) -> bool {
     valid
 }
 
-/// `Compress_10` then `ByteEncode_10` of `u` (FIPS 203 section 4.2.1),
-/// rounding by multiplication with `2^32 / q` rather than division.
+/// `Compress_10` of one coefficient, rounding by multiplication with `2^32
+/// / q` rather than division.
+#[inline(always)]
+fn compress10(x: i16) -> u16 {
+    let d = ((u64::from(canonical(x)) << 10) + 1665) * 1_290_167;
+    ((d >> 32) & 0x3ff) as u16
+}
+
+/// `Compress_10` then `ByteEncode_10` of `u` (FIPS 203 section 4.2.1).
+///
+/// Spelled out: `array::map` with a closure copies the (secret, in
+/// decapsulation's re-encryption) coefficients into an iterator, and at
+/// opt-level `z` and `s` its `try_map` is out of line, which puts that copy
+/// in memory.
 fn compress_u(r: &mut [u8], u: &PolyVec) {
     let mut out = r.as_chunks_mut::<5>().0.iter_mut();
     for p in u {
         for c in p.as_chunks::<4>().0 {
-            let t = c.map(|x| {
-                let d = ((u64::from(canonical(x)) << 10) + 1665) * 1_290_167;
-                ((d >> 32) & 0x3ff) as u16
-            });
+            let t = [
+                compress10(c[0]),
+                compress10(c[1]),
+                compress10(c[2]),
+                compress10(c[3]),
+            ];
             *out.next().expect("sized buffer") = [
                 t[0] as u8,
                 ((t[0] >> 8) | (t[1] << 2)) as u8,
@@ -355,6 +379,9 @@ fn compress_u(r: &mut [u8], u: &PolyVec) {
 }
 
 /// `ByteDecode_10` then `Decompress_10`: coefficients in `[0, q)`.
+///
+/// The `array::map` calls are out of line at opt-level `z`, which adds no
+/// secret copy: only the public ciphertext is decompressed.
 fn decompress_u(u: &mut PolyVec, bytes: &[u8]) {
     let mut chunks = bytes.as_chunks::<5>().0.iter();
     for p in u {
@@ -371,14 +398,18 @@ fn decompress_u(u: &mut PolyVec, bytes: &[u8]) {
     }
 }
 
-/// `Compress_4` then `ByteEncode_4` of `v`.
+/// `Compress_4` of one coefficient.
+#[inline(always)]
+fn compress4(x: i16) -> u8 {
+    let d = ((u32::from(canonical(x)) << 4) + 1665).wrapping_mul(80635);
+    (d >> 28) as u8 & 0x0f
+}
+
+/// `Compress_4` then `ByteEncode_4` of `v`, spelled out like
+/// [`compress_u`].
 fn compress_v(r: &mut [u8], v: &Poly) {
     for (byte, pair) in r.iter_mut().zip(v.as_chunks::<2>().0) {
-        let t = pair.map(|x| {
-            let d = ((u32::from(canonical(x)) << 4) + 1665).wrapping_mul(80635);
-            (d >> 28) as u8 & 0x0f
-        });
-        *byte = t[0] | (t[1] << 4);
+        *byte = compress4(pair[0]) | (compress4(pair[1]) << 4);
     }
 }
 

@@ -25,9 +25,9 @@
 //! Zeroization: the kernels work in place on the caller's polynomials, which
 //! [`super`] keeps in `Zeroizing` buffers or wipes explicitly when they hold
 //! secrets. The vectors of a pass live in registers and in the few spill
-//! slots the compiler adds (the optimized NTT spills one vector to the red
-//! zone). Rust cannot reliably wipe those, and wiping them would force the
-//! values into memory, so the kernels add no wipes of their own.
+//! slots the compiler adds (see [`ntt_avx2`]). Rust cannot reliably wipe
+//! those, and wiping them would force the values into memory, so the kernels
+//! add no wipes of their own.
 
 use core::arch::x86_64::{
     __m256i, _mm256_add_epi16, _mm256_blend_epi16, _mm256_blend_epi32, _mm256_mulhi_epi16,
@@ -179,6 +179,9 @@ impl Twiddles {
     }
 
     /// The twiddle vectors of pair `m`.
+    ///
+    /// Out of line at opt-level `z`, which adds no copy: it only reads a
+    /// public twiddle table, and its result is public.
     #[inline]
     #[target_feature(enable = "avx2")]
     fn get(&self, m: usize) -> Twiddle {
@@ -205,6 +208,9 @@ struct Twiddle {
 }
 
 /// `ZETAS[k]` in every lane.
+///
+/// Out of line at opt-level `z`, which adds no copy: it only reads the
+/// public twiddle table, and its result is public.
 #[inline]
 #[target_feature(enable = "avx2")]
 fn broadcast(k: usize) -> Twiddle {
@@ -214,26 +220,29 @@ fn broadcast(k: usize) -> Twiddle {
     }
 }
 
-/// Lane-wise `fqmul(x, w)`: `hi(x * w) - hi(lo(x * w * q^-1) * q)`.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn fqmul(x: __m256i, w: Twiddle) -> __m256i {
-    let t = _mm256_mullo_epi16(x, w.zeta_qinv);
-    _mm256_sub_epi16(
-        _mm256_mulhi_epi16(x, w.zeta),
-        _mm256_mulhi_epi16(t, _mm256_set1_epi16(Q)),
-    )
+/// Lane-wise `fqmul($x, $w)` for `$x: __m256i`, `$w: Twiddle`: `hi(x * w) -
+/// hi(lo(x * w * q^-1) * q)`.
+macro_rules! fqmul {
+    ($x:expr, $w:expr) => {{
+        let (x, w): (__m256i, Twiddle) = ($x, $w);
+        let t = _mm256_mullo_epi16(x, w.zeta_qinv);
+        _mm256_sub_epi16(
+            _mm256_mulhi_epi16(x, w.zeta),
+            _mm256_mulhi_epi16(t, _mm256_set1_epi16(Q)),
+        )
+    }};
 }
 
-/// Lane-wise `fqmul(x, y)` of two variables, given `x_qinv = x * q^-1`.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn fqmul_vars(x: __m256i, x_qinv: __m256i, y: __m256i) -> __m256i {
-    let t = _mm256_mullo_epi16(x_qinv, y);
-    _mm256_sub_epi16(
-        _mm256_mulhi_epi16(x, y),
-        _mm256_mulhi_epi16(t, _mm256_set1_epi16(Q)),
-    )
+/// Lane-wise `fqmul($x, $y)` of two variables, given `$x_qinv = x * q^-1`.
+macro_rules! fqmul_vars {
+    ($x:expr, $x_qinv:expr, $y:expr) => {{
+        let (x, x_qinv, y): (__m256i, __m256i, __m256i) = ($x, $x_qinv, $y);
+        let t = _mm256_mullo_epi16(x_qinv, y);
+        _mm256_sub_epi16(
+            _mm256_mulhi_epi16(x, y),
+            _mm256_mulhi_epi16(t, _mm256_set1_epi16(Q)),
+        )
+    }};
 }
 
 /// Lane-wise flooring `barrett_reduce`.
@@ -245,23 +254,55 @@ fn barrett_reduce(a: __m256i) -> __m256i {
 }
 
 /// The forward (Cooley-Tukey) butterfly `(a + t, a - t)` with `t =
-/// fqmul(b, w)`.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn ct(a: &mut __m256i, b: &mut __m256i, w: Twiddle) {
-    let t = fqmul(*b, w);
-    *b = _mm256_sub_epi16(*a, t);
-    *a = _mm256_add_epi16(*a, t);
+/// fqmul(b, w)` on the places `$a`, `$b`.
+macro_rules! ct {
+    ($a:expr, $b:expr, $w:expr) => {{
+        let t = fqmul!($b, $w);
+        $b = _mm256_sub_epi16($a, t);
+        $a = _mm256_add_epi16($a, t);
+    }};
 }
 
 /// The inverse (Gentleman-Sande) butterfly `(barrett(a + b), fqmul(b - a,
-/// w))`.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn gs(a: &mut __m256i, b: &mut __m256i, w: Twiddle) {
-    let t = *a;
-    *a = barrett_reduce(_mm256_add_epi16(t, *b));
-    *b = fqmul(_mm256_sub_epi16(*b, t), w);
+/// w))` on the places `$a`, `$b`.
+macro_rules! gs {
+    ($a:expr, $b:expr, $w:expr) => {{
+        let t = $a;
+        $a = barrett_reduce(_mm256_add_epi16(t, $b));
+        $b = fqmul!(_mm256_sub_epi16($b, t), $w);
+    }};
+}
+
+/// Butterflies `$bf` (`ct` or `gs`) of span `$len` strided vectors over the
+/// eight vectors `$v`, group `g` using `broadcast($k + g)` (`+`) or
+/// `broadcast($k - g)` (`-`). Spelled out so every index is a constant;
+/// see [`ntt_avx2`].
+macro_rules! strided_layer {
+    ($bf:ident, $v:ident, 4, $k:literal $sign:tt) => {{
+        let w = broadcast($k);
+        $bf!($v[0], $v[4], w);
+        $bf!($v[1], $v[5], w);
+        $bf!($v[2], $v[6], w);
+        $bf!($v[3], $v[7], w);
+    }};
+    ($bf:ident, $v:ident, 2, $k:literal $sign:tt) => {{
+        let w = broadcast($k);
+        $bf!($v[0], $v[2], w);
+        $bf!($v[1], $v[3], w);
+        let w = broadcast($k $sign 1);
+        $bf!($v[4], $v[6], w);
+        $bf!($v[5], $v[7], w);
+    }};
+    ($bf:ident, $v:ident, 1, $k:literal $sign:tt) => {{
+        let w = broadcast($k);
+        $bf!($v[0], $v[1], w);
+        let w = broadcast($k $sign 1);
+        $bf!($v[2], $v[3], w);
+        let w = broadcast($k $sign 2);
+        $bf!($v[4], $v[5], w);
+        let w = broadcast($k $sign 3);
+        $bf!($v[6], $v[7], w);
+    }};
 }
 
 /// Swaps the high 128-bit half of `a` with the low half of `b`.
@@ -313,65 +354,85 @@ fn pairs_mut(p: &mut Poly) -> &mut [[[i16; 16]; 2]] {
     p.as_chunks_mut::<16>().0.as_chunks_mut::<2>().0
 }
 
-/// The even and odd coefficients of vector pair `m` of `p`, in the layout
-/// of [`Twiddles::basemul`].
-#[inline]
-#[target_feature(enable = "avx2")]
-fn deinterleave(p: &Poly, m: usize) -> (__m256i, __m256i) {
-    let [a, b] = &pairs(p)[m];
-    let (mut even, mut odd) = (load_i16s(a), load_i16s(b));
-    transpose16(&mut even, &mut odd);
-    (even, odd)
+/// The even and odd coefficients of vector pair `$m` of `$p: &Poly`, in the
+/// layout of [`Twiddles::basemul`].
+macro_rules! deinterleave {
+    ($p:expr, $m:expr) => {{
+        let [a, b] = &pairs($p)[$m];
+        let (mut even, mut odd) = (load_i16s(a), load_i16s(b));
+        transpose16(&mut even, &mut odd);
+        (even, odd)
+    }};
 }
 
-/// Loads vector `j` of every pair: vectors `j, j + 2, .., j + 14`, which
-/// the layers of span 128, 64 and 32 combine only among themselves.
-#[inline]
-#[target_feature(enable = "avx2")]
-fn load_strided(r: &Poly, j: usize) -> [__m256i; 8] {
-    let mut v = [_mm256_setzero_si256(); 8];
-    for (v, pair) in v.iter_mut().zip(pairs(r)) {
-        *v = load_i16s(&pair[j]);
-    }
-    v
+/// Loads vector `$j` of every pair of `$r: &Poly`: vectors `j, j + 2, ..,
+/// j + 14`, which the layers of span 128, 64 and 32 combine only among
+/// themselves.
+macro_rules! load_strided {
+    ($r:expr, $j:expr) => {{
+        let (pairs, j): (&[[[i16; 16]; 2]], usize) = (pairs($r), $j);
+        [
+            load_i16s(&pairs[0][j]),
+            load_i16s(&pairs[1][j]),
+            load_i16s(&pairs[2][j]),
+            load_i16s(&pairs[3][j]),
+            load_i16s(&pairs[4][j]),
+            load_i16s(&pairs[5][j]),
+            load_i16s(&pairs[6][j]),
+            load_i16s(&pairs[7][j]),
+        ]
+    }};
 }
 
-#[inline]
-#[target_feature(enable = "avx2")]
-fn store_strided(r: &mut Poly, j: usize, v: [__m256i; 8]) {
-    for (v, pair) in v.iter().zip(pairs_mut(r)) {
-        store_i16s(&mut pair[j], *v);
-    }
+/// Stores the eight vectors `$v` as vector `$j` of every pair of `$r: &mut
+/// Poly`, the reverse of `load_strided!`.
+macro_rules! store_strided {
+    ($r:expr, $j:expr, $v:expr) => {{
+        let [v0, v1, v2, v3, v4, v5, v6, v7]: [__m256i; 8] = $v;
+        let (pairs, j): (&mut [[[i16; 16]; 2]], usize) = (pairs_mut($r), $j);
+        store_i16s(&mut pairs[0][j], v0);
+        store_i16s(&mut pairs[1][j], v1);
+        store_i16s(&mut pairs[2][j], v2);
+        store_i16s(&mut pairs[3][j], v3);
+        store_i16s(&mut pairs[4][j], v4);
+        store_i16s(&mut pairs[5][j], v5);
+        store_i16s(&mut pairs[6][j], v6);
+        store_i16s(&mut pairs[7][j], v7);
+    }};
 }
 
+/// `mlkem_soft::ntt`.
+///
+/// The strided pass is spelled out, and the butterflies, Montgomery
+/// products and strided loads and stores are macros: at opt-level `z` LLVM
+/// kept the `#[inline]` helpers out of line and handed them the
+/// coefficient vectors (copies of secret coefficients) through the stack,
+/// and at `z`, `s` and `2` the rolled layer loops kept the strided vectors
+/// in stack memory nothing wipes. The twiddle helpers, still out of line at
+/// `z`, only produce public vectors; the coefficient vectors live across
+/// those calls in spill slots.
 #[target_feature(enable = "avx2")]
 fn ntt_avx2(r: &mut Poly) {
     // Spans 128, 64 and 32 on each strided half, in registers: span `len`
     // strided vectors has `4 / len` groups, the first using `ZETAS[4 / len]`.
     for j in 0..2 {
-        let mut v = load_strided(r, j);
-        for len in [4, 2, 1] {
-            for (g, group) in v.chunks_exact_mut(2 * len).enumerate() {
-                let w = broadcast(4 / len + g);
-                let (lo, hi) = group.split_at_mut(len);
-                for (a, b) in lo.iter_mut().zip(hi) {
-                    ct(a, b, w);
-                }
-            }
-        }
-        store_strided(r, j, v);
+        let mut v = load_strided!(r, j);
+        strided_layer!(ct, v, 4, 1 +);
+        strided_layer!(ct, v, 2, 2 +);
+        strided_layer!(ct, v, 1, 4 +);
+        store_strided!(r, j, v);
     }
     // Spans 16, 8, 4 and 2 and the final reduction on each pair.
     for (m, [a_row, b_row]) in pairs_mut(r).iter_mut().enumerate() {
         let (mut a, mut b) = (load_i16s(a_row), load_i16s(b_row));
         let (a, b) = (&mut a, &mut b);
-        ct(a, b, broadcast(8 + m));
+        ct!(*a, *b, broadcast(8 + m));
         transpose128(a, b);
-        ct(a, b, NTT_LEN8.get(m));
+        ct!(*a, *b, NTT_LEN8.get(m));
         transpose64(a, b);
-        ct(a, b, NTT_LEN4.get(m));
+        ct!(*a, *b, NTT_LEN4.get(m));
         transpose32(a, b);
-        ct(a, b, NTT_LEN2.get(m));
+        ct!(*a, *b, NTT_LEN2.get(m));
         *a = barrett_reduce(*a);
         *b = barrett_reduce(*b);
         transpose32(a, b);
@@ -382,6 +443,7 @@ fn ntt_avx2(r: &mut Poly) {
     }
 }
 
+/// `mlkem_soft::invntt_tomont`, spelled out like [`ntt_avx2`].
 #[target_feature(enable = "avx2")]
 fn invntt_tomont_avx2(r: &mut Poly) {
     // Spans 2, 4, 8 and 16 on each pair.
@@ -391,13 +453,13 @@ fn invntt_tomont_avx2(r: &mut Poly) {
         transpose128(a, b);
         transpose64(a, b);
         transpose32(a, b);
-        gs(a, b, INVNTT_LEN2.get(m));
+        gs!(*a, *b, INVNTT_LEN2.get(m));
         transpose32(a, b);
-        gs(a, b, INVNTT_LEN4.get(m));
+        gs!(*a, *b, INVNTT_LEN4.get(m));
         transpose64(a, b);
-        gs(a, b, INVNTT_LEN8.get(m));
+        gs!(*a, *b, INVNTT_LEN8.get(m));
         transpose128(a, b);
-        gs(a, b, broadcast(15 - m));
+        gs!(*a, *b, broadcast(15 - m));
         store_i16s(a_row, *a);
         store_i16s(b_row, *b);
     }
@@ -409,23 +471,30 @@ fn invntt_tomont_avx2(r: &mut Poly) {
         zeta_qinv: _mm256_set1_epi16(INVNTT_F.wrapping_mul(QINV)),
     };
     for j in 0..2 {
-        let mut v = load_strided(r, j);
-        for len in [1, 2, 4] {
-            for (g, group) in v.chunks_exact_mut(2 * len).enumerate() {
-                let w = broadcast(8 / len - 1 - g);
-                let (lo, hi) = group.split_at_mut(len);
-                for (a, b) in lo.iter_mut().zip(hi) {
-                    gs(a, b, w);
-                }
-            }
-        }
-        for x in &mut v {
-            *x = fqmul(*x, f);
-        }
-        store_strided(r, j, v);
+        let mut v = load_strided!(r, j);
+        strided_layer!(gs, v, 1, 7 -);
+        strided_layer!(gs, v, 2, 3 -);
+        strided_layer!(gs, v, 4, 1 -);
+        let [v0, v1, v2, v3, v4, v5, v6, v7] = v;
+        store_strided!(
+            r,
+            j,
+            [
+                fqmul!(v0, f),
+                fqmul!(v1, f),
+                fqmul!(v2, f),
+                fqmul!(v3, f),
+                fqmul!(v4, f),
+                fqmul!(v5, f),
+                fqmul!(v6, f),
+                fqmul!(v7, f),
+            ]
+        );
     }
 }
 
+/// `mlkem_soft::basemul_acc`, with the de-interleaving and the products as
+/// macros like [`ntt_avx2`]'s.
 #[target_feature(enable = "avx2")]
 fn basemul_acc_avx2<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
     let qinv = _mm256_set1_epi16(QINV);
@@ -433,14 +502,14 @@ fn basemul_acc_avx2<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) 
         let w = BASEMUL.get(m);
         let (mut c0, mut c1) = (_mm256_setzero_si256(), _mm256_setzero_si256());
         for (a, b) in a.iter().zip(b) {
-            let (a0, a1) = deinterleave(a, m);
-            let (b0, b1) = deinterleave(b, m);
+            let (a0, a1) = deinterleave!(a, m);
+            let (b0, b1) = deinterleave!(b, m);
             let (a0_qinv, a1_qinv) = (_mm256_mullo_epi16(a0, qinv), _mm256_mullo_epi16(a1, qinv));
             let even = _mm256_add_epi16(
-                fqmul(fqmul_vars(a1, a1_qinv, b1), w),
-                fqmul_vars(a0, a0_qinv, b0),
+                fqmul!(fqmul_vars!(a1, a1_qinv, b1), w),
+                fqmul_vars!(a0, a0_qinv, b0),
             );
-            let odd = _mm256_add_epi16(fqmul_vars(a0, a0_qinv, b1), fqmul_vars(a1, a1_qinv, b0));
+            let odd = _mm256_add_epi16(fqmul_vars!(a0, a0_qinv, b1), fqmul_vars!(a1, a1_qinv, b0));
             c0 = _mm256_add_epi16(c0, even);
             c1 = _mm256_add_epi16(c1, odd);
         }

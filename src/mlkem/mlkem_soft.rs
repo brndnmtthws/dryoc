@@ -13,7 +13,10 @@
 //! hold secrets. The working values are locals of inlined helpers, so they
 //! live only in registers and spill slots. Rust cannot reliably wipe those,
 //! and wiping them would force them into memory, so these functions add no
-//! wipes of their own.
+//! wipes of their own. At opt-level `z` and `s` the operations themselves
+//! (and `Range::step_by` in the NTT loops) are out of line, which adds no
+//! copy: they get only `&`/`&mut` to those polynomials, and `step_by` only
+//! public indices.
 
 use super::{N, Poly, Q};
 

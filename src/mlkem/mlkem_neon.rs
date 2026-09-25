@@ -26,10 +26,10 @@
 //! Zeroization: the kernels load rows of the caller's polynomial, transform
 //! them in vector registers and store them back in place. The polynomials
 //! belong to [`super`], which keeps secret ones in `Zeroizing` buffers or
-//! wipes them explicitly. The vector arrays are iterated by reference and
-//! stay in registers and spill slots. Rust cannot reliably wipe those, and
-//! wiping them would force them into memory, so the kernels add no wipes of
-//! their own.
+//! wipes them explicitly. The NTT's vector arrays are indexed only by
+//! constants (see [`ntt`]) and stay in registers and spill slots. Rust
+//! cannot reliably wipe those, and wiping them would force them into
+//! memory, so the kernels add no wipes of their own.
 
 use core::arch::aarch64::{
     int16x8_t, vaddq_s16, vdupq_n_s16, vhsubq_s16, vld1q_s16, vmlsq_n_s16, vmulq_n_s16, vmulq_s16,
@@ -180,12 +180,13 @@ fn fqmul(a: int16x8_t, b: int16x8_t, b_qinv: int16x8_t) -> int16x8_t {
     vhsubq_s16(vqdmulhq_s16(a, b), vqdmulhq_n_s16(t, Q))
 }
 
-/// Lane-wise `fqmul(a, ZETAS[k])`.
-#[inline]
-#[target_feature(enable = "neon")]
-fn fqmul_zeta(a: int16x8_t, k: usize) -> int16x8_t {
-    let t = vmulq_n_s16(a, ZETAS_QINV[k]);
-    vhsubq_s16(vqdmulhq_n_s16(a, ZETAS[k]), vqdmulhq_n_s16(t, Q))
+/// Lane-wise `fqmul($a, ZETAS[$k])` for `$a: int16x8_t`, `$k: usize`.
+macro_rules! fqmul_zeta {
+    ($a:expr, $k:expr) => {{
+        let (a, k): (int16x8_t, usize) = ($a, $k);
+        let t = vmulq_n_s16(a, ZETAS_QINV[k]);
+        vhsubq_s16(vqdmulhq_n_s16(a, ZETAS[k]), vqdmulhq_n_s16(t, Q))
+    }};
 }
 
 /// Lane-wise flooring `barrett_reduce`.
@@ -204,36 +205,65 @@ fn ct(a: int16x8_t, t: int16x8_t) -> (int16x8_t, int16x8_t) {
     (vaddq_s16(a, t), vsubq_s16(a, t))
 }
 
-/// Forward butterflies `len = 8 * d` over `v`, with twiddles from `k` on.
-#[inline]
-#[target_feature(enable = "neon")]
-fn ct_layer<const L: usize>(v: &mut [int16x8_t; L], d: usize, mut k: usize) {
-    for start in (0..L).step_by(2 * d) {
-        for j in start..start + d {
-            (v[j], v[j + d]) = ct(v[j], fqmul_zeta(v[j + d], k));
-        }
-        k += 1;
-    }
+/// Forward butterflies `len = 8 * $d` over the eight vectors `$v`, with
+/// twiddles from `$k` on. Spelled out so every index is a constant; see
+/// [`ntt`].
+macro_rules! ct_layer {
+    (@butterflies $v:ident, $k:expr; $($j:literal $partner:literal),+) => {
+        $(($v[$j], $v[$partner]) = ct($v[$j], fqmul_zeta!($v[$partner], $k));)+
+    };
+    ($v:ident, 4, $k:expr) => {{
+        let k: usize = $k;
+        ct_layer!(@butterflies $v, k; 0 4, 1 5, 2 6, 3 7);
+    }};
+    ($v:ident, 2, $k:expr) => {{
+        let k: usize = $k;
+        ct_layer!(@butterflies $v, k; 0 2, 1 3);
+        ct_layer!(@butterflies $v, k + 1; 4 6, 5 7);
+    }};
+    ($v:ident, 1, $k:expr) => {{
+        let k: usize = $k;
+        ct_layer!(@butterflies $v, k; 0 1);
+        ct_layer!(@butterflies $v, k + 1; 2 3);
+        ct_layer!(@butterflies $v, k + 2; 4 5);
+        ct_layer!(@butterflies $v, k + 3; 6 7);
+    }};
 }
 
-/// Inverse (Gentleman-Sande) butterfly `(barrett_reduce(a + b), fqmul(zeta,
-/// b - a))`, with the product by `zeta` applied by `mul`.
+/// Inverse (Gentleman-Sande) butterfly without its product by `zeta`:
+/// `(barrett_reduce(a + b), b - a)`, the second of which the caller
+/// multiplies by the twiddle.
 #[inline]
 #[target_feature(enable = "neon")]
-fn gs(a: int16x8_t, b: int16x8_t, mul: impl Fn(int16x8_t) -> int16x8_t) -> (int16x8_t, int16x8_t) {
-    (barrett_reduce(vaddq_s16(a, b)), mul(vsubq_s16(b, a)))
+fn gs(a: int16x8_t, b: int16x8_t) -> (int16x8_t, int16x8_t) {
+    (barrett_reduce(vaddq_s16(a, b)), vsubq_s16(b, a))
 }
 
-/// Inverse butterflies `len = 8 * d` over `v`, with twiddles from `k` down.
-#[inline]
-#[target_feature(enable = "neon")]
-fn gs_layer<const L: usize>(v: &mut [int16x8_t; L], d: usize, mut k: usize) {
-    for start in (0..L).step_by(2 * d) {
-        for j in start..start + d {
-            (v[j], v[j + d]) = gs(v[j], v[j + d], |x| fqmul_zeta(x, k));
-        }
-        k -= 1;
-    }
+/// Inverse butterflies `len = 8 * $d` over the eight vectors `$v`, with
+/// twiddles from `$k` down. Spelled out like `ct_layer!`.
+macro_rules! gs_layer {
+    (@butterflies $v:ident, $k:expr; $($j:literal $partner:literal),+) => {
+        $({
+            let (sum, difference) = gs($v[$j], $v[$partner]);
+            ($v[$j], $v[$partner]) = (sum, fqmul_zeta!(difference, $k));
+        })+
+    };
+    ($v:ident, 4, $k:expr) => {{
+        let k: usize = $k;
+        gs_layer!(@butterflies $v, k; 0 4, 1 5, 2 6, 3 7);
+    }};
+    ($v:ident, 2, $k:expr) => {{
+        let k: usize = $k;
+        gs_layer!(@butterflies $v, k; 0 2, 1 3);
+        gs_layer!(@butterflies $v, k - 1; 4 6, 5 7);
+    }};
+    ($v:ident, 1, $k:expr) => {{
+        let k: usize = $k;
+        gs_layer!(@butterflies $v, k; 0 1);
+        gs_layer!(@butterflies $v, k - 1; 2 3);
+        gs_layer!(@butterflies $v, k - 2; 4 5);
+        gs_layer!(@butterflies $v, k - 3; 6 7);
+    }};
 }
 
 /// Transposes the 64-bit halves of `(a, b)`: `([a.lo, b.lo], [a.hi, b.hi])`.
@@ -284,35 +314,41 @@ fn uzp32(a: int16x8_t, b: int16x8_t) -> (int16x8_t, int16x8_t) {
 }
 
 /// The forward layers `len = 4` and `len = 2` and the final reduction on
-/// sixteen coefficients `(v0, v1)`, pair `p` of the polynomial.
-#[inline]
-#[target_feature(enable = "neon")]
-fn ntt_pair(v0: int16x8_t, v1: int16x8_t, p: usize) -> (int16x8_t, int16x8_t) {
-    // `a` holds coefficients 0..4 and 8..12, `b` their partners 4..8 and
-    // 12..16.
-    let (a, b) = trn64(v0, v1);
-    let (zeta, zeta_qinv) = twiddle(&NTT_LEN4[p]);
-    let (a, b) = ct(a, fqmul(b, zeta, zeta_qinv));
-    // As 32-bit lanes, `a` holds coefficient pairs 0, 4, 8, 12 (each the
-    // first half of a block of four) and `b` pairs 2, 6, 10, 14.
-    let (a, b) = trn32(a, b);
-    let (zeta, zeta_qinv) = twiddle(&NTT_LEN2[p]);
-    let (a, b) = ct(a, fqmul(b, zeta, zeta_qinv));
-    zip32(barrett_reduce(a), barrett_reduce(b))
+/// the sixteen coefficients `($v[$lo], $v[$hi])`, pair `$p` of the
+/// polynomial. A macro like `ct_layer!`.
+macro_rules! ntt_pair {
+    ($v:ident, $lo:literal $hi:literal, $p:expr) => {{
+        let p: usize = $p;
+        // `a` holds coefficients 0..4 and 8..12, `b` their partners 4..8 and
+        // 12..16.
+        let (a, b) = trn64($v[$lo], $v[$hi]);
+        let (zeta, zeta_qinv) = twiddle(&NTT_LEN4[p]);
+        let (a, b) = ct(a, fqmul(b, zeta, zeta_qinv));
+        // As 32-bit lanes, `a` holds coefficient pairs 0, 4, 8, 12 (each the
+        // first half of a block of four) and `b` pairs 2, 6, 10, 14.
+        let (a, b) = trn32(a, b);
+        let (zeta, zeta_qinv) = twiddle(&NTT_LEN2[p]);
+        let (a, b) = ct(a, fqmul(b, zeta, zeta_qinv));
+        ($v[$lo], $v[$hi]) = zip32(barrett_reduce(a), barrett_reduce(b));
+    }};
 }
 
-/// The inverse layers `len = 2` and `len = 4` on sixteen coefficients `(v0,
-/// v1)`, pair `p` of the polynomial: the reverse of [`ntt_pair`].
-#[inline]
-#[target_feature(enable = "neon")]
-fn invntt_pair(v0: int16x8_t, v1: int16x8_t, p: usize) -> (int16x8_t, int16x8_t) {
-    let (a, b) = uzp32(v0, v1);
-    let (zeta, zeta_qinv) = twiddle(&INVNTT_LEN2[p]);
-    let (a, b) = gs(a, b, |x| fqmul(x, zeta, zeta_qinv));
-    let (a, b) = trn32(a, b);
-    let (zeta, zeta_qinv) = twiddle(&INVNTT_LEN4[p]);
-    let (a, b) = gs(a, b, |x| fqmul(x, zeta, zeta_qinv));
-    trn64(a, b)
+/// The inverse layers `len = 2` and `len = 4` on the sixteen coefficients
+/// `($v[$lo], $v[$hi])`, pair `$p` of the polynomial: the reverse of
+/// `ntt_pair!`.
+macro_rules! invntt_pair {
+    ($v:ident, $lo:literal $hi:literal, $p:expr) => {{
+        let p: usize = $p;
+        let (a, b) = uzp32($v[$lo], $v[$hi]);
+        let (zeta, zeta_qinv) = twiddle(&INVNTT_LEN2[p]);
+        let (a, b) = gs(a, b);
+        let b = fqmul(b, zeta, zeta_qinv);
+        let (a, b) = trn32(a, b);
+        let (zeta, zeta_qinv) = twiddle(&INVNTT_LEN4[p]);
+        let (a, b) = gs(a, b);
+        let b = fqmul(b, zeta, zeta_qinv);
+        ($v[$lo], $v[$hi]) = trn64(a, b);
+    }};
 }
 
 /// The polynomial as 32 rows of eight coefficients.
@@ -321,62 +357,112 @@ fn rows(r: &mut Poly) -> &mut [[i16; 8]; 32] {
     r.as_chunks_mut::<8>().0.try_into().unwrap()
 }
 
+/// The eight rows `$rows[$j + $s * m]`, `m in 0..8`, as vectors. Spelled
+/// out so every index into the vectors is a constant; see [`ntt`].
+macro_rules! load_rows {
+    ($rows:ident, $j:expr, $s:literal) => {{
+        let j: usize = $j;
+        [
+            load(&$rows[j]),
+            load(&$rows[j + $s]),
+            load(&$rows[j + 2 * $s]),
+            load(&$rows[j + 3 * $s]),
+            load(&$rows[j + 4 * $s]),
+            load(&$rows[j + 5 * $s]),
+            load(&$rows[j + 6 * $s]),
+            load(&$rows[j + 7 * $s]),
+        ]
+    }};
+}
+
+/// Stores the eight vectors `$v` to the rows `$rows[$j + $s * m]`, the
+/// reverse of `load_rows!`.
+macro_rules! store_rows {
+    ($rows:ident, $j:expr, $s:literal, $v:expr) => {{
+        let j: usize = $j;
+        let [v0, v1, v2, v3, v4, v5, v6, v7]: [int16x8_t; 8] = $v;
+        store(&mut $rows[j], v0);
+        store(&mut $rows[j + $s], v1);
+        store(&mut $rows[j + 2 * $s], v2);
+        store(&mut $rows[j + 3 * $s], v3);
+        store(&mut $rows[j + 4 * $s], v4);
+        store(&mut $rows[j + 5 * $s], v5);
+        store(&mut $rows[j + 6 * $s], v6);
+        store(&mut $rows[j + 7 * $s], v7);
+    }};
+}
+
 /// `mlkem_soft::ntt`.
+///
+/// The eight vectors of each pass are spelled out, with the layers,
+/// `fqmul_zeta`, the loads and the stores as macros: at opt-level `z` LLVM
+/// kept `#[inline]` layer and twiddle helpers out of line (and at `z` and
+/// `s` left the index loops rolled), which put the vectors, copies of the
+/// secret coefficients, in stack memory nothing wipes.
 #[target_feature(enable = "neon")]
 fn ntt(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 128, 64, 32 on rows j, j + 4, ..., j + 28.
     for j in 0..4 {
-        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[j + 4 * m]));
-        ct_layer(&mut v, 4, 1);
-        ct_layer(&mut v, 2, 2);
-        ct_layer(&mut v, 1, 4);
-        for (m, v) in v.iter().enumerate() {
-            store(&mut rows[j + 4 * m], *v);
-        }
+        let mut v = load_rows!(rows, j, 4);
+        ct_layer!(v, 4, 1);
+        ct_layer!(v, 2, 2);
+        ct_layer!(v, 1, 4);
+        store_rows!(rows, j, 4, v);
     }
     // Layers len = 16, 8, 4, 2 on 64 consecutive coefficients.
     for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[m]));
-        ct_layer(&mut v, 2, 8 + 2 * q);
-        ct_layer(&mut v, 1, 16 + 4 * q);
-        for i in 0..4 {
-            (v[2 * i], v[2 * i + 1]) = ntt_pair(v[2 * i], v[2 * i + 1], 4 * q + i);
-        }
-        for (row, v) in rows.iter_mut().zip(&v) {
-            store(row, *v);
-        }
+        let mut v = load_rows!(rows, 0, 1);
+        ct_layer!(v, 2, 8 + 2 * q);
+        ct_layer!(v, 1, 16 + 4 * q);
+        ntt_pair!(v, 0 1, 4 * q);
+        ntt_pair!(v, 2 3, 4 * q + 1);
+        ntt_pair!(v, 4 5, 4 * q + 2);
+        ntt_pair!(v, 6 7, 4 * q + 3);
+        store_rows!(rows, 0, 1, v);
     }
 }
 
-/// `mlkem_soft::invntt_tomont`.
+/// `mlkem_soft::invntt_tomont`, spelled out like [`ntt`].
 #[target_feature(enable = "neon")]
 fn invntt_tomont(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 2, 4, 8, 16 on 64 consecutive coefficients.
     for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[m]));
-        for i in 0..4 {
-            (v[2 * i], v[2 * i + 1]) = invntt_pair(v[2 * i], v[2 * i + 1], 4 * q + i);
-        }
-        gs_layer(&mut v, 1, 31 - 4 * q);
-        gs_layer(&mut v, 2, 15 - 2 * q);
-        for (row, v) in rows.iter_mut().zip(&v) {
-            store(row, *v);
-        }
+        let mut v = load_rows!(rows, 0, 1);
+        invntt_pair!(v, 0 1, 4 * q);
+        invntt_pair!(v, 2 3, 4 * q + 1);
+        invntt_pair!(v, 4 5, 4 * q + 2);
+        invntt_pair!(v, 6 7, 4 * q + 3);
+        gs_layer!(v, 1, 31 - 4 * q);
+        gs_layer!(v, 2, 15 - 2 * q);
+        store_rows!(rows, 0, 1, v);
     }
     // Layers len = 32, 64, 128 and the final scaling on rows j, j + 4, ...,
     // j + 28.
     let f = vdupq_n_s16(INVNTT_F);
     let f_qinv = vdupq_n_s16(INVNTT_F.wrapping_mul(QINV));
     for j in 0..4 {
-        let mut v: [int16x8_t; 8] = core::array::from_fn(|m| load(&rows[j + 4 * m]));
-        gs_layer(&mut v, 1, 7);
-        gs_layer(&mut v, 2, 3);
-        gs_layer(&mut v, 4, 1);
-        for (m, v) in v.iter().enumerate() {
-            store(&mut rows[j + 4 * m], fqmul(*v, f, f_qinv));
-        }
+        let mut v = load_rows!(rows, j, 4);
+        gs_layer!(v, 1, 7);
+        gs_layer!(v, 2, 3);
+        gs_layer!(v, 4, 1);
+        let [v0, v1, v2, v3, v4, v5, v6, v7] = v;
+        store_rows!(
+            rows,
+            j,
+            4,
+            [
+                fqmul(v0, f, f_qinv),
+                fqmul(v1, f, f_qinv),
+                fqmul(v2, f, f_qinv),
+                fqmul(v3, f, f_qinv),
+                fqmul(v4, f, f_qinv),
+                fqmul(v5, f, f_qinv),
+                fqmul(v6, f, f_qinv),
+                fqmul(v7, f, f_qinv),
+            ]
+        );
     }
 }
 
