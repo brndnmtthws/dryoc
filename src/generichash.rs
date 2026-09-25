@@ -91,6 +91,14 @@ pub mod protected {
 
 /// Provides a generic hash function implementation based on Blake2b. Compatible
 /// with libsodium's generic hash.
+///
+/// Like libsodium, `OUTPUT_LENGTH` may be 1 to 64 bytes and `KEY_LENGTH` 0 to
+/// 64 bytes. [`CRYPTO_GENERICHASH_BYTES_MIN`] and
+/// [`CRYPTO_GENERICHASH_KEYBYTES_MIN`] (16 bytes) are recommended minimums,
+/// not enforced ones, and an empty key is the same as no key.
+///
+/// [`CRYPTO_GENERICHASH_BYTES_MIN`]: crate::constants::CRYPTO_GENERICHASH_BYTES_MIN
+/// [`CRYPTO_GENERICHASH_KEYBYTES_MIN`]: crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN
 pub struct GenericHash<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> {
     state: GenericHashState,
 }
@@ -100,8 +108,8 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     ///
     /// # Errors
     ///
-    /// Returns an error if `OUTPUT_LENGTH` or the length of `key` is outside
-    /// the range supported by libsodium's generic hash function.
+    /// Returns an error if `OUTPUT_LENGTH` is not 1 to 64 bytes or `key` is
+    /// longer than 64 bytes.
     pub fn new<Key: ByteArray<KEY_LENGTH>>(key: Option<&Key>) -> Result<Self, Error> {
         Ok(Self {
             state: crypto_generichash_init(key.map(|k| k.as_slice()), OUTPUT_LENGTH)?,
@@ -146,8 +154,8 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     ///
     /// # Errors
     ///
-    /// Returns an error if `OUTPUT_LENGTH` or the length of `key` is outside
-    /// the range supported by libsodium's generic hash function.
+    /// Returns an error if `OUTPUT_LENGTH` is not 1 to 64 bytes or `key` is
+    /// longer than 64 bytes.
     ///
     /// # Example
     ///
@@ -350,10 +358,7 @@ mod tests {
         test_vec("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfe", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f", "142709d62e28fcccd0af97fad0f8465b971e82201dc51070faa0372aa43e92484be1c1e73ba10906d5d1853db6a4106e0a7bf9800d373d6dee2d46d62ef2a461");
     }
 
-    use crate::constants::{
-        CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_BYTES_MIN,
-        CRYPTO_GENERICHASH_KEYBYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MIN,
-    };
+    use crate::constants::{CRYPTO_GENERICHASH_BYTES_MAX, CRYPTO_GENERICHASH_KEYBYTES_MAX};
 
     const FOX: &[u8] = b"The quick brown fox jumps over the lazy dog";
 
@@ -435,15 +440,23 @@ mod tests {
         assert_ne!(unkeyed16, &unkeyed64[..16]);
     }
 
+    /// Lengths outside libsodium's ranges (outputs of 1 to 64 bytes, keys of
+    /// 0 to 64 bytes) are rejected, and an empty key is no key. Digests at
+    /// lengths below the recommended minimums are checked against libsodium
+    /// in `keyed_and_unkeyed_hashes_match_libsodium_at_length_bounds`.
     #[test]
-    fn out_of_range_output_and_key_lengths_are_rejected_before_hashing() {
+    fn output_and_key_lengths_follow_libsodium_ranges() {
+        let empty_key: Hash =
+            GenericHash::<0, 32>::hash(FOX, Some(&sequential_key::<0>())).expect("empty key");
+        let default_unkeyed: Hash =
+            GenericHash::hash_with_defaults::<_, Key, _>(FOX, None).expect("unkeyed");
+        assert_eq!(empty_key, default_unkeyed);
+
         assert!(matches!(
-            GenericHash::<CRYPTO_GENERICHASH_KEYBYTES, { CRYPTO_GENERICHASH_BYTES_MIN - 1 }>::new::<
-                Key,
-            >(None),
+            GenericHash::<CRYPTO_GENERICHASH_KEYBYTES, 0>::new::<Key>(None),
             Err(Error::InvalidLength {
                 context: crate::ErrorContext::Output,
-                actual: 15,
+                actual: 0,
                 ..
             })
         ));
@@ -462,16 +475,15 @@ mod tests {
             })
         ));
 
-        let short_key = sequential_key::<{ CRYPTO_GENERICHASH_KEYBYTES_MIN - 1 }>();
+        let long_key = sequential_key::<{ CRYPTO_GENERICHASH_KEYBYTES_MAX + 1 }>();
         assert!(matches!(
-            GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MIN - 1 }, 32>::new(Some(&short_key)),
+            GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MAX + 1 }, 32>::new(Some(&long_key)),
             Err(Error::InvalidLength {
                 context: crate::ErrorContext::Blake2bKey,
-                actual: 15,
+                actual: 65,
                 ..
             })
         ));
-        let long_key = sequential_key::<{ CRYPTO_GENERICHASH_KEYBYTES_MAX + 1 }>();
         let rejected: Result<Hash, Error> =
             GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MAX + 1 }, 32>::hash(FOX, Some(&long_key));
         assert!(matches!(
@@ -482,17 +494,6 @@ mod tests {
                 ..
             })
         ));
-
-        // Only a supplied key is validated: an unusual key type with no key
-        // still hashes, and matches the unkeyed default.
-        let unkeyed: Hash = GenericHash::<{ CRYPTO_GENERICHASH_KEYBYTES_MIN - 1 }, 32>::hash(
-            FOX,
-            None::<&StackByteArray<15>>,
-        )
-        .expect("unkeyed");
-        let default_unkeyed: Hash =
-            GenericHash::hash_with_defaults::<_, Key, _>(FOX, None).expect("unkeyed");
-        assert_eq!(unkeyed, default_unkeyed);
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
@@ -529,20 +530,7 @@ mod tests {
     #[test]
     fn keyed_and_unkeyed_hashes_match_libsodium_at_length_bounds() {
         fn sodium_hash(input: &[u8], key: Option<&[u8]>, outlen: usize) -> Vec<u8> {
-            crate::native_test_util::init();
-            let mut output = vec![0u8; outlen];
-            let rc = unsafe {
-                libsodium_sys::crypto_generichash(
-                    output.as_mut_ptr(),
-                    outlen,
-                    input.as_ptr(),
-                    input.len() as u64,
-                    key.map_or(core::ptr::null(), <[u8]>::as_ptr),
-                    key.map_or(0, <[u8]>::len),
-                )
-            };
-            assert_eq!(rc, 0);
-            output
+            crate::native_test_util::generichash(outlen, input, key).expect("libsodium hash")
         }
 
         for (outlen, keylen, _) in FOX_KAT {
@@ -560,6 +548,19 @@ mod tests {
             .expect("hash");
             assert_eq!(actual, expected);
         }
+
+        // Output and key lengths below the recommended 16-byte minimums, which
+        // libsodium accepts, one-shot and incremental.
+        let expected = sodium_hash(FOX, Some(&[0u8][..]), 1);
+        assert_eq!(
+            GenericHash::<1, 1>::hash_to_vec(&FOX, Some(&sequential_key::<1>())).expect("hash"),
+            expected
+        );
+        let key: Vec<u8> = (0..15).collect();
+        let expected = sodium_hash(FOX, Some(&key), 15);
+        let mut hasher = GenericHash::<15, 15>::new(Some(&sequential_key::<15>())).expect("new");
+        hasher.update(FOX);
+        assert_eq!(hasher.finalize_to_vec().expect("finalize"), expected);
 
         // Inputs straddling the 128-byte BLAKE2b block boundary.
         let key = sequential_key::<CRYPTO_GENERICHASH_KEYBYTES>();
