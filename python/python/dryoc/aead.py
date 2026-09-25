@@ -11,8 +11,6 @@ Example::
     assert key.open(envelope, associated_data=b"header") == b"secret"
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import aead_ChaCha20Poly1305 as ChaCha20Poly1305
 from dryoc._dryoc import aead_XChaCha20Poly1305 as XChaCha20Poly1305
 from dryoc._types import EncryptedMessage

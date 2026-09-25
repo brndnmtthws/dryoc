@@ -3,8 +3,6 @@
 Every exception dryoc raises on purpose derives from :class:`DryocError`.
 """
 
-from __future__ import annotations
-
 __all__ = ["CryptoError", "DryocError", "InvalidInputError"]
 
 

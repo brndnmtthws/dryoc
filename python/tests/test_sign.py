@@ -1,7 +1,5 @@
 """Ed25519 and Ed25519ph signatures."""
 
-from __future__ import annotations
-
 import pytest
 from conftest import BUFFER_TYPES, flip
 

@@ -19,8 +19,6 @@ Example::
     print(h.hexdigest())
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import hash_Blake2b as Blake2b
 from dryoc._dryoc import hash_blake2b as blake2b
 from dryoc._dryoc import hash_Sha3_256 as Sha3_256

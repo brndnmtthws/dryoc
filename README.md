@@ -177,10 +177,10 @@ existing ones, so upgrading wincode does not require a new dryoc major version.
 ## Python
 
 Python bindings are published on PyPI as
-[`dryoc`](https://pypi.org/project/dryoc/) (`pip install dryoc`), with a
-Pythonic, typed API for CPython 3.10 and newer, including free-threaded
-builds. See [python/README.md](python/README.md) for usage and supported
-platforms.
+[`dryoc`](https://pypi.org/project/dryoc/) (`uv add dryoc`, or
+`pip install dryoc`), with a Pythonic, typed API for CPython 3.11 and newer,
+including free-threaded builds. See [python/README.md](python/README.md) for
+usage and supported platforms.
 
 ## Security
 

@@ -1,7 +1,9 @@
 //! Shared argument conversion, error mapping and key-class helpers.
 
 use dryoc::types::StackByteArray;
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyTypeError;
+use pyo3::intern;
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
@@ -62,10 +64,26 @@ where
 
 /// A bytes-like argument.
 ///
-/// `bytes` objects are immutable and borrowed without copying. Every other
-/// buffer (`bytearray`, `memoryview`, `array.array`, ...) is copied while
-/// attached into a private buffer that is wiped when dropped, so it cannot
-/// change while the GIL is released.
+/// Extraction takes the first route that applies:
+///
+/// 1. `bytes` is immutable and borrowed without copying.
+/// 2. A buffer with a byte format (`B` or `c`: `bytearray`, `memoryview` slices
+///    of bytes, ...) is copied once through `PyBuffer<u8>`, at any strides.
+/// 3. A C-contiguous buffer of any other format (`array.array('I')`,
+///    `memoryview.cast('I')`, ctypes arrays, ...) is viewed as bytes with
+///    `memoryview.cast('B')` and copied once the same way.
+/// 4. Anything `cast` rejects, i.e. a non-C-contiguous buffer of a non-byte
+///    format (`memoryview(array.array('I'))[::2]`, a sliced numpy `int32`
+///    array, ...) or an empty one with a zero in its shape, is copied through a
+///    `bytearray` temporary that is wiped afterwards. PyO3 0.29 offers no safe
+///    C-order copy of an untyped buffer (`PyBuffer<T>` only copies formats
+///    matching `T`), so this is the one route that needs neither `unsafe` nor
+///    refusing the input.
+///
+/// Every route yields the raw item bytes in C order, as
+/// `bytes(memoryview(obj))` does. Copies are taken while attached into a
+/// private buffer that is wiped when dropped, so they cannot change while the
+/// GIL is released.
 pub(crate) enum Buf<'py> {
     Bytes(Bound<'py, PyBytes>),
     Owned(Zeroizing<Vec<u8>>),
@@ -93,16 +111,36 @@ fn not_bytes_like(obj: &Bound<'_, PyAny>) -> PyErr {
     }
 }
 
-/// Copies a buffer-protocol object into a wiped-on-drop vector.
+/// Copies a buffer-protocol object (routes 2 to 4 of [`Buf`]) into a
+/// wiped-on-drop vector.
 fn copy_buffer(obj: &Bound<'_, PyAny>) -> PyResult<Zeroizing<Vec<u8>>> {
+    let py = obj.py();
+    // Re-exporting through a memoryview fills in the shape and strides that
+    // `PyBuffer` requires and some exporters (ctypes) leave out.
     let view = PyMemoryView::from(obj).map_err(|_| not_bytes_like(obj))?;
-    // `bytearray(view)` copies the raw bytes in C order through the buffer
-    // protocol, which the limited API cannot access directly before 3.11.
+    // Fails for non-byte formats, and for 0-dimensional buffers (no shape),
+    // which are C-contiguous and take the `cast` route instead.
+    let bytes = if let Ok(bytes) = PyBuffer::<u8>::get(&view) {
+        bytes
+    } else if let Ok(cast) = view.call_method1(intern!(py, "cast"), (intern!(py, "B"),)) {
+        PyBuffer::<u8>::get(&cast)?
+    } else {
+        return copy_through_temporary(&view);
+    };
+    let mut copy = Zeroizing::new(vec![0; bytes.len_bytes()]);
+    bytes.copy_to_slice(py, &mut copy)?;
+    Ok(copy)
+}
+
+/// Copies a buffer of any format and layout in C order through a `bytearray`
+/// (route 4 of [`Buf`]), then overwrites the temporary.
+fn copy_through_temporary(view: &Bound<'_, PyMemoryView>) -> PyResult<Zeroizing<Vec<u8>>> {
+    let py = view.py();
     let temporary = PyByteArray::from(view.as_any())?;
     let copy = Zeroizing::new(temporary.to_vec());
     // Overwrite the temporary in place (same length, so no reallocation).
-    let zeros = PyBytes::new_with(obj.py(), copy.len(), |_| Ok(()))?;
-    temporary.set_item(PySlice::full(obj.py()), zeros)?;
+    let zeros = PyBytes::new_with(py, copy.len(), |_| Ok(()))?;
+    temporary.set_item(PySlice::full(py), zeros)?;
     Ok(copy)
 }
 
@@ -112,9 +150,6 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Buf<'py> {
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(bytes) = obj.cast::<PyBytes>() {
             return Ok(Buf::Bytes(bytes.to_owned()));
-        }
-        if let Ok(bytearray) = obj.cast::<PyByteArray>() {
-            return Ok(Buf::Owned(Zeroizing::new(bytearray.to_vec())));
         }
         let obj = obj.to_owned();
         if obj.is_instance_of::<PyString>() {

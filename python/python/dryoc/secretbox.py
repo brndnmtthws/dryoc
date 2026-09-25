@@ -10,8 +10,6 @@ Example::
     assert key.decrypt(*message) == b"attack at dawn"
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import secretbox_SecretBox as SecretBox
 from dryoc._types import EncryptedMessage
 

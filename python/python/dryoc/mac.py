@@ -16,8 +16,6 @@ Example::
     mac.HmacSha512256(key, b"message").verify(tag)
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import mac_hmac_sha256 as hmac_sha256
 from dryoc._dryoc import mac_hmac_sha512 as hmac_sha512
 from dryoc._dryoc import mac_hmac_sha512256 as hmac_sha512256

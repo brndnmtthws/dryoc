@@ -454,6 +454,10 @@ jobs:
   python:
     name: Python / ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Never fall back to a runner's system Python: "3" means the latest
+      # stable uv-managed CPython.
+      UV_MANAGED_PYTHON: "1"
     defaults:
       run:
         shell: bash
@@ -466,52 +470,58 @@ jobs:
           - macos-latest
           - windows-latest
         python-version:
-          - "3.10"
-          - "3.x"
+          - "3.11"
+          - "3"
         include:
           - os: ubuntu-latest
             python-version: "3.14t"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           python-version: ${{ matrix.python-version }}
+          working-directory: python
+      - name: Install Python
+        id: python
+        run: |
+          uv python install
+          echo "path=$(uv python find)" >> "$GITHUB_OUTPUT"
+        working-directory: python
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
           manylinux: ${{ matrix.python-version == '3.14t' && 'off' || '' }}
-          args: --release --locked --out dist ${{ matrix.python-version == '3.14t' && '-i python3.14t' || '' }}
+          args: --release --locked --out dist ${{ matrix.python-version == '3.14t' && format('-i {0}', steps.python.outputs.path) || '' }}
           working-directory: python
       - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade 'pip>=25.1'
-          python -m pip install --group test
+        run: uv sync --locked --only-group test
         working-directory: python
       - name: Install built wheel
-        run: python -m pip install dist/*.whl
+        run: uv pip install dist/*.whl
         working-directory: python
       - name: Verify imports use installed wheel
-        run: python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+        run: uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
         working-directory: python
       - name: Verify interoperability dependency is installed
-        run: python -c "import nacl"
+        run: uv run --no-sync python -c "import nacl"
         working-directory: python
       - name: Run Python tests
-        run: pytest -p no:cacheprovider tests
+        run: uv run --no-sync pytest -p no:cacheprovider tests
         working-directory: python
       - name: Setup nightly Rust validation tools
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.x'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3'
         uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
           profile: minimal
           components: clippy rustfmt
       - name: Lint Python and Rust code
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.x'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3'
         run: |
-          python -m mypy.stubtest dryoc
-          python -m mypy --strict python/dryoc tests
+          uv run --no-sync python -m mypy.stubtest dryoc
+          uv run --no-sync mypy --strict python/dryoc tests
+          uv run --no-sync pyright --verifytypes dryoc --ignoreexternal
           cargo clippy --locked --all-targets -- -D warnings
           cargo +nightly fmt --check
         working-directory: python
@@ -519,14 +529,17 @@ jobs:
   python-sdist:
     name: Python / source distribution round trip
     runs-on: ubuntu-latest
+    env:
+      UV_MANAGED_PYTHON: "1"
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
+          working-directory: python
       - name: Build source distribution
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -535,27 +548,26 @@ jobs:
           working-directory: python
       - name: Build wheel from source distribution
         run: |
-          python -m pip install 'maturin>=1.15,<2'
           mkdir extracted
           tar -xzf python/dist/*.tar.gz -C extracted
           mv extracted/dryoc-* extracted/sdist
           cd extracted/sdist
-          maturin build --release --locked --out "$GITHUB_WORKSPACE/python/dist"
+          uvx --from 'maturin>=1.15,<2' maturin build --release --locked --out "$GITHUB_WORKSPACE/python/dist"
+      # The source distribution carries no uv.lock, so this resolves the test
+      # group afresh, as a downstream build would.
       - name: Install test dependencies from extracted project
-        run: |
-          python -m pip install --upgrade 'pip>=25.1'
-          python -m pip install --group test
+        run: uv sync --only-group test
         working-directory: extracted/sdist
       - name: Install built wheel
-        run: python -m pip install "$GITHUB_WORKSPACE"/python/dist/*.whl
+        run: uv pip install "$GITHUB_WORKSPACE"/python/dist/*.whl
         working-directory: extracted/sdist
       - name: Verify wheel imports and interop dependency
         run: |
-          python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
-          python -c "import nacl"
+          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+          uv run --no-sync python -c "import nacl"
         working-directory: extracted/sdist
       - name: Run tests from extracted source distribution
-        run: pytest -p no:cacheprovider tests
+        run: uv run --no-sync pytest -p no:cacheprovider tests
         working-directory: extracted/sdist/python
 
   # Single job for branch protection to require. `always()` matters: without

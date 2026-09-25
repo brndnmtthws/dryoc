@@ -1,7 +1,5 @@
 """SecretBox and the ChaCha20-Poly1305 AEADs."""
 
-from __future__ import annotations
-
 import pytest
 from conftest import BUFFER_TYPES, flip
 

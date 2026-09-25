@@ -1,8 +1,8 @@
 """Behavior shared by all key objects: redacted reprs, constant-time
 equality, hashing, explicit export, exceptions and buffer handling."""
 
-from __future__ import annotations
-
+import array
+import hashlib
 import pickle
 from collections.abc import Callable
 from typing import Any
@@ -11,6 +11,7 @@ import pytest
 
 import dryoc
 from dryoc import aead, box, kdf, kem, kx, secretbox, secretstream, sign
+from dryoc import hash as dhash
 
 SECRETS: list[tuple[str, Callable[[], Any]]] = [
     ("secretbox.SecretBox", secretbox.SecretBox.generate),
@@ -106,14 +107,44 @@ def test_non_bytes_like_inputs_raise_type_error(value: object) -> None:
         key.encrypt(value)  # type: ignore[arg-type]
 
 
-def test_non_contiguous_and_typed_buffers_are_accepted() -> None:
-    import array
+WORDS = array.array("I", range(2048))
 
-    key = secretbox.SecretBox.generate()
-    words = array.array("I", [1, 2, 3, 4])
-    assert key.decrypt(*key.encrypt(words)) == words.tobytes()
-    strided = memoryview(b"a-b-c-d")[::2]
-    assert key.decrypt(*key.encrypt(strided)) == b"abcd"
+
+# One case per `util::Buf` extraction route; each must hash its raw bytes in C
+# order. The large cases cross the 2 KiB threshold for detaching from the GIL.
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (b"abcd", b"abcd"),
+        (bytearray(b"abcd"), b"abcd"),
+        (memoryview(bytearray(b"abcd")).toreadonly(), b"abcd"),
+        (memoryview(b"a-b-c-d")[::2], b"abcd"),
+        (memoryview(b"dcba")[::-1], b"abcd"),
+        (array.array("I", [1, 2, 3, 4]), array.array("I", [1, 2, 3, 4]).tobytes()),
+        (memoryview(b"abcdefgh").cast("I"), b"abcdefgh"),
+        (memoryview(bytes(range(24))).cast("I", (2, 3)), bytes(range(24))),
+        (WORDS, WORDS.tobytes()),
+        (memoryview(array.array("I", [1, 2, 3, 4]))[::2], array.array("I", [1, 3]).tobytes()),
+        (memoryview(bytes(range(8))).cast("H")[::-2], bytes([6, 7, 2, 3])),
+        (memoryview(WORDS)[::2], WORDS[::2].tobytes()),
+    ],
+    ids=[
+        "bytes",
+        "bytearray",
+        "readonly-memoryview",
+        "strided-bytes",
+        "reversed-bytes",
+        "array-I",
+        "cast-I",
+        "cast-I-2d",
+        "large-array-I",
+        "strided-array-I",
+        "reversed-cast-H",
+        "large-strided-array-I",
+    ],
+)
+def test_buffers_are_read_as_raw_bytes_in_c_order(value: Any, expected: bytes) -> None:
+    assert dhash.sha256(value) == hashlib.sha256(expected).digest()
 
 
 def test_random_bytes() -> None:

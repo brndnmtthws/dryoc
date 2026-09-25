@@ -17,15 +17,17 @@ library that is wire-compatible with [libsodium](https://doc.libsodium.org/).
 ## Installation
 
 ```sh
-pip install dryoc
+uv add dryoc
 ```
+
+or `pip install dryoc`.
 
 Prebuilt wheels are published for Linux x86_64 and aarch64 (manylinux),
 macOS arm64 and Windows x86_64: one `abi3` wheel per platform for CPython
-3.10 and newer, plus a separate wheel for free-threaded CPython 3.14t. On
-other platforms (musl/Alpine, Intel macOS, Windows on ARM, PyPy) pip builds
-from the source distribution, which needs a Rust toolchain, version 1.89 or
-newer.
+3.11 and newer, plus a separate wheel for free-threaded CPython 3.14t. On
+other platforms (musl/Alpine, Intel macOS, Windows on ARM, PyPy) the installer
+builds from the source distribution, which needs a Rust toolchain, version
+1.89 or newer.
 
 ## Quick tour
 

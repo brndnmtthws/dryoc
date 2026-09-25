@@ -3,8 +3,6 @@
 Each test produces data with one library and consumes it with the other.
 """
 
-from __future__ import annotations
-
 import pytest
 
 nacl = pytest.importorskip(

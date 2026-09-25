@@ -1,7 +1,5 @@
 """Argon2 password hashing."""
 
-from __future__ import annotations
-
 import pytest
 
 from dryoc import CryptoError, InvalidInputError, pwhash

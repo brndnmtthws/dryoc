@@ -3,8 +3,6 @@
 The secret key is a 32-byte seed. See :mod:`dryoc.kem` for an example.
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import xwing_KeyPair as KeyPair
 from dryoc._dryoc import xwing_PublicKey as PublicKey
 from dryoc._dryoc import xwing_SecretKey as SecretKey

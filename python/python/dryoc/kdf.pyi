@@ -1,6 +1,6 @@
-from typing import ClassVar, final
+from typing import ClassVar, Self, final
 
-from typing_extensions import Buffer, Self
+from typing_extensions import Buffer
 
 __all__ = ["HkdfSha256", "HkdfSha512", "Kdf", "hkdf_sha256", "hkdf_sha512"]
 

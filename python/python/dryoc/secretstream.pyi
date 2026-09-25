@@ -1,7 +1,7 @@
 from types import TracebackType
-from typing import ClassVar, final
+from typing import ClassVar, Self, final
 
-from typing_extensions import Buffer, Self
+from typing_extensions import Buffer
 
 from dryoc._types import Tag as Tag
 

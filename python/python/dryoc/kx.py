@@ -10,8 +10,6 @@ Both sides use :class:`dryoc.box.KeyPair` key pairs. Example::
     assert client_keys.tx == server_keys.rx
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import box_KeyPair as KeyPair
 from dryoc._dryoc import box_PublicKey as PublicKey
 from dryoc._dryoc import kx_SessionKeys as SessionKeys

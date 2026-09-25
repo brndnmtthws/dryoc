@@ -1,8 +1,6 @@
 """ML-KEM-768 and X-Wing known answers (vectors vendored in the Rust crate),
 and the X-Wing sealed box."""
 
-from __future__ import annotations
-
 import pytest
 from conftest import flip, load_vectors
 

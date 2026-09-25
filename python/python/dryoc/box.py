@@ -13,8 +13,6 @@ Example::
     assert SealedBox(bob).decrypt(sealed) == b"anonymous"
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import box_Box as Box
 from dryoc._dryoc import box_KeyPair as KeyPair
 from dryoc._dryoc import box_PublicKey as PublicKey

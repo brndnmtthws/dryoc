@@ -15,8 +15,6 @@ Example::
             message, tag = decryptor.pull(chunk)
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import secretstream_Decryptor as Decryptor
 from dryoc._dryoc import secretstream_Encryptor as Encryptor
 from dryoc._dryoc import secretstream_Key as Key

@@ -15,8 +15,6 @@ Example::
     assert recipient.decapsulate(ciphertext) == sender_secret
 """
 
-from __future__ import annotations
-
 from dryoc.kem import mlkem768, xwing
 
 __all__ = ["mlkem768", "xwing"]

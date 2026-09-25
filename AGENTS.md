@@ -123,19 +123,26 @@ cargo fuzz run fuzz-hashes
 ```
 
 The Python bindings live in `python/`, also an isolated workspace. Run these
-from `python/` (CI runs the same set):
+from `python/` (CI runs the same checks against the built wheel):
 
 ```sh
-python -m venv .venv && .venv/bin/pip install 'maturin>=1.15,<2' pytest pynacl mypy
-.venv/bin/maturin develop --release
-.venv/bin/python -m pytest -ra
-.venv/bin/python -m mypy.stubtest dryoc
-.venv/bin/python -m mypy --strict python/dryoc tests
-cargo clippy -- -D warnings
+uv sync                  # .venv with the dev group; builds the extension (release)
+uv run pytest
+uv run python -m mypy.stubtest dryoc
+uv run mypy --strict python/dryoc tests
+uv run pyright --verifytypes dryoc --ignoreexternal
+cargo clippy --locked --all-targets -- -D warnings
 cargo +nightly fmt --check
-.venv/bin/maturin build --release --out dist    # abi3 wheel, CPython >= 3.10
-.venv/bin/maturin sdist --out dist
+uv run maturin build --release --locked --out dist    # abi3 wheel, CPython >= 3.11
+uv run maturin sdist --out dist
 ```
+
+`uv sync` and `uv run` rebuild the extension whenever a file listed in
+`[tool.uv] cache-keys` in `python/pyproject.toml` changes (the Rust sources of
+both crates and the manifests); add new build inputs there. `python/uv.lock`
+is committed and CI installs with `uv sync --locked`, so any change to
+`[dependency-groups]` or `requires-python` needs `uv lock` and the updated
+lockfile in the same change.
 
 `python/Cargo.toml`'s `version` must equal the root crate's `version`: the
 wheel takes its version from it, and `publish.yml` refuses a release tag when
@@ -277,7 +284,7 @@ is published.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
 - `python/`: PyPI package `dryoc`, built with PyO3 and maturin as one
-  `abi3-py310` extension module (`dryoc._dryoc`). It is its own Cargo
+  `abi3-py311` extension module (`dryoc._dryoc`). It is its own Cargo
   workspace (like `fuzz/`), so root `cargo package` and `cargo publish` never
   include it. `src/` holds the PyO3 code, `python/dryoc/` the pure-Python
   modules and `.pyi` stubs, and `tests/` the pytest suite, which reads the
@@ -288,9 +295,15 @@ is published.
     `Ed25519ph`) goes behind `util::Locked`, which serializes calls without
     deadlocking with the GIL.
   - Inputs are extracted through `util::Buf`: `bytes` is borrowed, every other
-    buffer is copied into a zeroizing vector before use. Anything passed into
-    `py.detach` (or `util::maybe_detach`) must be one of those, never a view of
-    a mutable Python buffer.
+    buffer is copied while attached into a zeroizing vector before use, in one
+    copy through `PyBuffer<u8>` (byte formats at any strides; other formats
+    once `memoryview.cast('B')` makes them bytes, which needs a C-contiguous
+    buffer). The one exception is a non-C-contiguous buffer of a non-byte
+    format (`memoryview(array.array('I'))[::2]`), which goes through a
+    `bytearray` temporary that is wiped afterwards: PyO3 0.29 has no safe
+    C-order copy of an untyped buffer, and the bindings stay free of `unsafe`.
+    Anything passed into `py.detach` (or `util::maybe_detach`) must be `bytes`
+    or such a copy, never a view of a mutable Python buffer.
   - Secret classes keep constant-time `__eq__`, `__hash__ = None` and a
     redacted repr (`util::secret_key_class!` for single-key classes; hand-written
     classes such as key pairs and `kx.SessionKeys` do the same).

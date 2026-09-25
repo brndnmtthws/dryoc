@@ -1,7 +1,5 @@
 """Small value types shared by several dryoc modules."""
 
-from __future__ import annotations
-
 import enum
 from typing import NamedTuple
 

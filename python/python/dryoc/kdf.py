@@ -11,8 +11,6 @@ Example::
     okm = kdf.hkdf_sha256(b"input keying material", salt=b"salt", info=b"purpose")
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import kdf_hkdf_sha256 as hkdf_sha256
 from dryoc._dryoc import kdf_hkdf_sha512 as hkdf_sha512
 from dryoc._dryoc import kdf_HkdfSha256 as HkdfSha256

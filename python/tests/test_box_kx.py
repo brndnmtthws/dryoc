@@ -1,7 +1,5 @@
 """Public-key boxes, sealed boxes and key exchange."""
 
-from __future__ import annotations
-
 import pytest
 from conftest import BUFFER_TYPES, flip
 

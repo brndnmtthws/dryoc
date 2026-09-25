@@ -1,8 +1,6 @@
 """Hashes: known answers against hashlib (OpenSSL) and RFC 9861, and the
 hashlib protocol."""
 
-from __future__ import annotations
-
 import hashlib
 
 import pytest

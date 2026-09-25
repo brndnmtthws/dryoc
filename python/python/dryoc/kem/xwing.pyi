@@ -1,8 +1,8 @@
 """X-Wing hybrid key encapsulation (ML-KEM-768 + X25519)."""
 
-from typing import ClassVar, final
+from typing import ClassVar, Self, final
 
-from typing_extensions import Buffer, Self
+from typing_extensions import Buffer
 
 __all__ = ["KeyPair", "PublicKey", "SecretKey"]
 

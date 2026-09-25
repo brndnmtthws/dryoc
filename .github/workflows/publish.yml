@@ -4,6 +4,20 @@ on:
   push:
     tags:
       - v*
+  # Dry runs: build and verify every distribution without publishing. The
+  # jobs that publish run only for tag pushes.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish.yml
+      - python/**
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -11,8 +25,10 @@ permissions:
   contents: read
 
 jobs:
+  # build-and-test.yml covers these checks on pull requests.
   validate:
     name: Validate Rust crate and Python bindings
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,10 +87,10 @@ jobs:
 
   crates-publish:
     name: Publish crate to crates.io
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs:
       - validate
-      - python-wheels
-      - python-sdist
+      - verify-dists
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,21 +109,81 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if curl -fsS -H 'User-Agent: dryoc release workflow (https://github.com/brndnmtthws/dryoc)' \
-            "https://crates.io/api/v1/crates/dryoc/${version}" > /dev/null; then
-            echo "dryoc ${version} is already published; skipping cargo publish."
-          else
-            cargo publish
-          fi
+          status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: dryoc release workflow (https://github.com/brndnmtthws/dryoc)' \
+            "https://crates.io/api/v1/crates/dryoc/${version}")" || true
+          case "${status}" in
+            200)
+              echo "dryoc ${version} is already published; skipping cargo publish."
+              ;;
+            404)
+              cargo publish
+              ;;
+            *)
+              echo "Unexpected HTTP status ${status} from crates.io for dryoc ${version}." >&2
+              exit 1
+              ;;
+          esac
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
-  pypi-publish:
-    name: Publish Python package to PyPI
+  verify-dists:
+    name: Verify Python distributions
     needs:
-      - validate
       - python-wheels
       - python-sdist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: python-*
+          path: dist
+          merge-multiple: true
+      - name: Verify distribution set
+        run: |
+          shopt -s nullglob
+          files=(dist/*)
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          [[ ${#wheels[@]} -eq 8 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 9 ]] || {
+            echo "Expected exactly eight wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
+            exit 1
+          }
+          expected=(
+            'cp311-abi3-manylinux_*_x86_64'
+            'cp311-abi3-manylinux_*_aarch64'
+            'cp311-abi3-macosx_*_arm64'
+            'cp311-abi3-win_amd64'
+            'cp314-cp314t-manylinux_*_x86_64'
+            'cp314-cp314t-manylinux_*_aarch64'
+            'cp314-cp314t-macosx_*_arm64'
+            'cp314-cp314t-win_amd64'
+          )
+          for tag in "${expected[@]}"; do
+            compgen -G "dist/*${tag}*.whl" > /dev/null || {
+              echo "Missing wheel matching ${tag}" >&2
+              exit 1
+            }
+          done
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Check package metadata
+        run: uvx twine check --strict dist/*
+      - name: Check wheel contents
+        run: uvx check-wheel-contents dist/*.whl
+
+  pypi-publish:
+    name: Publish Python package to PyPI
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - validate
+      - verify-dists
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -121,33 +197,6 @@ jobs:
           pattern: python-*
           path: dist
           merge-multiple: true
-      - name: Verify distribution set
-        shell: bash
-        run: |
-          shopt -s nullglob
-          files=(dist/*)
-          wheels=(dist/*.whl)
-          sdists=(dist/*.tar.gz)
-          [[ ${#wheels[@]} -eq 8 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 9 ]] || {
-            echo "Expected exactly eight wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
-            exit 1
-          }
-          expected=(
-            'cp310-abi3-manylinux_*_x86_64'
-            'cp310-abi3-manylinux_*_aarch64'
-            'cp310-abi3-macosx_*_arm64'
-            'cp310-abi3-win_amd64'
-            'cp314-cp314t-manylinux_*_x86_64'
-            'cp314-cp314t-manylinux_*_aarch64'
-            'cp314-cp314t-macosx_*_arm64'
-            'cp314-cp314t-win_amd64'
-          )
-          for tag in "${expected[@]}"; do
-            compgen -G "dist/*${tag}*.whl" > /dev/null || {
-              echo "Missing wheel matching ${tag}" >&2
-              exit 1
-            }
-          done
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           attestations: true
@@ -155,6 +204,7 @@ jobs:
 
   github-release:
     name: Create draft GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs:
       - crates-publish
       - pypi-publish
@@ -164,7 +214,6 @@ jobs:
       discussions: write
     steps:
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
@@ -176,6 +225,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
+    env:
+      # Never fall back to a runner's system Python: "3" means the latest
+      # stable uv-managed CPython.
+      UV_MANAGED_PYTHON: "1"
     defaults:
       run:
         shell: bash
@@ -209,6 +262,9 @@ jobs:
             ft_interpreter: ""
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          working-directory: python
       # Extension modules are dynamically loaded cdylibs; maturin's Linux images supply manylinux compatibility.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -216,12 +272,32 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           args: --release --locked --out dist
           working-directory: python
+      # Each test recreates python/.venv for its interpreter and installs the
+      # prebuilt wheel into it; `--no-sync` keeps uv from building the project.
+      # The latest-Python test runs first: "3" matches any installed 3.x, so
+      # only on a runner without managed Pythons does it fetch the newest one.
+      - name: Test abi3 wheel on latest Python
+        run: |
+          uv sync --locked --only-group test --python 3
+          uv pip install dist/*cp311-abi3*.whl
+          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+          uv run --no-sync python -c "import nacl"
+          uv run --no-sync pytest -p no:cacheprovider tests
+        working-directory: python
+      - name: Test abi3 wheel on Python 3.11
+        run: |
+          uv sync --locked --only-group test --python 3.11
+          uv pip install dist/*cp311-abi3*.whl
+          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+          uv run --no-sync python -c "import nacl"
+          uv run --no-sync pytest -p no:cacheprovider tests
+        working-directory: python
       - name: Set up free-threaded Python for macOS and Windows build
         if: "!startsWith(matrix.target, 'x86_64-unknown-linux') && !startsWith(matrix.target, 'aarch64-unknown-linux')"
         id: ft-python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14t"
+        run: |
+          uv python install 3.14t
+          echo "python-path=$(uv python find 3.14t)" >> "$GITHUB_OUTPUT"
       - name: Build free-threaded wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -229,41 +305,13 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           args: --release --locked --out dist -i "${{ matrix.ft_interpreter || steps.ft-python.outputs.python-path }}"
           working-directory: python
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.10"
-      - name: Test abi3 wheel on Python 3.10
-        run: |
-          python -m pip install --upgrade 'pip>=25.1'
-          python -m pip install --group test
-          python -m pip install dist/*cp310-abi3*.whl
-          python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
-          python -c "import nacl"
-          pytest -p no:cacheprovider tests
-        working-directory: python
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.x"
-      - name: Test abi3 wheel on latest Python
-        run: |
-          python -m pip install --upgrade 'pip>=25.1'
-          python -m pip install --group test
-          python -m pip install dist/*cp310-abi3*.whl
-          python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
-          python -c "import nacl"
-          pytest -p no:cacheprovider tests
-        working-directory: python
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.14t"
       - name: Test free-threaded wheel
         run: |
-          python -m pip install --upgrade 'pip>=25.1'
-          python -m pip install --group test
-          python -m pip install dist/*cp314-cp314t*.whl
-          python -c "import sys, dryoc; assert not sys._is_gil_enabled()"
-          python -c "import nacl"
-          pytest -p no:cacheprovider tests
+          uv sync --locked --only-group test --python 3.14t
+          uv pip install dist/*cp314-cp314t*.whl
+          uv run --no-sync python -c "import sys, dryoc; assert not sys._is_gil_enabled()"
+          uv run --no-sync python -c "import nacl"
+          uv run --no-sync pytest -p no:cacheprovider tests
         working-directory: python
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

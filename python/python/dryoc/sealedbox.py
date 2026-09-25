@@ -15,8 +15,6 @@ Example::
     assert SealedBox(recipient).decrypt(sealed) == b"for your eyes only"
 """
 
-from __future__ import annotations
-
 from dryoc._dryoc import sealedbox_SealedBox as SealedBox
 
 __all__ = ["SealedBox"]

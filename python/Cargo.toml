@@ -32,7 +32,7 @@ crate-type = ["cdylib"]
 # `std` keeps runtime CPU feature detection; `base64` provides the
 # password-hash strings. Protected memory and serde are not used.
 dryoc = { path = "..", default-features = false, features = ["std", "base64"] }
-pyo3 = { version = "0.29", features = ["abi3-py310"] }
+pyo3 = { version = "0.29", features = ["abi3-py311"] }
 subtle = { version = "2.6", default-features = false }
 zeroize = { version = "1.9", default-features = false, features = ["alloc"] }
 
