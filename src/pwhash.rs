@@ -108,6 +108,7 @@
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -290,17 +291,34 @@ fn argon2_into(
     )
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
+#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
 /// Password hash implementation based on Argon2, compatible with libsodium's
 /// `crypto_pwhash_*` functions.
+///
+/// The hash bytes are redacted from [`Debug`] output and wiped when the
+/// instance is dropped. [`PwHash::into_parts`] transfers ownership of the hash
+/// to the caller, who is then responsible for its handling and zeroization.
 pub struct PwHash<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> {
     hash: Hash,
     salt: Salt,
     config: Config,
+}
+
+impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> Drop for PwHash<Hash, Salt> {
+    fn drop(&mut self) {
+        self.hash.zeroize();
+    }
+}
+
+impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> fmt::Debug for PwHash<Hash, Salt> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PwHash")
+            .field("hash", &"[REDACTED]")
+            .field("salt", &self.salt.as_slice())
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 /// `Vec<u8>`-based PwHash type alias, provided for convenience.
@@ -622,9 +640,20 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     }
 
     /// Moves the hash, salt, and config out of this instance, returning them as
-    /// a tuple.
+    /// a tuple. The returned hash no longer benefits from the instance's
+    /// drop-time zeroization.
     pub fn into_parts(self) -> (Hash, Salt, Config) {
-        (self.hash, self.salt, self.config)
+        let this = core::mem::ManuallyDrop::new(self);
+        // SAFETY: Each field is read exactly once from `this`; suppressing its
+        // destructor transfers the hash without wiping it before the caller
+        // receives ownership.
+        unsafe {
+            (
+                core::ptr::read(&this.hash),
+                core::ptr::read(&this.salt),
+                core::ptr::read(&this.config),
+            )
+        }
     }
 }
 
@@ -641,8 +670,8 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// operation fails.
     pub fn derive_keypair<
         Password: Bytes + Zeroize,
-        PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
-        SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
+        PublicKey: NewByteArray<{ CRYPTO_BOX_PUBLICKEYBYTES }> + Zeroize,
+        SecretKey: NewByteArray<{ CRYPTO_BOX_SECRETKEYBYTES }> + Zeroize,
     >(
         password: &Password,
         salt: Salt,
@@ -751,6 +780,88 @@ mod tests {
         output
     }
 
+    #[test]
+    fn debug_redacts_hash_and_preserves_configuration_details() {
+        let pwhash = VecPwHash::from_parts(vec![0xabu8; 32], SALT.to_vec(), argon2id_min());
+        let debug = format!("{pwhash:?}");
+
+        assert_eq!(
+            debug,
+            format!(
+                "PwHash {{ hash: \"[REDACTED]\", salt: {:?}, config: {:?} }}",
+                &SALT[..],
+                argon2id_min()
+            )
+        );
+    }
+
+    #[test]
+    fn dropping_pwhash_zeroizes_its_hash() {
+        struct DropCheckingHash(Vec<u8>);
+
+        impl crate::types::Bytes for DropCheckingHash {
+            fn as_slice(&self) -> &[u8] {
+                &self.0
+            }
+
+            fn len(&self) -> usize {
+                self.0.len()
+            }
+
+            fn is_empty(&self) -> bool {
+                self.0.is_empty()
+            }
+        }
+
+        impl Zeroize for DropCheckingHash {
+            fn zeroize(&mut self) {
+                self.0.zeroize();
+            }
+        }
+
+        impl Drop for DropCheckingHash {
+            fn drop(&mut self) {
+                assert!(self.0.iter().all(|byte| *byte == 0));
+            }
+        }
+
+        drop(PwHash::from_parts(
+            DropCheckingHash(vec![0xabu8; 32]),
+            SALT.to_vec(),
+            argon2id_min(),
+        ));
+    }
+
+    #[cfg(feature = "base64")]
+    #[test]
+    fn from_string_accepts_long_valid_argon2_hash() {
+        let mut hash = [0u8; 64];
+        crate::argon2::argon2_hash(
+            1,
+            8,
+            1,
+            PASSWORD,
+            SALT,
+            None,
+            None,
+            &mut hash,
+            crate::argon2::Argon2Type::Argon2id,
+        )
+        .expect("derive long hash");
+        let encoded = crypto_pwhash::pwhash_to_string(
+            PasswordHashAlgorithm::Argon2id13,
+            1,
+            8,
+            1,
+            SALT,
+            &hash,
+        );
+        assert_eq!(encoded.len(), 136);
+
+        let pwhash = VecPwHash::from_string(&encoded).expect("long hash parses");
+        assert_eq!(pwhash.hash, hash);
+        pwhash.verify(PASSWORD).expect("long hash verifies");
+    }
     #[test]
     fn hash_with_salt_matches_libsodium_argon2id_and_classic() {
         let expected = hex::decode(ARGON2ID_MIN_HASH).expect("hex");

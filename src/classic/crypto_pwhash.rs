@@ -503,12 +503,6 @@ pub(crate) struct Pwhash {
 #[cfg(feature = "base64")]
 impl Pwhash {
     pub(crate) fn parse_encoded_pwhash(hashed_password: &str) -> Result<Self, Error> {
-        validate_length!(
-            max CRYPTO_PWHASH_STRBYTES - 1,
-            hashed_password.len(),
-            crate::ErrorContext::PasswordHash
-        );
-
         let encoded = hashed_password
             .strip_prefix('$')
             .ok_or_else(|| Error::invalid_encoding(crate::ErrorContext::PasswordHash))?;
@@ -723,6 +717,11 @@ pub fn crypto_pwhash_str_needs_rehash(
     opslimit: u64,
     memlimit: usize,
 ) -> Result<bool, Error> {
+    validate_length!(
+        max CRYPTO_PWHASH_STRBYTES - 1,
+        hashed_password.len(),
+        crate::ErrorContext::PasswordHash
+    );
     let (t_cost, m_cost) = convert_costs_checked(opslimit, memlimit)?;
     let pwhash = Pwhash::parse_encoded_pwhash(hashed_password)?;
     let parsed_t_cost = pwhash.t_cost.ok_or(Error::missing_data(
@@ -1279,11 +1278,6 @@ mod tests {
             ("t overflow", valid.replace("t=1", "t=4294967296"), false),
             ("p overflow", valid.replace("p=1", "p=4294967296"), false),
             ("m below one KiB block", valid.replace("m=8", "m=7"), false),
-            (
-                "one beyond maximum encoded length",
-                format!("{}x", exact_max_password_hash()),
-                false,
-            ),
         ]);
         cases
     }
@@ -1314,12 +1308,34 @@ mod tests {
                 "needs_rehash: {name}"
             );
         }
+
+        // Parsing and verification accept long hashes, unlike generation,
+        // which writes into libsodium's fixed-size output buffer.
+        let salt = [0x5au8; 16];
+        let mut hash = [0u8; 64];
+        argon2_hash(
+            1,
+            8,
+            1,
+            b"password",
+            &salt,
+            None,
+            None,
+            &mut hash,
+            PasswordHashAlgorithm::Argon2id13.into(),
+        )
+        .expect("derive long hash");
+        let long = pwhash_to_string(PasswordHashAlgorithm::Argon2id13, 1, 8, 1, &salt, &hash);
+        assert_eq!(long.len(), 136);
+        Pwhash::parse_encoded_pwhash(&long).expect("long hash parses");
+        crypto_pwhash_str_verify(&long, b"password").expect("long hash verifies");
+        assert!(crypto_pwhash_str_needs_rehash(&long, 1, 8192).is_err());
         let encoded = exact_max_password_hash();
         Pwhash::parse_encoded_pwhash(&encoded).expect("max string parses");
         crypto_pwhash_str_verify(&encoded, b"password").expect("max string verifies");
         assert!(!crypto_pwhash_str_needs_rehash(&encoded, 1, 8192).expect("rehash"));
-
         let argon2i = FIXED_PASSWORD_HASH.replacen("$argon2id$", "$argon2i$", 1);
+
         Pwhash::parse_encoded_pwhash(&argon2i).expect("algorithm mutation parses");
         assert!(crypto_pwhash_str_verify(&argon2i, b"password").is_err());
         assert!(!crypto_pwhash_str_needs_rehash(&argon2i, 1, 8192).expect("rehash"));
@@ -1330,8 +1346,8 @@ mod tests {
         assert!(!crypto_pwhash_str_needs_rehash(&parallel, 1, 16_384).expect("rehash"));
     }
 
-    /// Every invalid parser/verify/rehash result in the mutation matrix agrees
-    /// with libsodium, including canonical pad bits and the 128-byte rejection.
+    /// Invalid parser/verify/rehash results in the mutation matrix agree with
+    /// libsodium, including canonical pad bits and oversized rehash input.
     #[cfg(all(feature = "base64", dryoc_native_tests))]
     #[test]
     fn mutation_matrix_matches_libsodium() {
@@ -1434,5 +1450,36 @@ mod tests {
             crypto_pwhash_str_needs_rehash(&encoded, 1, 8192).expect("rehash"),
             sodium_rehash == 1
         );
+    }
+
+    /// libsodium verifies encoded hashes longer than its generation buffer.
+    #[cfg(all(feature = "base64", dryoc_native_tests))]
+    #[test]
+    fn longer_encoded_hash_verifies_like_libsodium() {
+        use std::ffi::CString;
+
+        crate::native_test_util::init();
+
+        let password = b"long hash test password";
+        let salt = [0x5au8; 16];
+        let hash = crate::native_test_util::pwhash_argon2id::<64>(password, &salt, 1, 8192);
+        let encoded = pwhash_to_string(PasswordHashAlgorithm::Argon2id13, 1, 8, 1, &salt, &hash);
+        assert_eq!(encoded.len(), 136);
+
+        let parsed = Pwhash::parse_encoded_pwhash(&encoded).expect("long hash parses");
+        assert_eq!(parsed.pwhash.as_deref(), Some(hash.as_slice()));
+        crypto_pwhash_str_verify(&encoded, password).expect("dryoc verifies long hash");
+
+        let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
+        // SAFETY: `encoded_c` is a valid NUL-terminated hash and `password`
+        // is live for its stated length.
+        let sodium_rc = unsafe {
+            libsodium_sys::crypto_pwhash_str_verify(
+                encoded_c.as_ptr(),
+                password.as_ptr().cast(),
+                password.len() as u64,
+            )
+        };
+        assert_eq!(sodium_rc, 0, "libsodium verifies the 64-byte hash");
     }
 }
