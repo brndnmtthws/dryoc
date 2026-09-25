@@ -147,7 +147,6 @@
 //!
 //! | Area | Feature gate | Why `unsafe` is required |
 //! |-|-|-|
-//! | `src/types.rs` fixed-size byte views | Always available | `StackByteArray`'s `AsRef<[u8; N]>` and `AsMut<[u8; N]>` impls cast a pointer to its inner `[u8; N]` into an array reference without copying. The wrapper stores exactly that array, so size, alignment, and initialization match. |
 //! | `src/dryocbox.rs`, `src/dryocsecretbox.rs`, and `src/dryocaead.rs` wincode impls | `wincode_0_6` | Implements `unsafe` wincode schema traits for the Rustaceous box wire formats, including both AEAD nonce sizes. The implementations write and read initialized fields in the same order. |
 //! | `src/blake2b/mod.rs` parameter block | Always available | `Params::as_bytes` views the `repr(C, packed)` BLAKE2b parameter block as a `[u8; 64]` so the initialization vector is mixed exactly as specified; both backends call it. The parameter type contains only initialized byte fields, has alignment 1, and its size is checked at compile time. |
 //! | `src/protected.rs` protected memory | `protected` on Unix/Windows | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements page-aligned guarded heap buffers, and exposes exact-size byte-array views over protected heap buffers. |

@@ -363,19 +363,13 @@ impl<const LENGTH: usize> StackByteArray<LENGTH> {
 
 impl<const LENGTH: usize> std::convert::AsRef<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8; LENGTH] {
-        let arr = self.0.as_ptr() as *const [u8; LENGTH];
-        // SAFETY: `StackByteArray<LENGTH>` stores exactly `[u8; LENGTH]` in
-        // `self.0`, so this cast preserves size, alignment, and initialization.
-        unsafe { &*arr }
+        &self.0
     }
 }
 
 impl<const LENGTH: usize> std::convert::AsMut<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_mut(&mut self) -> &mut [u8; LENGTH] {
-        let arr = self.0.as_mut_ptr() as *mut [u8; LENGTH];
-        // SAFETY: `StackByteArray<LENGTH>` stores exactly `[u8; LENGTH]` in
-        // `self.0`, and `&mut self` provides exclusive access to it.
-        unsafe { &mut *arr }
+        &mut self.0
     }
 }
 

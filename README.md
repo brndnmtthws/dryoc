@@ -183,10 +183,10 @@ implemented. Other crates may provide equivalent functionality:
 `protected` feature. It requires custom allocation, system calls, and pointer
 arithmetic, which are unsafe in Rust. Some optimized implementations also use
 small, carefully bounded unsafe blocks. The in-crate unsafe inventory includes
-fixed-size byte views, wincode schema implementations for vector-backed boxes
-and AEAD envelopes, BLAKE2b
-parameter byte views, protected memory guarded heap buffers and OS protection
-calls, 16-byte volatile zeroization of secret buffers, the x86-64 backends
+wincode schema implementations for vector-backed boxes and AEAD envelopes,
+BLAKE2b parameter byte views, protected memory guarded heap buffers with their
+fixed-size byte views and OS protection calls, 16-byte volatile zeroization of
+secret buffers, the x86-64 backends
 (runtime-detected AVX2, AVX-512 and AVX-512 IFMA entry points for ChaCha20,
 XSalsa20, Poly1305, the Argon2 block compression, the BLAKE2b compression,
 the ML-KEM polynomial arithmetic and the 4-way Keccak permutation,
