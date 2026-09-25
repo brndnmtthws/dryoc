@@ -297,14 +297,21 @@ is published.
     deadlocking with the GIL.
   - Inputs are extracted through `util::Buf`: `bytes` is borrowed, every other
     buffer is copied while attached into a zeroizing vector before use, in one
-    copy through `PyBuffer<u8>` (byte formats at any strides; other formats
-    once `memoryview.cast('B')` makes them bytes, which needs a C-contiguous
-    buffer). The one exception is a non-C-contiguous buffer of a non-byte
-    format (`memoryview(array.array('I'))[::2]`), which goes through a
-    `bytearray` temporary that is wiped afterwards: PyO3 0.29 has no safe
-    C-order copy of an untyped buffer, and the bindings stay free of `unsafe`.
-    Anything passed into `py.detach` (or `util::maybe_detach`) must be `bytes`
-    or such a copy, never a view of a mutable Python buffer.
+    copy. An exact `bytearray` is copied with `PyByteArray::to_vec`, which
+    holds its critical section: it is a mutable exporter that other threads
+    can write to while exported on free-threaded builds, and its methods write
+    under that lock, so the copy cannot be torn (subclasses may override
+    `__buffer__`, so they are not special-cased). Other buffers are copied
+    through `PyBuffer<u8>` (byte formats at any strides; other formats once
+    `memoryview.cast('B')` makes them bytes, which needs a C-contiguous
+    buffer) without a lock; concurrent mutation of those (a `memoryview` of a
+    `bytearray`, `array.array`, numpy) is the caller's race, as with `hashlib`.
+    The one exception is a non-C-contiguous buffer of a non-byte format
+    (`memoryview(array.array('I'))[::2]`), which goes through a `bytearray`
+    temporary that is wiped afterwards: PyO3 0.29 has no safe C-order copy of
+    an untyped buffer, and the bindings stay free of `unsafe`. Anything passed
+    into `py.detach` (or `util::maybe_detach`) must be `bytes` or such a copy,
+    never a view of a mutable Python buffer.
   - Secret classes keep constant-time `__eq__`, `__hash__ = None` and a
     redacted repr (`util::secret_key_class!` for single-key classes; hand-written
     classes such as key pairs and `kx.SessionKeys` do the same).

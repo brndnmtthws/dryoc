@@ -67,12 +67,20 @@ where
 /// Extraction takes the first route that applies:
 ///
 /// 1. `bytes` is immutable and borrowed without copying.
-/// 2. A buffer with a byte format (`B` or `c`: `bytearray`, `memoryview` slices
-///    of bytes, ...) is copied once through `PyBuffer<u8>`, at any strides.
-/// 3. A C-contiguous buffer of any other format (`array.array('I')`,
+/// 2. An exact `bytearray` is copied once with `PyByteArray::to_vec`, which
+///    holds the object's critical section on free-threaded builds. Its own
+///    methods (`ba[:] = ...`, `extend`, ...) write under that lock, so the copy
+///    is a snapshot of one state rather than a torn mix of bytes from a
+///    concurrent write; a buffer export only stops resizing, not writes.
+///    Subclasses take the buffer routes because they may override `__buffer__`
+///    (PEP 688) and export bytes other than their storage.
+/// 3. A buffer with a byte format (`B` or `c`: `memoryview` slices of bytes,
+///    `bytearray` subclasses, ...) is copied once through `PyBuffer<u8>`, at
+///    any strides.
+/// 4. A C-contiguous buffer of any other format (`array.array('I')`,
 ///    `memoryview.cast('I')`, ctypes arrays, ...) is viewed as bytes with
 ///    `memoryview.cast('B')` and copied once the same way.
-/// 4. Anything `cast` rejects, i.e. a non-C-contiguous buffer of a non-byte
+/// 5. Anything `cast` rejects, i.e. a non-C-contiguous buffer of a non-byte
 ///    format (`memoryview(array.array('I'))[::2]`, a sliced numpy `int32`
 ///    array, ...) or an empty one with a zero in its shape, is copied through a
 ///    `bytearray` temporary that is wiped afterwards. PyO3 0.29 offers no safe
@@ -84,6 +92,12 @@ where
 /// `bytes(memoryview(obj))` does. Copies are taken while attached into a
 /// private buffer that is wiped when dropped, so they cannot change while the
 /// GIL is released.
+///
+/// Routes 3 to 5 copy without a lock: the buffer protocol has none, and writes
+/// through a `memoryview` (of a `bytearray` or anything else), to an
+/// `array.array` or to a numpy array do not take one either. Mutating such a
+/// buffer from another thread during a call is the caller's race, as with
+/// `hashlib`, and may make the call see a mix of old and new bytes.
 pub(crate) enum Buf<'py> {
     Bytes(Bound<'py, PyBytes>),
     Owned(Zeroizing<Vec<u8>>),
@@ -111,7 +125,7 @@ fn not_bytes_like(obj: &Bound<'_, PyAny>) -> PyErr {
     }
 }
 
-/// Copies a buffer-protocol object (routes 2 to 4 of [`Buf`]) into a
+/// Copies a buffer-protocol object (routes 3 to 5 of [`Buf`]) into a
 /// wiped-on-drop vector.
 fn copy_buffer(obj: &Bound<'_, PyAny>) -> PyResult<Zeroizing<Vec<u8>>> {
     let py = obj.py();
@@ -133,7 +147,7 @@ fn copy_buffer(obj: &Bound<'_, PyAny>) -> PyResult<Zeroizing<Vec<u8>>> {
 }
 
 /// Copies a buffer of any format and layout in C order through a `bytearray`
-/// (route 4 of [`Buf`]), then overwrites the temporary.
+/// (route 5 of [`Buf`]), then overwrites the temporary.
 fn copy_through_temporary(view: &Bound<'_, PyMemoryView>) -> PyResult<Zeroizing<Vec<u8>>> {
     let py = view.py();
     let temporary = PyByteArray::from(view.as_any())?;
@@ -150,6 +164,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Buf<'py> {
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         if let Ok(bytes) = obj.cast::<PyBytes>() {
             return Ok(Buf::Bytes(bytes.to_owned()));
+        }
+        if let Ok(bytearray) = obj.cast_exact::<PyByteArray>() {
+            return Ok(Buf::Owned(Zeroizing::new(bytearray.to_vec())));
         }
         let obj = obj.to_owned();
         if obj.is_instance_of::<PyString>() {
