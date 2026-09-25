@@ -97,8 +97,13 @@ pub mod protected {
 /// [`CRYPTO_GENERICHASH_KEYBYTES_MIN`] (16 bytes) are recommended minimums,
 /// not enforced ones, and an empty key is the same as no key.
 ///
+/// Cloning a hasher copies its in-progress state, so a common prefix can be
+/// hashed once and finished with different suffixes. Each copy is wiped when
+/// dropped.
+///
 /// [`CRYPTO_GENERICHASH_BYTES_MIN`]: crate::constants::CRYPTO_GENERICHASH_BYTES_MIN
 /// [`CRYPTO_GENERICHASH_KEYBYTES_MIN`]: crate::constants::CRYPTO_GENERICHASH_KEYBYTES_MIN
+#[derive(Clone)]
 pub struct GenericHash<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> {
     state: GenericHashState,
 }
@@ -318,6 +323,45 @@ mod tests {
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
     }
+    #[test]
+    fn test_generichash_clone_mid_stream() {
+        let key = Key::from(&[0x5au8; CRYPTO_GENERICHASH_KEYBYTES]);
+        // Split inside the first block, on a block boundary, and after it.
+        let message: Vec<u8> = (0..300u16).map(|i| (i * 31 % 251) as u8).collect();
+        for key in [None, Some(&key)] {
+            for split in [0, 5, 128, 129, 300] {
+                let expected: Hash =
+                    GenericHash::hash(message.as_slice(), key).expect("hash failed");
+
+                let mut hasher = GenericHash::new_with_defaults(key).expect("new hash failed");
+                hasher.update(&message[..split]);
+                let mut copy = hasher.clone();
+                hasher.update(&message[split..]);
+                copy.update(&message[split..]);
+
+                let original: Hash = hasher.finalize().expect("finalize failed");
+                let cloned: Hash = copy.finalize().expect("finalize failed");
+                assert_eq!(original, expected);
+                assert_eq!(cloned, expected);
+            }
+        }
+
+        // Diverging suffixes must not affect each other.
+        let mut hasher = GenericHash::new_with_defaults(Some(&key)).expect("new hash failed");
+        hasher.update(b"shared prefix ");
+        let mut copy = hasher.clone();
+        hasher.update(b"one");
+        copy.update(b"two");
+        let one: Hash = hasher.finalize().expect("finalize failed");
+        let two: Hash = copy.finalize().expect("finalize failed");
+        let expected_one: Hash =
+            GenericHash::hash(b"shared prefix one", Some(&key)).expect("hash failed");
+        let expected_two: Hash =
+            GenericHash::hash(b"shared prefix two", Some(&key)).expect("hash failed");
+        assert_eq!(one, expected_one);
+        assert_eq!(two, expected_two);
+    }
+
     #[test]
     fn test_generichash_onetime_empty() {
         use base64::Engine as _;

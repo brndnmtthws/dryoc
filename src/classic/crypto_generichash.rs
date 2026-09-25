@@ -81,6 +81,10 @@ pub fn crypto_generichash(
 }
 
 /// State struct for the generic hash algorithm, based on BLAKE2B.
+///
+/// Cloning copies the in-progress state, so both copies can be finished
+/// independently; each copy is wiped when dropped.
+#[derive(Clone)]
 pub struct GenericHashState {
     state: blake2b::State,
 }

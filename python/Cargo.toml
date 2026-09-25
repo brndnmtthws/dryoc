@@ -1,0 +1,44 @@
+[package]
+name = "dryoc-python"
+# Must equal the root crate's version: the wheel version comes from here.
+version = "2.0.0"
+authors = ["Brenden Matthews <brenden@brndn.io>"]
+description = "Python bindings for dryoc"
+edition = "2024"
+license = "MIT"
+publish = false
+readme = "README.md"
+repository = "https://github.com/brndnmtthws/dryoc"
+rust-version = "1.89"
+# What `maturin sdist` packages from this directory (build outputs such as
+# `dist/`, `target/` and a `maturin develop` extension module stay out).
+include = [
+  "/Cargo.lock",
+  "/Cargo.toml",
+  "/README.md",
+  "/pyproject.toml",
+  "/python/dryoc/**/*.py",
+  "/python/dryoc/**/*.pyi",
+  "/python/dryoc/py.typed",
+  "/src/**/*.rs",
+  "/tests/**/*.py",
+]
+
+[lib]
+name = "_dryoc"
+crate-type = ["cdylib"]
+
+[dependencies]
+# `std` keeps runtime CPU feature detection; `base64` provides the
+# password-hash strings. Protected memory and serde are not used.
+dryoc = { path = "..", default-features = false, features = ["std", "base64"] }
+pyo3 = { version = "0.29", features = ["abi3-py311"] }
+subtle = { version = "2.6", default-features = false }
+zeroize = { version = "1.9", default-features = false, features = ["alloc"] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+
+# Isolated from the root crate, like `fuzz/`.
+[workspace]

@@ -1,23 +1,37 @@
-name: Publish to crates.io
+name: Publish
 
 on:
   push:
     tags:
       - v*
+  # Dry runs: build and verify every distribution without publishing. The
+  # jobs that publish run only for tag pushes.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish.yml
+      - python/**
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 permissions:
-  contents: write
-  discussions: write
+  contents: read
 
 jobs:
-  build-test-publish:
+  # build-and-test.yml covers these checks on pull requests.
+  validate:
+    name: Validate Rust crate and Python bindings
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      discussions: write
-      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain
@@ -41,8 +55,17 @@ jobs:
         shell: bash
         run: |
           CRATE_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          PYTHON_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' python/Cargo.toml | head -n 1)"
           if [[ "${GITHUB_REF_NAME}" != "v${CRATE_VERSION}" ]]; then
             echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${CRATE_VERSION}" >&2
+            exit 1
+          fi
+          if [[ "${PYTHON_VERSION}" != "${CRATE_VERSION}" ]]; then
+            echo "python/Cargo.toml version ${PYTHON_VERSION} does not match root Cargo.toml version ${CRATE_VERSION}" >&2
+            exit 1
+          fi
+          if ! cargo metadata --locked --format-version 1 --manifest-path python/Cargo.toml > /dev/null; then
+            echo "python/Cargo.lock is stale; run 'cargo update -p dryoc --manifest-path python/Cargo.toml' and commit the updated lockfile." >&2
             exit 1
           fi
       - run: mbx nextest run --all-targets
@@ -61,18 +84,261 @@ jobs:
       - run: mbx +nightly test --doc --all-features
       - run: mbx +nightly clippy --all-targets --all-features -- -D warnings
       - run: cargo package
+
+  crates-publish:
+    name: Publish crate to crates.io
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - validate
+      - verify-dists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+          toolchain: stable
+          profile: minimal
       - name: Authenticate with crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1
-      - run: cargo publish
+      - name: Publish crate if absent
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: dryoc release workflow (https://github.com/brndnmtthws/dryoc)' \
+            "https://crates.io/api/v1/crates/dryoc/${version}")" || true
+          case "${status}" in
+            200)
+              echo "dryoc ${version} is already published; skipping cargo publish."
+              ;;
+            404)
+              cargo publish
+              ;;
+            *)
+              echo "Unexpected HTTP status ${status} from crates.io for dryoc ${version}." >&2
+              exit 1
+              ;;
+          esac
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        if: startsWith(github.ref, 'refs/tags/')
+
+  verify-dists:
+    name: Verify Python distributions
+    needs:
+      - python-wheels
+      - python-sdist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: python-*
+          path: dist
+          merge-multiple: true
+      - name: Verify distribution set
+        run: |
+          shopt -s nullglob
+          files=(dist/*)
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          [[ ${#wheels[@]} -eq 8 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 9 ]] || {
+            echo "Expected exactly eight wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
+            exit 1
+          }
+          expected=(
+            'cp311-abi3-manylinux_*_x86_64'
+            'cp311-abi3-manylinux_*_aarch64'
+            'cp311-abi3-macosx_*_arm64'
+            'cp311-abi3-win_amd64'
+            'cp314-cp314t-manylinux_*_x86_64'
+            'cp314-cp314t-manylinux_*_aarch64'
+            'cp314-cp314t-macosx_*_arm64'
+            'cp314-cp314t-win_amd64'
+          )
+          for tag in "${expected[@]}"; do
+            compgen -G "dist/*${tag}*.whl" > /dev/null || {
+              echo "Missing wheel matching ${tag}" >&2
+              exit 1
+            }
+          done
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Check package metadata
+        run: uvx twine check --strict dist/*
+      - name: Check wheel contents
+        run: uvx check-wheel-contents dist/*.whl
+
+  pypi-publish:
+    name: Publish Python package to PyPI
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - validate
+      - verify-dists
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dryoc
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: python-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          attestations: true
+          skip-existing: true
+
+  github-release:
+    name: Create draft GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - crates-publish
+      - pypi-publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      discussions: write
+    steps:
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           discussion_category_name: General
           generate_release_notes: true
+
+  python-wheels:
+    name: Python wheel / ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      # Never fall back to a runner's system Python: "3" means the latest
+      # stable uv-managed CPython.
+      UV_MANAGED_PYTHON: "1"
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: manylinux x86_64
+            slug: manylinux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: 2_28
+            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+          - name: manylinux aarch64
+            slug: manylinux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: 2_28
+            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+          - name: macOS arm64
+            slug: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            manylinux: ""
+            ft_interpreter: ""
+          - name: Windows x86_64
+            slug: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: ""
+            ft_interpreter: ""
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          working-directory: python
+      # Extension modules are dynamically loaded cdylibs; maturin's Linux images supply manylinux compatibility.
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --out dist
+          working-directory: python
+      # Each test recreates python/.venv for its interpreter and installs the
+      # prebuilt wheel into it; `--no-sync` keeps uv from building the project.
+      # The latest-Python test runs first: "3" matches any installed 3.x, so
+      # only on a runner without managed Pythons does it fetch the newest one.
+      - name: Test abi3 wheel on latest Python
+        run: |
+          uv sync --locked --only-group test --python 3
+          uv pip install dist/*cp311-abi3*.whl
+          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+          uv run --no-sync python -c "import nacl"
+          uv run --no-sync pytest -p no:cacheprovider tests
+        working-directory: python
+      - name: Test abi3 wheel on Python 3.11
+        run: |
+          uv sync --locked --only-group test --python 3.11
+          uv pip install dist/*cp311-abi3*.whl
+          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
+          uv run --no-sync python -c "import nacl"
+          uv run --no-sync pytest -p no:cacheprovider tests
+        working-directory: python
+      - name: Set up free-threaded Python for macOS and Windows build
+        if: "!startsWith(matrix.target, 'x86_64-unknown-linux') && !startsWith(matrix.target, 'aarch64-unknown-linux')"
+        id: ft-python
+        run: |
+          uv python install 3.14t
+          echo "python-path=$(uv python find 3.14t)" >> "$GITHUB_OUTPUT"
+      - name: Build free-threaded wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --out dist -i "${{ matrix.ft_interpreter || steps.ft-python.outputs.python-path }}"
+          working-directory: python
+      - name: Test free-threaded wheel
+        run: |
+          uv sync --locked --only-group test --python 3.14t
+          uv pip install dist/*cp314-cp314t*.whl
+          uv run --no-sync python -c "import sys, dryoc; assert not sys._is_gil_enabled()"
+          uv run --no-sync python -c "import nacl"
+          uv run --no-sync pytest -p no:cacheprovider tests
+        working-directory: python
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-wheel-${{ matrix.slug }}
+          path: python/dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  python-sdist:
+    name: Python source distribution
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: python
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-sdist
+          path: python/dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+

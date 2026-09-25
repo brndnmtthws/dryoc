@@ -174,6 +174,14 @@ feature name carries the wincode version. Support for a future wincode release
 will be added as a new feature (for example, `wincode_0_7`) alongside the
 existing ones, so upgrading wincode does not require a new dryoc major version.
 
+## Python
+
+Python bindings are published on PyPI as
+[`dryoc`](https://pypi.org/project/dryoc/) (`uv add dryoc`, or
+`pip install dryoc`), with a Pythonic, typed API for CPython 3.11 and newer,
+including free-threaded builds. See [python/README.md](python/README.md) for
+usage and supported platforms.
+
 ## Security
 
 dryoc has not undergone a third-party security audit. Its compatibility tests,
