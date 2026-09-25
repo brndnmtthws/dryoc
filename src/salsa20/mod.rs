@@ -3,7 +3,8 @@
 //!
 //! Bulk keystream comes from a vector kernel where one is available: the
 //! runtime-detected NEON/SVE2 kernels on little-endian AArch64, the
-//! runtime-detected AVX2/AVX-512 kernels on x86-64, or the portable-SIMD
+//! runtime-detected AVX2/AVX-512 kernels on x86-64, the `simd128` kernel on
+//! WebAssembly builds with that target feature enabled, or the portable-SIMD
 //! kernel with `simd_backend` + `nightly` elsewhere. The portable scalar
 //! block function handles everything else.
 
@@ -24,6 +25,11 @@ use salsa20_neon as vector;
 mod salsa20_x86_64;
 #[cfg(target_arch = "x86_64")]
 use salsa20_x86_64 as vector;
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+mod salsa20_wasm32;
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+use salsa20_wasm32 as vector;
 
 // On AArch64 and x86-64 the target-specific kernels are faster than the
 // portable-SIMD lane set, so they are used there even with `simd_backend`;
@@ -53,6 +59,7 @@ macro_rules! salsa20_quarter_round {
         $step!($x, $a ^= $d + $c <<< 18);
     };
 }
+pub(crate) use salsa20_quarter_round;
 
 /// One Salsa20 double round (a column round followed by a row round) of `$x`
 /// with the backend's `$step` macro.
@@ -69,7 +76,6 @@ macro_rules! salsa20_double_round {
     };
 }
 pub(crate) use salsa20_double_round;
-pub(crate) use salsa20_quarter_round;
 
 /// A vector kernel producing several keystream blocks per run.
 #[cfg(any(
@@ -631,6 +637,9 @@ mod tests {
         all(feature = "simd_backend", feature = "nightly")
     ))]
     mod vector_path {
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        use wasm_bindgen_test::wasm_bindgen_test as test;
+
         use super::*;
 
         /// Every kernel of every compiled backend that the CPU supports.
