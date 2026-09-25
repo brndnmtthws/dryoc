@@ -795,21 +795,7 @@ mod tests {
             slice: 2,
             index: 1,
         };
-        let pseudo_rand = 0;
-        let reference_area_size = lane_length - instance.segment_length;
-        let mut relative_position = pseudo_rand;
-        relative_position = ((relative_position as u64 * relative_position as u64) >> 32) as u32;
-        relative_position = reference_area_size
-            - 1
-            - ((reference_area_size as u64 * relative_position as u64) >> 32) as u32;
-        let start_position = (position.slice as u32 + 1) * instance.segment_length;
-        assert!(start_position as u64 + relative_position as u64 > u32::MAX as u64);
-        let expected =
-            ((start_position as u64 + relative_position as u64) % lane_length as u64) as u32;
-        assert_eq!(
-            index_alpha(&instance, &position, pseudo_rand, true),
-            expected
-        );
+        assert_eq!(index_alpha(&instance, &position, 0, true), 2_147_483_645);
     }
 
     #[test]

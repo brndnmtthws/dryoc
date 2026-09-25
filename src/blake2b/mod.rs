@@ -159,6 +159,7 @@ macro_rules! blake2b_longhash {
 
             use crate::blake2b::HALFOUTBYTES;
 
+            assert!(output.len() > 4);
             assert!(output.len() <= u32::MAX as usize);
 
             let outlen = output.len() as u32;
