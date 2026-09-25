@@ -79,12 +79,12 @@ jobs:
       - name: Install matching wasm-bindgen test runner
         run: |
           WASM_BINDGEN_VERSION="$(
-            cargo tree --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode \
+            cargo tree --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode_0_6 \
               | sed -n 's/.*wasm-bindgen v\([0-9.]*\).*/\1/p' \
               | head -n 1
           )"
           cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
-      - run: mbx nextest run --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode
+      - run: mbx nextest run --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode_0_6
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
 
@@ -153,10 +153,10 @@ jobs:
             flags: --no-default-features --features base64
           - name: serde-only
             flags: --no-default-features --features serde
-          - name: wincode-only
-            flags: --no-default-features --features wincode
+          - name: wincode_0_6-only
+            flags: --no-default-features --features wincode_0_6
           - name: optional-features
-            flags: --no-default-features --features serde,base64,wincode
+            flags: --no-default-features --features serde,base64,wincode_0_6
           - name: protected-only
             flags: --no-default-features --features protected
           - name: serde-protected
@@ -202,7 +202,7 @@ jobs:
           packages: --locked cargo-nextest
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: mbx nextest run --all-targets --features serde,wincode
+      - run: mbx nextest run --all-targets --features serde,wincode_0_6
 
   all-features:
     name: all features / nightly
@@ -291,7 +291,7 @@ jobs:
         run: >-
           cargo +nightly miri nextest run
           --target x86_64-unknown-linux-gnu
-          --no-default-features --features serde,base64,wincode
+          --no-default-features --features serde,base64,wincode_0_6
           --profile ${{ matrix.profile }}
           --test-threads 4
 

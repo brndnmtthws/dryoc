@@ -19,9 +19,9 @@
 //! With the `serde` feature,
 //! [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html) and
 //! [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html) are implemented
-//! for [`DryocSecretBox`]. With `wincode`,
-//! [`wincode::SchemaRead`](https://docs.rs/wincode/latest/wincode/trait.SchemaRead.html) and
-//! [`wincode::SchemaWrite`](https://docs.rs/wincode/latest/wincode/trait.SchemaWrite.html) are
+//! for [`DryocSecretBox`]. With `wincode_0_6`,
+//! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
+//! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
 //! implemented for [`VecBox`].
 //!
 //! ## Rustaceous API example
@@ -147,7 +147,7 @@ pub struct DryocSecretBox<
 /// [Vec]-based authenticated secret box.
 pub type VecBox = DryocSecretBox<Mac, Vec<u8>>;
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 // SAFETY: The implementation writes exactly the fields used to reconstruct
 // `VecBox` below, using `wincode` schema implementations for each initialized
 // field and preserving their order.
@@ -171,7 +171,7 @@ unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
     }
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 // SAFETY: The implementation fully initializes `dst` with a valid `VecBox`
 // after successfully reading each field in the same order as `SchemaWrite`.
 unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for VecBox {

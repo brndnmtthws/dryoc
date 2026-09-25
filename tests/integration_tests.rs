@@ -1145,7 +1145,7 @@ fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
     );
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf_wincode() {
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
@@ -1244,14 +1244,14 @@ fn test_dryocaead_serde_json() {
 /// The bincode-style wire layout the crate's `SchemaWrite` impls promise:
 /// fixed arrays are written raw and `Vec<u8>` as a little-endian `u64` length
 /// prefix followed by the bytes.
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 fn wincode_vec(bytes: &[u8]) -> Vec<u8> {
     let mut out = (bytes.len() as u64).to_le_bytes().to_vec();
     out.extend_from_slice(bytes);
     out
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocbox_wincode_wire_format() {
     use dryoc::classic::crypto_box::crypto_box_detached;
@@ -1320,7 +1320,7 @@ fn test_dryocbox_wincode_wire_format() {
     assert!(wincode::deserialize::<VecBox>(&expected[..expected.len() - 1]).is_err());
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocaead_wincode_wire_format() {
     use dryoc::classic::crypto_aead_xchacha20poly1305_ietf::crypto_aead_xchacha20poly1305_ietf_encrypt_detached;
@@ -1379,7 +1379,7 @@ fn test_dryocaead_wincode_wire_format() {
     assert!(wincode::deserialize::<VecEnvelope>(&expected[..expected.len() - 1]).is_err());
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocbox_wincode() {
     use dryoc::dryocbox::*;
@@ -1411,7 +1411,7 @@ fn test_dryocbox_wincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocaead_wincode() {
     use dryoc::dryocaead::*;
@@ -1437,7 +1437,7 @@ fn test_dryocaead_wincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocbox_sealed_wincode() {
     use dryoc::dryocbox::*;
@@ -1458,7 +1458,7 @@ fn test_dryocbox_sealed_wincode() {
     assert_eq!(message, decrypted.as_slice());
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocsecretbox_wincode_wire_format() {
     use dryoc::classic::crypto_secretbox::crypto_secretbox_detached;
@@ -1496,7 +1496,7 @@ fn test_dryocsecretbox_wincode_wire_format() {
     assert!(wincode::deserialize::<VecBox>(&expected[..expected.len() - 1]).is_err());
 }
 
-#[cfg(feature = "wincode")]
+#[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocsecretbox_wincode() {
     use dryoc::dryocsecretbox::*;

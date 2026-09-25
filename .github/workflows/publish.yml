@@ -47,13 +47,13 @@ jobs:
           fi
       - run: mbx nextest run --all-targets
       - run: mbx nextest run --all-targets --no-default-features
-      - run: mbx nextest run --all-targets --no-default-features --features serde,base64,wincode
+      - run: mbx nextest run --all-targets --no-default-features --features serde,base64,wincode_0_6
       - run: mbx nextest run --all-targets --no-default-features --features serde,protected
       - run: mbx test --doc
       - run: mbx doc --no-default-features --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: mbx clippy --all-targets --features serde,base64,wincode -- -D warnings
+      - run: mbx clippy --all-targets --features serde,base64,wincode_0_6 -- -D warnings
       - name: Install nightly validation toolchain
         run: rustup toolchain install nightly --profile minimal --component clippy
       - run: mbx +nightly nextest run --all-targets --all-features
