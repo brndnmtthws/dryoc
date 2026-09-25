@@ -60,11 +60,10 @@ proptest = "1"
 
 [features]
 base64 = []
-default = ["base64", "u64_backend", "protected"]
+default = ["base64", "protected"]
 nightly = ["protected"]
 protected = []
 simd_backend = []
-u64_backend = []
 wincode = ["dep:wincode"]
 
 [lints.rust]

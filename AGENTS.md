@@ -21,7 +21,7 @@ than convenience refactors.
 - Rust 2024 reserves `gen` as a keyword. Random generation APIs are named
   `generate` (for example, `Key::generate()`); the legacy `gen`/`r#gen`
   aliases were removed.
-- Default features are `base64`, `u64_backend`, and `protected`.
+- Default features are `base64` and `protected`.
 - Optional features:
   - `serde`: serialization support for supported types.
   - `base64`: password-hash string helpers; enabled by default and does not add
