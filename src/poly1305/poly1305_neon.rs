@@ -40,6 +40,7 @@ use core::arch::aarch64::*;
 use zeroize::Zeroize;
 
 use super::{M26, M42, M44, canonical, carry44, limbs26, mul_mod_p, pack_limbs26};
+use crate::aarch64::Neon;
 
 /// Blocks handled by the two four-lane NEON chains per iteration.
 const NEON_BLOCKS: usize = 8;
@@ -535,7 +536,7 @@ fn hot_loop(
 /// only in registers and compiler spill slots, which are out of Rust's reach
 /// and are not wiped, since wiping them would force them into memory.
 #[target_feature(enable = "neon")]
-pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+fn blocks_unchecked(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
 
     // Key powers: the scalar lanes get 3x44-bit values; the NEON lanes get
@@ -615,4 +616,12 @@ pub(super) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     a.zeroize();
     b.zeroize();
     lanes.zeroize();
+}
+
+/// [`blocks_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+pub(super) fn blocks(_: Neon, h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { blocks_unchecked(h, r, input) }
 }

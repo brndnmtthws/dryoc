@@ -26,32 +26,27 @@ use core::arch::x86_64::{
 };
 
 use super::{BLOCKBYTES, IV};
-use crate::x86_64::{load, load_words, store_words};
+use crate::x86_64::{Avx2, Avx512Vl, load, load_words, store_words};
 
-/// A vector kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] after checking the CPU features the
-/// kernel is compiled for, which is what makes [`Kernel::compress`] safe.
+/// A vector kernel the running CPU has been verified to support: each
+/// variant holds the token for the CPU features its kernel is compiled for,
+/// which is what makes [`Kernel::compress`] safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kernel {
     /// AVX2: shuffle-based lane rotations.
-    Avx2,
+    Avx2(Avx2),
     /// AVX-512VL on `ymm` registers: `vprorq` lane rotations.
-    Avx512Vl,
+    Avx512Vl(Avx512Vl),
 }
 
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if has_x86_feature!("avx2") {
-        if has_x86_feature!("avx512f") && has_x86_feature!("avx512vl") {
-            Some(Kernel::Avx512Vl)
-        } else {
-            Some(Kernel::Avx2)
-        }
-    } else {
-        None
-    }
+    let avx2 = Avx2::new()?;
+    Some(match avx2.avx512vl() {
+        Some(avx512vl) => Kernel::Avx512Vl(avx512vl),
+        None => Kernel::Avx2(avx2),
+    })
 }
 
 impl Kernel {
@@ -59,10 +54,10 @@ impl Kernel {
     #[cfg(test)]
     pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         let mut kernels = alloc::vec::Vec::new();
-        if has_x86_feature!("avx2") {
-            kernels.push(Kernel::Avx2);
-            if has_x86_feature!("avx512f") && has_x86_feature!("avx512vl") {
-                kernels.push(Kernel::Avx512Vl);
+        if let Some(avx2) = Avx2::new() {
+            kernels.push(Kernel::Avx2(avx2));
+            if let Some(avx512vl) = avx2.avx512vl() {
+                kernels.push(Kernel::Avx512Vl(avx512vl));
             }
         }
         kernels
@@ -79,13 +74,8 @@ impl Kernel {
         block: &[u8; BLOCKBYTES],
     ) {
         match self {
-            // SAFETY: `Kernel::Avx2` is only constructed after
-            // `has_x86_feature!("avx2")` succeeded.
-            Kernel::Avx2 => unsafe { avx2::compress(h, t, f, block) },
-            // SAFETY: `Kernel::Avx512Vl` is only constructed after
-            // `has_x86_feature!` confirmed `avx2`, `avx512f` and
-            // `avx512vl`.
-            Kernel::Avx512Vl => unsafe { avx512vl::compress(h, t, f, block) },
+            Kernel::Avx2(token) => avx2::compress(token, h, t, f, block),
+            Kernel::Avx512Vl(token) => avx512vl::compress(token, h, t, f, block),
         }
     }
 }
@@ -109,9 +99,19 @@ fn msg(lo: __m256i, hi: __m256i) -> __m256i {
 }
 
 /// Defines the module `$name` holding one kernel compiled for `$features`,
-/// with the four lane rotations `$ror32`, `$ror24`, `$ror16` and `$ror63`.
+/// with the four lane rotations `$ror32`, `$ror24`, `$ror16` and `$ror63`,
+/// and its safe entry `compress`, which takes the `$token` token for those
+/// features.
 macro_rules! kernel {
-    ($name:ident, $features:literal, $ror32:expr, $ror24:expr, $ror16:expr, $ror63:expr) => {
+    (
+        $name:ident,
+        $token:ident,
+        $features:literal,
+        $ror32:expr,
+        $ror24:expr,
+        $ror16:expr,
+        $ror63:expr
+    ) => {
         mod $name {
             use super::*;
 
@@ -205,7 +205,7 @@ macro_rules! kernel {
             /// rotations, `load`/`load_words`/`store_words`) are a few
             /// intrinsics each.
             #[target_feature(enable = $features)]
-            pub(super) fn compress(
+            fn compress_unchecked(
                 h: &mut [u64; 8],
                 t: &[u64; 2],
                 f: &[u64; 2],
@@ -423,12 +423,28 @@ macro_rules! kernel {
                 store_words(h_lo, _mm256_xor_si256(iv0, _mm256_xor_si256(v.a, v.c)));
                 store_words(h_hi, _mm256_xor_si256(iv1, _mm256_xor_si256(v.b, v.d)));
             }
+
+            /// [`compress_unchecked`], safe to call with the token for
+            /// `$features`.
+            #[inline(always)]
+            pub(super) fn compress(
+                _: $token,
+                h: &mut [u64; 8],
+                t: &[u64; 2],
+                f: &[u64; 2],
+                block: &[u8; BLOCKBYTES],
+            ) {
+                // SAFETY: the token exists only after detection of
+                // `$features`, the features the kernel is compiled for.
+                unsafe { compress_unchecked(h, t, f, block) }
+            }
         }
     };
 }
 
 kernel!(
     avx2,
+    Avx2,
     "avx2",
     crate::x86_64::ror32,
     crate::x86_64::ror24,
@@ -437,6 +453,7 @@ kernel!(
 );
 kernel!(
     avx512vl,
+    Avx512Vl,
     "avx2,avx512f,avx512vl",
     ror_avx512vl::<32>,
     ror_avx512vl::<24>,

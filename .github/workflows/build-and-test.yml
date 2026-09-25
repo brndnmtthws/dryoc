@@ -57,8 +57,19 @@ jobs:
       - run: cargo deny --all-features check advisories
 
   wasm:
-    name: wasm32-unknown-unknown
+    name: wasm32-unknown-unknown / ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Portable code only.
+          - name: baseline
+            rustflags: ""
+          # WebAssembly has no runtime feature detection, so the simd128
+          # kernels are compiled in only when the target feature is enabled.
+          - name: simd128
+            rustflags: -Ctarget-feature=+simd128
     steps:
       - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain with wasm32 target
@@ -66,10 +77,11 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
+          components: clippy
           targets: wasm32-unknown-unknown
       - uses: jdx/mr-boxington-action@v1
         with:
-          cache-generation: wasm
+          cache-generation: wasm-${{ matrix.name }}
       - name: Install cargo-nextest
         uses: brndnmtthws/rust-action-cargo-binstall@v1
         with:
@@ -84,9 +96,23 @@ jobs:
               | head -n 1
           )"
           cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
-      - run: mbx nextest run --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6
+      # RUSTFLAGS only on the wasm32 steps: with `--target` it applies to the
+      # wasm32 artifacts and not to host build scripts or installed tools.
+      # The simd128 kernels do not depend on `std`, so the `no_std` builds
+      # (with and without `alloc`) are tested too.
+      - run: |
+          for features in "" alloc std,serde,base64,wincode_0_6; do
+            mbx nextest run --target wasm32-unknown-unknown --no-default-features --features "$features"
+          done
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+          RUSTFLAGS: ${{ matrix.rustflags }}
+      - run: |
+          for features in "" alloc std,serde,base64,wincode_0_6; do
+            mbx clippy --target wasm32-unknown-unknown --all-targets --no-default-features --features "$features" -- -D warnings
+          done
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
 
   platform:
     name: ${{ matrix.os }} / ${{ matrix.rust }} / ${{ matrix.features }}

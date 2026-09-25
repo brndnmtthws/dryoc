@@ -49,29 +49,42 @@ pub(crate) fn crypto_scalarmult_curve25519_base(
 }
 
 /// On x86-64 with BMI2 the ladder runs in a copy compiled for `mulx` (see
-/// [`crate::x86_64::has_bmi2`]); the arithmetic is the same code.
+/// [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
 pub(crate) fn crypto_scalarmult_curve25519(
     q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
     p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
 ) {
     #[cfg(target_arch = "x86_64")]
-    if crate::x86_64::has_bmi2() {
-        // SAFETY: `ladder_bmi2` requires the `bmi2` target feature, which
-        // the feature check above confirmed is present.
-        return unsafe { ladder_bmi2(q, n, p) };
+    if let Some(bmi2) = crate::x86_64::Bmi2::new() {
+        return ladder_bmi2(bmi2, q, n, p);
     }
     ladder(q, n, p)
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2")]
-fn ladder_bmi2(
+fn ladder_bmi2_unchecked(
     q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
     p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
 ) {
     ladder(q, n, p)
+}
+
+/// [`ladder_bmi2_unchecked`], safe to call with a [`crate::x86_64::Bmi2`]
+/// token.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn ladder_bmi2(
+    _: crate::x86_64::Bmi2,
+    q: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+) {
+    // SAFETY: a `Bmi2` token exists only after detection of `bmi2`,
+    // the feature the ladder copy is compiled for.
+    unsafe { ladder_bmi2_unchecked(q, n, p) }
 }
 
 /// The RFC 7748 Montgomery ladder; see [`crypto_scalarmult_curve25519`].

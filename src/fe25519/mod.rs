@@ -232,13 +232,11 @@ impl Fe {
     /// `self^(p - 2)` by the standard 254-squaring, 11-multiply chain.
     ///
     /// On x86-64 with BMI2 the chain runs in a copy compiled for `mulx`
-    /// (see [`crate::x86_64::has_bmi2`]); the arithmetic is the same code.
+    /// (see [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
     pub(crate) fn invert(&self) -> Fe {
         #[cfg(target_arch = "x86_64")]
-        if crate::x86_64::has_bmi2() {
-            // SAFETY: `invert_bmi2` requires the `bmi2` target feature, which
-            // the feature check above confirmed is present.
-            return unsafe { self.invert_bmi2() };
+        if let Some(bmi2) = crate::x86_64::Bmi2::new() {
+            return self.invert_bmi2(bmi2);
         }
         self.invert_impl()
     }
@@ -251,8 +249,18 @@ impl Fe {
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "bmi2")]
-    fn invert_bmi2(&self) -> Fe {
+    fn invert_bmi2_unchecked(&self) -> Fe {
         self.invert_impl()
+    }
+
+    /// [`Fe::invert_bmi2_unchecked`], safe to call with a
+    /// [`crate::x86_64::Bmi2`] token.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn invert_bmi2(&self, _: crate::x86_64::Bmi2) -> Fe {
+        // SAFETY: a `Bmi2` token exists only after detection of
+        // `bmi2`, the feature the chain copy is compiled for.
+        unsafe { self.invert_bmi2_unchecked() }
     }
 
     /// `self^((p - 5) / 8) = self^(2^252 - 3)`.
@@ -274,10 +282,8 @@ impl Fe {
     /// `mulx`, as in [`Fe::invert`].
     pub(crate) fn sqrt_ratio_i(u: &Fe, v: &Fe) -> (bool, Fe) {
         #[cfg(target_arch = "x86_64")]
-        if crate::x86_64::has_bmi2() {
-            // SAFETY: `sqrt_ratio_i_bmi2` requires the `bmi2` target feature,
-            // which the feature check above confirmed is present.
-            return unsafe { Self::sqrt_ratio_i_bmi2(u, v) };
+        if let Some(bmi2) = crate::x86_64::Bmi2::new() {
+            return Self::sqrt_ratio_i_bmi2(bmi2, u, v);
         }
         Self::sqrt_ratio_i_impl(u, v)
     }
@@ -307,8 +313,18 @@ impl Fe {
 
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "bmi2")]
-    fn sqrt_ratio_i_bmi2(u: &Fe, v: &Fe) -> (bool, Fe) {
+    fn sqrt_ratio_i_bmi2_unchecked(u: &Fe, v: &Fe) -> (bool, Fe) {
         Self::sqrt_ratio_i_impl(u, v)
+    }
+
+    /// [`Fe::sqrt_ratio_i_bmi2_unchecked`], safe to call with a
+    /// [`crate::x86_64::Bmi2`] token.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn sqrt_ratio_i_bmi2(_: crate::x86_64::Bmi2, u: &Fe, v: &Fe) -> (bool, Fe) {
+        // SAFETY: a `Bmi2` token exists only after detection of
+        // `bmi2`, the feature the exponentiation copy is compiled for.
+        unsafe { Self::sqrt_ratio_i_bmi2_unchecked(u, v) }
     }
 
     /// All-ones when `self == other`, zero otherwise, from the canonical

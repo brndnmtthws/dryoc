@@ -42,7 +42,7 @@ use core::arch::x86_64::{
 use zeroize::Zeroize;
 
 use super::{M42, M44, canonical, carry44, limbs26, mul_mod_p};
-use crate::x86_64::{load, load512};
+use crate::x86_64::{Avx2, Avx512, Avx512Ifma, load, load512};
 
 /// Minimum run of full blocks worth handing to the AVX2 path; below this the
 /// eight key powers and limb conversions cost more than they save. Must be
@@ -75,17 +75,12 @@ const IFMA2_MIN_BYTES: usize = 1024;
 #[inline]
 pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize {
     if input.len() >= IFMA_MIN_BYTES
-        && crate::x86_64::has_avx512f()
-        && has_x86_feature!("avx512ifma")
+        && let Some(ifma) = Avx512Ifma::new()
     {
         let mut bulk = 0;
         if input.len() >= IFMA2_MIN_BYTES {
             bulk = input.len() - input.len() % CHUNK_IFMA2;
-            // SAFETY: `blocks_ifma2` requires the `avx512f` and `avx512ifma`
-            // target features: the checks above confirmed `avx512ifma`, and
-            // `avx512f` together with the `avx2` that rustc's `avx512f`
-            // implies.
-            unsafe { blocks_ifma2(h, r, &input[..bulk]) };
+            blocks_ifma2(ifma, h, r, &input[..bulk]);
         }
         // The single chain takes what is left over from the two-chain run
         // when that is at least one of its chunks: recomputing its powers is
@@ -93,28 +88,23 @@ pub(super) fn full_blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) -> usize
         let rest = input.len() - bulk;
         if rest >= CHUNK_IFMA {
             let end = input.len() - rest % CHUNK_IFMA;
-            // SAFETY: `blocks_ifma` requires the `avx512f` and `avx512ifma`
-            // target features: the checks above confirmed `avx512ifma`, and
-            // `avx512f` together with the `avx2` that rustc's `avx512f`
-            // implies.
-            unsafe { blocks_ifma(h, r, &input[bulk..end]) };
+            blocks_ifma(ifma, h, r, &input[bulk..end]);
             bulk = end;
         }
         return bulk;
     }
-    if input.len() >= AVX512_MIN_BYTES && crate::x86_64::has_avx512f() {
+    if input.len() >= AVX512_MIN_BYTES
+        && let Some(avx512) = Avx512::new()
+    {
         let bulk = input.len() - input.len() % CHUNK512;
-        // SAFETY: `blocks_avx512` requires the `avx512f` target feature,
-        // which the check above confirmed together with the `avx2` that
-        // rustc's `avx512f` implies.
-        unsafe { blocks_avx512(h, r, &input[..bulk]) };
+        blocks_avx512(avx512, h, r, &input[..bulk]);
         return bulk;
     }
-    if input.len() >= AVX2_MIN_BYTES && has_x86_feature!("avx2") {
+    if input.len() >= AVX2_MIN_BYTES
+        && let Some(avx2) = Avx2::new()
+    {
         let bulk = input.len() - input.len() % CHUNK;
-        // SAFETY: `blocks` requires the `avx2` target feature, which the
-        // feature check above confirmed is present.
-        unsafe { blocks(h, r, &input[..bulk]) };
+        blocks(avx2, h, r, &input[..bulk]);
         return bulk;
     }
     0
@@ -227,12 +217,13 @@ fn lane_sum512(v: __m512i) -> u64 {
 }
 
 /// Defines one two-chain 5x26-bit kernel as the module `$name`, exporting
-/// `LANES`, `BLOCKS`, `CHUNK` and `blocks`.
+/// `LANES`, `BLOCKS`, `CHUNK` and `blocks`, the safe entry to the kernel
+/// `blocks_unchecked`.
 ///
 /// - `$name`: the module; leading attributes (docs) are applied to it.
 /// - `$feature`: the `#[target_feature(enable = ...)]` string.
-/// - `$detected`: a `bool` expression, whether the CPU supports `$feature`
-///   (tests only).
+/// - `$token`: the `crate::x86_64` token proving `$feature`, taken by `blocks`
+///   (and used by the tests to detect it).
 /// - `$lanes`: 64-bit lanes per vector, the blocks per chain per iteration.
 /// - `$vec`: the vector type.
 /// - `$set1`: `fn(i64) -> $vec`, the value in every lane.
@@ -250,7 +241,7 @@ macro_rules! poly1305_26 {
         $(#[$meta:meta])*
         mod $name:ident {
             feature: $feature:tt,
-            detected: $detected:expr,
+            token: $token:ident,
             lanes: $lanes:literal,
             vec: $vec:ident,
             set1: $set1:ident,
@@ -277,6 +268,7 @@ macro_rules! poly1305_26 {
 
             use super::key_powers;
             use crate::poly1305::{M26, canonical, carry44, limbs26, pack_limbs26};
+            use crate::x86_64::$token;
 
             /// Blocks per chain per iteration: the 64-bit lanes of a vector.
             pub(crate) const LANES: usize = $lanes;
@@ -518,7 +510,7 @@ macro_rules! poly1305_26 {
             /// reach and are not wiped, since wiping them would force them
             /// into memory.
             #[target_feature(enable = $feature)]
-            pub(crate) fn blocks(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+            fn blocks_unchecked(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
                 debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK));
 
                 // Key powers: `[r^LANES, .., r]` from the scalar powers
@@ -579,6 +571,15 @@ macro_rules! poly1305_26 {
                 b.zeroize();
             }
 
+            /// [`blocks_unchecked`], safe to call with the token for
+            /// `$feature`.
+            #[inline(always)]
+            pub(crate) fn blocks(_: $token, h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+                // SAFETY: the token exists only after detection of
+                // `$feature`, the feature the kernel is compiled for.
+                unsafe { blocks_unchecked(h, r, input) }
+            }
+
             #[cfg(test)]
             mod tests {
                 use super::super::tests::{
@@ -605,12 +606,13 @@ macro_rules! poly1305_26 {
                 /// (`top`), for carry-heavy keys.
                 #[test]
                 fn vector_powers_match_serial_chain() {
-                    if !$detected {
+                    if $token::new().is_none() {
                         return;
                     }
                     for r in &carry_keys() {
                         let serial = serial_powers::<BLOCKS>(r);
-                        // SAFETY: the kernel's feature was detected above.
+                        // SAFETY: the token check above proves the kernel's
+                        // feature.
                         let (low, high, top) = unsafe {
                             let mut limbs = key_powers::<LANES>(r);
                             let low = Acc(Mult::descending(&limbs).r);
@@ -650,7 +652,7 @@ poly1305_26! {
     /// `__m256i`.
     mod avx2 {
         feature: "avx2",
-        detected: has_x86_feature!("avx2"),
+        token: Avx2,
         lanes: 4,
         vec: __m256i,
         set1: _mm256_set1_epi64x,
@@ -673,7 +675,7 @@ poly1305_26! {
     /// `__m512i`.
     mod avx512 {
         feature: "avx512f",
-        detected: crate::x86_64::has_avx512f(),
+        token: Avx512,
         lanes: 8,
         vec: __m512i,
         set1: _mm512_set1_epi64,
@@ -928,7 +930,7 @@ macro_rules! descending_powers {
 /// of Rust's reach and are not wiped, since wiping them would force them
 /// into memory.
 #[target_feature(enable = "avx512f,avx512ifma")]
-pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+fn blocks_ifma_unchecked(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA));
 
     let low = descending_powers!(r);
@@ -961,6 +963,14 @@ pub(super) fn blocks_ifma(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     a.zeroize();
 }
 
+/// [`blocks_ifma_unchecked`], safe to call with an [`Avx512Ifma`] token.
+#[inline(always)]
+pub(super) fn blocks_ifma(_: Avx512Ifma, h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+    // SAFETY: an `Avx512Ifma` token exists only after detection of
+    // `avx512f` and `avx512ifma`, the features the kernel is compiled for.
+    unsafe { blocks_ifma_unchecked(h, r, input) }
+}
+
 /// Bytes per iteration of the two-chain AVX-512 IFMA kernel.
 /// `blocks_ifma2` takes a non-empty multiple of this.
 pub(super) const CHUNK_IFMA2: usize = 2 * CHUNK_IFMA;
@@ -989,7 +999,7 @@ fn hot_loop44x2(a: &mut Acc44, b: &mut Acc44, m: &Mult44, body: &[[u8; CHUNK_IFM
 /// every other key-derived value (also `high`, `tail_a`/`tail_b`) in
 /// registers and spill slots, as [`blocks_ifma`] does.
 #[target_feature(enable = "avx512f,avx512ifma")]
-pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+fn blocks_ifma2_unchecked(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     debug_assert!(!input.is_empty() && input.len().is_multiple_of(CHUNK_IFMA2));
 
     let low = descending_powers!(r);
@@ -1027,6 +1037,14 @@ pub(super) fn blocks_ifma2(h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
     top.zeroize();
     a.zeroize();
     b.zeroize();
+}
+
+/// [`blocks_ifma2_unchecked`], safe to call with an [`Avx512Ifma`] token.
+#[inline(always)]
+pub(super) fn blocks_ifma2(_: Avx512Ifma, h: &mut [u64; 3], r: &[u64; 3], input: &[u8]) {
+    // SAFETY: an `Avx512Ifma` token exists only after detection of
+    // `avx512f` and `avx512ifma`, the features the kernel is compiled for.
+    unsafe { blocks_ifma2_unchecked(h, r, input) }
 }
 
 #[cfg(test)]
@@ -1103,7 +1121,7 @@ mod tests {
     /// blocks are all ones.
     #[test]
     fn test_ifma_step_matches_scalar_and_bound() {
-        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
+        if Avx512Ifma::new().is_none() {
             return;
         }
         let blocks = [0xffu8; CHUNK_IFMA];
@@ -1121,8 +1139,8 @@ mod tests {
         };
         for r in &carry_keys() {
             let r = canonical(r);
-            // SAFETY: `avx512f` (with the `avx2` it implies) and `avx512ifma`
-            // were detected above.
+            // SAFETY: the `Avx512Ifma` token check above proves `avx512f`
+            // (with the `avx2` it implies) and `avx512ifma`.
             let out = unsafe {
                 let acc = Acc44(start.map(|limb| _mm512_set1_epi64(limb as i64)));
                 lanes44(&mul_reduce44!(add_blocks44!(acc, &blocks), &Mult44::broadcast(r)).0)
@@ -1149,7 +1167,7 @@ mod tests {
     /// `mul_reduce44!` documents.
     #[test]
     fn test_ifma_vector_powers_match_serial_chain() {
-        if !crate::x86_64::has_avx512f() || !has_x86_feature!("avx512ifma") {
+        if Avx512Ifma::new().is_none() {
             return;
         }
         let assert_bound = |words: [[u64; 8]; 3], what: &str| {
@@ -1166,8 +1184,8 @@ mod tests {
         };
         for r in &carry_keys() {
             let serial = serial_powers::<16>(r);
-            // SAFETY: `avx512f` (with the `avx2` it implies) and `avx512ifma`
-            // were detected above.
+            // SAFETY: the `Avx512Ifma` token check above proves `avx512f`
+            // (with the `avx2` it implies) and `avx512ifma`.
             let (low, high, top8, top16) = unsafe {
                 let low = descending_powers!(r);
                 let high = mul_reduce44!(low, &Mult44::from_lane0(low));

@@ -23,6 +23,7 @@ use core::arch::aarch64::{
 };
 
 use super::chacha20_soft as soft;
+use crate::aarch64::{Neon, Sve2};
 use crate::neon::{Dest, load, transpose, words, xor_block};
 
 /// Blocks per 4-lane vector set.
@@ -44,11 +45,10 @@ const SVE2_BLOCKS: u64 = 2 * SET_BLOCKS;
 /// head block into it.
 pub(super) const SMALL_BLOCKS: usize = SET_BLOCKS as usize;
 
-/// A vector kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] (and, in tests, `Kernel::all`)
-/// after checking the CPU features the kernel is compiled for, which is what
-/// makes [`Kernel::xor_chunk`](super::Kernel::xor_chunk) safe.
+/// A vector kernel the running CPU has been verified to support: each
+/// variant holds the token for the CPU features its kernels are compiled
+/// for, which is what makes [`Kernel::xor_chunk`](super::Kernel::xor_chunk)
+/// safe.
 ///
 /// ChaCha20 rotates the result of each XOR rather than XORing a rotated sum,
 /// so the SHA3 `eor3` has nothing to fold and a `neon,sha3` variant measured
@@ -56,21 +56,19 @@ pub(super) const SMALL_BLOCKS: usize = SET_BLOCKS as usize;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kernel {
     /// NEON: one lane set, three row blocks and two scalar blocks.
-    Neon,
+    Neon(Neon),
     /// SVE2 `xar` rounds on two lane sets held in the low 128 bits of the
     /// vector registers, so it needs no particular vector length.
-    Sve2,
+    Sve2(Sve2),
 }
 
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if has_aarch64_feature!("sve2") {
-        Some(Kernel::Sve2)
-    } else if has_aarch64_feature!("neon") {
-        Some(Kernel::Neon)
+    if let Some(sve2) = Sve2::new() {
+        Some(Kernel::Sve2(sve2))
     } else {
-        None
+        Neon::new().map(Kernel::Neon)
     }
 }
 
@@ -79,11 +77,11 @@ impl Kernel {
     #[cfg(test)]
     pub(super) fn all() -> alloc::vec::Vec<Kernel> {
         let mut kernels = alloc::vec::Vec::new();
-        if has_aarch64_feature!("neon") {
-            kernels.push(Kernel::Neon);
+        if let Some(neon) = Neon::new() {
+            kernels.push(Kernel::Neon(neon));
         }
-        if has_aarch64_feature!("sve2") {
-            kernels.push(Kernel::Sve2);
+        if let Some(sve2) = Sve2::new() {
+            kernels.push(Kernel::Sve2(sve2));
         }
         kernels
     }
@@ -96,8 +94,8 @@ impl super::Kernel for Kernel {
     #[inline]
     fn blocks(self) -> usize {
         match self {
-            Kernel::Neon => NEON_BLOCKS as usize,
-            Kernel::Sve2 => SVE2_BLOCKS as usize,
+            Kernel::Neon(_) => NEON_BLOCKS as usize,
+            Kernel::Sve2(_) => SVE2_BLOCKS as usize,
         }
     }
 
@@ -106,8 +104,8 @@ impl super::Kernel for Kernel {
     #[inline]
     fn tail_min_blocks(self) -> usize {
         match self {
-            Kernel::Neon => 4,
-            Kernel::Sve2 => 2,
+            Kernel::Neon(_) => 4,
+            Kernel::Sve2(_) => 2,
         }
     }
 
@@ -124,13 +122,8 @@ impl super::Kernel for Kernel {
         partial: Option<&mut [u8; 64]>,
     ) {
         match self {
-            // SAFETY: `Kernel::Neon` is only constructed after
-            // `has_aarch64_feature!("neon")` succeeded.
-            Kernel::Neon => unsafe { xor_chunk_neon(state, counter, input, output, partial) },
-            // SAFETY: `Kernel::Sve2` is only constructed after
-            // `has_aarch64_feature!("sve2")` succeeded (SVE2 implies
-            // NEON).
-            Kernel::Sve2 => unsafe { xor_chunk_sve2(state, counter, input, output, partial) },
+            Kernel::Neon(neon) => xor_chunk_neon(neon, state, counter, input, output, partial),
+            Kernel::Sve2(sve2) => xor_chunk_sve2(sve2, state, counter, input, output, partial),
         }
     }
 
@@ -147,10 +140,10 @@ impl super::Kernel for Kernel {
     ) {
         debug_assert!(output.len() / 64 + usize::from(partial.is_some()) <= SMALL_BLOCKS);
         match self {
-            Kernel::Neon => self.xor_chunk(state, counter, input, output, partial),
-            // SAFETY: `Kernel::Sve2` is only constructed after
-            // `has_aarch64_feature!("sve2")` succeeded.
-            Kernel::Sve2 => unsafe { xor_chunk_sve2_small(state, counter, input, output, partial) },
+            Kernel::Neon(_) => self.xor_chunk(state, counter, input, output, partial),
+            Kernel::Sve2(sve2) => {
+                xor_chunk_sve2_small(sve2, state, counter, input, output, partial)
+            }
         }
     }
 }
@@ -356,7 +349,7 @@ fn finish_scalar_block(
 /// Neoverse V1 (the alternatives were up to 8% slower).
 #[inline(never)]
 #[target_feature(enable = "neon")]
-fn xor_chunk_neon(
+fn xor_chunk_neon_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -399,6 +392,21 @@ fn xor_chunk_neon(
     finish_rows!(r1, &initial_r1, ROW_BASE as usize + 1, &mut dest);
     finish_rows!(r2, &initial_r2, ROW_BASE as usize + 2, &mut dest);
     finish_lanes!(v, &initial_v, 0, &mut dest);
+}
+
+/// [`xor_chunk_neon_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn xor_chunk_neon(
+    _: Neon,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { xor_chunk_neon_unchecked(state, counter, input, output, partial) }
 }
 
 /// One ChaCha20 quarter-round step on lane-set registers: `a += b; d = (d ^
@@ -543,7 +551,7 @@ fn double_rounds_sve2(a: &mut [uint32x4_t; 16], b: &mut [uint32x4_t; 16]) {
 /// costs about 160 vector instructions in the rounds against roughly 280 for
 /// the NEON lane set, and the eight independent chains hide the latency.
 #[target_feature(enable = "neon,sve2")]
-fn xor_chunk_sve2(
+fn xor_chunk_sve2_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -566,6 +574,21 @@ fn xor_chunk_sve2(
     let initial_b = input_lanes!(state, counter.wrapping_add(SET_BLOCKS));
     finish_lanes!(a, &initial_a, 0, &mut dest);
     finish_lanes!(b, &initial_b, SET_BLOCKS as usize, &mut dest);
+}
+
+/// [`xor_chunk_sve2_unchecked`], safe to call with an [`Sve2`] token.
+#[inline(always)]
+fn xor_chunk_sve2(
+    _: Sve2,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+) {
+    // SAFETY: an `Sve2` token exists only after detection of `sve2`,
+    // which implies `neon`: the features the kernel is compiled for.
+    unsafe { xor_chunk_sve2_unchecked(state, counter, input, output, partial) }
 }
 
 /// The quarter-round step for the four quarter rounds of the first lane set
@@ -657,7 +680,7 @@ fn double_rounds_sve2_set(a: &mut [uint32x4_t; 16]) {
 /// lane set: the same latency as [`xor_chunk_sve2`] for half the work, so
 /// runs of up to four blocks take this kernel.
 #[target_feature(enable = "neon,sve2")]
-fn xor_chunk_sve2_small(
+fn xor_chunk_sve2_small_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -672,4 +695,19 @@ fn xor_chunk_sve2_small(
     let state = core::hint::black_box(state);
     let initial = input_lanes!(state, counter);
     finish_lanes!(a, &initial, 0, &mut dest);
+}
+
+/// [`xor_chunk_sve2_small_unchecked`], safe to call with an [`Sve2`] token.
+#[inline(always)]
+fn xor_chunk_sve2_small(
+    _: Sve2,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+) {
+    // SAFETY: an `Sve2` token exists only after detection of `sve2`,
+    // which implies `neon`: the features the kernel is compiled for.
+    unsafe { xor_chunk_sve2_small_unchecked(state, counter, input, output, partial) }
 }

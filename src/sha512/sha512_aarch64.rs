@@ -11,6 +11,8 @@
 //! hides behind the hash chain. This ordering runs ~4% faster than LLVM's
 //! scheduling of the intrinsic form on Neoverse V-class cores.
 
+use crate::aarch64::Sha3;
+
 /// SHA-512 round constants (FIPS 180-4 section 4.2.2).
 const K64: [u64; 80] = [
     0x428a2f98d728ae22,
@@ -270,15 +272,8 @@ macro_rules! sched {
 /// single-state `step!`/`sched!` sequence emitted twice, alternating
 /// A-round, B-round, A-schedule, B-schedule; `test_compress2_matches_compress`
 /// checks it against `compress` on random block pairs.
-///
-/// # Safety
-///
-/// The caller must have confirmed `has_aarch64_feature!("sha3")`.
 #[target_feature(enable = "sha3")]
-// SAFETY: an `unsafe fn` only because of the `sha3` target feature; the
-// asm below reads exactly the two 128-byte blocks and the 640-byte `K64`
-// table and reads/writes the two 64-byte states through valid references.
-pub(super) unsafe fn compress2(
+fn compress2_unchecked(
     state_a: &mut [u64; 8],
     block_a: &[u8; 128],
     state_b: &mut [u64; 8],
@@ -1226,17 +1221,24 @@ pub(super) unsafe fn compress2(
     }
 }
 
+/// [`compress2_unchecked`], safe to call with a [`Sha3`] token.
+#[inline(always)]
+pub(super) fn compress2(
+    _: Sha3,
+    state_a: &mut [u64; 8],
+    block_a: &[u8; 128],
+    state_b: &mut [u64; 8],
+    block_b: &[u8; 128],
+) {
+    // SAFETY: a `Sha3` token exists only after detection of `sha3`,
+    // the feature the compression is compiled for.
+    unsafe { compress2_unchecked(state_a, block_a, state_b, block_b) }
+}
+
 /// Compresses `blocks` into `state` using the `sha3` extension's SHA-512
 /// instructions.
-///
-/// # Safety
-///
-/// The caller must have confirmed `has_aarch64_feature!("sha3")`.
 #[target_feature(enable = "sha3")]
-// SAFETY: an `unsafe fn` only because of the `sha3` target feature; the asm
-// below reads exactly `blocks.len()` 128-byte blocks and the 640-byte `K64`
-// table and reads/writes the state through a valid reference.
-pub(super) unsafe fn compress(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
+fn compress_unchecked(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
     if blocks.is_empty() {
         return;
     }
@@ -1359,4 +1361,12 @@ pub(super) unsafe fn compress(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
             options(nostack),
         );
     }
+}
+
+/// [`compress_unchecked`], safe to call with a [`Sha3`] token.
+#[inline(always)]
+pub(super) fn compress(_: Sha3, state: &mut [u64; 8], blocks: &[[u8; 128]]) {
+    // SAFETY: a `Sha3` token exists only after detection of `sha3`,
+    // the feature the compression is compiled for.
+    unsafe { compress_unchecked(state, blocks) }
 }

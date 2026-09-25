@@ -24,25 +24,20 @@ use core::arch::aarch64::{
 };
 
 use super::RC;
+use crate::aarch64::Sha3;
 
-/// A kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] after `has_aarch64_feature!("sha3")`
-/// succeeds, which is what makes the permutation methods safe.
+/// A kernel the running CPU has been verified to support: its variant holds
+/// the [`Sha3`] token, which is what makes the permutation methods safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kernel {
     /// The SHA3 extension (`FEAT_SHA3`).
-    Sha3,
+    Sha3(Sha3),
 }
 
 /// The kernel the running CPU supports, if any.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if has_aarch64_feature!("sha3") {
-        Some(Kernel::Sha3)
-    } else {
-        None
-    }
+    Sha3::new().map(Kernel::Sha3)
 }
 
 impl Kernel {
@@ -56,9 +51,7 @@ impl Kernel {
     #[inline]
     pub(super) fn permute1<const ROUNDS: usize>(self, state: &mut [u64; 25]) {
         match self {
-            // SAFETY: `Kernel::Sha3` is only constructed after
-            // `has_aarch64_feature!("sha3")` succeeded.
-            Kernel::Sha3 => unsafe { permute1_sha3::<ROUNDS>(state) },
+            Kernel::Sha3(sha3) => permute1_sha3::<ROUNDS>(sha3, state),
         }
     }
 
@@ -66,8 +59,7 @@ impl Kernel {
     #[inline]
     pub(super) fn permute2<const ROUNDS: usize>(self, a: &mut [u64; 25], b: &mut [u64; 25]) {
         match self {
-            // SAFETY: as for `permute1`.
-            Kernel::Sha3 => unsafe { permute2_sha3::<ROUNDS>(a, b) },
+            Kernel::Sha3(sha3) => permute2_sha3::<ROUNDS>(sha3, a, b),
         }
     }
 
@@ -232,7 +224,7 @@ macro_rules! permute {
 
 /// Keccak-p[1600, `ROUNDS`] on one state, with a zero second half.
 #[target_feature(enable = "neon,sha3")]
-fn permute1_sha3<const ROUNDS: usize>(state: &mut [u64; 25]) {
+fn permute1_sha3_unchecked<const ROUNDS: usize>(state: &mut [u64; 25]) {
     const { assert!(ROUNDS <= 24) };
     macro_rules! load {
         ($i:literal) => {
@@ -247,10 +239,18 @@ fn permute1_sha3<const ROUNDS: usize>(state: &mut [u64; 25]) {
     permute!(ROUNDS, load, store);
 }
 
+/// [`permute1_sha3_unchecked`], safe to call with a [`Sha3`] token.
+#[inline(always)]
+fn permute1_sha3<const ROUNDS: usize>(_: Sha3, state: &mut [u64; 25]) {
+    // SAFETY: a `Sha3` token exists only after detection of `sha3`, which
+    // implies the `neon` the kernel is also compiled for.
+    unsafe { permute1_sha3_unchecked::<ROUNDS>(state) }
+}
+
 /// Keccak-p[1600, `ROUNDS`] on two states, `a` in the low halves and `b` in
 /// the high halves.
 #[target_feature(enable = "neon,sha3")]
-fn permute2_sha3<const ROUNDS: usize>(a: &mut [u64; 25], b: &mut [u64; 25]) {
+fn permute2_sha3_unchecked<const ROUNDS: usize>(a: &mut [u64; 25], b: &mut [u64; 25]) {
     const { assert!(ROUNDS <= 24) };
     macro_rules! load {
         ($i:literal) => {
@@ -264,4 +264,11 @@ fn permute2_sha3<const ROUNDS: usize>(a: &mut [u64; 25], b: &mut [u64; 25]) {
         }};
     }
     permute!(ROUNDS, load, store);
+}
+
+/// [`permute2_sha3_unchecked`], safe to call with a [`Sha3`] token.
+#[inline(always)]
+fn permute2_sha3<const ROUNDS: usize>(_: Sha3, a: &mut [u64; 25], b: &mut [u64; 25]) {
+    // SAFETY: as for `permute1_sha3`.
+    unsafe { permute2_sha3_unchecked::<ROUNDS>(a, b) }
 }

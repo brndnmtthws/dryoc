@@ -1,11 +1,19 @@
-// On AArch64 and x86-64 the portable-SIMD backend is slower than the u128
-// 3-limb implementation with its NEON or AVX2 bulk path, so the soft backend
-// is used there even with `simd_backend`; the portable backend is still
-// compiled for tests there so every backend is checked against the others.
+// On AArch64, x86-64 and WebAssembly with `simd128` the portable-SIMD
+// backend is slower than the u128 3-limb implementation with its NEON, AVX2
+// or `simd128` bulk path, so the soft backend is used there even with
+// `simd_backend`; the portable backend is still compiled for tests there so
+// every backend is checked against the others.
 #[cfg(all(
     feature = "simd_backend",
     feature = "nightly",
-    any(test, not(any(target_arch = "aarch64", target_arch = "x86_64")))
+    any(
+        test,
+        not(any(
+            target_arch = "aarch64",
+            target_arch = "x86_64",
+            all(target_arch = "wasm32", target_feature = "simd128")
+        ))
+    )
 ))]
 pub(crate) mod poly1305_simd;
 
@@ -13,6 +21,7 @@ pub(crate) mod poly1305_simd;
     test,
     target_arch = "aarch64",
     target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128"),
     not(all(feature = "simd_backend", feature = "nightly"))
 ))]
 pub(crate) mod poly1305_soft;
@@ -23,19 +32,25 @@ pub(crate) mod poly1305_neon;
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod poly1305_x86_64;
 
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+pub(crate) mod poly1305_wasm32;
+
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 const M26: u64 = (1 << 26) - 1;
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 const M44: u64 = (1 << 44) - 1;
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 const M42: u64 = (1 << 42) - 1;
 
@@ -83,7 +98,8 @@ fn mul_mod_p(a: &[u64; 3], b: &[u64; 3]) -> [u64; 3] {
 /// representative below `2^130 - 5` (limbs exactly 44/44/42 bits).
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 #[inline(always)]
 fn canonical(h: &[u64; 3]) -> [u64; 3] {
@@ -128,7 +144,8 @@ fn canonical(h: &[u64; 3]) -> [u64; 3] {
 /// Splits canonical 44/44/42-bit limbs into 5x26-bit limbs.
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 #[inline(always)]
 fn limbs26(h: [u64; 3]) -> [u32; 5] {
@@ -148,7 +165,8 @@ fn limbs26(h: [u64; 3]) -> [u32; 5] {
 /// `u128`; the top limb is added to `h2` separately) and carries once more.
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 #[inline(always)]
 fn pack_limbs26(mut l: [u64; 5]) -> [u64; 3] {
@@ -183,7 +201,8 @@ fn pack_limbs26(mut l: [u64; 5]) -> [u64; 3] {
 /// widths, returning the scalar backend's partially reduced form.
 #[cfg(any(
     all(target_arch = "aarch64", target_endian = "little", not(miri)),
-    target_arch = "x86_64"
+    target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128")
 ))]
 #[inline(always)]
 fn carry44(h: [u64; 3]) -> [u64; 3] {
@@ -226,12 +245,17 @@ mod bench_inputs {
 #[cfg(all(
     feature = "simd_backend",
     feature = "nightly",
-    not(any(target_arch = "aarch64", target_arch = "x86_64"))
+    not(any(
+        target_arch = "aarch64",
+        target_arch = "x86_64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    ))
 ))]
 pub(crate) use poly1305_simd::*;
 #[cfg(any(
     target_arch = "aarch64",
     target_arch = "x86_64",
+    all(target_arch = "wasm32", target_feature = "simd128"),
     not(all(feature = "simd_backend", feature = "nightly"))
 ))]
 pub(crate) use poly1305_soft::*;
@@ -240,6 +264,9 @@ pub(crate) use poly1305_soft::*;
 /// on this target; the backend modules test their own internals.
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    use wasm_bindgen_test::wasm_bindgen_test as test;
+
     use super::{BLOCK_SIZE, Key, Poly1305};
     #[cfg(dryoc_native_tests)]
     use crate::test_prelude::*;
@@ -355,7 +382,7 @@ mod tests {
     fn clamped_r_yields_the_pad() {
         let mut key = [0xffu8; 32];
         key[..16].copy_from_slice(&clamped_bits_only());
-        for len in [0usize, 1, 16, 17, 480, 481, 2048, 2049] {
+        for len in [0usize, 1, 16, 17, 128, 129, 480, 481, 2048, 2049] {
             let message = vec![0xa5u8; len];
             assert_eq!(mac(&key, &[&message]), [0xff; 16], "len {len}");
             if len > 1 {

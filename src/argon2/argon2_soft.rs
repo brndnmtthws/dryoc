@@ -77,22 +77,42 @@ fn blake2_round_nomsg(
     g!(v2, v7, v8, v13);
     g!(v3, v4, v9, v14);
 
-    v[i0] = v0;
-    v[i1] = v1;
-    v[i2] = v2;
-    v[i3] = v3;
-    v[i4] = v4;
-    v[i5] = v5;
-    v[i6] = v6;
-    v[i7] = v7;
-    v[i8] = v8;
-    v[i9] = v9;
-    v[i10] = v10;
-    v[i11] = v11;
-    v[i12] = v12;
-    v[i13] = v13;
-    v[i14] = v14;
-    v[i15] = v15;
+    store_word(&mut v[i0], v0);
+    store_word(&mut v[i1], v1);
+    store_word(&mut v[i2], v2);
+    store_word(&mut v[i3], v3);
+    store_word(&mut v[i4], v4);
+    store_word(&mut v[i5], v5);
+    store_word(&mut v[i6], v6);
+    store_word(&mut v[i7], v7);
+    store_word(&mut v[i8], v8);
+    store_word(&mut v[i9], v9);
+    store_word(&mut v[i10], v10);
+    store_word(&mut v[i11], v11);
+    store_word(&mut v[i12], v12);
+    store_word(&mut v[i13], v13);
+    store_word(&mut v[i14], v14);
+    store_word(&mut v[i15], v15);
+}
+
+/// Stores a round's output word. On WebAssembly with `simd128`, LLVM's SLP
+/// vectorizer would otherwise pair the four independent `G` columns into
+/// `i64x2` lanes, and engines emulate the 64-bit lane multiply with several
+/// instructions: Argon2 measured at half the speed of the scalar rounds in
+/// V8 and Wasmtime. A volatile store is never an SLP seed, so the rounds
+/// stay scalar; it is still one plain 8-byte store.
+#[inline(always)]
+fn store_word(slot: &mut u64, word: u64) {
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    // SAFETY: `slot` is a live exclusive reference to an initialized `u64`,
+    // so the pointer is valid and aligned for an 8-byte write.
+    unsafe {
+        core::ptr::write_volatile(slot, word);
+    }
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    {
+        *slot = word;
+    }
 }
 
 /// `x + y + 2 * lo32(x) * lo32(y)`, the Argon2 fBlaMka mixing function.

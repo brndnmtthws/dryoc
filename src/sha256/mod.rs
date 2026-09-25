@@ -44,9 +44,8 @@ const IV: [u32; 8] = [
 #[inline]
 fn compress(state: &mut [u32; 8], blocks: &[[u8; BLOCK_BYTES]]) {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-    if has_aarch64_feature!("sha2") {
-        // SAFETY: the feature check above confirmed the `sha2` extension.
-        unsafe { sha256_aarch64::compress(state, blocks) };
+    if let Some(sha2) = crate::aarch64::Sha2::new() {
+        sha256_aarch64::compress(sha2, state, blocks);
         return;
     }
     sha2::block_api::compress256(state, blocks);
@@ -162,9 +161,9 @@ mod tests {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
     #[test]
     fn test_hw_compress_matches_portable() {
-        if !has_aarch64_feature!("sha2") {
+        let Some(sha2) = crate::aarch64::Sha2::new() else {
             return;
-        }
+        };
         let blocks: Vec<[u8; 64]> = (0..40u32)
             .map(|b| {
                 core::array::from_fn(|i| (b * 64 + i as u32).wrapping_mul(2654435761) as u8 >> 1)
@@ -174,7 +173,7 @@ mod tests {
             let mut expected = IV;
             let mut actual = IV;
             sha2::block_api::compress256(&mut expected, &blocks[..n]);
-            unsafe { sha256_aarch64::compress(&mut actual, &blocks[..n]) };
+            sha256_aarch64::compress(sha2, &mut actual, &blocks[..n]);
             assert_eq!(actual, expected, "{n} blocks");
         }
     }

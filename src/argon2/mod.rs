@@ -793,6 +793,9 @@ fn store_block(output: &mut [u8], block: &Block) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    use wasm_bindgen_test::wasm_bindgen_test as test;
+
     use crate::test_prelude::*;
 
     #[cfg(feature = "nightly")]

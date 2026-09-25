@@ -16,28 +16,22 @@ use core::arch::x86_64::{
 
 use zeroize::Zeroize;
 
-use super::RC;
-use crate::x86_64::{load_words, store_words, transpose_words};
+use super::{RC, RHO};
+use crate::x86_64::{Avx2, load_words, store_words, transpose_words};
 
-/// A vector kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] after checking the CPU features the
-/// kernel is compiled for, which is what makes [`Kernel::permute_selected`]
-/// safe.
+/// A vector kernel the running CPU has been verified to support: its variant
+/// holds the token for the CPU feature the kernel is compiled for, which is
+/// what makes [`Kernel::permute_selected`] safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kernel {
     /// AVX2: four states in 25 `ymm` vectors.
-    Avx2,
+    Avx2(Avx2),
 }
 
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if has_x86_feature!("avx2") {
-        Some(Kernel::Avx2)
-    } else {
-        None
-    }
+    Avx2::new().map(Kernel::Avx2)
 }
 
 impl Kernel {
@@ -91,53 +85,9 @@ impl Kernel {
     #[inline]
     fn permute4<const ROUNDS: usize>(self, states: [&mut [u64; 25]; 4]) {
         match self {
-            // SAFETY: `Kernel::Avx2` is only constructed after
-            // `has_x86_feature!("avx2")` succeeded.
-            Kernel::Avx2 => unsafe { permute4_avx2::<ROUNDS>(states) },
+            Kernel::Avx2(avx2) => permute4_avx2::<ROUNDS>(avx2, states),
         }
     }
-}
-
-/// The `rho` rotation of each lane `x + 5 * y`: `(t + 1)(t + 2) / 2 mod 64`
-/// for the lane that step `t` of the walk `(x, y) -> (y, 2x + 3y)` from
-/// `(1, 0)` reaches; lane `(0, 0)` is not rotated.
-const RHO: [i32; 25] = {
-    let mut rho = [0i32; 25];
-    let (mut x, mut y) = (1, 0);
-    let mut t = 0;
-    while t < 24 {
-        rho[x + 5 * y] = (t + 1) * (t + 2) / 2 % 64;
-        (x, y) = (y, (2 * x + 3 * y) % 5);
-        t += 1;
-    }
-    rho
-};
-
-/// Runs `$body` five times with `$x` bound to the constants `0..5`, so every
-/// lane index and rotation count in the round is a constant.
-macro_rules! unroll5 {
-    ($x:ident, $body:block) => {{
-        {
-            const $x: usize = 0;
-            $body
-        }
-        {
-            const $x: usize = 1;
-            $body
-        }
-        {
-            const $x: usize = 2;
-            $body
-        }
-        {
-            const $x: usize = 3;
-            $body
-        }
-        {
-            const $x: usize = 4;
-            $body
-        }
-    }};
 }
 
 /// Rotates every 64-bit word of `$v` left by the constant `$n < 64`: a byte
@@ -150,8 +100,8 @@ macro_rules! rotl {
             8 => _mm256_shuffle_epi8(v, $bytes.rol8),
             56 => _mm256_shuffle_epi8(v, $bytes.rol56),
             _ => _mm256_or_si256(
-                _mm256_slli_epi64::<{ $n }>(v),
-                _mm256_srli_epi64::<{ 64 - $n }>(v),
+                _mm256_slli_epi64::<{ $n as i32 }>(v),
+                _mm256_srli_epi64::<{ 64 - $n as i32 }>(v),
             ),
         }
     }};
@@ -227,7 +177,7 @@ fn round(a: &mut [__m256i; 25], rc: u64, bytes: ByteRotations) {
 /// lanes, like every other value that lives only in registers and compiler
 /// spill slots, are out of Rust's reach and are not wiped.
 #[target_feature(enable = "avx2")]
-fn permute4_avx2<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4]) {
+fn permute4_avx2_unchecked<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4]) {
     const { assert!(ROUNDS <= 24) };
     let mut a = [_mm256_setzero_si256(); 25];
     let (blocks, [last]) = a.as_chunks_mut::<4>() else {
@@ -273,4 +223,12 @@ fn permute4_avx2<const ROUNDS: usize>(mut states: [&mut [u64; 25]; 4]) {
     // The working copies hold the (possibly secret) states.
     a.zeroize();
     words.zeroize();
+}
+
+/// [`permute4_avx2_unchecked`], safe to call with an [`Avx2`] token.
+#[inline(always)]
+fn permute4_avx2<const ROUNDS: usize>(_: Avx2, states: [&mut [u64; 25]; 4]) {
+    // SAFETY: an `Avx2` token exists only after detection of `avx2`,
+    // the feature the kernel is compiled for.
+    unsafe { permute4_avx2_unchecked::<ROUNDS>(states) }
 }

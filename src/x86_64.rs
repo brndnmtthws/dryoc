@@ -1,9 +1,22 @@
 //! AVX2 and AVX-512 helpers shared by the x86-64 kernels (`chacha20`,
-//! `salsa20`, `blake2b`, `argon2`, `mlkem`, `keccak`): the kernel variants
-//! and their detection, vector loads and stores, the lane-set input, counter
-//! and transposes, the keystream XOR into a [`Dest`], the feed-forward XOR
-//! of a scalar block, the 64-bit lane rotations, and the BMI2 check behind
-//! the Curve25519 field-arithmetic roots.
+//! `salsa20`, `blake2b`, `argon2`, `mlkem`, `keccak`, `poly1305`,
+//! `edwards25519`): the CPU feature tokens, the stream ciphers' kernel
+//! variants, vector loads and stores, the lane-set input, counter and
+//! transposes, the keystream XOR into a [`Dest`], the feed-forward XOR of a
+//! scalar block, and the 64-bit lane rotations.
+//!
+//! # Feature tokens
+//!
+//! [`Avx2`], [`Avx512`], [`Avx512Vl`], [`Avx512Ifma`] and [`Bmi2`] are
+//! zero-sized proofs of CPU feature detection: their field is private to
+//! this module and their only constructors are the `new` functions, which
+//! return a token only when `has_x86_feature!` reports every feature it
+//! names (detected at runtime with `std`, taken from the compile-time target
+//! features without it), and the `avx512vl` refinements, which detect the
+//! features an [`Avx512Vl`] adds to the token they are called on. A kernel
+//! compiled with `#[target_feature(enable = ...)]` for a token's features is
+//! reached through a safe wrapper that takes the token by value, so holding
+//! one is what makes that wrapper's single `unsafe` call sound.
 
 use core::arch::x86_64::{
     __m256i, __m512i, _mm256_add_epi32, _mm256_cmpgt_epi32, _mm256_loadu_si256,
@@ -97,38 +110,115 @@ pub(crate) const LANES: usize = 8;
 /// Blocks per 16-lane (512-bit) vector set.
 pub(crate) const LANES512: usize = 16;
 
-/// The lane-set kernel variants of the x86-64 stream ciphers. Values are
-/// only created by [`LaneSet::detect`] (and, in tests, [`LaneSet::all`])
-/// after checking the CPU features the variant's kernels are compiled for,
-/// which is what makes the ciphers' `xor_chunk` dispatch safe.
+/// Proof that the running CPU supports AVX2 (see the module docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Avx2(());
+
+impl Avx2 {
+    /// The token, if the CPU has `avx2`.
+    #[inline]
+    pub(crate) fn new() -> Option<Self> {
+        has_x86_feature!("avx2").then_some(Self(()))
+    }
+
+    /// The [`Avx512Vl`] token, if the CPU also has `avx512f` and
+    /// `avx512vl`. Only the BLAKE2b kernels, which the portable-SIMD backend
+    /// replaces, detect in this order.
+    #[inline]
+    #[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
+    pub(crate) fn avx512vl(self) -> Option<Avx512Vl> {
+        (has_x86_feature!("avx512f") && has_x86_feature!("avx512vl")).then_some(Avx512Vl(()))
+    }
+}
+
+/// Proof that the running CPU supports AVX-512F and AVX2 (see the module
+/// docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Avx512(());
+
+impl Avx512 {
+    /// The token, if the CPU has `avx512f` and `avx2`. rustc's `avx512f`
+    /// target feature implies `avx2` (and `fma` and `f16c`), so an `avx512f`
+    /// kernel may contain AVX2 instructions and call `avx2` helpers. std's
+    /// detection reports `avx512f` only together with `fma` and `f16c`, but
+    /// it does not check the CPUID `avx2` bit, so this checks it as well.
+    /// Every AVX-512F dispatch goes through this token.
+    #[inline]
+    pub(crate) fn new() -> Option<Self> {
+        (has_x86_feature!("avx512f") && has_x86_feature!("avx2")).then_some(Self(()))
+    }
+
+    /// The [`Avx512Vl`] token, if the CPU also has `avx512vl` and `avx2`.
+    #[inline]
+    pub(crate) fn avx512vl(self) -> Option<Avx512Vl> {
+        (has_x86_feature!("avx512vl") && has_x86_feature!("avx2")).then_some(Avx512Vl(()))
+    }
+}
+
+/// Proof that the running CPU supports AVX-512F with AVX-512VL, and AVX2,
+/// the set the `ymm` EVEX kernels are compiled for (see the module docs).
+/// Obtained from an [`Avx2`] or [`Avx512`] token by detecting the rest of
+/// the set, so each caller keeps its detection order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Avx512Vl(());
+
+/// Proof that the running CPU supports AVX-512F with AVX-512IFMA, and AVX2
+/// (see the module docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Avx512Ifma(());
+
+impl Avx512Ifma {
+    /// The token, if the CPU has `avx512f` (with the `avx2` it implies, as
+    /// for [`Avx512`]) and `avx512ifma`.
+    #[inline]
+    pub(crate) fn new() -> Option<Self> {
+        (has_x86_feature!("avx512f") && has_x86_feature!("avx2") && has_x86_feature!("avx512ifma"))
+            .then_some(Self(()))
+    }
+}
+
+/// Proof that the running CPU supports BMI2, whose `mulx` lets the compiler
+/// schedule the `u128` products of the Curve25519 field arithmetic without
+/// the fixed `rdx:rax` registers of `mul` (see the module docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Bmi2(());
+
+impl Bmi2 {
+    /// The token, if the CPU has `bmi2`.
+    #[inline]
+    pub(crate) fn new() -> Option<Self> {
+        has_x86_feature!("bmi2").then_some(Self(()))
+    }
+}
+
+/// The lane-set kernel variants of the x86-64 stream ciphers, each holding
+/// the token for the CPU features its kernels are compiled for, which is
+/// what makes the ciphers' `xor_chunk` dispatch safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LaneSet {
     /// AVX2: one 8-block lane set in the 16 `ymm` registers.
-    Avx2,
+    Avx2(Avx2),
     /// AVX-512F: one 16-block lane set in `zmm` registers, with `vprold` for
     /// the rotations.
-    Avx512,
+    Avx512(Avx512),
     /// AVX-512F with VL: [`LaneSet::Avx512`], and runs of at most [`LANES`]
     /// slots on an 8-block `ymm` lane set with `vprold` rotations and the 32
     /// EVEX registers, which finishes in about 80% of the 16-block set's
-    /// time.
-    Avx512Vl,
+    /// time. Holds the [`Avx512`] token for the 16-block kernels as well.
+    Avx512Vl(Avx512, Avx512Vl),
 }
 
 impl LaneSet {
     /// The best variant the running CPU supports.
     #[inline]
     pub(crate) fn detect() -> Option<Self> {
-        if has_avx512f() {
-            if Self::has_avx512vl() {
-                Some(Self::Avx512Vl)
-            } else {
-                Some(Self::Avx512)
+        if let Some(avx512) = Avx512::new() {
+            match avx512.avx512vl() {
+                Some(avx512vl) => Some(Self::Avx512Vl(avx512, avx512vl)),
+                None => Some(Self::Avx512(avx512)),
             }
-        } else if has_x86_feature!("avx2") {
-            Some(Self::Avx2)
         } else {
-            None
+            Avx2::new().map(Self::Avx2)
         }
     }
 
@@ -136,31 +226,24 @@ impl LaneSet {
     #[cfg(test)]
     pub(crate) fn all() -> alloc::vec::Vec<Self> {
         let mut variants = alloc::vec::Vec::new();
-        if has_x86_feature!("avx2") {
-            variants.push(Self::Avx2);
+        if let Some(avx2) = Avx2::new() {
+            variants.push(Self::Avx2(avx2));
         }
-        if has_avx512f() {
-            variants.push(Self::Avx512);
-            if Self::has_avx512vl() {
-                variants.push(Self::Avx512Vl);
+        if let Some(avx512) = Avx512::new() {
+            variants.push(Self::Avx512(avx512));
+            if let Some(avx512vl) = avx512.avx512vl() {
+                variants.push(Self::Avx512Vl(avx512, avx512vl));
             }
         }
         variants
-    }
-
-    /// The `ymm` kernels of [`LaneSet::Avx512Vl`] are compiled for `avx2`
-    /// as well as `avx512f,avx512vl`.
-    #[inline]
-    fn has_avx512vl() -> bool {
-        has_x86_feature!("avx512vl") && has_x86_feature!("avx2")
     }
 
     /// Blocks produced per run.
     #[inline]
     pub(crate) fn blocks(self) -> usize {
         match self {
-            Self::Avx2 => LANES,
-            Self::Avx512 | Self::Avx512Vl => LANES512,
+            Self::Avx2(_) => LANES,
+            Self::Avx512(_) | Self::Avx512Vl(..) => LANES512,
         }
     }
 
@@ -169,8 +252,8 @@ impl LaneSet {
     #[inline]
     pub(crate) fn fuses_extra_block(self) -> bool {
         match self {
-            Self::Avx2 => false,
-            Self::Avx512 | Self::Avx512Vl => true,
+            Self::Avx2(_) => false,
+            Self::Avx512(_) | Self::Avx512Vl(..) => true,
         }
     }
 
@@ -181,26 +264,6 @@ impl LaneSet {
     pub(crate) fn fits_ymm(output_len: usize, has_partial: bool) -> bool {
         output_len / 64 + usize::from(has_partial) <= LANES
     }
-}
-
-/// Whether a `#[target_feature(enable = "avx512f")]` kernel may run. rustc's
-/// `avx512f` target feature implies `avx2` (and `fma` and `f16c`), so such a
-/// kernel may contain AVX2 instructions and call `avx2` helpers. std's
-/// detection reports `avx512f` only together with `fma` and `f16c`, but it
-/// does not check the CPUID `avx2` bit, so this helper checks it as well.
-/// Every AVX-512F dispatch goes through it.
-#[inline]
-pub(crate) fn has_avx512f() -> bool {
-    has_x86_feature!("avx512f") && has_x86_feature!("avx2")
-}
-
-/// Whether the CPU has BMI2, whose `mulx` lets the compiler schedule the
-/// `u128` products of the Curve25519 field arithmetic without the fixed
-/// `rdx:rax` registers of `mul`; `std` caches the runtime check, and without
-/// `std` it is a compile-time constant.
-#[inline]
-pub(crate) fn has_bmi2() -> bool {
-    has_x86_feature!("bmi2")
 }
 
 /// Loads 32 bytes as a vector.
