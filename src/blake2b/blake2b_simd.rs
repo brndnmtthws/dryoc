@@ -563,8 +563,6 @@ mod tests {
 
     #[cfg(dryoc_native_tests)]
     use libc::*;
-    #[cfg(dryoc_native_tests)]
-    use rand::TryRng;
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -771,13 +769,17 @@ mod tests {
     #[test]
     fn test_blake2b_long_rand_length_simd() {
         crate::native_test_util::init();
-        use rand::rngs::SysRng;
-
         use crate::rng::copy_randombytes;
 
+        let random_u32 = || {
+            let mut bytes = [0u8; 4];
+            copy_randombytes(&mut bytes);
+            u32::from_le_bytes(bytes)
+        };
+
         for _ in 0..25 {
-            let mut input = vec![0u8; (SysRng.try_next_u32().unwrap() % 1000) as usize];
-            let mut output = vec![0u8; (SysRng.try_next_u32().unwrap() % 1000 + 64) as usize];
+            let mut input = vec![0u8; (random_u32() % 1000) as usize];
+            let mut output = vec![0u8; (random_u32() % 1000 + 64) as usize];
             let mut so_output = output.clone();
             copy_randombytes(&mut input);
 

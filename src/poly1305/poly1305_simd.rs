@@ -361,8 +361,6 @@ impl Poly1305 {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    #[cfg(dryoc_native_tests)]
-    use rand::TryRng;
 
     use super::*;
     use crate::poly1305::poly1305_soft;
@@ -464,10 +462,14 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn test_libsodium_varied_lengths_and_chunking() {
-        use rand::rngs::SysRng;
-
         use crate::native_test_util::onetimeauth_poly1305;
         use crate::rng::copy_randombytes;
+
+        let random_u32 = || {
+            let mut bytes = [0u8; 4];
+            copy_randombytes(&mut bytes);
+            u32::from_le_bytes(bytes)
+        };
 
         let key = Key::generate();
 
@@ -486,7 +488,7 @@ mod tests {
         }
 
         for _ in 0..20 {
-            let rand_usize = (SysRng.try_next_u32().unwrap() % 4096) as usize;
+            let rand_usize = (random_u32() % 4096) as usize;
             let mut data = vec![0u8; rand_usize];
             copy_randombytes(&mut data);
 
