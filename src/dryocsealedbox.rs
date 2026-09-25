@@ -21,9 +21,9 @@
 //! is base mode, single-shot, with an empty `info`, empty associated data and
 //! one fixed ciphersuite:
 //!
-//! * KEM `0x647A`, [X-Wing][xwing], as registered by IANA. The registry cites
-//!   draft-connolly-cfrg-xwing-kem-06; the draft's test vectors are identical
-//!   from -05 through -11.
+//! * KEM `0x647A`, X-Wing, as defined by
+//!   [draft-connolly-cfrg-xwing-kem-11][xwing]. The IANA registration cites
+//!   -06; the draft's test vectors are identical from -05 through -11.
 //! * KDF `0x0001`, HKDF-SHA256.
 //! * AEAD `0x0003`, ChaCha20-Poly1305.
 //!
@@ -48,7 +48,7 @@
 //! use the byte format to exchange boxes with other HPKE implementations.
 //!
 //! [rfc9180]: https://www.rfc-editor.org/rfc/rfc9180.html
-//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/06/
+//! [xwing]: https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/11/
 //! [hpke-pq]: https://datatracker.ietf.org/doc/draft-ietf-hpke-pq/05/
 //! [hpke-hpke]: https://datatracker.ietf.org/doc/draft-ietf-hpke-hpke/04/
 //!
