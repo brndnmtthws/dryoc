@@ -471,20 +471,6 @@ mod tests {
         assert_eq!(with_data.to_vec(), boxed);
     }
 
-    /// A tag backed by a longer buffer is its first
-    /// [`CRYPTO_SECRETBOX_MACBYTES`] bytes (the `ByteArray` view), so a box
-    /// built from it serializes to the canonical wire format and still opens.
-    #[test]
-    fn oversized_tag_storage_serializes_canonically() {
-        let (key, nonce, message, boxed) = nacl_vector();
-        let (tag, data) = boxed.split_at(CRYPTO_SECRETBOX_MACBYTES);
-        let oversized =
-            DryocSecretBox::<Vec<u8>, Vec<u8>>::from_parts([tag, &[0xa5]].concat(), data.to_vec());
-        assert_eq!(oversized.to_vec(), boxed);
-        let decrypted: Vec<u8> = oversized.decrypt(&nonce, &key).expect("decrypt");
-        assert_eq!(decrypted, message);
-    }
-
     #[test]
     fn from_bytes_requires_a_full_tag() {
         for len in 0..CRYPTO_SECRETBOX_MACBYTES {

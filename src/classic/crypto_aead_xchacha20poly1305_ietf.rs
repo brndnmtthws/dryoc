@@ -76,7 +76,9 @@ fn xchacha20_stream(nonce: &Nonce, key: &Key, counter: u64) -> ChaCha20 {
     let mut subkey = HChaCha20Key::default();
     crypto_core_hchacha20(
         &mut subkey,
-        ByteArray::as_array(&nonce[..CRYPTO_CORE_HCHACHA20_INPUTBYTES]),
+        nonce
+            .first_chunk::<CRYPTO_CORE_HCHACHA20_INPUTBYTES>()
+            .expect("XChaCha20 nonce holds the HChaCha20 input"),
         key,
         None,
     );
@@ -85,7 +87,9 @@ fn xchacha20_stream(nonce: &Nonce, key: &Key, counter: u64) -> ChaCha20 {
     // 32-bit block counter to overflow into the leading zero nonce word. With
     // XChaCha's `0 || nonce_tail` derived nonce, that is equivalent to the
     // original 64-bit-counter ChaCha20 layout with `nonce_tail`.
-    let nonce_tail = ByteArray::as_array(&nonce[CRYPTO_CORE_HCHACHA20_INPUTBYTES..]);
+    let nonce_tail = nonce
+        .last_chunk()
+        .expect("XChaCha20 nonce ends with the ChaCha20 nonce");
     let cipher = ChaCha20::legacy(&subkey, nonce_tail, counter);
     subkey.zeroize();
     cipher
@@ -335,7 +339,12 @@ mod tests {
     /// 15) and the counter supplied per block.
     fn xchacha20_state(nonce: &Nonce, key: &Key) -> [u32; 16] {
         let mut subkey = HChaCha20Key::default();
-        crypto_core_hchacha20(&mut subkey, ByteArray::as_array(&nonce[..16]), key, None);
+        crypto_core_hchacha20(
+            &mut subkey,
+            nonce.first_chunk::<16>().expect("16-byte prefix"),
+            key,
+            None,
+        );
         let mut state = [0u32; 16];
         state[..4].copy_from_slice(&crate::utils::SIGMA);
         for (word, bytes) in state[4..12].iter_mut().zip(subkey.as_chunks::<4>().0) {

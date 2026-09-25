@@ -44,6 +44,32 @@ impl<const LENGTH: usize> PartialEq for StackByteArray<LENGTH> {
 impl<const LENGTH: usize> Eq for StackByteArray<LENGTH> {}
 
 /// Fixed-length byte array.
+///
+/// Implemented only by fixed-size storage such as `[u8; LENGTH]`,
+/// [`StackByteArray`], and the protected heap arrays, so the length is checked
+/// at compile time. Convert runtime-length input with
+/// [`StackByteArray::try_from`] or `<[u8; LENGTH]>::try_from`, which reject any
+/// length other than `LENGTH`.
+///
+/// Slices and vectors are not fixed-length byte arrays:
+///
+/// ```compile_fail,E0277
+/// use dryoc::dryocsecretbox::{DryocSecretBox, Nonce};
+/// use dryoc::types::*;
+///
+/// let key = vec![0u8; 32];
+/// let nonce = Nonce::generate();
+/// DryocSecretBox::encrypt_to_vecbox(b"hello", &nonce, &key);
+/// ```
+///
+/// ```compile_fail,E0277
+/// use dryoc::dryocsecretbox::{DryocSecretBox, Nonce};
+/// use dryoc::types::*;
+///
+/// let key: &[u8] = &[0u8; 32];
+/// let nonce = Nonce::generate();
+/// DryocSecretBox::encrypt_to_vecbox(b"hello", &nonce, &key);
+/// ```
 pub trait ByteArray<const LENGTH: usize>: Bytes {
     /// Returns a reference to the underlying fixed-length byte array.
     fn as_array(&self) -> &[u8; LENGTH];
@@ -171,19 +197,6 @@ impl<const LENGTH: usize> MutBytes for StackByteArray<LENGTH> {
 
     fn copy_from_slice(&mut self, other: &[u8]) {
         self.0.copy_from_slice(other)
-    }
-}
-
-impl<const LENGTH: usize> NewByteArray<LENGTH> for Vec<u8> {
-    fn new_byte_array() -> Self {
-        vec![0u8; LENGTH]
-    }
-
-    /// Returns a new byte array filled with random data.
-    fn generate() -> Self {
-        let mut res = <Self as NewByteArray<LENGTH>>::new_byte_array();
-        copy_randombytes(&mut res);
-        res
     }
 }
 
@@ -322,63 +335,6 @@ impl_bytes_for_array! {
     [u8; LENGTH], |a| a;
     #[allow(suspicious_double_ref_op)] &[u8; LENGTH], |a| a.deref();
 }
-
-/// Implements the checked fixed-size array view of a runtime-sized byte
-/// buffer, panicking with an "invalid `$noun` length" message when the buffer
-/// is shorter than `LENGTH`.
-macro_rules! impl_checked_bytearray {
-    (immutable: $($(#[$meta:meta])* $t:ty, $noun:literal;)*) => {$(
-        $(#[$meta])*
-        impl<const LENGTH: usize> ByteArray<LENGTH> for $t {
-            #[inline]
-            fn as_array(&self) -> &[u8; LENGTH] {
-                assert!(
-                    self.len() >= LENGTH,
-                    concat!("invalid ", $noun, " length {}, expecting at least {}"),
-                    self.len(),
-                    LENGTH
-                );
-                let arr = self.as_ptr() as *const [u8; LENGTH];
-                // SAFETY: The assertion above guarantees the buffer has at
-                // least `LENGTH` initialized bytes. `[u8; LENGTH]` has
-                // alignment 1, so the first `LENGTH` bytes can be viewed as a
-                // fixed-size byte array.
-                unsafe { &*arr }
-            }
-        }
-    )*};
-    (mutable: $($t:ty, $noun:literal;)*) => {$(
-        impl<const LENGTH: usize> MutByteArray<LENGTH> for $t {
-            #[inline]
-            fn as_mut_array(&mut self) -> &mut [u8; LENGTH] {
-                assert!(
-                    self.len() >= LENGTH,
-                    concat!("invalid ", $noun, " length {}, expecting at least {}"),
-                    self.len(),
-                    LENGTH
-                );
-                let arr = self.as_mut_ptr() as *mut [u8; LENGTH];
-                // SAFETY: The assertion above guarantees the buffer has at
-                // least `LENGTH` initialized bytes. `[u8; LENGTH]` has
-                // alignment 1, and the exclusive `&mut self` borrow prevents
-                // aliasing the returned prefix.
-                unsafe { &mut *arr }
-            }
-        }
-    )*};
-}
-
-impl_checked_bytearray!(immutable:
-    /// Provided for convenience. Panics if the input array size doesn't match
-    /// `LENGTH`.
-    &[u8], "slice";
-    [u8], "slice";
-    Vec<u8>, "vec";
-);
-impl_checked_bytearray!(mutable:
-    Vec<u8>, "vec";
-    [u8], "slice";
-);
 
 impl<const LENGTH: usize> ByteArray<LENGTH> for [u8; LENGTH] {
     #[inline]
@@ -541,8 +497,6 @@ impl<const LENGTH: usize> TryFrom<&[u8]> for StackByteArray<LENGTH> {
 
 #[cfg(test)]
 mod tests {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
-
     use super::*;
     use crate::utils::test_util::assert_exact_slice_length_error;
 
@@ -601,7 +555,6 @@ mod tests {
     #[test]
     fn new_bytes_and_new_byte_array_start_zeroed() {
         assert!(<Vec<u8> as NewBytes>::new_bytes().is_empty());
-        assert_eq!(<Vec<u8> as NewByteArray<4>>::new_byte_array(), [0; 4]);
         assert_eq!(<[u8; 4] as NewBytes>::new_bytes(), [0; 4]);
         assert_eq!(<[u8; 4] as NewByteArray<4>>::new_byte_array(), [0; 4]);
         assert_eq!(
@@ -616,10 +569,6 @@ mod tests {
 
     #[test]
     fn generate_fills_the_whole_fixed_length_array() {
-        let vec = <Vec<u8> as NewByteArray<32>>::generate();
-        assert_eq!(vec.len(), 32);
-        assert_ne!(vec, vec![0; 32]);
-
         let array = <[u8; 32] as NewByteArray<32>>::generate();
         assert_ne!(array, [0; 32]);
 
@@ -644,79 +593,6 @@ mod tests {
         assert_eq!(vec, [1, 2, 3, 9, 9]);
         ResizableBytes::resize(&mut vec, 1, 0);
         assert_eq!(vec, [1]);
-    }
-
-    #[test]
-    fn fixed_size_views_over_runtime_buffers_expose_the_prefix() {
-        // Exact length and one byte longer both view the first LENGTH bytes.
-        for len in [3usize, 4] {
-            let data = &SRC[..len];
-            let vec = data.to_vec();
-
-            assert_eq!(<&[u8] as ByteArray<3>>::as_array(&data), &SRC[..3]);
-            assert_eq!(<[u8] as ByteArray<3>>::as_array(data), &SRC[..3]);
-            assert_eq!(<Vec<u8> as ByteArray<3>>::as_array(&vec), &SRC[..3]);
-        }
-
-        assert_eq!(<[u8; 3] as ByteArray<3>>::as_array(&[1, 2, 3]), &[1, 2, 3]);
-        assert_eq!(
-            <StackByteArray<3> as ByteArray<3>>::as_array(&StackByteArray::from([1, 2, 3])),
-            &[1, 2, 3]
-        );
-    }
-
-    #[test]
-    fn mutable_fixed_size_views_write_through_to_the_source() {
-        for len in [3usize, 4] {
-            let mut vec = SRC[..len].to_vec();
-            <Vec<u8> as MutByteArray<3>>::as_mut_array(&mut vec)[1] = 0xaa;
-            assert_eq!(vec[1], 0xaa);
-            assert_eq!(vec[0], SRC[0]);
-            assert_eq!(&vec[2..], &SRC[2..len]);
-
-            let mut backing = [0u8; 4];
-            backing[..len].copy_from_slice(&SRC[..len]);
-            let slice = &mut backing[..len];
-            <[u8] as MutByteArray<3>>::as_mut_array(slice)[2] = 0xbb;
-            assert_eq!(backing[2], 0xbb);
-            assert_eq!(&backing[..2], &SRC[..2]);
-        }
-
-        let mut array = [1u8, 2, 3];
-        <[u8; 3] as MutByteArray<3>>::as_mut_array(&mut array)[0] = 7;
-        assert_eq!(array, [7, 2, 3]);
-
-        let mut stack = StackByteArray::from([1u8, 2, 3]);
-        <StackByteArray<3> as MutByteArray<3>>::as_mut_array(&mut stack)[0] = 7;
-        assert_eq!(stack.as_slice(), &[7, 2, 3]);
-    }
-
-    #[test]
-    fn fixed_size_views_over_short_runtime_buffers_panic() {
-        let short = [1u8, 2];
-        let slice: &[u8] = &short;
-        let mut vec = short.to_vec();
-        let mut backing = short;
-
-        assert!(catch_unwind(|| <&[u8] as ByteArray<3>>::as_array(&slice)[0]).is_err());
-        assert!(catch_unwind(|| <[u8] as ByteArray<3>>::as_array(slice)[0]).is_err());
-        assert!(catch_unwind(|| <Vec<u8> as ByteArray<3>>::as_array(&vec)[0]).is_err());
-        assert!(
-            catch_unwind(AssertUnwindSafe(|| {
-                <Vec<u8> as MutByteArray<3>>::as_mut_array(&mut vec)[0] = 0
-            }))
-            .is_err()
-        );
-        assert!(
-            catch_unwind(AssertUnwindSafe(|| {
-                <[u8] as MutByteArray<3>>::as_mut_array(&mut backing[..])[0] = 0
-            }))
-            .is_err()
-        );
-
-        // The source bytes are untouched by the rejected views.
-        assert_eq!(vec, short);
-        assert_eq!(backing, short);
     }
 
     #[test]

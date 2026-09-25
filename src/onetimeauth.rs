@@ -22,7 +22,7 @@
 //! let key = Key::generate();
 //!
 //! // Compute the MAC. Keep a copy only to verify this same message.
-//! let mac = OnetimeAuth::compute_to_vec(key.clone(), b"Data to authenticate");
+//! let mac: Mac = OnetimeAuth::compute(key.clone(), b"Data to authenticate");
 //!
 //! // Verify the MAC
 //! OnetimeAuth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
@@ -41,7 +41,7 @@
 //! let mut mac = OnetimeAuth::new(key.clone());
 //! mac.update(b"Multi-part");
 //! mac.update(b"data");
-//! let mac = mac.finalize_to_vec();
+//! let mac: Mac = mac.finalize();
 //!
 //! // Verify the MAC for the same message
 //! let mut verify_mac = OnetimeAuth::new(key.clone());
@@ -136,7 +136,7 @@ impl OnetimeAuth {
         key: Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute(key, input)
+        Self::compute::<_, _, Mac>(key, input).to_vec()
     }
 
     /// Verifies that `other_mac` authenticates `input` under `key`.
@@ -184,7 +184,7 @@ impl OnetimeAuth {
     /// authentication code as a [`Vec`]. Convenience wrapper around
     /// [`OnetimeAuth::finalize`].
     pub fn finalize_to_vec(self) -> Vec<u8> {
-        self.finalize()
+        self.finalize::<Mac>().to_vec()
     }
 
     /// Finalizes this authenticator, and verifies that the computed code
@@ -292,8 +292,12 @@ mod tests {
         for len in [0, 1, 15, 16, 17, 31, 32, MESSAGE.len()] {
             let message = &MESSAGE[..len];
             let mac = OnetimeAuth::compute_to_vec(key.clone(), &message);
-            crypto_onetimeauth_verify(mac.as_array(), message, key.as_array())
-                .expect("classic verify");
+            crypto_onetimeauth_verify(
+                mac.as_slice().try_into().expect("MAC length"),
+                message,
+                key.as_array(),
+            )
+            .expect("classic verify");
 
             let mut classic = [0u8; CRYPTO_ONETIMEAUTH_BYTES];
             crypto_onetimeauth(&mut classic, message, key.as_array());
@@ -332,16 +336,5 @@ mod tests {
         let so_tag = onetimeauth_poly1305(MESSAGE, key.as_slice());
         assert_eq!(so_tag.as_slice(), expected.as_slice());
         OnetimeAuth::compute_and_verify(&so_tag, key, &MESSAGE).expect("verify sodium tag");
-    }
-
-    #[test]
-    fn incremental_verify_accepts_fixed_prefix_buffer() {
-        let key = Key::generate();
-        let mut mac = OnetimeAuth::compute_to_vec(key.clone(), b"message");
-        mac.extend_from_slice(b"trailing storage");
-
-        let mut verifier = OnetimeAuth::new(key);
-        verifier.update(b"message");
-        verifier.verify(&mac).expect("valid MAC prefix rejected");
     }
 }

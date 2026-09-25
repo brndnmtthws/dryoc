@@ -88,7 +88,7 @@ macro_rules! sha3_hasher {
                 "::compute`], returning a [`Vec`]. Provided for\nconvenience."
             )]
             pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
-                Self::compute(input)
+                Self::compute::<_, StackByteArray<$digest_bytes>>(input).to_vec()
             }
 
             #[doc = concat!("Updates ", $algo, " hash state with `input`.")]
@@ -114,7 +114,7 @@ macro_rules! sha3_hasher {
 
             /// Consumes hasher and returns final computed hash as a [`Vec`].
             pub fn finalize_to_vec(self) -> Vec<u8> {
-                self.finalize()
+                self.finalize::<StackByteArray<$digest_bytes>>().to_vec()
             }
         }
 

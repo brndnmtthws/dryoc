@@ -137,7 +137,7 @@ macro_rules! sha2_hasher {
                 "convenience."
             )]
             pub fn compute_to_vec<Input: $crate::types::Bytes + ?Sized>(input: &Input) -> Vec<u8> {
-                Self::compute(input)
+                Self::compute::<_, $crate::types::StackByteArray<$digest_bytes>>(input).to_vec()
             }
 
             #[doc = concat!("Updates ", $algo, " hash state with `input`.")]
@@ -198,7 +198,7 @@ macro_rules! sha2_hasher {
 
             /// Consumes hasher and returns final computed hash as a [`Vec`].
             pub fn finalize_to_vec(self) -> Vec<u8> {
-                self.finalize()
+                self.finalize::<$crate::types::StackByteArray<$digest_bytes>>().to_vec()
             }
         }
 

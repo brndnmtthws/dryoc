@@ -305,16 +305,25 @@ fn kdf_known_answer() {
         StackByteArray::from(*b"wasmtest"),
     );
 
-    let subkey: Vec<u8> = kdf.derive_subkey::<16, _>(0).expect("derive failed");
+    let subkey = kdf
+        .derive_subkey::<16, [u8; 16]>(0)
+        .expect("derive failed")
+        .to_vec();
     assert_eq!(subkey, unhex("f885a670a774b20d98fd80412dd3eb6c"));
 
-    let subkey: Vec<u8> = kdf.derive_subkey::<32, _>(1).expect("derive failed");
+    let subkey = kdf
+        .derive_subkey::<32, [u8; 32]>(1)
+        .expect("derive failed")
+        .to_vec();
     assert_eq!(
         subkey,
         unhex("a74d317a77e218b974eb6823b5e200dee5f9bec1af011a7d7ef6211a0c6835a5")
     );
 
-    let subkey: Vec<u8> = kdf.derive_subkey::<64, _>(u64::MAX).expect("derive failed");
+    let subkey = kdf
+        .derive_subkey::<64, [u8; 64]>(u64::MAX)
+        .expect("derive failed")
+        .to_vec();
     assert_eq!(
         subkey,
         unhex(concat!(
@@ -472,8 +481,8 @@ fn generichash_keyed_known_answer() {
         "b5e996e8f0f4eb981fc214b005f42d2ff4233499391653df7aefcbc13fc51568",
     ));
 
-    let hash: Vec<u8> = GenericHash::<64, 64>::hash(b"", Some(&key)).expect("hash failed");
-    assert_eq!(hash, expected);
+    let hash: [u8; 64] = GenericHash::<64, 64>::hash(b"", Some(&key)).expect("hash failed");
+    assert_eq!(hash.to_vec(), expected);
 }
 
 #[cfg(feature = "base64")]

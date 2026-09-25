@@ -21,13 +21,13 @@
 //! # Rustaceous API example
 //!
 //! ```
-//! use dryoc::hmac::{HmacSha256, HmacSha256Key};
+//! use dryoc::hmac::{HmacSha256, HmacSha256Key, HmacSha256Mac};
 //! use dryoc::types::*;
 //!
 //! let key = HmacSha256Key::generate();
 //! let message = b"Uneasy lies the head that wears a crown.";
 //!
-//! let mac = HmacSha256::compute_to_vec(key.clone(), message);
+//! let mac: HmacSha256Mac = HmacSha256::compute(key.clone(), message);
 //! HmacSha256::compute_and_verify(&mac, key, message).expect("verify failed");
 //! ```
 //!
@@ -37,14 +37,14 @@
 //! # Incremental interface
 //!
 //! ```
-//! use dryoc::hmac::{HmacSha512256, HmacSha512256Key};
+//! use dryoc::hmac::{HmacSha512256, HmacSha512256Key, HmacSha512256Mac};
 //! use dryoc::types::*;
 //!
 //! let key = HmacSha512256Key::generate();
 //! let mut auth = HmacSha512256::new(key.clone());
 //! auth.update(b"Though she be but little, ");
 //! auth.update(b"she is fierce.");
-//! let mac = auth.finalize_to_vec();
+//! let mac: HmacSha512256Mac = auth.finalize();
 //!
 //! let mut verifier = HmacSha512256::new(key);
 //! verifier.update(b"Though she be but little, ");
@@ -317,7 +317,7 @@ where
         key: Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute(key, input)
+        Self::compute::<_, _, StackByteArray<MAC_LENGTH>>(key, input).to_vec()
     }
 
     /// Verifies `other_mac` against `input` using `key`.
@@ -364,7 +364,7 @@ where
     /// Finalizes this authenticator, returning the message authentication code
     /// as a [`Vec`].
     pub fn finalize_to_vec(self) -> Vec<u8> {
-        self.finalize()
+        self.finalize::<StackByteArray<MAC_LENGTH>>().to_vec()
     }
 
     /// Finalizes this authenticator and verifies that the computed code matches
@@ -567,8 +567,12 @@ mod tests {
         for case in &CASES {
             let key256: HmacSha256Key = padded_key(case.key);
             let mac = HmacSha256::compute_to_vec(key256.clone(), case.message);
-            crypto_auth_hmacsha256_verify(mac.as_array(), case.message, key256.as_array())
-                .expect("classic verify");
+            crypto_auth_hmacsha256_verify(
+                mac.as_slice().try_into().expect("MAC length"),
+                case.message,
+                key256.as_array(),
+            )
+            .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA256_BYTES];
             crypto_auth_hmacsha256(&mut classic, case.message, key256.as_array());
             HmacSha256::compute_and_verify(&classic, key256.clone(), case.message)
@@ -579,8 +583,12 @@ mod tests {
 
             let key512: HmacSha512Key = padded_key(case.key);
             let mac = HmacSha512::compute_to_vec(key512.clone(), case.message);
-            crypto_auth_hmacsha512_verify(mac.as_array(), case.message, key512.as_array())
-                .expect("classic verify");
+            crypto_auth_hmacsha512_verify(
+                mac.as_slice().try_into().expect("MAC length"),
+                case.message,
+                key512.as_array(),
+            )
+            .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
             crypto_auth_hmacsha512(&mut classic, case.message, key512.as_array());
             HmacSha512::compute_and_verify(&classic, key512.clone(), case.message)
@@ -591,8 +599,12 @@ mod tests {
 
             let key512256: HmacSha512256Key = padded_key(case.key);
             let mac = HmacSha512256::compute_to_vec(key512256.clone(), case.message);
-            crypto_auth_hmacsha512256_verify(mac.as_array(), case.message, key512256.as_array())
-                .expect("classic verify");
+            crypto_auth_hmacsha512256_verify(
+                mac.as_slice().try_into().expect("MAC length"),
+                case.message,
+                key512256.as_array(),
+            )
+            .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA512256_BYTES];
             crypto_auth_hmacsha512256(&mut classic, case.message, key512256.as_array());
             HmacSha512256::compute_and_verify(&classic, key512256.clone(), case.message)
