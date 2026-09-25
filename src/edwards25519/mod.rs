@@ -15,7 +15,7 @@
 //!
 //! Both tables are precomputed constants in [`tables`].
 
-use subtle::{ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable};
 use zeroize::Zeroize;
 
 use crate::fe25519::{EDWARDS_D, Fe};
@@ -151,6 +151,11 @@ impl Projective {
 }
 
 impl ConditionallySelectable for Niels {
+    /// `#[inline(always)]`: [`select_row_scalar`] folds the secret-selected
+    /// entry through it, and at opt-level `z` and `s` LLVM kept it out of
+    /// line, returning each accumulated copy through a stack slot of the
+    /// lookup's frame that nothing wipes.
+    #[inline(always)]
     fn conditional_select(a: &Self, b: &Self, choice: subtle::Choice) -> Self {
         let mask = 0u64.wrapping_sub(u64::from(choice.unwrap_u8()));
         let mut out = *a;
@@ -507,9 +512,19 @@ fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
 fn select_row_scalar(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     let mut acc = Niels::IDENTITY;
     for (j, entry) in row.iter().enumerate() {
-        acc = Niels::conditional_select(&acc, entry, magnitude.ct_eq(&(j as u8 + 1)));
+        acc = Niels::conditional_select(&acc, entry, ct_eq_u8(magnitude, j as u8 + 1));
     }
     *out = acc;
+}
+
+/// `a == b` as a [`Choice`]: the arithmetic of subtle's `u8::ct_eq` and its
+/// `Choice` barrier, with both operands by value. `ConstantTimeEq::ct_eq`
+/// takes references and is out of line at opt-level `z`, which puts the
+/// secret digit magnitude in a stack slot that nothing wipes.
+#[inline(always)]
+fn ct_eq_u8(a: u8, b: u8) -> Choice {
+    let x = a ^ b;
+    Choice::from(((x | x.wrapping_neg()) >> 7) ^ 1)
 }
 
 /// Selects `[digit * 256^k] B` for `digit` in `-8..=8` into `out` without
@@ -543,7 +558,8 @@ fn radix16(scalar: &[u8; 32]) -> [i8; 64] {
 
 /// Width-`W` non-adjacent form of a little-endian scalar below 2^255: digits
 /// are odd and in `-2^(W-1)..2^(W-1)`, with at least `W - 1` zeros after each
-/// nonzero digit. Variable time; for public scalars.
+/// nonzero digit. Variable time; for public scalars, so it may stay out of
+/// line (it is at opt-level `z` and `s` on x86-64).
 fn naf<const W: usize>(scalar: &[u8; 32]) -> [i8; 256] {
     let mut words = [0u64; 5];
     for (word, chunk) in words.iter_mut().zip(scalar.as_chunks::<8>().0) {
@@ -618,7 +634,8 @@ fn mul_base_impl(scalar: &[u8; 32]) -> Point {
     // once at the end. With NEON the lookup is always inlined and `next`
     // stays in registers and spill slots like `entry`, the point and the
     // field temporaries, which cannot be reliably wiped; wiping them would
-    // only force them into memory.
+    // only force them into memory. The `zeroize` calls, out of line at
+    // opt-level `z`, only get `&mut` to the storage they wipe.
     let mut p = Point::IDENTITY;
     let mut next = Niels::IDENTITY;
     select(&table[0], digits[1], &mut next);

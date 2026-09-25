@@ -19,7 +19,9 @@ use crate::x86_64::store_words512;
 #[target_feature(enable = "avx512f")]
 pub(super) fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     // Limbs 0..8 and 8..15 of an entry (y_plus_x, y_minus_x, xy2d), the
-    // second word padded with a zero lane.
+    // second word padded with a zero lane. Out of line at opt-level `z`,
+    // which adds no copy: it only reads public table entries (and the
+    // identity), so its results are public.
     let words = |n: &Niels| {
         let p = &n.y_plus_x.0;
         let m = &n.y_minus_x.0;

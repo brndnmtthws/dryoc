@@ -66,8 +66,39 @@ impl Fe {
         ])
     }
 
-    /// Canonical little-endian encoding of the fully reduced value.
+    /// Canonical little-endian encoding of the fully reduced value. For
+    /// public values: it may stay out of line (it does at opt-level `z` and
+    /// `s`); secret values use [`Fe::to_bytes_inline`].
     pub(crate) fn to_bytes(self) -> [u8; 32] {
+        let w = self.canonical_words();
+        let mut out = [0u8; 32];
+        out[0..8].copy_from_slice(&w[0].to_le_bytes());
+        out[8..16].copy_from_slice(&w[1].to_le_bytes());
+        out[16..24].copy_from_slice(&w[2].to_le_bytes());
+        out[24..32].copy_from_slice(&w[3].to_le_bytes());
+        out
+    }
+
+    /// [`Fe::to_bytes`], always inlined, for secret values (the X25519
+    /// shared secret). Out of line, the ladder passed a copy of the secret
+    /// by value and got its encoding back through a stack temporary, and
+    /// `copy_from_slice` took each encoded word by reference; here the
+    /// words are stored through array chunks instead.
+    #[inline(always)]
+    pub(crate) fn to_bytes_inline(self) -> [u8; 32] {
+        let w = self.canonical_words();
+        let mut out = [0u8; 32];
+        let (words, _) = out.as_chunks_mut::<8>();
+        words[0] = w[0].to_le_bytes();
+        words[1] = w[1].to_le_bytes();
+        words[2] = w[2].to_le_bytes();
+        words[3] = w[3].to_le_bytes();
+        out
+    }
+
+    /// The fully reduced value as four little-endian 64-bit words.
+    #[inline(always)]
+    fn canonical_words(self) -> [u64; 4] {
         let mut l = self.reduce().0;
         // `l` is below 2^255 but may still be in [p, 2^255): compute q = 1 in
         // that case by propagating the carry of (l + 19) and subtract q * p
@@ -87,13 +118,12 @@ impl Fe {
         l[4] += l[3] >> 51;
         l[3] &= MASK51;
         l[4] &= MASK51;
-
-        let mut out = [0u8; 32];
-        out[0..8].copy_from_slice(&(l[0] | (l[1] << 51)).to_le_bytes());
-        out[8..16].copy_from_slice(&((l[1] >> 13) | (l[2] << 38)).to_le_bytes());
-        out[16..24].copy_from_slice(&((l[2] >> 26) | (l[3] << 25)).to_le_bytes());
-        out[24..32].copy_from_slice(&((l[3] >> 39) | (l[4] << 12)).to_le_bytes());
-        out
+        [
+            l[0] | (l[1] << 51),
+            (l[1] >> 13) | (l[2] << 38),
+            (l[2] >> 26) | (l[3] << 25),
+            (l[3] >> 39) | (l[4] << 12),
+        ]
     }
 
     /// Carries every limb once; limbs below 2^64 - 2^59 come out below
@@ -282,7 +312,8 @@ impl Fe {
     }
 
     /// All-ones when `self == other`, zero otherwise, from the canonical
-    /// encodings.
+    /// encodings. Only used on public values (point decompression), so it
+    /// may stay out of line, as it does at opt-level `z` and `s`.
     pub(crate) fn ct_eq(&self, other: &Fe) -> u64 {
         use subtle::ConstantTimeEq;
         0u64.wrapping_sub(u64::from(
@@ -325,13 +356,17 @@ impl Fe {
         *x4 ^= mask & (*x4 ^ y4);
     }
 
-    /// Whether the canonical encoding is odd (the Ed25519 sign bit).
+    /// Whether the canonical encoding is odd (the Ed25519 sign bit). Only
+    /// used on public values (compressed and decompressed points), so it may
+    /// stay out of line, as it does at opt-level `z`.
     pub(crate) fn is_negative(&self) -> bool {
         self.to_bytes()[0] & 1 == 1
     }
 
     /// Swaps `a` and `b` when `swap` is 1 and leaves them when it is 0, using
-    /// the same loads, stores and masks either way.
+    /// the same loads, stores and masks either way. At opt-level `z` the
+    /// `zip` constructor is out of line, which adds no copy: it only gets
+    /// pointers to the ladder's `x2`/`z2`/`x3`/`z3`, which the ladder wipes.
     #[inline(always)]
     pub(crate) fn cswap(a: &mut Fe, b: &mut Fe, swap: u64) {
         let mask = 0u64.wrapping_sub(swap);

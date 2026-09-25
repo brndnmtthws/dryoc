@@ -67,6 +67,9 @@ impl Poly1305 {
     }
 
     pub fn update(&mut self, input: &[u8]) {
+        // At opt-level `z` and `s` the slice index and `copy_from_slice`
+        // helpers here are out of line, which adds no key-derived copy: they
+        // only see message bytes and the partial-block buffer.
         let mut m = input;
         if self.buflen > 0 {
             let input_block_end = core::cmp::min(BLOCK_SIZE - self.buflen, input.len());
@@ -188,6 +191,10 @@ impl Poly1305 {
     }
 
     pub fn finalize(&mut self, output: &mut [u8]) {
+        // At opt-level `z` and `s` the `copy_from_slice` calls below take the
+        // finished tag words by reference (the bytes `output` receives), and
+        // the out-of-line `zeroize` (like this state's `Drop`) only gets
+        // `&mut` to the state it wipes.
         // process any remaining block
         if self.buflen > 0 {
             let block = self.buffer.to_le_bytes();

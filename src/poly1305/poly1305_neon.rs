@@ -514,11 +514,12 @@ fn hot_loop(
 /// the clamped key limbs `r`.
 ///
 /// `h` is the scalar backend's partially reduced 3x44-bit state on entry and
-/// exit. Other than the `zeroize` calls, the only function this kernel hands
-/// key-derived storage to is the out-of-line [`hot_loop`]; the working
-/// copies it reaches through memory (the scalar key powers, the `r^BLOCKS`
-/// multiplier, both accumulators and the scalar lanes) are wiped once before
-/// returning.
+/// exit. Other than the `zeroize` calls (out of line at opt-level `z` and
+/// `s`, where they only get `&mut` to the storage they wipe), the only
+/// function this kernel hands key-derived storage to is the out-of-line
+/// [`hot_loop`]; the working copies it reaches through memory (the scalar
+/// key powers, the `r^BLOCKS` multiplier, both accumulators and the scalar
+/// lanes) are wiped once before returning.
 ///
 /// Every step on key-derived values is expanded here and in `hot_loop`:
 /// `powers!`, `lane_mult!`, `full_mult!`, `add_blocks!`, `products!` and

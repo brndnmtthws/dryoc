@@ -492,12 +492,16 @@ macro_rules! poly1305_26 {
             /// `h` using the clamped key limbs `r`.
             ///
             /// `h` is the scalar backend's partially reduced 3x44-bit state
-            /// on entry and exit. Other than the `zeroize` calls, the only
-            /// function this kernel hands key-derived storage to is the
-            /// out-of-line `hot_loop`; the `r^BLOCKS` multiplier and both
-            /// accumulators, which it reaches through memory, are wiped once
-            /// before returning, as are the staging arrays `$load_words`
-            /// reads the power and state limbs from.
+            /// on entry and exit. Other than the `zeroize` calls (out of
+            /// line at opt-level `z` and `s`, where they only get `&mut` to
+            /// the storage they wipe), the only function this kernel hands
+            /// key-derived storage to is the out-of-line `hot_loop`; the
+            /// `r^BLOCKS` multiplier and both accumulators, which it reaches
+            /// through memory, are wiped once before returning, as are the
+            /// staging arrays `$load_words` reads the power and state limbs
+            /// from. At opt-level `z` and `s` the `zip` over `start` asks an
+            /// out-of-line length helper, which only gets the iterator over
+            /// that wiped array.
             ///
             /// Every step on key-derived values is expanded here and in
             /// `hot_loop`: `add_blocks!` and `mul_reduce!` are macros,
@@ -905,10 +909,11 @@ macro_rules! descending_powers {
 /// uses `r^8, r^7, ..., r` so the lane sum is the sequential Horner value.
 ///
 /// `h` is the scalar backend's partially reduced 3x44-bit state on entry and
-/// exit. Other than the `zeroize` calls, the only function this kernel hands
-/// key-derived storage to is the out-of-line `hot_loop44`; the multiplier
-/// and the accumulator it reaches through memory are wiped once before
-/// returning.
+/// exit. Other than the `zeroize` calls (out of line at opt-level `z`, where
+/// they only get `&mut` to the storage they wipe), the only function this
+/// kernel hands key-derived storage to is the out-of-line `hot_loop44`; the
+/// multiplier and the accumulator it reaches through memory are wiped once
+/// before returning.
 ///
 /// Every step on key-derived values is expanded here and in `hot_loop44`:
 /// `descending_powers!`, `add_blocks44!` and `mul_reduce44!` are macros,
