@@ -168,8 +168,9 @@ macro_rules! round {
 /// The state words are `asm!` register operands and the message words are
 /// loaded straight into scratch registers, so the rounds make no memory copy
 /// of either; registers and compiler spill slots are out of Rust's reach and
-/// are not wiped.
-#[inline]
+/// are not wiped. `#[inline(always)]`: out of line, the state words would
+/// go through memory at `v`.
+#[inline(always)]
 pub(super) fn rounds(v: &mut [u64; 16], block: &[u8; BLOCKBYTES]) {
     let [
         mut v0,

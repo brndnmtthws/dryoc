@@ -183,6 +183,9 @@ pub(crate) fn hmac_final<H, const BLOCK_BYTES: usize, const OUT_BYTES: usize>(
 
 /// [`hmac_final`] on a state the caller keeps, and drops (wiping it)
 /// afterwards; finishing in place moves no copy of the key-pad states.
+/// Out of line at opt-level `z` and `s` (as are the hashers' `update` and
+/// `finalize_in_place`), which adds no copy: they only get `&mut` to that
+/// state and to the wiped `ihash`.
 fn hmac_final_in_place<H, const BLOCK_BYTES: usize, const OUT_BYTES: usize>(
     state: &mut HmacState<H, BLOCK_BYTES, OUT_BYTES>,
     output: &mut [u8; OUT_BYTES],

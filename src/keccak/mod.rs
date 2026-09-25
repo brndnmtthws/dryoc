@@ -60,9 +60,10 @@ impl<const RATE: usize, const ROUNDS: usize> Sponge<RATE, ROUNDS> {
         }
     }
 
-    /// Out of line at opt-level `z`, which adds no copy: it and the
-    /// `keccak` backend get only `&mut self.state`, the sponge's own state,
-    /// which is permuted in place and wiped on drop.
+    /// Out of line at opt-level `z` and `s` (the `keccak` backend dispatch
+    /// and permutation also at `2`), which adds no copy: it and the backend
+    /// get only `&mut self.state`, the sponge's own state, which is permuted
+    /// in place and wiped on drop.
     fn permute(&mut self) {
         let state = &mut self.state;
         self.keccak.with_p1600::<ROUNDS>(|p1600| p1600(state));
@@ -272,6 +273,10 @@ struct PermuteLanes<'a, const ROUNDS: usize, const N: usize> {
     selected: [bool; N],
 }
 
+/// Out of line at opt-level `z` and `s` (as are the backend's permutation
+/// closures), which adds no copy: `call_once` gets `&mut` to the sponge
+/// states, which are wiped on drop, and the public lane selection; the one
+/// staging copy, `par`, is wiped after its group.
 impl<const ROUNDS: usize, const N: usize> keccak::BackendClosure for PermuteLanes<'_, ROUNDS, N> {
     fn call_once<B: keccak::Backend>(self) {
         let width = size_of::<keccak::ParState1600<B>>() / size_of::<[u64; 25]>();
@@ -322,6 +327,10 @@ pub(crate) fn hash<const RATE: usize>(output: &mut [u8], domain: u8, parts: &[&[
 
 /// XORs `bytes` into the little-endian lanes of `state`, starting at byte
 /// `offset`. Aligned eight-byte runs are XORed one lane at a time.
+///
+/// Out of line at opt-level `z`, `s` and `2` (as are [`xor_byte`],
+/// [`extract`] and [`state_byte`]), which adds no copy: they only get `&` or
+/// `&mut` to the sponge's own state, which is wiped on drop.
 fn xor_into(state: &mut [u64; 25], offset: usize, bytes: &[u8]) {
     let (head, body) = bytes.split_at(bytes.len().min(offset.wrapping_neg() % 8));
     for (i, &byte) in head.iter().enumerate() {

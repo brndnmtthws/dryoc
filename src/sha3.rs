@@ -69,7 +69,7 @@ macro_rules! sha3_hasher {
             ) {
                 let mut hasher = Self::new();
                 hasher.update(input);
-                hasher.finalize_into_bytes(output)
+                hasher.finalize_in_place(output.as_mut_array());
             }
 
             #[doc = concat!(
@@ -82,7 +82,9 @@ macro_rules! sha3_hasher {
             ) -> Output {
                 let mut hasher = Self::new();
                 hasher.update(input);
-                hasher.finalize()
+                let mut hash = Output::new_byte_array();
+                hasher.finalize_in_place(hash.as_mut_array());
+                hash
             }
 
             #[doc = concat!(
@@ -101,9 +103,9 @@ macro_rules! sha3_hasher {
             }
 
             /// Consumes hasher and return final computed hash.
-            pub fn finalize<Output: NewByteArray<$digest_bytes>>(self) -> Output {
+            pub fn finalize<Output: NewByteArray<$digest_bytes>>(mut self) -> Output {
                 let mut hash = Output::new_byte_array();
-                self.finalize_into_bytes(&mut hash);
+                self.finalize_in_place(hash.as_mut_array());
                 hash
             }
 
@@ -112,14 +114,26 @@ macro_rules! sha3_hasher {
                 mut self,
                 output: &mut Output,
             ) {
+                self.finalize_in_place(output.as_mut_array());
+            }
+
+            /// Pads and squeezes the digest without moving the hasher: every
+            /// consuming method finishes here, on the sponge where it lies,
+            /// which then drops (wipes). Passing the hasher on by value would
+            /// copy the secret-absorbing sponge and leave the moved-from copy
+            /// unwiped.
+            #[inline]
+            fn finalize_in_place(&mut self, output: &mut [u8; $digest_bytes]) {
                 self.sponge.pad(DOMAIN_SHA3);
-                self.sponge.squeeze(output.as_mut_array());
+                self.sponge.squeeze(output);
             }
 
             /// Consumes hasher and returns final computed hash as a [`Vec`].
             #[cfg(feature = "alloc")]
-            pub fn finalize_to_vec(self) -> Vec<u8> {
-                self.finalize::<StackByteArray<$digest_bytes>>().to_vec()
+            pub fn finalize_to_vec(mut self) -> Vec<u8> {
+                let mut hash = StackByteArray::<$digest_bytes>::new();
+                self.finalize_in_place(hash.as_mut_array());
+                hash.to_vec()
             }
         }
 
