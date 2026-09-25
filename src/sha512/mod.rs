@@ -39,9 +39,8 @@ const IV: [u64; 8] = [
 #[inline]
 fn compress(state: &mut [u64; 8], blocks: &[[u8; BLOCK_BYTES]]) {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-    if has_aarch64_feature!("sha3") {
-        // SAFETY: the feature check above confirmed the `sha3` extension.
-        unsafe { sha512_aarch64::compress(state, blocks) };
+    if let Some(sha3) = crate::aarch64::Sha3::new() {
+        sha512_aarch64::compress(sha3, state, blocks);
         return;
     }
     sha2::block_api::compress512(state, blocks);
@@ -80,11 +79,10 @@ impl Sha512 {
         b: &[u8; BLOCK_BYTES],
     ) {
         #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
-        if has_aarch64_feature!("sha3") {
+        if let Some(sha3) = crate::aarch64::Sha3::new() {
             debug_assert!(self.len == 0 && self.buflen == 0);
             debug_assert!(other.len == 0 && other.buflen == 0);
-            // SAFETY: the feature check above confirmed the `sha3` extension.
-            unsafe { sha512_aarch64::compress2(&mut self.state, a, &mut other.state, b) };
+            sha512_aarch64::compress2(sha3, &mut self.state, a, &mut other.state, b);
             self.len = BLOCK_BYTES as u128;
             other.len = BLOCK_BYTES as u128;
             return;
@@ -140,9 +138,9 @@ mod tests {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
     #[test]
     fn test_compress2_matches_compress() {
-        if !has_aarch64_feature!("sha3") {
+        let Some(sha3) = crate::aarch64::Sha3::new() else {
             return;
-        }
+        };
         let mut seed = 0x1234_5678_9abc_def0u64;
         let mut next = || {
             seed ^= seed << 13;
@@ -173,8 +171,7 @@ mod tests {
             let (mut ea, mut eb) = (sa, sb);
             compress(&mut ea, core::slice::from_ref(&a));
             compress(&mut eb, core::slice::from_ref(&b));
-            // SAFETY: `sha3` was detected above.
-            unsafe { sha512_aarch64::compress2(&mut sa, &a, &mut sb, &b) };
+            sha512_aarch64::compress2(sha3, &mut sa, &a, &mut sb, &b);
             assert_eq!(sa, ea, "state a {i}");
             assert_eq!(sb, eb, "state b {i}");
         }
@@ -269,9 +266,9 @@ mod tests {
     #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
     #[test]
     fn test_hw_compress_matches_portable() {
-        if !has_aarch64_feature!("sha3") {
+        let Some(sha3) = crate::aarch64::Sha3::new() else {
             return;
-        }
+        };
         let blocks: Vec<[u8; 128]> = (0..40u32)
             .map(|b| {
                 core::array::from_fn(|i| (b * 128 + i as u32).wrapping_mul(2654435761) as u8 >> 1)
@@ -281,7 +278,7 @@ mod tests {
             let mut expected = IV;
             let mut actual = IV;
             sha2::block_api::compress512(&mut expected, &blocks[..n]);
-            unsafe { sha512_aarch64::compress(&mut actual, &blocks[..n]) };
+            sha512_aarch64::compress(sha3, &mut actual, &blocks[..n]);
             assert_eq!(actual, expected, "{n} blocks");
         }
     }

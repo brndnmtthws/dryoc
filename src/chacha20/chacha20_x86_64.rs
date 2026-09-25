@@ -26,8 +26,8 @@ use core::arch::x86_64::{
 use zeroize::Zeroize;
 
 use crate::x86_64::{
-    Dest, LANES, LANES512, LaneSet, finish_lanes, finish_lanes512, input_lanes, input_lanes512,
-    xor_scalar_words,
+    Avx2, Avx512, Avx512Vl, Dest, LANES, LANES512, LaneSet, finish_lanes, finish_lanes512,
+    input_lanes, input_lanes512, xor_scalar_words,
 };
 
 /// Blocks (including a trailing partial one) a run may hold to be served by
@@ -79,21 +79,13 @@ impl super::Kernel for Kernel {
     ) {
         let small = LaneSet::fits_ymm(output.len(), partial.is_some());
         match self.0 {
-            // SAFETY: a `LaneSet` is only constructed by `LaneSet::detect`
-            // (and, in tests, `LaneSet::all`) after `has_x86_feature!`
-            // confirmed the features its variant needs; `LaneSet::Avx2`
-            // requires `avx2`.
-            LaneSet::Avx2 => unsafe { xor_chunk_avx2(state, counter, input, output, partial) },
-            // SAFETY: as above; `LaneSet::Avx512Vl` requires `avx512f`,
-            // `avx512vl` and `avx2`.
-            LaneSet::Avx512Vl if small => unsafe {
-                xor_chunk_avx512vl(state, counter, input, output, partial)
-            },
-            // SAFETY: as above; `LaneSet::Avx512` and `LaneSet::Avx512Vl`
-            // require `avx512f` and `avx2` (`x86_64::has_avx512f`).
-            LaneSet::Avx512 | LaneSet::Avx512Vl => unsafe {
-                xor_chunk_avx512(state, counter, input, output, partial)
-            },
+            LaneSet::Avx2(avx2) => xor_chunk_avx2(avx2, state, counter, input, output, partial),
+            LaneSet::Avx512Vl(_, avx512vl) if small => {
+                xor_chunk_avx512vl(avx512vl, state, counter, input, output, partial)
+            }
+            LaneSet::Avx512(avx512) | LaneSet::Avx512Vl(avx512, _) => {
+                xor_chunk_avx512(avx512, state, counter, input, output, partial)
+            }
         }
     }
 
@@ -119,7 +111,7 @@ impl super::Kernel for Kernel {
         (extra_counter, extra): (u64, &mut [u8; 64]),
     ) {
         match self.0 {
-            LaneSet::Avx2 => {
+            LaneSet::Avx2(_) => {
                 self.xor_chunk(state, counter, input, output, partial);
                 crate::stream::xor_scalar_block(
                     state,
@@ -128,19 +120,16 @@ impl super::Kernel for Kernel {
                     super::chacha20_soft::block,
                 );
             }
-            // SAFETY: as for `xor_chunk`; `LaneSet::Avx512` and
-            // `LaneSet::Avx512Vl` require `avx512f` and `avx2`.
-            LaneSet::Avx512 | LaneSet::Avx512Vl => unsafe {
-                xor_chunk_avx512_with_block(
-                    state,
-                    counter,
-                    input,
-                    output,
-                    partial,
-                    extra_counter,
-                    extra,
-                )
-            },
+            LaneSet::Avx512(avx512) | LaneSet::Avx512Vl(avx512, _) => xor_chunk_avx512_with_block(
+                avx512,
+                state,
+                counter,
+                input,
+                output,
+                partial,
+                extra_counter,
+                extra,
+            ),
         }
     }
 }
@@ -207,7 +196,7 @@ macro_rules! quarter_round {
 /// does not change with the inlining context.
 #[inline(never)]
 #[target_feature(enable = "avx2")]
-fn xor_chunk_avx2(
+fn xor_chunk_avx2_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -224,6 +213,21 @@ fn xor_chunk_avx2(
         super::chacha20_double_round!(quarter_round, x, rot16, rot8);
     }
     finish_lanes!(x, &initial, &mut dest);
+}
+
+/// [`xor_chunk_avx2_unchecked`], safe to call with an [`Avx2`] token.
+#[inline(always)]
+fn xor_chunk_avx2(
+    _: Avx2,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+) {
+    // SAFETY: an `Avx2` token exists only after detection of
+    // `avx2`, the feature the kernel is compiled for.
+    unsafe { xor_chunk_avx2_unchecked(state, counter, input, output, partial) }
 }
 
 /// One ChaCha20 quarter round over the four `ymm` vectors `$a, $b, $c, $d`
@@ -248,7 +252,7 @@ macro_rules! quarter_round_vl {
 /// of at most eight slots this finishes sooner than the 16-lane set.
 #[inline(never)]
 #[target_feature(enable = "avx2,avx512f,avx512vl")]
-fn xor_chunk_avx512vl(
+fn xor_chunk_avx512vl_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -263,6 +267,23 @@ fn xor_chunk_avx512vl(
         super::chacha20_double_round!(quarter_round_vl, x);
     }
     finish_lanes!(x, &initial, &mut dest);
+}
+
+/// [`xor_chunk_avx512vl_unchecked`], safe to call with an [`Avx512Vl`]
+/// token.
+#[inline(always)]
+fn xor_chunk_avx512vl(
+    _: Avx512Vl,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+) {
+    // SAFETY: an `Avx512Vl` token exists only after detection of
+    // `avx2`, `avx512f` and `avx512vl`, the features the kernel is compiled
+    // for.
+    unsafe { xor_chunk_avx512vl_unchecked(state, counter, input, output, partial) }
 }
 
 /// One ChaCha20 quarter round over the four vectors `$a, $b, $c, $d` of
@@ -289,7 +310,7 @@ macro_rules! quarter_round512 {
 /// busy without a second set.
 #[inline(never)]
 #[target_feature(enable = "avx512f")]
-fn xor_chunk_avx512(
+fn xor_chunk_avx512_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -304,6 +325,21 @@ fn xor_chunk_avx512(
         super::chacha20_double_round!(quarter_round512, x);
     }
     finish_lanes512!(x, &initial, &mut dest);
+}
+
+/// [`xor_chunk_avx512_unchecked`], safe to call with an [`Avx512`] token.
+#[inline(always)]
+fn xor_chunk_avx512(
+    _: Avx512,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+) {
+    // SAFETY: an `Avx512` token exists only after detection of
+    // `avx512f`, the feature the kernel is compiled for.
+    unsafe { xor_chunk_avx512_unchecked(state, counter, input, output, partial) }
 }
 
 /// One scalar ChaCha20 quarter round in the `asm!` template of
@@ -475,7 +511,7 @@ fn scalar_double_round(x: &mut [u32; 16]) {
 /// the AEAD and secretstream constructions.
 #[inline(never)]
 #[target_feature(enable = "avx512f")]
-fn xor_chunk_avx512_with_block(
+fn xor_chunk_avx512_with_block_unchecked(
     state: &[u32; 16],
     counter: u64,
     input: Option<&[u8]>,
@@ -497,6 +533,35 @@ fn xor_chunk_avx512_with_block(
     finish_lanes512!(x, &initial, &mut dest);
     xor_scalar_words(&s, &scalar_initial, extra);
     s.zeroize();
+}
+
+/// [`xor_chunk_avx512_with_block_unchecked`], safe to call with an
+/// [`Avx512`] token.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn xor_chunk_avx512_with_block(
+    _: Avx512,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8]>,
+    output: &mut [u8],
+    partial: Option<&mut [u8; 64]>,
+    extra_counter: u64,
+    extra: &mut [u8; 64],
+) {
+    // SAFETY: an `Avx512` token exists only after detection of
+    // `avx512f`, the feature the kernel is compiled for.
+    unsafe {
+        xor_chunk_avx512_with_block_unchecked(
+            state,
+            counter,
+            input,
+            output,
+            partial,
+            extra_counter,
+            extra,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -528,9 +593,9 @@ mod tests {
     /// sets and extra blocks before and after them.
     #[test]
     fn test_avx512_with_block_matches_run_and_scalar_block() {
-        if !crate::x86_64::has_avx512f() {
+        let Some(avx512) = Avx512::new() else {
             return;
-        }
+        };
         let mut state = [0u32; 16];
         for (i, word) in state.iter_mut().enumerate() {
             *word = 0x0101_0101u32.wrapping_mul(i as u32 + 3);
@@ -544,33 +609,29 @@ mod tests {
                     let mut expected = plaintext[..len].to_vec();
                     let mut expected_partial = [0u8; 64];
                     let mut expected_extra = [0u8; 64];
-                    // SAFETY: `avx512f` and `avx2` were detected above.
-                    unsafe {
-                        xor_chunk_avx512(
-                            &state,
-                            counter,
-                            None,
-                            &mut expected,
-                            has_partial.then_some(&mut expected_partial),
-                        )
-                    };
+                    xor_chunk_avx512(
+                        avx512,
+                        &state,
+                        counter,
+                        None,
+                        &mut expected,
+                        has_partial.then_some(&mut expected_partial),
+                    );
                     super::super::chacha20_soft::block(&state, extra_counter, &mut expected_extra);
 
                     let mut in_place = plaintext[..len].to_vec();
                     let mut partial = [0u8; 64];
                     let mut extra = [0u8; 64];
-                    // SAFETY: `avx512f` and `avx2` were detected above.
-                    unsafe {
-                        xor_chunk_avx512_with_block(
-                            &state,
-                            counter,
-                            None,
-                            &mut in_place,
-                            has_partial.then_some(&mut partial),
-                            extra_counter,
-                            &mut extra,
-                        )
-                    };
+                    xor_chunk_avx512_with_block(
+                        avx512,
+                        &state,
+                        counter,
+                        None,
+                        &mut in_place,
+                        has_partial.then_some(&mut partial),
+                        extra_counter,
+                        &mut extra,
+                    );
                     let what = format!("counter {counter}, whole {whole}, extra {extra_counter}");
                     assert_eq!(in_place, expected, "in place, {what}");
                     assert_eq!(partial, expected_partial, "partial, {what}");
@@ -578,18 +639,16 @@ mod tests {
 
                     let mut b2b = vec![0u8; len];
                     let mut extra = [0xa5u8; 64];
-                    // SAFETY: `avx512f` and `avx2` were detected above.
-                    unsafe {
-                        xor_chunk_avx512_with_block(
-                            &state,
-                            counter,
-                            Some(&plaintext[..len]),
-                            &mut b2b,
-                            None,
-                            extra_counter,
-                            &mut extra,
-                        )
-                    };
+                    xor_chunk_avx512_with_block(
+                        avx512,
+                        &state,
+                        counter,
+                        Some(&plaintext[..len]),
+                        &mut b2b,
+                        None,
+                        extra_counter,
+                        &mut extra,
+                    );
                     assert_eq!(b2b, expected, "b2b, {what}");
                     for (byte, ks) in extra.iter().zip(expected_extra) {
                         assert_eq!(*byte, 0xa5 ^ ks, "extra XOR, {what}");

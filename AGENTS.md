@@ -26,8 +26,9 @@ than convenience refactors.
 - Core features:
   - `std`: implies `alloc`; runtime CPU feature detection and `Error::Io`.
     Without it, `has_x86_feature!`/`has_aarch64_feature!` (in `src/lib.rs`)
-    fall back to compile-time `cfg!(target_feature = ...)`; use those macros,
-    never `std::arch::is_*_feature_detected!` directly.
+    fall back to compile-time `cfg!(target_feature = ...)`; only the feature
+    tokens' constructors call them, never `std::arch::is_*_feature_detected!`
+    directly.
   - `alloc`: every API that allocates (`Vec<u8>` byte-trait impls, `Vec*`
     aliases, `*_to_vec`/`*_to_vecbox`, `randombytes_buf`, password hashing).
     Gate such items with `#[cfg(feature = "alloc")]` and import
@@ -150,6 +151,13 @@ cargo fuzz run fuzz-hashes
   silently change them.
 - Any new `unsafe` must be small, documented by surrounding invariants, and
   covered by tests. Prefer existing unsafe wrappers and allocation helpers.
+- Detected `#[target_feature]` kernels are named `*_unchecked` and entered
+  only through a safe `#[inline(always)]` wrapper beside them that takes the
+  matching feature token (`src/x86_64.rs`, `src/aarch64.rs`) by value; that
+  wrapper holds the kernel's one `unsafe` call. Tokens are only constructed
+  by their detection functions (`new`, and the `avx512vl` refinements),
+  which use `has_x86_feature!`/`has_aarch64_feature!`; dispatch enums hold
+  them. Do not call those macros outside the token constructors.
 - Put a `// SAFETY:` comment immediately before every non-test `unsafe` block,
   `unsafe impl`, `unsafe extern`, or `unsafe fn`; explain the concrete pointer,
   aliasing, initialization, layout, or OS-call invariant that makes it valid.
@@ -167,10 +175,14 @@ cargo fuzz run fuzz-hashes
   locked bytes; nightly-only allocator APIs are additionally gated by `nightly`.
 - `src/stream.rs`: keystream sinks shared by the ChaCha20 and Salsa20 drivers
   (`Sink`, `InPlace`, `BufferToBuffer`, `Dest`).
+- `src/aarch64.rs`: the AArch64 CPU feature tokens (`Neon`, `Sve2`, `Sha2`,
+  `Sha3`); compiled for little-endian AArch64 targets, with `Neon` and
+  `Sve2` also compiled out under Miri, like `neon.rs`.
 - `src/neon.rs`: AArch64 NEON load/store/transpose/XOR helpers shared by the
   `*_neon.rs` kernels.
-- `src/x86_64.rs`: AVX2/AVX-512 load/store/transpose/XOR helpers shared by the
-  `*_x86_64.rs` kernels.
+- `src/x86_64.rs`: the x86-64 CPU feature tokens (`Avx2`, `Avx512`,
+  `Avx512Vl`, `Avx512Ifma`, `Bmi2`) and the AVX2/AVX-512
+  load/store/transpose/XOR helpers shared by the `*_x86_64.rs` kernels.
 - `src/keccak/`: the Keccak sponge behind SHA-3 (`src/sha3.rs`) and the
   SHAKE/TurboSHAKE XOFs (`src/xof.rs`), and the multi-state `ParSponge`
   behind ML-KEM sampling; the permutation comes from the `keccak` crate,

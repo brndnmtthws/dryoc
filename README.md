@@ -246,6 +246,9 @@ BLAKE2b rounds and the Curve25519 field products, and detected
 compression functions. `PwHash::into_parts` moves fields out of a value with
 a zeroizing `Drop` (`ManuallyDrop` + `ptr::read`). CPU features are detected
 at runtime with the `std` feature and taken from the compile-time target
-features without it.
+features without it. Each detected kernel is entered through one safe wrapper
+that takes a zero-sized CPU feature token, which only that feature detection
+can construct, so the kernel's single `unsafe` call sits next to that proof
+rather than at every call site.
 The [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
 lists every non-test use of unsafe code in this crate.

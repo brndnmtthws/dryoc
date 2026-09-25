@@ -38,26 +38,21 @@ use core::arch::x86_64::{
 
 use super::mlkem_soft::{BARRETT_V, INVNTT_F, QINV, ZETAS};
 use super::{Poly, Q};
-use crate::x86_64::{load_i16s, store_i16s};
+use crate::x86_64::{Avx2, load_i16s, store_i16s};
 
-/// A vector kernel the running CPU has been verified to support.
-///
-/// Values are only created by [`detect`] after checking the CPU features the
-/// kernels are compiled for, which is what makes the operations safe.
+/// A vector kernel the running CPU has been verified to support: its variant
+/// holds the token for the CPU feature the kernels are compiled for, which
+/// is what makes the operations safe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kernel {
     /// AVX2: sixteen 16-bit lanes per `ymm` register.
-    Avx2,
+    Avx2(Avx2),
 }
 
 /// The best kernel the running CPU supports.
 #[inline]
 pub(super) fn detect() -> Option<Kernel> {
-    if has_x86_feature!("avx2") {
-        Some(Kernel::Avx2)
-    } else {
-        None
-    }
+    Avx2::new().map(Kernel::Avx2)
 }
 
 impl Kernel {
@@ -71,9 +66,7 @@ impl Kernel {
     #[inline]
     pub(super) fn ntt(self, r: &mut Poly) {
         match self {
-            // SAFETY: `Kernel::Avx2` is only constructed after
-            // `has_x86_feature!("avx2")` succeeded.
-            Kernel::Avx2 => unsafe { ntt_avx2(r) },
+            Kernel::Avx2(avx2) => ntt_avx2(avx2, r),
         }
     }
 
@@ -81,9 +74,7 @@ impl Kernel {
     #[inline]
     pub(super) fn invntt_tomont(self, r: &mut Poly) {
         match self {
-            // SAFETY: `Kernel::Avx2` is only constructed after
-            // `has_x86_feature!("avx2")` succeeded.
-            Kernel::Avx2 => unsafe { invntt_tomont_avx2(r) },
+            Kernel::Avx2(avx2) => invntt_tomont_avx2(avx2, r),
         }
     }
 
@@ -91,9 +82,7 @@ impl Kernel {
     #[inline]
     pub(super) fn basemul_acc<const K: usize>(self, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
         match self {
-            // SAFETY: `Kernel::Avx2` is only constructed after
-            // `has_x86_feature!("avx2")` succeeded.
-            Kernel::Avx2 => unsafe { basemul_acc_avx2(r, a, b) },
+            Kernel::Avx2(avx2) => basemul_acc_avx2(avx2, r, a, b),
         }
     }
 }
@@ -345,7 +334,7 @@ fn store_strided(r: &mut Poly, j: usize, v: [__m256i; 8]) {
 }
 
 #[target_feature(enable = "avx2")]
-fn ntt_avx2(r: &mut Poly) {
+fn ntt_avx2_unchecked(r: &mut Poly) {
     // Spans 128, 64 and 32 on each strided half, in registers: span `len`
     // strided vectors has `4 / len` groups, the first using `ZETAS[4 / len]`.
     for j in 0..2 {
@@ -382,8 +371,16 @@ fn ntt_avx2(r: &mut Poly) {
     }
 }
 
+/// [`ntt_avx2_unchecked`], safe to call with an [`Avx2`] token.
+#[inline(always)]
+fn ntt_avx2(_: Avx2, r: &mut Poly) {
+    // SAFETY: an `Avx2` token exists only after detection of `avx2`,
+    // the feature the kernel is compiled for.
+    unsafe { ntt_avx2_unchecked(r) }
+}
+
 #[target_feature(enable = "avx2")]
-fn invntt_tomont_avx2(r: &mut Poly) {
+fn invntt_tomont_avx2_unchecked(r: &mut Poly) {
     // Spans 2, 4, 8 and 16 on each pair.
     for (m, [a_row, b_row]) in pairs_mut(r).iter_mut().enumerate() {
         let (mut a, mut b) = (load_i16s(a_row), load_i16s(b_row));
@@ -426,8 +423,16 @@ fn invntt_tomont_avx2(r: &mut Poly) {
     }
 }
 
+/// [`invntt_tomont_avx2_unchecked`], safe to call with an [`Avx2`] token.
+#[inline(always)]
+fn invntt_tomont_avx2(_: Avx2, r: &mut Poly) {
+    // SAFETY: an `Avx2` token exists only after detection of `avx2`,
+    // the feature the kernel is compiled for.
+    unsafe { invntt_tomont_avx2_unchecked(r) }
+}
+
 #[target_feature(enable = "avx2")]
-fn basemul_acc_avx2<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
+fn basemul_acc_avx2_unchecked<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
     let qinv = _mm256_set1_epi16(QINV);
     for (m, [r0, r1]) in pairs_mut(r).iter_mut().enumerate() {
         let w = BASEMUL.get(m);
@@ -450,4 +455,12 @@ fn basemul_acc_avx2<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) 
         store_i16s(r0, c0);
         store_i16s(r1, c1);
     }
+}
+
+/// [`basemul_acc_avx2_unchecked`], safe to call with an [`Avx2`] token.
+#[inline(always)]
+fn basemul_acc_avx2<const K: usize>(_: Avx2, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
+    // SAFETY: an `Avx2` token exists only after detection of `avx2`,
+    // the feature the kernel is compiled for.
+    unsafe { basemul_acc_avx2_unchecked::<K>(r, a, b) }
 }
