@@ -145,6 +145,11 @@ pub fn secret_key_to_public_key<
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
 /// An Ed25519 keypair for public-key signatures
+///
+/// Create keypairs with [`SigningKeyPair::generate`],
+/// [`SigningKeyPair::from_seed`], or [`SigningKeyPair::from_secret_key`].
+/// There is no `new` or [`Default`] constructor, so an all-zero secret key is
+/// never produced implicitly.
 pub struct SigningKeyPair<
     PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
@@ -173,14 +178,6 @@ impl<
     SecretKey: NewByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
-    /// Creates a new, empty signing keypair.
-    pub fn new() -> Self {
-        Self {
-            public_key: PublicKey::new_byte_array(),
-            secret_key: SecretKey::new_byte_array(),
-        }
-    }
-
     /// Generates a random signing keypair.
     pub fn generate() -> Self {
         let mut public_key = PublicKey::new_byte_array();
@@ -342,23 +339,6 @@ pub mod protected {
             Locked<HeapByteArray<CRYPTO_SIGN_SECRETKEYBYTES>>,
         >
     {
-        /// Returns a new locked signing keypair.
-        ///
-        /// # Errors
-        ///
-        /// Returns [`Error::Io`] if either allocation cannot be locked.
-        ///
-        /// # Panics
-        ///
-        /// Panics if either page-aligned allocation cannot be created or its
-        /// size cannot be represented with guard pages.
-        pub fn new_locked_keypair() -> Result<Self, Error> {
-            Ok(Self {
-                public_key: HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?,
-                secret_key: HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?,
-            })
-        }
-
         /// Returns a new randomly generated locked signing keypair.
         ///
         /// # Errors
@@ -371,7 +351,10 @@ pub mod protected {
         /// size cannot be represented with guard pages, or the operating
         /// system's random number generator fails.
         pub fn generate_locked_keypair() -> Result<Self, Error> {
-            let mut res = Self::new_locked_keypair()?;
+            let mut res = Self {
+                public_key: HeapByteArray::<CRYPTO_SIGN_PUBLICKEYBYTES>::new_locked()?,
+                secret_key: HeapByteArray::<CRYPTO_SIGN_SECRETKEYBYTES>::new_locked()?,
+            };
 
             crypto_sign_keypair_inplace(
                 res.public_key.as_mut_array(),
@@ -476,12 +459,6 @@ impl<
         message: Message,
     ) -> Result<SignedMessage<StackByteArray<CRYPTO_SIGN_BYTES>, Vec<u8>>, Error> {
         self.sign(Vec::from(message.as_slice()))
-    }
-}
-
-impl Default for SigningKeyPair<PublicKey, SecretKey> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
