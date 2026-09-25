@@ -26,7 +26,7 @@ secret_key_class! {
         #[classattr]
         const MAC_SIZE: usize = CRYPTO_SECRETBOX_MACBYTES;
 
-        /// Encrypts `plaintext`, returning `EncryptedMessage(nonce, ciphertext)`.
+        /// Encrypts `plaintext`, returning `EncryptedMessage(ciphertext, nonce)`.
         ///
         /// A random nonce is generated when `nonce` is omitted. The ciphertext is
         /// libsodium's `crypto_secretbox_easy` format (tag then encrypted data).
