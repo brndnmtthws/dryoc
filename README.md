@@ -86,9 +86,9 @@ The optional portable SIMD implementations require nightly Rust and
 `--features simd_backend,nightly`. The `simd_backend` feature selects those
 implementations, while `nightly` enables Rust's unstable `portable_simd` API.
 
-The `nightly` feature also implements the standard `Allocator` trait for
-the protected-memory `PageAlignedAllocator`. It requires `nightly-2026-09-24`
-or later (rustc 1.100.0-nightly from 2026-09-23), where that API no longer
+With `protected`, the `nightly` feature also implements the standard
+`Allocator` trait for the protected-memory `PageAlignedAllocator`. It requires
+`nightly-2026-09-24` or later (rustc 1.100.0-nightly from 2026-09-23), where that API no longer
 needs a feature gate; older nightlies fail to compile with `--features nightly`.
 
 Optimized AArch64 and x86-64 implementations are built in and do not require
@@ -113,7 +113,7 @@ also unaffected by the `simd_backend` feature.
 | `serde` | No | Serde support; the `Vec`-based types also need `alloc` |
 | `wincode_0_6` | No | wincode 0.6 support for the `Vec`-based boxes; implies `alloc` |
 | `simd_backend` | No | Portable SIMD implementations; requires `nightly` |
-| `nightly` | No | Nightly-only APIs (see [Rust version](#rust-version)); implies `protected` |
+| `nightly` | No | Nightly-only APIs (see [Rust version](#rust-version)); the `Allocator` implementation also needs `protected` |
 
 dryoc is `#![no_std]`. With no features at all, everything that works on
 fixed-size arrays and caller-provided slices is available: the Classic API

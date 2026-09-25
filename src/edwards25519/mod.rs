@@ -649,35 +649,61 @@ mod tests {
         }
     }
 
-    /// Every fixed-base table entry is the basepoint multiple it claims to be.
+    /// The canonical affine Niels form of a curve25519-dalek point, derived
+    /// independently of [`TABLES`]: the point is decoded from dalek's
+    /// encoding and each coordinate reduced to canonical limbs.
+    fn niels_from_dalek(point: curve25519_dalek::EdwardsPoint) -> Niels {
+        let p = Point::decompress(&point.compress().to_bytes()).expect("valid dalek point");
+        let zinv = p.z.invert();
+        let x = p.x.mul(&zinv);
+        let y = p.y.mul(&zinv);
+        let canonical = |v: Fe| Fe::from_bytes(&v.to_bytes());
+        Niels {
+            y_plus_x: canonical(y.add(&x)),
+            y_minus_x: canonical(y.sub(&x)),
+            xy2d: canonical(x.mul(&y).mul(&EDWARDS_D2)),
+        }
+    }
+
+    /// Every limb of every fixed-base table entry equals the canonical Niels
+    /// form of the basepoint multiple it claims to be, as computed by dalek.
     #[test]
     fn test_table_matches_dalek() {
+        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         let mut scale = Scalar::ONE;
-        for row in TABLES.base.iter() {
+        for (k, row) in TABLES.base.iter().enumerate() {
             for (j, entry) in row.iter().enumerate() {
-                let expected = (ED25519_BASEPOINT_TABLE * &(scale * Scalar::from(j as u64 + 1)))
-                    .compress()
-                    .to_bytes();
-                assert_eq!(niels_to_point(entry).compress(), expected);
+                let multiple = ED25519_BASEPOINT_TABLE * &(scale * Scalar::from(j as u64 + 1));
+                assert_eq!(
+                    limbs(entry),
+                    limbs(&niels_from_dalek(multiple)),
+                    "base[{k}][{j}]"
+                );
+                assert_eq!(
+                    niels_to_point(entry).compress(),
+                    multiple.compress().to_bytes(),
+                    "base[{k}][{j}]"
+                );
             }
             scale *= Scalar::from(256u64);
         }
     }
 
-    /// Every odd-multiple entry used by the double-scalar multiplication is
-    /// `[2 j + 1] B`.
+    /// Every limb of every odd-multiple entry used by the double-scalar
+    /// multiplication equals the canonical Niels form of `[2 j + 1] B`.
     #[test]
     fn test_odd_table_matches_dalek() {
+        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         for (j, entry) in TABLES.odd.iter().enumerate() {
-            let expected = (ED25519_BASEPOINT_TABLE * &Scalar::from(2 * j as u64 + 1))
-                .compress()
-                .to_bytes();
-            assert_eq!(niels_to_point(entry).compress(), expected, "odd {j}");
+            let multiple = ED25519_BASEPOINT_TABLE * &Scalar::from(2 * j as u64 + 1);
+            assert_eq!(limbs(entry), limbs(&niels_from_dalek(multiple)), "odd {j}");
+            assert_eq!(
+                niels_to_point(entry).compress(),
+                multiple.compress().to_bytes(),
+                "odd {j}"
+            );
         }
-        assert_eq!(
-            niels_to_point(&TABLES.odd[0]).compress(),
-            niels_to_point(&TABLES.base[0][0]).compress()
-        );
+        assert_eq!(limbs(&TABLES.odd[0]), limbs(&TABLES.base[0][0]));
     }
 
     /// `[s]B` agrees with dalek for random reduced scalars, clamped-style

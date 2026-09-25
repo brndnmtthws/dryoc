@@ -14,7 +14,7 @@ version = "2.0.0"
 [dependencies]
 curve25519-dalek = { version = "5.0", default-features = false, features = ["zeroize"] }
 getrandom = "0.4"
-keccak = { version = "0.2", features = ["parallel"] }
+keccak = { version = "0.2", default-features = false, features = ["parallel"] }
 serde = { version = "1.0", optional = true, default-features = false, features = ["derive"] }
 sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
 subtle = { version = "2.6", default-features = false, features = ["i128"] }
@@ -26,13 +26,12 @@ winapi = { version = "0.3", features = [
   "impl-default",
   "memoryapi",
   "minwindef",
-  "std",
   "sysinfoapi",
   "winnt",
 ] }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { version = "0.2", default-features = false }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
@@ -53,14 +52,6 @@ salsa20 = { version = "0.11", features = ["zeroize"] }
 static_assertions = "1.1"
 wincode = "0.6"
 
-[[test]]
-name = "integration_tests"
-required-features = ["alloc"]
-
-[[test]]
-name = "wasm_tests"
-required-features = ["alloc"]
-
 [target.'cfg(not(any(miri, all(target_arch = "wasm32", target_os = "unknown"))))'.dev-dependencies]
 libsodium-sys-stable = "1.24"
 
@@ -70,7 +61,7 @@ proptest = "1"
 [features]
 base64 = ["alloc"]
 default = ["base64", "protected", "std"]
-nightly = ["protected"]
+nightly = []
 protected = ["std"]
 simd_backend = []
 alloc = ["serde?/alloc", "wincode?/alloc", "zeroize/alloc"]

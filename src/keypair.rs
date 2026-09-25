@@ -3,7 +3,7 @@
 //! Provides an implementation for handling public/private keypairs based on
 //! libsodium's crypto_box, which uses X25519.
 //!
-//! Refer to the `protected` module for details on usage with protected memory.
+//! Refer to the [protected] mod for details on usage with protected memory.
 
 use core::fmt;
 

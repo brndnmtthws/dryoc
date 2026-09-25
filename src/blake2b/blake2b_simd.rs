@@ -590,6 +590,7 @@ mod tests {
         fn blake2b_init_key(S: *mut B2state, outlen: c_uchar, key: *const u8, keylen: c_uchar);
         fn blake2b_update(S: *mut B2state, input: *const u8, inlen: u64);
         fn blake2b_final(S: *mut B2state, output: *mut u8, outlen: u64);
+        #[cfg(feature = "alloc")]
         fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
     }
 
@@ -740,7 +741,7 @@ mod tests {
         assert_eq!(output, so_output);
     }
 
-    #[cfg(dryoc_native_tests)]
+    #[cfg(all(dryoc_native_tests, feature = "alloc"))]
     #[test]
     fn test_blake2b_long_simd() {
         crate::native_test_util::init();
@@ -767,7 +768,7 @@ mod tests {
         }
     }
 
-    #[cfg(dryoc_native_tests)]
+    #[cfg(all(dryoc_native_tests, feature = "alloc"))]
     #[test]
     fn test_blake2b_long_rand_length_simd() {
         crate::native_test_util::init();

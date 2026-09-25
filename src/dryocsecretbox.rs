@@ -7,7 +7,7 @@
 //! Use a [`DryocSecretBox`] when all parties already share a secret key. The
 //! key can be generated directly or derived with [`Kdf`](crate::kdf),
 //! [`Session`](crate::kx), or a password-hashing function such as
-//! `classic::crypto_pwhash`.
+//! [`crypto_pwhash`](crate::classic::crypto_pwhash).
 //!
 //! Anyone who knows the key can create valid messages. In a group, a secretbox
 //! proves that a member created the message, not which member created it.
@@ -22,7 +22,7 @@
 //! for [`DryocSecretBox`]. With `wincode_0_6`,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
-//! implemented for `VecBox`.
+//! implemented for [`VecBox`].
 //!
 //! ## Rustaceous API example
 //!
@@ -55,7 +55,7 @@
 //!   for more about secret boxes
 //! * For public-key encryption, see [`DryocBox`](crate::dryocbox)
 //! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
-//! * See the `protected` module for an example that stores keys in protected
+//! * See the [`protected`] module for an example that stores keys in protected
 //!   memory
 
 #[cfg(feature = "alloc")]
@@ -139,7 +139,7 @@ pub mod protected {
 )]
 #[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
 /// An authenticated secret-key encrypted box, compatible with a libsodium box.
-/// Use with either `VecBox` or `protected::LockedBox` type aliases.
+/// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
 ///
 /// Refer to [crate::dryocsecretbox] for sample usage.
 pub struct DryocSecretBox<

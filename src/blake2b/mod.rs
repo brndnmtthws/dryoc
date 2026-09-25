@@ -337,6 +337,7 @@ mod tests {
     /// chaining steps of the long variant (both the exact multiple and the
     /// remainder branches).
     #[test]
+    #[cfg(feature = "alloc")]
     fn test_longhash_matches_soft() {
         let message = message(1000);
         for outlen in [5, 32, 63, 64, 65, 95, 96, 97, 128, 129, 1024, 1025] {

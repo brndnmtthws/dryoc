@@ -43,11 +43,11 @@
 //! implementations, while `nightly` enables Rust's unstable `portable_simd`
 //! API.
 //!
-//! The `nightly` feature also implements the standard `Allocator` trait for
-//! the protected-memory `PageAlignedAllocator`. It requires
-//! `nightly-2026-09-24` or later (rustc 1.100.0-nightly from 2026-09-23), where
-//! that API no longer needs a feature gate; older nightlies fail to compile
-//! with `--features nightly`.
+//! With `protected`, the `nightly` feature also implements the standard
+//! `Allocator` trait for the protected-memory `PageAlignedAllocator`. It
+//! requires `nightly-2026-09-24` or later (rustc 1.100.0-nightly from
+//! 2026-09-23), where that API no longer needs a feature gate; older nightlies
+//! fail to compile with `--features nightly`.
 //!
 //! Optimized AArch64 and x86-64 implementations are built in and do not require
 //! the `simd_backend` feature. Implementations that need optional CPU
@@ -73,7 +73,7 @@
 //! | `serde` | No | Serde support; the `Vec`-based types also need `alloc`. |
 //! | `wincode_0_6` | No | wincode 0.6 support for the `Vec`-based boxes; implies `alloc`. |
 //! | `simd_backend` | No | Portable SIMD implementations; requires `nightly`. |
-//! | `nightly` | No | Nightly-only APIs described above; implies `protected`. |
+//! | `nightly` | No | Nightly-only APIs described above; the `Allocator` implementation also needs `protected`. |
 //!
 //! The crate is `#![no_std]`. With no features at all, everything that works
 //! on fixed-size arrays and caller-provided slices is available: the Classic
@@ -150,14 +150,8 @@
 //! | Key exchange | [`Session`](kx) | [`crypto_kx`](classic::crypto_kx) | [Link](https://doc.libsodium.org/key_exchange) |
 //! | Post-quantum key encapsulation | [`kem`], [`kem::mlkem768`] | [`crypto_kem`](classic::crypto_kem), [`crypto_kem_xwing`](classic::crypto_kem_xwing), [`crypto_kem_mlkem768`](classic::crypto_kem_mlkem768) | [Link](https://doc.libsodium.org/public-key_cryptography/key_encapsulation) |
 //! | Public-key signatures | [`SigningKeyPair`](sign) | [`crypto_sign`](classic::crypto_sign) | [Link](https://doc.libsodium.org/public-key_cryptography/public-key_signatures) |
-#![cfg_attr(
-    feature = "alloc",
-    doc = " | Password hashing | [`PwHash`](pwhash) | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://doc.libsodium.org/password_hashing/default_phf) |"
-)]
-#![cfg_attr(
-    feature = "std",
-    doc = " | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |"
-)]
+//! | Password hashing | [`PwHash`](pwhash) | [`crypto_pwhash`](classic::crypto_pwhash) | [Link](https://doc.libsodium.org/password_hashing/default_phf) |
+//! | Protected memory[^4] | [protected] | N/A | [Link](https://doc.libsodium.org/memory_management) |
 //! | Short-input hashing | N/A | [`crypto_shorthash`](classic::crypto_shorthash) | [Link](https://doc.libsodium.org/hashing/short-input_hashing) |
 //!
 //! ## Using Serde
@@ -244,7 +238,7 @@
 //!
 //! [^1]: Not actually trademarked.
 //!
-//! [^2]: The protected memory features described in the `protected` module are
+//! [^2]: The protected memory features described in the [protected] mod are
 //! available on Unix and Windows targets with the default `protected` feature.
 //! Unsupported targets do not expose the protected-memory API. These features
 //! require custom memory allocation, system calls, and pointer arithmetic,
@@ -252,12 +246,10 @@
 //! dependency-provided SIMD implementations and small internal helpers, may
 //! contain unsafe code. See the unsafe code section above for the non-test
 //! unsafe inventory in this crate.
-#![cfg_attr(
-    feature = "std",
-    doc = "",
-    doc = " [^4]: Available on Unix and Windows targets with the `protected` feature",
-    doc = " flag enabled. The `protected` feature is enabled by default."
-)]
+//!
+//! [^4]: Available on Unix and Windows targets with the `protected` feature
+//! flag enabled. The `protected` feature is enabled by default.
+
 #![no_std]
 #![cfg_attr(feature = "nightly", feature(doc_cfg))]
 #![cfg_attr(

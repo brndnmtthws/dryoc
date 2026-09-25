@@ -81,7 +81,7 @@
 //!   for more about public-key signatures
 //! * For shared-key encryption, see [`DryocSecretBox`](crate::dryocsecretbox)
 //! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
-//! * See the `protected` module for examples that store keys in protected
+//! * See the [`protected`] module for examples that store keys in protected
 //!   memory
 
 #[cfg(feature = "alloc")]

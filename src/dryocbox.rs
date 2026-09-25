@@ -29,7 +29,7 @@
 //! for [`DryocBox`]. With `wincode_0_6`,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
-//! implemented for `VecBox`.
+//! implemented for [`VecBox`].
 //!
 //! ## Rustaceous API example
 //!
@@ -96,7 +96,7 @@
 //!   for more about authenticated public-key encryption
 //! * For shared-key encryption, see [`DryocSecretBox`](crate::dryocsecretbox)
 //! * For encrypted message streams, see [`DryocStream`](crate::dryocstream)
-//! * See the `protected` module for an example that stores keys in protected
+//! * See the [`protected`] module for an example that stores keys in protected
 //!   memory
 
 #[cfg(feature = "alloc")]

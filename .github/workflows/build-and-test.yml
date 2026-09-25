@@ -79,7 +79,7 @@ jobs:
       - name: Install matching wasm-bindgen test runner
         run: |
           WASM_BINDGEN_VERSION="$(
-            cargo tree --target wasm32-unknown-unknown --no-default-features --features serde,base64,wincode_0_6 \
+            cargo tree --target wasm32-unknown-unknown --no-default-features --features std,serde,base64,wincode_0_6 \
               | sed -n 's/.*wasm-bindgen v\([0-9.]*\).*/\1/p' \
               | head -n 1
           )"
@@ -152,6 +152,8 @@ jobs:
             flags: --no-default-features
           - name: alloc-only
             flags: --no-default-features --features alloc
+          - name: serde-no-alloc
+            flags: --no-default-features --features serde
           - name: alloc-optional-features
             flags: --no-default-features --features serde,base64,wincode_0_6
           - name: std-only
@@ -237,6 +239,11 @@ jobs:
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets --all-features -- -D warnings
+      # `nightly` does not imply `std`: the portable SIMD backends in `no_std`.
+      - run: mbx nextest run --all-targets --no-default-features --features simd_backend,nightly
+        env:
+          RUST_BACKTRACE: 1
+      - run: mbx clippy --all-targets --no-default-features --features simd_backend,nightly -- -D warnings
 
   docs:
     name: documentation
@@ -254,7 +261,7 @@ jobs:
       - run: mbx test --doc --all-features
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: mbx doc --no-default-features --no-deps
+      - run: mbx doc --features nightly,serde,base64,wincode_0_6 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - run: mbx doc --all-features --no-deps
@@ -358,7 +365,7 @@ jobs:
         run: >-
           cargo +nightly miri nextest run
           --target x86_64-unknown-linux-gnu
-          --no-default-features --features serde,base64,wincode_0_6
+          --no-default-features --features std,serde,base64,wincode_0_6
           --profile ${{ matrix.profile }}
           --test-threads 4
 

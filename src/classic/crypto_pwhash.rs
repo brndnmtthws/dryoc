@@ -237,7 +237,7 @@ pub(crate) fn validate_pwhash_parameters(
     Ok(())
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub(crate) fn pwhash_to_string(
     algorithm: PasswordHashAlgorithm,
@@ -258,7 +258,7 @@ pub(crate) fn pwhash_to_string(
     )
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 pub(crate) fn pwhash_string_len(
     algorithm: PasswordHashAlgorithm,
     t_cost: u32,
@@ -281,7 +281,7 @@ pub(crate) fn pwhash_string_len(
         .checked_add(hash_len)
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 const fn pwhash_algorithm_name(algorithm: PasswordHashAlgorithm) -> &'static str {
     match algorithm {
         PasswordHashAlgorithm::Argon2i13 => "argon2i",
@@ -289,7 +289,7 @@ const fn pwhash_algorithm_name(algorithm: PasswordHashAlgorithm) -> &'static str
     }
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 const fn decimal_len(value: u32) -> usize {
     if value == 0 {
         1
@@ -298,7 +298,7 @@ const fn decimal_len(value: u32) -> usize {
     }
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 const fn base64_no_pad_encoded_len(input_len: usize) -> Option<usize> {
     let remainder_len = match input_len % 3 {
         0 => 0,
@@ -311,7 +311,7 @@ const fn base64_no_pad_encoded_len(input_len: usize) -> Option<usize> {
     }
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 fn base64_no_pad_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -435,7 +435,7 @@ pub(crate) fn convert_costs_checked(opslimit: u64, memlimit: usize) -> Result<(u
 /// # Panics
 ///
 /// Panics if the operating system's random number generator fails.
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Result<String, Error> {
     crypto_pwhash_str_alg(
@@ -459,7 +459,7 @@ pub fn crypto_pwhash_str(password: &[u8], opslimit: u64, memlimit: usize) -> Res
 /// # Panics
 ///
 /// Panics if the operating system's random number generator fails.
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str_alg(
     password: &[u8],
@@ -647,7 +647,7 @@ fn parse_minimal_pwhash_decimal(value: &str, context: crate::ErrorContext) -> Re
 ///
 /// Returns an error if `hashed_password` is malformed, uses unsupported
 /// parameters, or does not match `password`.
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str_verify(hashed_password: &str, password: &[u8]) -> Result<(), Error> {
     let pwhash = Pwhash::parse_encoded_pwhash(hashed_password)?;
@@ -716,7 +716,7 @@ pub(crate) fn verify_pwhash_parts(
 ///
 /// Returns an error if `hashed_password` is malformed or uses unsupported
 /// parameters.
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 pub fn crypto_pwhash_str_needs_rehash(
     hashed_password: &str,

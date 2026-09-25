@@ -102,7 +102,7 @@
 //!
 //! * See the [libsodium documentation](https://doc.libsodium.org/password_hashing)
 //!   for more about password hashing
-//! * See the `protected` module for examples that keep passwords and keys in
+//! * See the [`protected`] module for examples that keep passwords and keys in
 //!   protected memory
 
 #[cfg(any(feature = "base64", all(doc, not(doctest))))]
@@ -454,7 +454,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Ha
     }
 }
 
-#[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+#[cfg(any(feature = "base64", all(doc, not(doctest))))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
 impl<Hash: Bytes + From<Vec<u8>> + Zeroize, Salt: Bytes + From<Vec<u8>> + Zeroize>
     PwHash<Hash, Salt>
@@ -548,7 +548,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     ///     .verify(b"invalid password")
     ///     .expect_err("verification should have failed");
     /// ```
-    #[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
     pub fn to_encoded_string(&self) -> Result<String, Error> {
         let (t_cost, m_cost) =
@@ -684,7 +684,7 @@ impl PwHash<Hash, Salt> {
         Self::hash_interactive(password)
     }
 
-    #[cfg(any(feature = "base64", all(doc, not(doctest), feature = "alloc")))]
+    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
     #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
     /// Parses the `hashed_password` string, returning a new hash instance upon
     /// success. Wraps [`PwHash::from_string`], provided for convenience.

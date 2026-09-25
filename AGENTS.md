@@ -48,8 +48,10 @@ than convenience refactors.
     by default, and does not add a dependency beyond target OS bindings already
     used by the crate.
   - `nightly`: extra doc cfg support, portable SIMD for `simd_backend`, and
-    the `Allocator` implementation for protected memory. Requires
-    `nightly-2026-09-24` or later (the allocator API is ungated there).
+    the `Allocator` implementation for protected memory (with `protected`);
+    it does not imply `protected` or `std`, so `simd_backend,nightly` works
+    in `no_std`. Requires `nightly-2026-09-24` or later (the allocator API is
+    ungated there).
   - `simd_backend`: SIMD-backed internals; in CI this is used with `nightly`.
 - Do not commit a `Cargo.lock` for routine library changes unless the project
   policy changes.

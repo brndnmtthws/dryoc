@@ -22,7 +22,7 @@
 //! If the `wincode_0_6` feature is enabled,
 //! [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html) and
 //! [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html) are
-//! implemented for `VecBox` and `VecEnvelope`.
+//! implemented for [`VecBox`] and [`VecEnvelope`].
 //!
 //! ## Rustaceous API example
 //!

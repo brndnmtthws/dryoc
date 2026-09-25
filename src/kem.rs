@@ -36,7 +36,7 @@
 //!
 //! Every function is generic over its key, ciphertext and secret types, so
 //! secret keys and shared secrets can live in locked memory; see
-//! `protected` (with the `protected` feature).
+//! [`protected`] (with the `protected` feature).
 
 /// Generates one algorithm's typed API from its Classic functions.
 macro_rules! kem_api {

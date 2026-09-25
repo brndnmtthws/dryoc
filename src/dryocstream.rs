@@ -16,7 +16,7 @@
 //!
 //! The shared key can be generated directly or derived with
 //! [`Kdf`](crate::kdf), [`Session`](crate::kx), or a password-hashing function
-//! such as `classic::crypto_pwhash`.
+//! such as [`crypto_pwhash`](crate::classic::crypto_pwhash).
 //!
 //! [`DryocStream::init_push`] generates a public header for each stream. Send
 //! the header to the receiving side before the ciphertexts. Never reuse the
@@ -71,7 +71,7 @@
 //! * For public-key encryption, see [`DryocBox`](crate::dryocbox)
 //! * For individual messages encrypted with a shared key, see
 //!   [`DryocSecretBox`](crate::dryocsecretbox)
-//! * See the `protected` module for an example that stores keys in protected
+//! * See the [`protected`] module for an example that stores keys in protected
 //!   memory
 
 #[cfg(feature = "alloc")]
