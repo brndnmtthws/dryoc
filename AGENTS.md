@@ -21,8 +21,10 @@ than convenience refactors.
 - Rust 2024 reserves `gen` as a keyword. Random generation APIs are named
   `generate` (for example, `Key::generate()`); the legacy `gen`/`r#gen`
   aliases were removed.
-- The crate is `#![no_std]`. Default features are `base64`, `protected`, and
-  `std`.
+- The crate is `#![no_std]`. Default features are `base64`, `protected`,
+  `serde`, and `std`: defaults cover what most users want, and opt-in
+  features are limited to pre-1.0 dependencies (`wincode_*`), nightly-only
+  code, and `no_std` builds.
 - Core features:
   - `std`: implies `alloc`; runtime CPU feature detection and `Error::Io`.
     Without it, `has_x86_feature!`/`has_aarch64_feature!` (in `src/lib.rs`)
@@ -37,7 +39,7 @@ than convenience refactors.
   - Unit tests may use `std`; import the `Vec`/`String` prelude items with
     `use crate::test_prelude::*;` and gate tests that call `alloc` APIs.
 - Optional features:
-  - `serde`: serialization support for supported types.
+  - `serde`: serialization support for supported types; enabled by default.
   - `base64`: password-hash string helpers; implies `alloc`, enabled by
     default, and does not add a dependency.
   - `wincode_0_6`: direct binary serialization support for Rustaceous box
@@ -70,10 +72,10 @@ RUSTFLAGS='--cfg getrandom_backend="custom"' \
 cargo test
 cargo test --no-default-features
 cargo test --no-default-features --features std
-cargo test --features serde
+cargo test --no-default-features --features std,serde
 cargo test --features base64
 cargo test --features wincode_0_6
-cargo +nightly test --features serde,nightly
+cargo +nightly test --features nightly
 cargo +nightly test --features simd_backend,nightly
 cargo clippy --features default -- -D warnings
 cargo +nightly fmt --all -- --check
@@ -85,7 +87,7 @@ CI uses `cargo nextest` when available:
 cargo nextest run --features default
 cargo nextest run --no-default-features
 cargo nextest run --no-default-features --features alloc
-cargo nextest run --features serde
+cargo nextest run --no-default-features --features std,serde
 cargo nextest run --features base64
 cargo nextest run --features wincode_0_6
 cargo +nightly nextest run --features simd_backend,nightly

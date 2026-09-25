@@ -37,8 +37,9 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 * Protected memory on Unix and Windows, enabled by default with the
   `protected` feature
 * Password-hash string helpers, enabled by default with the `base64` feature
-* Optional [Serde](https://serde.rs/) and
-  [wincode](https://crates.io/crates/wincode) serialization
+* [Serde](https://serde.rs/) serialization, enabled by default with the
+  `serde` feature, and optional [wincode](https://crates.io/crates/wincode)
+  serialization
 * Optimized AArch64 and x86-64 implementations; those that need optional CPU
   extensions are selected at runtime (at compile time without `std`), and CPUs
   without them use portable code
@@ -127,7 +128,7 @@ cases, since they measured faster.
 | `alloc` | With `std` | APIs that allocate: the `Vec<u8>` byte-trait implementations, the `VecBox`, `VecEnvelope`, `VecSignedMessage` and `VecPwHash` aliases, the `*_to_vec` and `*_to_vecbox` helpers, `randombytes_buf`, and password hashing (`pwhash` and `crypto_pwhash`) |
 | `protected` | Yes | Protected memory on Unix and Windows; implies `std` |
 | `base64` | Yes | Password-hash string helpers; implies `alloc` |
-| `serde` | No | Serde support; the `Vec`-based types also need `alloc` |
+| `serde` | Yes | Serde support; the `Vec`-based types also need `alloc` |
 | `wincode_0_6` | No | wincode 0.6 support for the `Vec`-based boxes; implies `alloc` |
 | `simd_backend` | No | Portable SIMD implementations; requires `nightly` |
 | `nightly` | No | Nightly-only APIs (see [Rust version](#rust-version)); the `Allocator` implementation also needs `protected` |
@@ -157,9 +158,9 @@ Upgrading from dryoc 1.x: `default-features = false` used to keep every API
 except protected memory and the password-hash strings. Add
 `features = ["std"]` (or `["alloc"]` on targets without `std`) to keep them.
 
-## Optional serialization
+## Serialization
 
-Enable `serde` to derive [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
+The default `serde` feature derives [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
 and [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
 for supported data structures.
 
