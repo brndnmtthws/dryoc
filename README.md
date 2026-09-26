@@ -4,59 +4,48 @@
 
 # dryoc: Don't Roll Your Own Crypto™<sup>[^1]</sup>
 
-dryoc is a general-purpose cryptography library written in pure Rust. It
-implements many of the same algorithms and wire formats as
-[libsodium](https://doc.libsodium.org/), so supported operations can
-interoperate with libsodium.
+dryoc is a pure-Rust cryptography library compatible with
+[libsodium](https://doc.libsodium.org/) where it matters: same algorithms,
+same wire formats, so supported operations interoperate.
 
 ![Granny says no](dryoc.png)
 
-The _Classic_ API closely follows libsodium's functions and types, which makes
-it useful when porting existing code. The _Rustaceous_ API provides typed Rust
-interfaces that make key, nonce, and output sizes explicit: fixed-size inputs
-such as keys, nonces, and public keys only accept fixed-size types, so convert
-runtime-length bytes with `try_into()`, which rejects the wrong length. Both
-APIs use the same implementations and can be used together.
+Two APIs, one implementation. _Classic_ mirrors libsodium's functions and
+types for porting existing code. _Rustaceous_ is typed Rust: keys, nonces,
+and outputs have fixed-size types, so convert runtime bytes with `try_into()`
+and the wrong length fails. Use them together.
 
-dryoc does not implement every libsodium feature. See [Project status](#project-status)
-for current coverage.
-
-See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
-[integration tests](tests/integration_tests.rs) for examples.
+Not every libsodium feature is covered; see [Project status](#project-status).
+Examples: [API docs](https://docs.rs/dryoc/latest/dryoc/),
+[integration tests](tests/integration_tests.rs).
 
 ## Features
 
-* Pure Rust, with no hidden C libraries
-* Limited use of unsafe code[^2]
+* Pure Rust, no bundled C
+* Little unsafe code[^2]
 * Classic and typed Rustaceous APIs for many libsodium operations
-* Post-quantum key encapsulation with ML-KEM-768 and the X-Wing hybrid of
-  ML-KEM-768 and X25519, and post-quantum sealed boxes built on X-Wing
-* WebAssembly support through the `wasm32-unknown-unknown` target, with
-  optional `simd128` implementations selected at compile time
-* `no_std` support, with or without `alloc`; see [Cargo features](#cargo-features)
-* Protected memory on Unix and Windows, enabled by default with the
-  `protected` feature
-* Password-hash string helpers, enabled by default with the `base64` feature
-* [Serde](https://serde.rs/) serialization, enabled by default with the
-  `serde` feature, and optional [wincode](https://crates.io/crates/wincode)
-  serialization
-* Optimized AArch64 and x86-64 implementations; those that need optional CPU
-  extensions are selected at runtime (at compile time without `std`), and CPUs
-  without them use portable code
-* Optional [portable SIMD](https://doc.rust-lang.org/std/simd/index.html)
-  implementations on nightly Rust with `features = ["simd_backend", "nightly"]`
-* Curve25519 and Ed25519 group arithmetic implemented in dryoc;
+* ML-KEM-768, the X-Wing hybrid (ML-KEM-768 + X25519), and sealed boxes on X-Wing
+* WebAssembly via `wasm32-unknown-unknown`, with opt-in `simd128` builds
+* `no_std`, with or without `alloc`; see [Cargo features](#cargo-features)
+* Protected memory on Unix and Windows (`protected`, on by default)
+* Password-hash string helpers (`base64`, on by default)
+* [Serde](https://serde.rs/) support (`serde`, on by default), plus optional
+  [wincode](https://crates.io/crates/wincode) support
+* Built-in AArch64 and x86-64 kernels; ones needing extra CPU extensions are
+  picked at runtime (from compile-time target features without `std`), the rest
+  run portable code
+* Opt-in [portable SIMD](https://doc.rust-lang.org/std/simd/index.html) on nightly
+  Rust with `features = ["simd_backend", "nightly"]`
+* Curve25519 and Ed25519 group arithmetic in dryoc;
   [curve25519-dalek](https://github.com/dalek-cryptography/curve25519-dalek)
-  provides scalar arithmetic modulo the group order
+  for scalar arithmetic modulo the group order
 * Portable SHA-256 and SHA-512 compression and the Keccak permutation from the
   [RustCrypto](https://github.com/RustCrypto) project
 
 ## Performance
 
-On the optimized workloads shown below, dryoc is faster than libsodium 1.0.22 on both
-x86-64 and AArch64.
-Each result compares the two libraries in the same process, using the same
-buffers, one thread, and `-Ctarget-cpu=native`:
+Same process, same buffers, one thread, `-Ctarget-cpu=native` — dryoc vs
+libsodium 1.0.22:
 
 | Workload | Intel Xeon 6975P-C (AVX-512) | Arm Neoverse V3 (NEON/SVE2) |
 | --- | ---: | ---: |
@@ -68,135 +57,108 @@ buffers, one thread, and `-Ctarget-cpu=native`:
 
 ![dryoc speedup over libsodium by workload](benchmarks/speedup.svg)
 
-These results do not require `-Ctarget-cpu=native`: the optimized
-implementations that need CPU extensions are selected automatically at
-runtime, and the AArch64 Poly1305 and BLAKE2b code uses only baseline
-instructions. Omitting the flag changes the results above by no more than 6%
-on the Xeon and 2.4% on the Neoverse V3. Argon2id results vary more with the
-machine, the build flags and the libsodium release.
+No special flags needed: extensions are detected at runtime, and the AArch64
+Poly1305 and BLAKE2b code is baseline instructions. Dropping the flag moves
+these numbers by at most 6% on the Xeon, 2.4% on the Neoverse V3. Argon2id
+varies more by machine, flags, and libsodium release.
 
-Against libsodium 1.0.22, ML-KEM-768 key generation, encapsulation and
-decapsulation are `1.61x`, `1.93x` and `2.15x` faster on the Xeon and `2.99x`,
-`3.40x` and `3.80x` faster on the Neoverse V3, and X-Wing is `1.49x`–`1.71x`
-faster on the Xeon and `1.95x`–`2.32x` faster on the Neoverse V3. See
-[BENCHMARKS.md](BENCHMARKS.md) for the full results, test environment, builds
-without CPU-specific flags, and workloads where libsodium is as fast or faster.
+ML-KEM-768 key generation, encapsulation, decapsulation: `1.61x`/`1.93x`/`2.15x`
+on the Xeon, `2.99x`/`3.40x`/`3.80x` on the Neoverse V3; X-Wing:
+`1.49x`–`1.71x` and `1.95x`–`2.32x`. Full results, setup, no-flag builds, and
+rows where libsodium holds its own: [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Rust version
 
-dryoc uses the Rust 2024 edition and requires Rust 1.89 or newer, as declared
-by `rust-version` in `Cargo.toml`.
+Requires Rust 1.89 or newer (Rust 2024 edition, per `rust-version` in `Cargo.toml`).
 
-The optional portable SIMD implementations require nightly Rust and
-`--features simd_backend,nightly`. The `simd_backend` feature selects those
-implementations, while `nightly` enables Rust's unstable `portable_simd` API.
+Portable SIMD needs nightly Rust with `--features simd_backend,nightly`:
+`simd_backend` picks those implementations, `nightly` enables `portable_simd`.
 
-With `protected`, the `nightly` feature also implements the standard
-`Allocator` trait for the protected-memory `PageAlignedAllocator`. It requires
-`nightly-2026-09-24` or later (rustc 1.100.0-nightly from 2026-09-23), where that API no longer
-needs a feature gate; older nightlies fail to compile with `--features nightly`.
+With `protected`, `nightly` also implements `Allocator` for
+`PageAlignedAllocator`. That needs `nightly-2026-09-24` or later (API ungated
+there); older nightlies don't compile with `--features nightly`.
 
-Optimized AArch64 and x86-64 implementations are built in and do not require
-the `simd_backend` feature. Implementations that need optional CPU extensions,
-such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,
-are selected at runtime when the CPU supports them, or from the compile-time
-target features without `std` (see [Cargo features](#cargo-features)). The
-AArch64 `asm!` implementations of the Poly1305 block loops, the BLAKE2b
-rounds, the scalar ChaCha20 rounds, and Curve25519 field multiplication use
-only baseline instructions and are used on that architecture outside Miri.
-Curve25519 and Ed25519 group operations are
-also unaffected by the `simd_backend` feature.
+The built-in AArch64 and x86-64 kernels don't need `simd_backend`. Ones needing
+extra extensions (NEON, SVE2, SHA-2/SHA-3, AVX2, AVX-512, BMI2) are picked at
+runtime with `std`, or from compile-time target features without it (see
+[Cargo features](#cargo-features)). The AArch64 `asm!` Poly1305 loops, BLAKE2b
+rounds, scalar ChaCha20 rounds, and Curve25519 field code are baseline
+instructions, used outside Miri. Curve25519/Ed25519 group ops also ignore
+`simd_backend`.
 
 ### WebAssembly SIMD
 
-WebAssembly has no runtime feature detection, so dryoc's WebAssembly SIMD
-implementations of ChaCha20, XSalsa20, Poly1305, the ML-KEM polynomial
-arithmetic and the 2-way Keccak permutation behind ML-KEM sampling are
-compiled in only when the `simd128` target feature is enabled:
+WebAssembly can't detect features at runtime, so the ChaCha20, XSalsa20,
+Poly1305, ML-KEM, and 2-way Keccak SIMD builds only compile in with the
+`simd128` target feature:
 
 ```sh
 RUSTFLAGS=-Ctarget-feature=+simd128 cargo build --target wasm32-unknown-unknown
 ```
 
-The resulting module requires an engine with WebAssembly SIMD support.
-Without the target feature, WebAssembly builds use the portable
-implementations. BLAKE2b and Argon2 use the portable implementations in both
-cases, since they measured faster.
+That module needs a SIMD-capable engine. Without the flag, wasm builds use the
+portable code. BLAKE2b and Argon2 stay portable in both — measured faster.
 
 ## Cargo features
 
 | Feature | Default | Enables |
 | --- | --- | --- |
-| `std` | Yes | `alloc`, runtime CPU feature detection, and the `Error::Io` variant |
-| `alloc` | With `std` | APIs that allocate: the `Vec<u8>` byte-trait implementations, the `VecBox`, `VecEnvelope`, `VecSignedMessage` and `VecPwHash` aliases, the `*_to_vec` and `*_to_vecbox` helpers, `randombytes_buf`, and password hashing (`pwhash` and `crypto_pwhash`) |
-| `protected` | Yes | Protected memory on Unix and Windows; implies `std` |
-| `base64` | Yes | Password-hash string helpers; implies `alloc` |
-| `serde` | Yes | Serde support; the `Vec`-based types also need `alloc` |
-| `wincode_0_6` | No | wincode 0.6 support for the `Vec`-based boxes; implies `alloc` |
-| `simd_backend` | No | Portable SIMD implementations; requires `nightly` |
-| `nightly` | No | Nightly-only APIs (see [Rust version](#rust-version)); the `Allocator` implementation also needs `protected` |
+| `std` | Yes | `alloc`, runtime CPU detection, `Error::Io` |
+| `alloc` | With `std` | Allocating APIs: `Vec<u8>` byte-trait impls, `VecBox`/`VecEnvelope`/`VecSignedMessage`/`VecPwHash`, `*_to_vec`/`*_to_vecbox`, `randombytes_buf`, `pwhash`/`crypto_pwhash` |
+| `protected` | Yes | Protected memory on Unix/Windows; implies `std` |
+| `base64` | Yes | Password-hash strings; implies `alloc` |
+| `serde` | Yes | Serde support; `Vec` types also need `alloc` |
+| `wincode_0_6` | No | wincode 0.6 for the `Vec` boxes; implies `alloc` |
+| `simd_backend` | No | Portable SIMD; requires `nightly` |
+| `nightly` | No | Nightly-only APIs (see [Rust version](#rust-version)); `Allocator` also needs `protected` |
 
-dryoc is `#![no_std]`. With no features at all, everything that works on
-fixed-size arrays and caller-provided slices is available: the Classic API
-except `crypto_pwhash`, the stack-allocated Rustaceous types, and the
-primitives. Enable `alloc` on targets with a global allocator for the
-`Vec`-based APIs:
+dryoc is `#![no_std]`. With no features, everything over fixed arrays and
+caller slices works: the Classic API except `crypto_pwhash`, the
+stack-allocated Rustaceous types, and the primitives. For the `Vec` APIs on a
+target with an allocator:
 
 ```toml
 dryoc = { version = "2", default-features = false, features = ["alloc"] }
 ```
 
-Without `std`, implementations that need optional CPU extensions are chosen
-from the target features enabled at compile time, for example with
-`-C target-feature=+avx2` or `-C target-cpu=native`, in the same priority order
-as runtime detection; the portable implementations are used otherwise.
+Without `std`, extra-extension kernels follow the compile-time target features
+(e.g. `-C target-feature=+avx2`), same priority as runtime detection;
+otherwise portable code.
 
-Random generation uses [getrandom](https://docs.rs/getrandom), which does not
-need `std`. Bare-metal targets such as `thumbv7em-none-eabihf` and
-`aarch64-unknown-none` have no system entropy source: build them with
-`RUSTFLAGS='--cfg getrandom_backend="custom"'` and provide a
-[custom backend](https://docs.rs/getrandom/latest/getrandom/#custom-backend).
+Randomness comes from [getrandom](https://docs.rs/getrandom), no `std` needed.
+Bare-metal targets (`thumbv7em-none-eabihf`, `aarch64-unknown-none`) have no
+entropy source: build with `RUSTFLAGS='--cfg getrandom_backend="custom"'` and
+supply a [custom backend](https://docs.rs/getrandom/latest/getrandom/#custom-backend).
 
-Upgrading from dryoc 1.x: `default-features = false` used to keep every API
-except protected memory and the password-hash strings. Add
-`features = ["std"]` (or `["alloc"]` on targets without `std`) to keep them.
+Upgrading from 1.x: `default-features = false` used to keep everything but
+protected memory and hash strings. Add `features = ["std"]` (or `["alloc"]`
+without `std`) to keep it.
 
 ## Serialization
 
-The default `serde` feature derives [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html)
-and [`serde::Deserialize`](https://docs.rs/serde/latest/serde/trait.Deserialize.html)
-for supported data structures.
-
-Enable `wincode_0_6` to implement [`wincode::SchemaWrite`](https://docs.rs/wincode/0.6/wincode/trait.SchemaWrite.html)
-and [`wincode::SchemaRead`](https://docs.rs/wincode/0.6/wincode/trait.SchemaRead.html)
-from wincode 0.6 for the `VecBox` aliases in `dryocbox` and `dryocsecretbox`,
-and for the `VecBox` and `VecEnvelope` aliases in `dryocaead`.
-
-wincode is pre-1.0 and its traits are part of dryoc's public API, so the
-feature name carries the wincode version. Support for a future wincode release
-will be added as a new feature (for example, `wincode_0_7`) alongside the
-existing ones, so upgrading wincode does not require a new dryoc major version.
+Default `serde` derives `Serialize`/`Deserialize` for supported types.
+`wincode_0_6` implements wincode 0.6 `SchemaWrite`/`SchemaRead` for the
+`VecBox` aliases in `dryocbox`/`dryocsecretbox` and the `VecBox`/`VecEnvelope`
+aliases in `dryocaead`. wincode is pre-1.0 and its traits are public API, so
+the feature carries its version — future releases add new features (e.g.
+`wincode_0_7`), never a breaking rename.
 
 ## Python
 
-Python bindings are published on PyPI as
-[`dryoc`](https://pypi.org/project/dryoc/) (`uv add dryoc`, or
-`pip install dryoc`), with a Pythonic, typed API for CPython 3.11 and newer,
-including free-threaded builds. See [python/README.md](python/README.md) for
-usage and supported platforms.
+Bindings on PyPI as [`dryoc`](https://pypi.org/project/dryoc/)
+(`uv add dryoc` / `pip install dryoc`): Pythonic typed API, CPython 3.11+,
+free-threaded builds included. See [python/README.md](python/README.md).
 
 ## Security
 
-dryoc has not undergone a third-party security audit. Its compatibility tests,
-Rust types, and limited use of unsafe code reduce some classes of defects, but
-do not guarantee that an application is secure. Applications must still follow
-the documented key and nonce rules, protect secret material, handle errors, and
-choose primitives appropriate for their protocol.
+No third-party audit. Compatibility tests, Rust types, and little unsafe code
+reduce some defect classes but don't guarantee a secure application: still
+follow the key/nonce rules, protect secrets, check errors, and pick primitives
+that fit the protocol.
 
 ## Project status
 
-The following features are implemented. Entries that mirror libsodium have
-been checked against [libsodium 1.0.22](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE):
+Implemented below, libsodium mirrors checked against [1.0.22](https://github.com/jedisct1/libsodium/releases/tag/1.0.22-RELEASE):
 
 * [x] [Public-key authenticated encryption](https://docs.rs/dryoc/latest/dryoc/dryocbox/index.html) (`crypto_box_*`) [libsodium link](https://doc.libsodium.org/public-key_cryptography/authenticated_encryption)
 * [x] [Secret-key authenticated encryption](https://docs.rs/dryoc/latest/dryoc/dryocsecretbox/index.html) (`crypto_secretbox_*`) [libsodium link](https://doc.libsodium.org/secret-key_cryptography/secretbox)
