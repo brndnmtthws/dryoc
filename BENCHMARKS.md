@@ -5,30 +5,28 @@ measured against libsodium on the same machine, in the same process, on the
 same buffers. Results were collected on two machines, an Intel Xeon 6975P-C
 (Granite Rapids) with AVX-512 and AVX-512 IFMA and an Arm Neoverse V3 with
 NEON, SVE2 and the SHA-2/SHA-3 extensions; see [Environment](#environment) for
-the full setup. The two machines were measured at different revisions and
-against different libsodium releases: the Xeon rows at `45a3975` (#152)
-against libsodium 1.0.18, the Neoverse V3 rows at #194 against libsodium
-1.0.22. Results show relative performance for the same API surface on those
-CPUs; they are not portable guarantees.
+the full setup. Both machines were measured against libsodium 1.0.22: the
+Xeon rows at `f33b8f8` (#194), the Neoverse V3 rows at #194. Results show
+relative performance for the same API surface on those CPUs; they are not
+portable guarantees.
 
 ## Headline
 
-On the Xeon 6975P-C (measured at `45a3975`, before the AArch64 work in #194),
-dryoc's runtime-detected AVX2/AVX-512 kernels beat libsodium 1.0.18 on every
-workload with `-Ctarget-cpu=native`, and on all but the memory-bound Argon2id
-1 MiB row with no build flags at all:
+On the Xeon 6975P-C (measured at `f33b8f8`), dryoc's runtime-detected
+AVX2/AVX-512 kernels beat libsodium 1.0.22 on every workload with
+`-Ctarget-cpu=native`, and on all but the memory-bound Argon2id 1 MiB row
+with no build flags at all:
 
 | Workload | dryoc | libsodium | dryoc vs libsodium |
 | --- | ---: | ---: | ---: |
-| Poly1305, 1 MiB | `18,624 MB/s` | `3,181 MB/s` | `5.85x faster` |
-| Poly1305, 16 KiB | `17,411 MB/s` | `3,111 MB/s` | `5.59x faster` |
-| XSalsa20-Poly1305 secretbox, 1 MiB | `4,502 MB/s` | `1,465 MB/s` | `3.07x faster` |
-| XSalsa20-Poly1305 secretbox, 1 KiB | `2,432 MB/s` | `768 MB/s` | `3.16x faster` |
-| Argon2id, `t=2 m=64 KiB` | `4,281 MB/s` | `3,644 MB/s` | `1.17x faster` |
-| Argon2id, `t=2 m=1 MiB` | `6,442 MB/s` | `5,855 MB/s` | `1.10x faster` |
-| BLAKE2b, 694,200 B (portable SIMD) | `486,813 ns` | `627,232 ns` | `1.29x faster` |
-| BLAKE2b, 694,200 B (default) | `527,130 ns` | `629,177 ns` | `1.19x faster` |
-
+| Poly1305, 1 MiB | `19,087 MB/s` | `4,451 MB/s` | `4.29x faster` |
+| Poly1305, 16 KiB | `17,842 MB/s` | `4,380 MB/s` | `4.07x faster` |
+| XSalsa20-Poly1305 secretbox, 1 MiB | `4,533 MB/s` | `1,676 MB/s` | `2.71x faster` |
+| XSalsa20-Poly1305 secretbox, 1 KiB | `2,678 MB/s` | `820 MB/s` | `3.27x faster` |
+| Argon2id, `t=2 m=64 KiB` | `4,446 MB/s` | `3,628 MB/s` | `1.23x faster` |
+| Argon2id, `t=2 m=1 MiB` | `6,396 MB/s` | `5,813 MB/s` | `1.10x faster` |
+| BLAKE2b, 694,200 B (portable SIMD) | `486,884 ns` | `611,619 ns` | `1.26x faster` |
+| BLAKE2b, 694,200 B (default) | `523,856 ns` | `611,391 ns` | `1.17x faster` |
 On the Neoverse V3 (rows below: `-Ctarget-cpu=native`, pinned to one core,
 median of three runs), dryoc is ahead of libsodium 1.0.22 on every
 default-backend row, including the 64-byte ones, and on each of those rows
@@ -76,16 +74,16 @@ These results were collected on:
 
 | Item | Intel Xeon 6975P-C | Arm Neoverse V3 |
 | --- | --- | --- |
-| Machine | Cloud VM, 32 vCPUs | Cloud VM, 192 vCPUs |
+| Machine | Cloud VM (c8i.8xlarge), 32 vCPUs, pinned to one core with `taskset -c 7` | Cloud VM, 192 vCPUs |
 | CPU | Intel Xeon 6975P-C (Granite Rapids; AVX2, AVX-512F/VL, AVX-512 IFMA) | Arm Neoverse V3 r0p1 (NEON, SVE/SVE2, `sha2`, `sha3`, `sha512`) |
 | Architecture | `x86_64-unknown-linux-gnu` | `aarch64-unknown-linux-gnu` |
-| OS | Debian 13, Linux `6.12.74+deb13+1-cloud-amd64` | Debian 13, Linux `6.12.107+deb13-cloud-arm64` |
-| Rust | `rustc 1.100.0-nightly (809936eac 2026-09-12)` | `rustc 1.100.0-nightly (6eeff9a52 2026-09-23)` |
-| Cargo | `cargo 1.100.0-nightly (7941be6fb 2026-09-11)` | `cargo 1.100.0-nightly (98a09e7e7 2026-09-21)` |
+| OS | Debian 13, Linux `6.12.107+deb13-cloud-amd64` | Debian 13, Linux `6.12.107+deb13-cloud-arm64` |
+| Rust | `rustc 1.100.0-nightly (5ceaf6608 2026-09-25)` | `rustc 1.100.0-nightly (6eeff9a52 2026-09-23)` |
+| Cargo | `cargo 1.100.0-nightly (3d7cf6e93 2026-09-25)` | `cargo 1.100.0-nightly (98a09e7e7 2026-09-21)` |
 | Target CPU | `native` unless stated otherwise | `native` unless stated otherwise |
-| dryoc revision | `45a3975` (#152) | #194 |
-| libsodium | `1.0.18`, statically linked from the `libsodium-sys 0.2.7` bundled source | `1.0.22`, statically linked from the `libsodium-sys-stable 1.24.0` bundled source, built with its default flags |
-| Sampling | one run per configuration | pinned to one core with `taskset -c 7`, median of three runs |
+| dryoc revision | `f33b8f8` (#194) | #194 |
+| libsodium | `1.0.22`, statically linked from the `libsodium-sys-stable 1.24.0` bundled source, built with its default flags | `1.0.22`, statically linked from the `libsodium-sys-stable 1.24.0` bundled source, built with its default flags |
+| Sampling | pinned to one core with `taskset -c 7`, median of three runs | pinned to one core with `taskset -c 7`, median of three runs |
 
 Commands used for the rows below:
 
@@ -100,13 +98,17 @@ cargo +nightly bench --features nightly
 cargo +nightly bench --features simd_backend,nightly
 ```
 
-On the Neoverse V3 the same commands were run under `taskset -c 7` three
+On both machines the same commands were run under `taskset -c 7` three
 times each, both with `-Ctarget-cpu=native` and with no `RUSTFLAGS`, on an
 otherwise idle core, and the median `ns/iter` is reported. Across the 146
-rows measured, the run-to-run spread (max minus min over the median) was
-below 1% on 139 rows and below 1.7% on all but four; the noisiest row was
-dryoc's secretbox 16 KiB in the no-flags build, 6,784–6,994 ns around a
-6,895 ns median (3.0%). Ratios in the tables that round to `1.00x`–`1.03x`
+rows measured on the Neoverse V3, the run-to-run spread (max minus min over
+the median) was below 1% on 139 rows and below 1.7% on all but four; the
+noisiest row was dryoc's secretbox 16 KiB in the no-flags build, 6,784–6,994
+ns around a 6,895 ns median (3.0%). On the Xeon rerun, every Poly1305,
+secretbox, BLAKE2b and KEM row was within 0.6% across the three runs; the
+noisiest fresh rows were Poly1305 1 MiB (54,932–56,920 ns native, 3.6%) and
+Argon2id 1 MiB (no-flags dryoc 366,556–375,843 ns, 2.5%; no-flags libsodium
+358,210–362,886 ns, 1.3%). Ratios in the tables that round to `1.00x`–`1.03x`
 are within that noise.
 
 The charts are rendered from
@@ -119,19 +121,19 @@ The charts are rendered from
 Each `*_bench` has a `libsodium_*_bench` twin in
 the same test module that runs the corresponding libsodium function on the
 same input sizes after `sodium_init()`, so libsodium uses its own
-runtime-selected implementation. The Neoverse V3 twins call libsodium
-through the `libsodium-sys-stable` bindings; the Xeon rows predate them and
-went through `sodiumoxide`. `RUSTFLAGS` does not affect the C library; its
-numbers were identical within noise across every build below.
+runtime-selected implementation. On both machines the twins call libsodium
+through the `libsodium-sys-stable` bindings. `RUSTFLAGS` does not affect the
+C library; its numbers were identical within noise across every build below.
 
 Kernels selected at runtime on each CPU:
 
-| Algorithm | dryoc kernel, Xeon 6975P-C | libsodium, Xeon | dryoc kernel, Neoverse V3 | libsodium, Neoverse V3 |
+| Algorithm | dryoc kernel, Xeon 6975P-C | libsodium 1.0.22, Xeon | dryoc kernel, Neoverse V3 | libsodium, Neoverse V3 |
 | --- | --- | --- | --- | --- |
 | Poly1305 | AVX-512 IFMA, 3x44-bit limbs, two chains for long runs (`poly1305_x86_64`) | `sse2` (Poly1305-donna) | `asm!` radix-2^64 block loops on the integer multipliers, four Horner lanes for runs of at least 384 bytes (`poly1305_aarch64`) | `donna` (64-bit, 3x44-bit limbs) |
 | Salsa20 (secretbox) | AVX-512F/VL 16-block lane set (`salsa20_x86_64`) | `xmm6int` AVX2 | SVE2 `xar` 4-block vector set plus scalar blocks in the same `asm!` block, with secretbox's Poly1305 in that block too (`salsa20_neon`) | `ref` (scalar) |
 | Argon2 block mixing | AVX-512F (`argon2_x86_64`) | `avx512f` | SVE2 `asm!`, three states in vectors beside five on the integer registers (`argon2_neon`) | `neon` |
 | BLAKE2b | AVX-512VL `vprorq` rotations on a 256-bit lane set (`blake2b_x86_64`), or portable SIMD with `simd_backend,nightly` | `avx2` | scalar `asm!` rounds (`blake2b_aarch64`), or portable SIMD with `simd_backend,nightly` | `ref` (scalar) |
+| ML-KEM-768 and X-Wing | AVX2 NTT/multiply-add (`mlkem_x86_64`), 4-way AVX2 Keccak | reference C + reference Keccak | NEON NTT/multiply-add, 3-way (`keccak3_aarch64`) or 2-way SHA3-extension Keccak, X25519 on the `fe64_aarch64` field | reference C + reference Keccak |
 
 libsodium 1.0.22 has AArch64 NEON code for one of these four algorithms,
 Argon2, which it compiles in whenever the target has NEON (every AArch64
@@ -141,7 +143,11 @@ artifact, not just the source: `nm` on the AArch64 bench binary lists
 `crypto_onetimeauth_poly1305_donna_implementation`,
 `crypto_stream_salsa20_ref_implementation`, `argon2_fill_segment_neon` and
 `blake2b_compress_ref` behind the `*_pick_best_implementation` selectors, and
-no other variant of these four algorithms. Its ML-KEM uses the reference
+no other variant of these four algorithms. On the Xeon the same check lists
+`crypto_onetimeauth_poly1305_{donna,sse2}_implementation`,
+`crypto_stream_salsa20_xmm6int_avx2_implementation` (beside its `ref` and
+`sse2` twins), `argon2_fill_segment_{ref,avx2,avx512f}` and
+`blake2b_compress_{ref,sse41,avx2}`. Its ML-KEM uses the reference
 Keccak (`sodium_keccak1600_ref_*`); the SHA3-extension Keccak in the 1.0.22
 source is not in the binary.
 
@@ -155,10 +161,10 @@ Benchmark: authenticate fixed-size messages with Poly1305 (`Poly1305::new`,
 
 | Message size | dryoc time | dryoc throughput | libsodium time | libsodium throughput | Relative |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 B | `35.24 ns/iter` | `1,828 MB/s` | `54.97 ns/iter` | `1,185 MB/s` | `1.56x faster` |
-| 1 KiB | `115.52 ns/iter` | `8,904 MB/s` | `356.93 ns/iter` | `2,876 MB/s` | `3.09x faster` |
-| 16 KiB | `941.39 ns/iter` | `17,411 MB/s` | `5,265.10 ns/iter` | `3,111 MB/s` | `5.59x faster` |
-| 1 MiB | `56,300.84 ns/iter` | `18,624 MB/s` | `329,632.25 ns/iter` | `3,181 MB/s` | `5.85x faster` |
+| 64 B | `31.28 ns/iter` | `2,046 MB/s` | `44.71 ns/iter` | `1,431 MB/s` | `1.43x faster` |
+| 1 KiB | `111.75 ns/iter` | `9,163 MB/s` | `267.76 ns/iter` | `3,824 MB/s` | `2.40x faster` |
+| 16 KiB | `918.26 ns/iter` | `17,842 MB/s` | `3,740.46 ns/iter` | `4,380 MB/s` | `4.07x faster` |
+| 1 MiB | `54,935.39 ns/iter` | `19,087 MB/s` | `235,565.14 ns/iter` | `4,451 MB/s` | `4.29x faster` |
 
 The scalar backend keeps the accumulator in three 44-bit limbs and hands runs
 of full blocks to a runtime-detected bulk path: AVX2 or AVX-512F lanes in
@@ -167,7 +173,10 @@ with `vpmadd52luq`/`vpmadd52huq`. Each bulk kernel processes a chunk of
 consecutive blocks as independent Horner lanes and folds them with one power
 of `r` per block, so the result is bit-identical to the serial evaluation.
 Every iteration executes the same instructions regardless of data. libsodium
-1.0.18 has no AVX2 or AVX-512 Poly1305 and tops out at its SSE2 donna path.
+1.0.22 has no AVX2 or AVX-512 Poly1305 (`nm` on the Xeon bench binary lists
+only `crypto_onetimeauth_poly1305_donna_implementation` and
+`crypto_onetimeauth_poly1305_sse2_implementation` behind the
+`*_pick_best_implementation` selector) and tops out at its SSE2 donna path.
 
 The 64-byte row has no bulk path on either side (the IFMA path needs at
 least 256 bytes); the gap there is the scalar `u128` 3-limb multiply against
@@ -201,8 +210,8 @@ key-power setup that cost more than the four-lane join.
 The portable-SIMD Poly1305 backend (`poly1305_simd`) is compiled only for
 tests on x86-64 and AArch64 because it is slower than the target-specific
 kernels. For reference, with `simd_backend,nightly` and `target-cpu=native`
-it measured `82.52 ns/iter` (64 B), `946.25 ns/iter` (1 KiB),
-`14,638.02 ns/iter` (16 KiB) and `936,144.30 ns/iter` (1 MiB), about
+it measured `78.36 ns/iter` (64 B), `915.20 ns/iter` (1 KiB),
+`14,612.27 ns/iter` (16 KiB) and `935,975.80 ns/iter` (1 MiB), about
 `1,120 MB/s`, on the Xeon, and `75.68`, `458.37`, `6,638.87` and
 `413,281.10 ns/iter`, about `2,537 MB/s`, on the Neoverse V3: ahead of
 libsodium's scalar code from 1 KiB up but 2.8x behind the `asm!` loops.
@@ -226,10 +235,10 @@ same buffers.
 
 | Message size | dryoc time | dryoc throughput | libsodium time | libsodium throughput | Relative |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 B | `279.44 ns/iter` | `229 MB/s` | `376.71 ns/iter` | `170 MB/s` | `1.35x faster` |
-| 1 KiB | `421.82 ns/iter` | `2,432 MB/s` | `1,332.88 ns/iter` | `768 MB/s` | `3.16x faster` |
-| 16 KiB | `3,776.17 ns/iter` | `4,338 MB/s` | `11,833.44 ns/iter` | `1,384 MB/s` | `3.13x faster` |
-| 1 MiB | `232,893.15 ns/iter` | `4,502 MB/s` | `715,590.00 ns/iter` | `1,465 MB/s` | `3.07x faster` |
+| 64 B | `256.60 ns/iter` | `249 MB/s` | `356.66 ns/iter` | `179 MB/s` | `1.39x faster` |
+| 1 KiB | `382.36 ns/iter` | `2,678 MB/s` | `1,249.26 ns/iter` | `820 MB/s` | `3.27x faster` |
+| 16 KiB | `3,754.75 ns/iter` | `4,364 MB/s` | `10,442.87 ns/iter` | `1,569 MB/s` | `2.78x faster` |
+| 1 MiB | `231,302.05 ns/iter` | `4,533 MB/s` | `625,743.70 ns/iter` | `1,676 MB/s` | `2.71x faster` |
 
 The XSalsa20 keystream comes from a runtime-detected lane-set kernel: eight
 blocks per `ymm` lane set under AVX2, sixteen per `zmm` lane set under
@@ -243,7 +252,7 @@ derivation and the first Salsa20 block on both sides.
 On x86-64 the `simd_backend` feature does not change this path (the
 portable-SIMD Salsa20 lane set is slower than the AVX2/AVX-512 kernels and is
 compiled only for tests); the `simd_backend,nightly` build measured
-`289.73`, `414.32`, `3,782.53` and `233,251.50 ns/iter`, identical within
+`256.68`, `383.78`, `3,782.47` and `232,404.25 ns/iter`, identical within
 noise.
 
 ### Arm Neoverse V3
@@ -284,17 +293,19 @@ second. The libsodium rows call its `argon2_hash` with the same parameters.
 
 | Memory cost | dryoc time | dryoc throughput | libsodium time | libsodium throughput | Relative |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 KiB | `30,617.08 ns/iter` | `4,281 MB/s` | `35,967.61 ns/iter` | `3,644 MB/s` | `1.17x faster` |
-| 1 MiB | `325,536.75 ns/iter` | `6,442 MB/s` | `358,176.60 ns/iter` | `5,855 MB/s` | `1.10x faster` |
+| 64 KiB | `29,483.97 ns/iter` | `4,446 MB/s` | `36,131.62 ns/iter` | `3,628 MB/s` | `1.23x faster` |
+| 1 MiB | `327,890.05 ns/iter` | `6,396 MB/s` | `360,764.35 ns/iter` | `5,813 MB/s` | `1.10x faster` |
 
-Both sides run an AVX-512F block compression here. dryoc's kernel holds two
-16-word states side by side in each 512-bit vector and rotates with `vprorq`;
-the surrounding memory indexing and lane scheduling are the shared portable
-code. The 1 MiB row is memory-bound and the noisiest in this suite: across
-three native runs dryoc measured 314–327 µs and libsodium 352–361 µs.
+Both sides run an AVX-512F block compression here (`nm` on the Xeon bench
+binary lists `argon2_fill_segment_avx512f` beside the `avx2` and `ref`
+variants). dryoc's kernel holds two 16-word states side by side in each
+512-bit vector and rotates with `vprorq`; the surrounding memory indexing
+and lane scheduling are the shared portable code. The 1 MiB row is
+memory-bound and the noisiest in this suite: across three native runs dryoc
+measured 327.9–328.3 µs and libsodium 360.5–362.2 µs.
 
-With `simd_backend,nightly` the Argon2id rows are unchanged on x86-64
-(`34,861.48` and `333,063.80 ns/iter`) because the runtime-detected AVX-512
+With `simd_backend,nightly` the Argon2id rows are nearly unchanged on x86-64
+(`33,843.92` and `330,041.90 ns/iter`) because the runtime-detected AVX-512
 kernel is preferred over the portable-SIMD block mixer.
 
 ### Arm Neoverse V3
@@ -351,10 +362,10 @@ Benchmark: hash a 694,200-byte buffer and produce a 64-byte output
 
 | Implementation | Feature set | Time | vs libsodium | vs default |
 | --- | --- | ---: | ---: | ---: |
-| libsodium `avx2` | – | `629,177.30 ns/iter` | `1.00x` | `1.19x slower` |
-| Default (AVX-512VL kernel) | `nightly` | `527,129.50 ns/iter` | `1.19x faster` | `1.00x` |
-| Portable SIMD | `simd_backend,nightly` | `486,813.25 ns/iter` | `1.29x faster` | `1.08x faster` |
-| Portable scalar (`compress_portable`) | `nightly`, before the kernel | `663,811.90 ns/iter` | `1.06x slower` | `1.26x slower` |
+| libsodium `avx2` | – | `611,391.20 ns/iter` | `1.00x` | `1.17x slower` |
+| Default (AVX-512VL kernel) | `nightly` | `523,855.90 ns/iter` | `1.17x faster` | `1.00x` |
+| Portable SIMD | `simd_backend,nightly` | `486,883.65 ns/iter` | `1.26x faster` | `1.08x faster` |
+| Portable scalar (`compress_portable`) | `nightly`, before the kernel | `663,811.90 ns/iter` | `1.08x slower` | `1.27x slower` |
 
 The default backend compresses each block through a runtime-detected x86-64
 kernel: the 16-word state as four `ymm` rows so the four `G` mixings of a
@@ -367,7 +378,7 @@ per rotation, is what opens the gap on this CPU. The portable scalar row is
 the same benchmark measured before the kernel was added, for reference.
 
 The portable-SIMD backend vectorizes the same four-lane layout with
-`Simd<u64, 4>` and, compiled with `-Ctarget-cpu=native`, is still 8% faster:
+`Simd<u64, 4>` and, compiled with `-Ctarget-cpu=native`, is still 7% faster:
 LLVM lowers its rotations to `vprolq` as well, and its compression is
 inlined into the `update` loop, whereas the runtime-dispatched kernel is a
 `#[target_feature]` function called once per 128-byte block. It remains
@@ -403,24 +414,53 @@ loses to the scalar rounds on this core has not been profiled. On AArch64,
 generation from a seed, deterministic encapsulation, and decapsulation of a
 valid ciphertext. These rows compare against libsodium 1.0.22 (statically
 linked from the `libsodium-sys-stable 1.24.0` bundled source, built with its
-default flags), since 1.0.18 has no KEM. They were measured the same way as
-the other Neoverse V3 rows: `-Ctarget-cpu=native`, `taskset -c 7`, median of
-three runs. They have not yet been measured on the Xeon.
+default flags), since 1.0.18 has no KEM. On the Neoverse V3 they were
+measured the same way as the other rows there; on the Xeon the same way as
+the other Xeon rows (`-Ctarget-cpu=native`, `taskset -c 7`, median of three
+runs).
 
-dryoc runs the NTT, the multiply-add, rejection sampling, decompression and
-message decoding with NEON, and the Keccak permutations three at a time with
-the SHA3 extension: two in NEON vectors beside one on the integer registers,
-with the H(ek) and J(z‖c) hashes filling slots that would otherwise be
-idle. libsodium 1.0.22's ML-KEM is its portable reference code with the
-reference Keccak.
+On the Xeon, dryoc runs the polynomial arithmetic with the runtime-detected
+AVX2 kernels (`mlkem_x86_64`: sixteen 16-bit lanes per `ymm` register, with
+the Keccak permutations four at a time through the AVX2 kernel in
+`keccak_x86_64.rs`), and X25519 on the portable five-limb field
+(`fe25519_soft`). libsodium 1.0.22's ML-KEM is its portable reference code
+with the reference Keccak (`sodium_keccak1600_ref_*` is what `nm` finds in
+the bench binary, alongside `crypto_kem_mlkem768_*` and `crypto_kem_xwing_*`;
+the SHA3-extension Keccak in the 1.0.22 source is not in the binary).
+
+On the Neoverse V3, dryoc runs the NTT, the multiply-add, rejection
+sampling, decompression and message decoding with NEON, and the Keccak
+permutations three at a time with the SHA3 extension: two in NEON vectors
+beside one on the integer registers, with the H(ek) and J(z‖c) hashes
+filling slots that would otherwise be idle.
 
 X-Wing adds X25519 scalar multiplications: one for key generation, two for
 encapsulation and two for decapsulation, which also regenerates the ML-KEM
-key pair from the seed. dryoc's run on a four-limb `asm!` field with a
-constant-time Bernstein–Yang inversion; in encapsulation and decapsulation
-the base-point multiplication and the exchange share one inversion, with the
-base-point additions interleaved into the exchange's ladder. X25519 is a
-larger share of X-Wing's time, so its speedup is smaller than ML-KEM's.
+key pair from the seed. On the Neoverse V3 dryoc's run on a four-limb `asm!`
+field with a constant-time Bernstein–Yang inversion; in encapsulation and
+decapsulation the base-point multiplication and the exchange share one
+inversion, with the base-point additions interleaved into the exchange's
+ladder. X25519 is a larger share of X-Wing's time, so its speedup is smaller
+than ML-KEM's.
+
+### Intel Xeon 6975P-C
+
+| Operation | dryoc | libsodium | dryoc vs libsodium |
+| --- | ---: | ---: | ---: |
+| ML-KEM-768 key generation | `16,273 ns` | `26,127 ns` | `1.61x faster` |
+| ML-KEM-768 encapsulation | `15,927 ns` | `30,715 ns` | `1.93x faster` |
+| ML-KEM-768 decapsulation | `16,994 ns` | `36,593 ns` | `2.15x faster` |
+| X-Wing key generation | `26,761 ns` | `39,761 ns` | `1.49x faster` |
+| X-Wing encapsulation | `51,600 ns` | `76,903 ns` | `1.49x faster` |
+| X-Wing decapsulation | `63,988 ns` | `109,610 ns` | `1.71x faster` |
+
+With `simd_backend,nightly` the same kernels measured faster on this
+CPU: ML-KEM key generation `9,088`, encapsulation `9,662` and decapsulation
+`10,733 ns` (37–44% faster), X-Wing `19,238`, `45,150` and `51,384 ns`
+(12–28% faster). There is no portable-SIMD ML-KEM or Keccak backend —
+`grep simd_backend` across `src/mlkem/`, `src/keccak/`, `src/sha3.rs` and
+`src/xof.rs` finds no gates — so both builds run the kernels above; why the
+timings differ has not been profiled.
 
 ### Arm Neoverse V3
 
@@ -443,32 +483,43 @@ The same `cargo +nightly bench --features nightly` run with no `RUSTFLAGS`,
 which is what a crates.io consumer gets by default. The runtime-detected
 kernels are compiled with per-function `target_feature` attributes, so they
 are used without any build flags on both machines; on the Xeon that covers
-Poly1305, secretbox and Argon2id, on the Neoverse V3 secretbox, Argon2id and
-the ML-KEM kernels.
+Poly1305, secretbox, Argon2id and the ML-KEM/X-Wing rows, on the Neoverse V3
+secretbox, Argon2id and the ML-KEM kernels.
 
 ### Intel Xeon 6975P-C
 
 | Workload | dryoc time | dryoc throughput | libsodium time | libsodium throughput | Relative |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Poly1305, 64 B | `36.37 ns/iter` | `1,777 MB/s` | `54.21 ns/iter` | `1,185 MB/s` | `1.49x faster` |
-| Poly1305, 1 KiB | `121.97 ns/iter` | `8,462 MB/s` | `356.40 ns/iter` | `2,876 MB/s` | `2.92x faster` |
-| Poly1305, 16 KiB | `971.96 ns/iter` | `16,873 MB/s` | `5,210.77 ns/iter` | `3,144 MB/s` | `5.36x faster` |
-| Poly1305, 1 MiB | `57,588.91 ns/iter` | `18,208 MB/s` | `329,848.10 ns/iter` | `3,178 MB/s` | `5.73x faster` |
-| Secretbox, 64 B | `286.11 ns/iter` | `223 MB/s` | `374.89 ns/iter` | `171 MB/s` | `1.31x faster` |
-| Secretbox, 1 KiB | `428.84 ns/iter` | `2,392 MB/s` | `1,339.45 ns/iter` | `764 MB/s` | `3.12x faster` |
-| Secretbox, 16 KiB | `3,805.65 ns/iter` | `4,305 MB/s` | `11,852.24 ns/iter` | `1,382 MB/s` | `3.11x faster` |
-| Secretbox, 1 MiB | `233,474.60 ns/iter` | `4,491 MB/s` | `714,460.90 ns/iter` | `1,467 MB/s` | `3.06x faster` |
-| Argon2id, 64 KiB | `32,217.03 ns/iter` | `4,068 MB/s` | `35,851.64 ns/iter` | `3,656 MB/s` | `1.11x faster` |
-| Argon2id, 1 MiB | `374,579.78 ns/iter` | `5,598 MB/s` | `353,796.70 ns/iter` | `5,927 MB/s` | `1.06x slower` |
-| BLAKE2b, 694,200 B (default) | `556,002.70 ns/iter` | – | `627,764.60 ns/iter` | – | `1.13x faster` |
-| BLAKE2b, 694,200 B (portable SIMD) | `754,820.30 ns/iter` | – | `627,434.20 ns/iter` | – | `1.20x slower` |
+| Poly1305, 64 B | `31.78 ns/iter` | `2,014 MB/s` | `44.70 ns/iter` | `1,432 MB/s` | `1.41x faster` |
+| Poly1305, 1 KiB | `116.81 ns/iter` | `8,766 MB/s` | `267.89 ns/iter` | `3,822 MB/s` | `2.29x faster` |
+| Poly1305, 16 KiB | `930.06 ns/iter` | `17,616 MB/s` | `3,740.71 ns/iter` | `4,380 MB/s` | `4.02x faster` |
+| Poly1305, 1 MiB | `56,200.27 ns/iter` | `18,658 MB/s` | `235,266.88 ns/iter` | `4,457 MB/s` | `4.19x faster` |
+| Secretbox, 64 B | `256.92 ns/iter` | `249 MB/s` | `357.57 ns/iter` | `179 MB/s` | `1.39x faster` |
+| Secretbox, 1 KiB | `392.11 ns/iter` | `2,612 MB/s` | `1,246.97 ns/iter` | `821 MB/s` | `3.18x faster` |
+| Secretbox, 16 KiB | `3,775.91 ns/iter` | `4,339 MB/s` | `10,429.47 ns/iter` | `1,571 MB/s` | `2.76x faster` |
+| Secretbox, 1 MiB | `231,843.10 ns/iter` | `4,523 MB/s` | `626,616.80 ns/iter` | `1,673 MB/s` | `2.70x faster` |
+| Argon2id, 64 KiB | `32,418.98 ns/iter` | `4,043 MB/s` | `36,021.00 ns/iter` | `3,639 MB/s` | `1.11x faster` |
+| Argon2id, 1 MiB | `374,195.30 ns/iter` | `5,604 MB/s` | `360,096.50 ns/iter` | `5,824 MB/s` | `1.04x slower` |
+| BLAKE2b, 694,200 B (default) | `514,435.00 ns/iter` | – | `611,076.90 ns/iter` | – | `1.19x faster` |
+| BLAKE2b, 694,200 B (portable SIMD) | `754,223.40 ns/iter` | – | `611,076.90 ns/iter` | – | `1.23x slower` |
+| ML-KEM-768 key generation | `12,611.70 ns/iter` | – | `26,212.36 ns/iter` | – | `2.08x faster` |
+| ML-KEM-768 encapsulation | `12,986.30 ns/iter` | – | `30,715.30 ns/iter` | – | `2.36x faster` |
+| ML-KEM-768 decapsulation | `14,538.37 ns/iter` | – | `36,656.90 ns/iter` | – | `2.52x faster` |
+| X-Wing key generation | `22,784.53 ns/iter` | – | `40,279.42 ns/iter` | – | `1.77x faster` |
+| X-Wing encapsulation | `47,242.61 ns/iter` | – | `77,383.90 ns/iter` | – | `1.64x faster` |
+| X-Wing decapsulation | `55,340.72 ns/iter` | – | `110,562.79 ns/iter` | – | `2.00x faster` |
 
-The only rows that move are the ones whose hot loop is compiled for the
-generic target: the Argon2id 1 MiB row loses its margin (the block mixing is
-still AVX-512, but the portable indexing and `blake2b_long` code around it is
-no longer tuned for this core; across three default-flag runs dryoc measured
-364–375 µs against libsodium's 353–365 µs), and the portable-SIMD BLAKE2b
-backend drops to SSE2 width.
+The rows that move without the flag are the ones whose hot loop is compiled
+for the generic target: Poly1305 1 KiB and secretbox 1 KiB lose 3–5% (the
+bulk kernels are still AVX-512, but the scalar setup and tail code around
+them is no longer tuned for this core), Argon2id loses its margin at 64 KiB
+(`1.23x` to `1.11x`) and flips at 1 MiB (the block mixing is still AVX-512,
+but the portable indexing and `blake2b_long` code around it is no longer
+tuned for this core; across three default-flag runs dryoc measured 367–376
+µs against libsodium's 358–363 µs), and the portable-SIMD BLAKE2b backend
+drops to SSE2 width. The KEM rows are faster without the flag (ML-KEM
+decapsulation 14,538 vs 16,994 ns) for reasons not yet profiled; the
+libsodium KEM column is unchanged within noise either way.
 
 ### Arm Neoverse V3
 
@@ -515,7 +566,7 @@ machine:
 | XSalsa20-Poly1305 secretbox | `salsa20_x86_64` (AVX2 / AVX-512) + Poly1305 above | same; `salsa20_simd` compiled for tests only | `salsa20_neon` (NEON / NEON+`sha3` / SVE2) + Poly1305 above | same; `salsa20_simd` compiled for tests only | `libsodium_secretbox_detached_*_bench` |
 | Argon2id password hashing | runtime `argon2_x86_64` (AVX2 / AVX-512F), else `argon2_soft` | runtime `argon2_x86_64`, else `argon2_simd` | runtime `argon2_neon` (SVE2), else `argon2_soft` | runtime `argon2_neon`, else `argon2_simd` | `libsodium_argon2id_*_bench` |
 | BLAKE2b | `blake2b_soft` + runtime `blake2b_x86_64` (AVX2 / AVX-512VL) | `blake2b_simd` | `blake2b_soft` + `blake2b_aarch64` rounds | `blake2b_simd` | `libsodium_blake2b_bench` |
-| ML-KEM-768 and X-Wing | `mlkem_soft` + runtime `mlkem_x86_64` (AVX2), 4-way AVX2 Keccak | same | `mlkem_soft` + runtime `mlkem_neon`, 3-way (`keccak3_aarch64`) or 2-way SHA3-extension Keccak, X25519 on the `fe64_aarch64` field | same | `libsodium_mlkem768_*_bench`, `libsodium_xwing_*_bench` |
+| ML-KEM-768 and X-Wing | `mlkem_soft` + runtime `mlkem_x86_64` (AVX2), 4-way AVX2 Keccak | same kernels, yet 12–44% faster in this run (see above) | `mlkem_soft` + runtime `mlkem_neon`, 3-way (`keccak3_aarch64`) or 2-way SHA3-extension Keccak, X25519 on the `fe64_aarch64` field | same | `libsodium_mlkem768_*_bench`, `libsodium_xwing_*_bench` |
 
 Algorithms without benchmark coverage should get their own section when a
 second implementation is added or when performance work begins.
