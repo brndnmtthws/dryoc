@@ -552,6 +552,10 @@ fn dryoc_munlock(region: int::Region) -> Result<(), std::io::Error> {
     }
 }
 
+fn dryoc_mprotect(region: int::Region, mode: int::ProtectMode) -> Result<(), std::io::Error> {
+    dryoc_mprotect_ptr(region.ptr(), region.len, mode)
+}
+
 fn dryoc_mprotect_ptr(
     data: *mut u8,
     len: usize,
@@ -694,11 +698,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectR
 {
     fn mprotect_readonly(mut self) -> Result<Protected<A, traits::ReadOnly, LM>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_mprotect_ptr(
-                old.region().ptr(),
-                old.region().len,
-                int::ProtectMode::ReadOnly,
-            )?;
+            dryoc_mprotect(old.region(), int::ProtectMode::ReadOnly)?;
             // update internal state
             old.pm = int::ProtectMode::ReadOnly;
             Ok(Protected::<A, traits::ReadOnly, LM>::new())
@@ -711,11 +711,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> ProtectR
 {
     fn mprotect_readwrite(mut self) -> Result<Protected<A, traits::ReadWrite, LM>, error::Error> {
         self.swap_some_or_err(|old| {
-            dryoc_mprotect_ptr(
-                old.region().ptr(),
-                old.region().len,
-                int::ProtectMode::ReadWrite,
-            )?;
+            dryoc_mprotect(old.region(), int::ProtectMode::ReadWrite)?;
             // update internal state
             old.pm = int::ProtectMode::ReadWrite;
             Ok(Protected::<A, traits::ReadWrite, LM>::new())
@@ -731,7 +727,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode> ProtectNoAccess<A, PM>
     ) -> Result<Protected<A, traits::NoAccess, traits::Unlocked>, error::Error> {
         self.swap_some_or_err(|old| {
             let region = old.region();
-            dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::NoAccess)?;
+            dryoc_mprotect(region, int::ProtectMode::NoAccess)?;
             // update internal state; the bytes cannot be referenced from now on
             old.noaccess_region = region;
             old.pm = int::ProtectMode::NoAccess;
@@ -1734,7 +1730,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Drop
         let region = data.region();
         let writable = region.len == 0
             || data.pm == int::ProtectMode::ReadWrite
-            || match dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadWrite) {
+            || match dryoc_mprotect(region, int::ProtectMode::ReadWrite) {
                 Ok(()) => true,
                 Err(err) => abort_protected_memory_failure("making memory writable for drop", err),
             };
@@ -1771,8 +1767,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
 
         let previous_mode = data.pm.clone();
         if previous_mode != int::ProtectMode::ReadWrite
-            && let Err(error) =
-                dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadWrite)
+            && let Err(error) = dryoc_mprotect(region, int::ProtectMode::ReadWrite)
         {
             abort_protected_memory_failure("making memory writable for zeroization", error);
         }
@@ -1780,7 +1775,7 @@ impl<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::LockMode> Zeroize
         data.a.zeroize();
 
         if previous_mode != int::ProtectMode::ReadWrite
-            && let Err(error) = dryoc_mprotect_ptr(region.ptr(), region.len, previous_mode)
+            && let Err(error) = dryoc_mprotect(region, previous_mode)
         {
             abort_protected_memory_failure("restoring memory protection after zeroization", error);
         }
@@ -2227,10 +2222,8 @@ mod tests {
         let mut vec = HeapBytes::from(&[1u8][..]);
 
         let region = int::Region::of(vec.as_slice());
-        dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadOnly)
-            .expect("readonly mprotect failed");
-        dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadWrite)
-            .expect("readwrite mprotect failed");
+        dryoc_mprotect(region, int::ProtectMode::ReadOnly).expect("readonly mprotect failed");
+        dryoc_mprotect(region, int::ProtectMode::ReadWrite).expect("readwrite mprotect failed");
         vec[0] = 2;
 
         assert_eq!(vec[0], 2);
@@ -2247,10 +2240,8 @@ mod tests {
         vec.resize(pagesize, 1);
 
         let region = int::Region::of(vec.as_slice());
-        dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadOnly)
-            .expect("readonly mprotect failed");
-        dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadWrite)
-            .expect("readwrite mprotect failed");
+        dryoc_mprotect(region, int::ProtectMode::ReadOnly).expect("readonly mprotect failed");
+        dryoc_mprotect(region, int::ProtectMode::ReadWrite).expect("readwrite mprotect failed");
         vec[0] = 2;
         vec[pagesize - 1] = 3;
 
@@ -2272,8 +2263,7 @@ mod tests {
         // Taken while readable; the no-access pages must not be referenced.
         let region = int::Region::of(vec.as_slice());
         let data = vec.as_mut_slice().as_mut_ptr();
-        dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::NoAccess)
-            .expect("noaccess mprotect failed");
+        dryoc_mprotect(region, int::ProtectMode::NoAccess).expect("noaccess mprotect failed");
 
         let child = unsafe { libc::fork() };
         assert!(child >= 0, "fork failed");
@@ -2288,8 +2278,7 @@ mod tests {
 
         let mut status = 0;
         let wait_ret = unsafe { libc::waitpid(child, &mut status, 0) };
-        dryoc_mprotect_ptr(region.ptr(), region.len, int::ProtectMode::ReadWrite)
-            .expect("readwrite mprotect failed");
+        dryoc_mprotect(region, int::ProtectMode::ReadWrite).expect("readwrite mprotect failed");
 
         assert_eq!(wait_ret, child);
         assert!(
