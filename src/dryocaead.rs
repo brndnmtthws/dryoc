@@ -280,8 +280,8 @@ pub mod protected {
         AeadEnvelope<XChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
 }
 
-#[cfg_attr(feature = "serde", derive(Clone, Debug, Serialize, Deserialize))]
-#[cfg_attr(not(feature = "serde"), derive(Clone, Debug))]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Authenticated encrypted data for a concrete AEAD algorithm.
 ///
 /// The byte representation for the supported algorithms is `ciphertext || tag`.
@@ -292,8 +292,8 @@ pub struct AeadBox<Algorithm: AeadAlgorithm, Mac, Data> {
     data: Data,
 }
 
-#[cfg_attr(feature = "serde", derive(Clone, Debug, Serialize, Deserialize))]
-#[cfg_attr(not(feature = "serde"), derive(Clone, Debug))]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Authenticated encrypted data with its nonce stored alongside it.
 ///
 /// The byte representation for the supported algorithms is

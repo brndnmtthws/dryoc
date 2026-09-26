@@ -62,14 +62,8 @@ use crate::utils::verify_ct;
 
 pub(crate) const STR_HASHBYTES: usize = 32;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)
-)]
-#[cfg_attr(
-    not(feature = "serde"),
-    derive(Zeroize, Clone, Copy, Debug, Eq, PartialEq)
-)]
+#[derive(Zeroize, Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Password hash algorithm implementations.
 pub enum PasswordHashAlgorithm {
     /// Argon2i version 0x13 (v19)

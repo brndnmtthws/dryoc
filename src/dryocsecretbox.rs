@@ -133,11 +133,8 @@ pub mod protected {
     pub type LockedBox = DryocSecretBox<Locked<Mac>, LockedBytes>;
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[derive(Zeroize, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// An authenticated secret-key encrypted box, compatible with a libsodium box.
 /// Use with either [`VecBox`] or [`protected::LockedBox`] type aliases.
 ///
@@ -733,10 +730,6 @@ mod tests {
             }
         }
 
-        #[cfg(any(
-            all(feature = "protected", any(unix, windows)),
-            all(doc, not(doctest), feature = "std")
-        ))]
         #[cfg(all(feature = "protected", any(unix, windows)))]
         #[test]
         fn test_dryocbox_locked() {

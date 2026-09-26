@@ -201,11 +201,8 @@ pub mod protected {
     pub type LockedBox = DryocBox<Locked<PublicKey>, Locked<Mac>, LockedBytes>;
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[derive(Zeroize, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// A libsodium public-key authenticated encrypted box.
 ///
 /// Refer to [crate::dryocbox] for sample usage.

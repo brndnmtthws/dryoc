@@ -64,8 +64,8 @@ pub type SecretKey = StackByteArray<CRYPTO_KX_SECRETKEYBYTES>;
 /// Stack-allocated keypair type alias
 pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
-#[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
+#[derive(Zeroize, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Key derivation implementation based on Curve25519, Diffie-Hellman, and
 /// Blake2b. Compatible with libsodium's `crypto_kx_*` functions.
 ///

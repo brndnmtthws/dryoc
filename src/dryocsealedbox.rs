@@ -146,11 +146,8 @@ pub mod protected {
     pub type LockedBox = DryocSealedBox<Locked<EncapsulatedKey>, Locked<Mac>, LockedBytes>;
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[derive(Zeroize, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// A post-quantum sealed box: an HPKE-encrypted message for one recipient.
 ///
 /// Refer to [crate::dryocsealedbox] for the byte format and sample usage.

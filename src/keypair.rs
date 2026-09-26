@@ -29,11 +29,8 @@ pub type SecretKey = StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>;
 /// Stack-allocated key pair type alias.
 pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Clone)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
+#[derive(Zeroize, ZeroizeOnDrop, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Public/secret keypair for use with [`crate::dryocbox::DryocBox`] and
 /// libsodium-compatible public-key encryption.
 ///

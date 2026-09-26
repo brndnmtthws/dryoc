@@ -142,11 +142,8 @@ pub fn secret_key_to_public_key<
     public_key
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Clone)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
+#[derive(Zeroize, ZeroizeOnDrop, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// An Ed25519 keypair for public-key signatures
 ///
 /// Create keypairs with [`SigningKeyPair::generate`],
@@ -408,11 +405,8 @@ pub mod protected {
     }
 }
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[derive(Zeroize, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// A signed message, for use with [`SigningKeyPair`].
 pub struct SignedMessage<
     Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize,
