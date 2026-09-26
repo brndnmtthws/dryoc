@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["tomlkit>=0.13"]
 # ///
 """Cut a dryoc release: check that main is releasable, then tag and push it.
 
@@ -26,10 +26,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 
-import tomllib
+import tomlkit
+from tomlkit.exceptions import TOMLKitError
 
 ROOT = Path(__file__).resolve().parent
 REPO = "brndnmtthws/dryoc"
@@ -49,8 +50,8 @@ BUMP_LEVELS = ("major", "minor", "patch")
 MANIFESTS = ("Cargo.toml", "python/Cargo.toml")
 LOCKFILES = ("python/Cargo.lock", "python/uv.lock")
 README = "README.md"
-# The `[dependencies]` snippet in the README, e.g. `dryoc = { version = "2", ...`.
-README_REQUIREMENT = re.compile(r'(?m)^(dryoc = (?:\{ version = )?")([^"]*)(")')
+# Fenced TOML blocks in the README, which hold the `dryoc = ...` snippet.
+TOML_FENCE = re.compile(r"(?ms)^```toml\n(.*?)^```$")
 
 
 class CheckError(Exception):
@@ -117,8 +118,10 @@ def pep440(version: str) -> str:
 
 
 def package_version(manifest: str) -> str:
-    with (ROOT / manifest).open("rb") as f:
-        return str(tomllib.load(f)["package"]["version"])
+    try:
+        return str(tomlkit.parse((ROOT / manifest).read_text())["package"]["version"])
+    except (TOMLKitError, KeyError) as err:
+        raise CheckError(f"cannot read the version from {manifest}: {err}") from None
 
 
 def bumped(version: str, level: str) -> str:
@@ -294,25 +297,39 @@ def publish_run_url(tag: str) -> str:
     return f"https://github.com/{REPO}/actions/workflows/publish.yml"
 
 
-def set_package_version(manifest: str, old: str, new: str) -> None:
+def set_package_version(manifest: str, version: str) -> None:
     path = ROOT / manifest
-    text = path.read_text()
-    # The `[package]` table runs up to the next table header.
-    table = re.search(r"(?ms)^\[package\]\n.*?(?=^\[|\Z)", text)
-    if table is None:
+    doc = tomlkit.parse(path.read_text())
+    # `[package.metadata.*]` after other tables makes `package` a proxy, not a
+    # `Table`, so accept any table-like mapping.
+    package = doc.get("package")
+    if not isinstance(package, MutableMapping):
         raise CheckError(f"{manifest} has no [package] table")
-    body, count = re.subn(
-        rf'(?m)^version = "{re.escape(old)}"$', f'version = "{new}"', table[0]
-    )
-    if count != 1:
-        raise CheckError(f'{manifest}: no `version = "{old}"` line in [package]')
-    path.write_text(text[: table.start()] + body + text[table.end() :])
-    if package_version(manifest) != new:
-        raise CheckError(f"{manifest}: version did not change to {new}")
+    package["version"] = version
+    path.write_text(doc.as_string())
 
 
 def with_readme_requirement(text: str, version: str) -> str:
-    return README_REQUIREMENT.sub(rf"\g<1>{cargo_requirement(version)}\g<3>", text)
+    """`text` with the `dryoc` requirement in its TOML blocks set for `version`."""
+    requirement = cargo_requirement(version)
+
+    def update(block: re.Match[str]) -> str:
+        try:
+            doc = tomlkit.parse(block[1])
+        except TOMLKitError as err:
+            raise CheckError(f"{README} has an invalid TOML block: {err}") from None
+        # A bare `dryoc = ...` line, or one under `[dependencies]`.
+        deps = doc.get("dependencies", doc)
+        dep = deps.get("dryoc") if isinstance(deps, MutableMapping) else None
+        if isinstance(dep, str):
+            deps["dryoc"] = requirement
+        elif isinstance(dep, MutableMapping) and "version" in dep:
+            dep["version"] = requirement
+        else:
+            return block[0]
+        return f"```toml\n{doc.as_string()}```"
+
+    return TOML_FENCE.sub(update, text)
 
 
 def bump(level: str, dry_run: bool) -> int:
@@ -341,7 +358,7 @@ def bump(level: str, dry_run: bool) -> int:
     before = {name: (ROOT / name).read_bytes() for name in paths}
     try:
         for manifest in MANIFESTS:
-            set_package_version(manifest, root, version)
+            set_package_version(manifest, version)
             print(f"  ✓ {manifest}: {version}")
         if new_readme != readme:
             (ROOT / README).write_text(new_readme)
@@ -395,8 +412,8 @@ def main() -> int:
         return bump(args.bump, args.dry_run)
     try:
         version = (args.version or package_version("Cargo.toml")).removeprefix("v")
-    except (OSError, tomllib.TOMLDecodeError, KeyError) as err:
-        print(f"error: cannot read the version from Cargo.toml: {err}", file=sys.stderr)
+    except (OSError, CheckError) as err:
+        print(f"error: {err}", file=sys.stderr)
         return 1
     tag = f"v{version}"
 

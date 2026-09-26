@@ -157,7 +157,8 @@ updated `python/Cargo.lock` in the same change. `publish.yml` checks this with
 `cargo metadata --locked --manifest-path python/Cargo.toml` before anything
 is published.
 
-Releases are cut with `./release.py` (a stdlib-only `uv run --script`).
+Releases are cut with `./release.py` (a `uv run --script` whose only
+dependency, `tomlkit`, edits the manifests without reformatting them).
 First merge a bump PR: `./release.py --bump major|minor|patch` (add
 `--dry-run` to preview) sets both `Cargo.toml` versions and the README's
 `dryoc = { version = ... }` snippet, runs
