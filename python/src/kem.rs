@@ -189,21 +189,15 @@ macro_rules! kem_classes {
 
             /// Compares two key pairs in constant time.
             fn __eq__(&self, other: &Bound<'_, Self>) -> bool {
-                use subtle::ConstantTimeEq;
                 let other = &other.get().pair;
-                let public: &[u8] = self.pair.public_key.as_ref();
-                let secret: &[u8] = self.pair.secret_key.as_ref();
-                bool::from(
-                    public.ct_eq(other.public_key.as_ref())
-                        & secret.ct_eq(other.secret_key.as_ref()),
+                crate::util::ct_eq_pair(
+                    (self.pair.public_key.as_ref(), self.pair.secret_key.as_ref()),
+                    (other.public_key.as_ref(), other.secret_key.as_ref()),
                 )
             }
 
             fn __repr__(&self) -> String {
-                format!(
-                    "KeyPair(public_key=PublicKey('{}'), secret_key=<redacted>)",
-                    crate::util::short_hex(self.pair.public_key.as_ref())
-                )
+                crate::util::key_pair_repr(self.pair.public_key.as_ref())
             }
         }
     };

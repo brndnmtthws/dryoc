@@ -113,7 +113,7 @@ RUSTFLAGS=-Ctarget-feature=+simd128 cargo test --target wasm32-unknown-unknown -
 Coverage is generated on nightly with:
 
 ```sh
-cargo +nightly tarpaulin --features serde,nightly,wincode_0_6 --out Xml
+cargo +nightly tarpaulin --features nightly,wincode_0_6 --out Xml
 ```
 
 Fuzzing lives in `fuzz/` and is isolated as its own workspace:

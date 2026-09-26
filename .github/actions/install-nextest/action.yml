@@ -1,0 +1,19 @@
+name: Install cargo-nextest
+
+description: Install cargo-nextest with cargo-binstall
+
+inputs:
+  packages:
+    description: cargo-binstall package arguments
+    required: false
+    default: --locked cargo-nextest
+
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-nextest
+      uses: brndnmtthws/rust-action-cargo-binstall@v1
+      with:
+        packages: ${{ inputs.packages }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}

@@ -38,7 +38,7 @@ jobs:
       # default 60s watchdog is too close to that and has timed out.
       # python/ is its own Cargo workspace, tested by pytest; tarpaulin would
       # otherwise report its sources as uncovered.
-      - run: mbx tarpaulin --timeout 300 --features serde,nightly,wincode_0_6 --exclude-files 'python/*' --out Xml
+      - run: mbx tarpaulin --timeout 300 --features nightly,wincode_0_6 --exclude-files 'python/*' --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.repository == 'brndnmtthws/dryoc'

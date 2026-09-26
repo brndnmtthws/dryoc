@@ -246,6 +246,21 @@ pub(crate) fn short_hex(data: &[u8]) -> String {
     out
 }
 
+/// Compares both key-pair components in constant time.
+pub(crate) fn ct_eq_pair(lhs: (&[u8], &[u8]), rhs: (&[u8], &[u8])) -> bool {
+    use subtle::ConstantTimeEq;
+
+    bool::from(lhs.0.ct_eq(rhs.0) & lhs.1.ct_eq(rhs.1))
+}
+
+/// Formats a key-pair repr with its public key shown and secret key redacted.
+pub(crate) fn key_pair_repr(public_key: &[u8]) -> String {
+    format!(
+        "KeyPair(public_key=PublicKey('{}'), secret_key=<redacted>)",
+        short_hex(public_key)
+    )
+}
+
 /// Defines a frozen class holding one fixed-size secret, with constant-time
 /// equality, no hashing, a redacted repr, and explicit `bytes()` export.
 macro_rules! secret_key_class {

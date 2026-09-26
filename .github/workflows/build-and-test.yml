@@ -165,11 +165,7 @@ jobs:
         with:
           cache-generation: platform-${{ matrix.features }}
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/install-nextest
       - run: mbx build --features ${{ env.FEATURES }}
       - run: mbx nextest run --features ${{ env.FEATURES }}
         env:
@@ -219,11 +215,7 @@ jobs:
         with:
           cache-generation: features-${{ matrix.name }}
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/install-nextest
       - run: mbx nextest run --all-targets ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: 1
@@ -243,12 +235,8 @@ jobs:
         with:
           cache-generation: msrv
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-      - run: mbx nextest run --all-targets --features serde,wincode_0_6
+        uses: ./.github/actions/install-nextest
+      - run: mbx nextest run --all-targets --features wincode_0_6
       - run: mbx check --no-default-features
       - run: mbx check --no-default-features --features alloc
 
@@ -267,11 +255,7 @@ jobs:
         with:
           cache-generation: all-features
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/install-nextest
       - run: mbx nextest run --all-targets --all-features
         env:
           RUST_BACKTRACE: 1
@@ -298,7 +282,7 @@ jobs:
       - run: mbx test --doc --all-features
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: mbx doc --features nightly,serde,base64,wincode_0_6 --no-deps
+      - run: mbx doc --features nightly,wincode_0_6 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - run: mbx doc --all-features --no-deps
@@ -351,11 +335,7 @@ jobs:
         with:
           cache-generation: no-std-target-features
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/install-nextest
       - run: mbx nextest run --all-targets --no-default-features
         env:
           RUST_BACKTRACE: 1
@@ -389,11 +369,7 @@ jobs:
           profile: minimal
           components: miri rust-src
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
-        with:
-          packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        uses: ./.github/actions/install-nextest
       # Miri cannot be wrapped by mbx. It builds its own interpreted sysroot.
       - run: cargo +nightly miri setup --target x86_64-unknown-linux-gnu
       # Miri cannot enforce protected-memory page permissions or call
