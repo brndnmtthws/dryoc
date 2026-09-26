@@ -45,6 +45,7 @@ use crate::edwards25519::mul_base;
 use crate::error::Error;
 use crate::scalarmult_curve25519::clamp_scalar;
 use crate::sha512::Sha512;
+use crate::utils::zeroize_bytes;
 
 /// Type alias for an Ed25519 public key.
 pub type PublicKey = [u8; CRYPTO_SIGN_ED25519_PUBLICKEYBYTES];
@@ -67,7 +68,7 @@ pub(crate) fn crypto_sign_ed25519_seed_keypair_inplace(
     let mut clamped = clamp_hash(&mut hash);
     let mut point = mul_base(&clamped);
     let pk = point.compress();
-    clamped.zeroize();
+    zeroize_bytes(&mut clamped);
     point.zeroize();
 
     secret_key[..CRYPTO_SIGN_ED25519_SEEDBYTES].copy_from_slice(seed);
@@ -117,7 +118,7 @@ fn clamp_hash(
 ) -> [u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES] {
     let mut scalar = [0u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES];
     scalar.copy_from_slice(&hash[..CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES]);
-    hash.zeroize();
+    zeroize_bytes(hash);
     clamp_scalar(&mut scalar);
     scalar
 }
@@ -231,7 +232,7 @@ fn crypto_sign_ed25519_detached_impl(
     let mut r_bytes = r.to_bytes();
     let mut r_point = mul_base(&r_bytes);
     let big_r = r_point.compress();
-    r_bytes.zeroize();
+    zeroize_bytes(&mut r_bytes);
     r_point.zeroize();
 
     signature[..32].copy_from_slice(&big_r);
@@ -247,14 +248,14 @@ fn crypto_sign_ed25519_detached_impl(
     let mut k = Scalar::from_bytes_mod_order_wide(&hram);
     let mut clamped = clamp_hash(&mut az);
     let mut signing_scalar = Scalar::from_bytes_mod_order(clamped);
-    clamped.zeroize();
+    zeroize_bytes(&mut clamped);
     let mut sig = (k * signing_scalar) + r;
 
     signature[32..].copy_from_slice(sig.as_bytes());
 
-    az.zeroize();
-    nonce.zeroize();
-    hram.zeroize();
+    zeroize_bytes(&mut az);
+    zeroize_bytes(&mut nonce);
+    zeroize_bytes(&mut hram);
     r.zeroize();
     k.zeroize();
     signing_scalar.zeroize();
@@ -283,15 +284,19 @@ fn crypto_sign_ed25519_verify_detached_impl(
         .ok_or(Error::AuthenticationFailed)?;
     let r_bytes = <&[u8; CRYPTO_SIGN_ED25519_PUBLICKEYBYTES]>::try_from(&signature[..32])
         .map_err(|_| Error::AuthenticationFailed)?;
-    let big_r = decompress_canonical_ed25519_point(r_bytes).ok_or(Error::AuthenticationFailed)?;
-    if big_r.is_small_order() {
-        return Err(Error::AuthenticationFailed);
-    }
-    let pk = decompress_canonical_ed25519_point(public_key)
-        .ok_or(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey))?;
-    if pk.is_small_order() {
-        return Err(Error::invalid_key(crate::ErrorContext::Ed25519PublicKey));
-    }
+    // `R` is not decompressed on the accepting path (see the final check);
+    // when `A` is rejected it is, so that an invalid or small-order `R` is
+    // still reported first.
+    let Some(pk) = decompress_canonical_ed25519_point(public_key).filter(|pk| !pk.is_small_order())
+    else {
+        let r_valid =
+            decompress_canonical_ed25519_point(r_bytes).is_some_and(|r| !r.is_small_order());
+        return Err(if r_valid {
+            Error::invalid_key(crate::ErrorContext::Ed25519PublicKey)
+        } else {
+            Error::AuthenticationFailed
+        });
+    };
 
     let mut hasher = Sha512::new();
     if prehashed {
@@ -309,7 +314,12 @@ fn crypto_sign_ed25519_verify_detached_impl(
         .neg()
         .double_scalar_mul_basepoint_vartime(&k.to_bytes(), &s.to_bytes());
 
-    if sig_r.eq_vartime(&big_r) {
+    // `R` must be the canonical encoding of a point of order above 8 equal
+    // to `R'`. The canonical encoding of `R'` is `R`'s bytes exactly when they
+    // decompress canonically to `R'`, so comparing encodings is that check
+    // without `R`'s square root (an inversion is much cheaper), and `R'` has
+    // the order of `R`.
+    if sig_r.compress() == *r_bytes && !sig_r.is_small_order() {
         Ok(())
     } else {
         Err(Error::AuthenticationFailed)
@@ -379,7 +389,9 @@ pub(crate) fn crypto_sign_ed25519ph_final_verify(
 #[cfg(test)]
 mod regression_tests {
     use super::*;
-    use crate::classic::crypto_core::ed25519_is_torsion_free;
+    use crate::classic::crypto_core::{
+        decompress_canonical_ed25519_point, ed25519_is_torsion_free,
+    };
 
     pub(super) const ED25519_GROUP_ORDER: [u8; 32] = [
         0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
@@ -755,6 +767,82 @@ mod vector_tests {
                 "A {encoding:02x?}"
             );
         }
+    }
+
+    /// With both `R` and `A` rejected, `R`'s failure is the one reported.
+    #[test]
+    fn verification_reports_invalid_r_before_invalid_a() {
+        let message = b"error precedence";
+        let (_, secret_key) = crypto_sign_ed25519_seed_keypair(&[15u8; 32]);
+        let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+
+        let encodings = rejected_point_encodings();
+        for bad_r in &encodings {
+            for bad_a in &encodings {
+                let mut bad = signature;
+                bad[..32].copy_from_slice(bad_r);
+                assert!(
+                    matches!(
+                        crypto_sign_ed25519_verify_detached(&bad, message, bad_a),
+                        Err(Error::AuthenticationFailed)
+                    ),
+                    "R {bad_r:02x?}, A {bad_a:02x?}"
+                );
+            }
+        }
+    }
+
+    /// Signatures under a mixed-order key `A = [a]B + T` (`T` of order 8)
+    /// whose equation `[s]B = R + [k]A` holds: accepted when `R` has a
+    /// prime-order part (`R = [r]B + P` with `P = -[k]T`), rejected when `R`
+    /// is the small-order point `P` itself (`r = 0`), as libsodium does.
+    #[test]
+    fn verification_with_torsion_components() {
+        use curve25519_dalek::constants::ED25519_BASEPOINT_POINT as B;
+        use curve25519_dalek::scalar::Scalar;
+
+        let a = Scalar::from_bytes_mod_order([0x42; 32]);
+        let torsion = EIGHT_TORSION[1];
+        let public_key = (B * a + torsion).compress().to_bytes();
+        let r = Scalar::from_bytes_mod_order([0x17; 32]);
+
+        let (mut accepted, mut rejected) = (0, 0);
+        for (j, &small) in EIGHT_TORSION.iter().enumerate().skip(1) {
+            for (prime_part, expect_ok) in [(B * r, true), (B * Scalar::ZERO, false)] {
+                let big_r = (prime_part + small).compress().to_bytes();
+                // Find a message whose `k` makes `-[k]T` equal the chosen
+                // small-order part, so the equation holds.
+                let (message, k) = (0u32..)
+                    .map(|i| {
+                        let message = i.to_le_bytes();
+                        let mut hasher = Sha512::new();
+                        hasher.update(&big_r);
+                        hasher.update(&public_key);
+                        hasher.update(&message);
+                        let h: [u8; CRYPTO_HASH_SHA512_BYTES] = hasher.finalize();
+                        (message, Scalar::from_bytes_mod_order_wide(&h))
+                    })
+                    .find(|(_, k)| -(torsion * k) == small)
+                    .unwrap();
+                let s = if expect_ok { r + k * a } else { k * a };
+                let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
+                signature[..32].copy_from_slice(&big_r);
+                signature[32..].copy_from_slice(s.as_bytes());
+                let result = crypto_sign_ed25519_verify_detached(&signature, &message, &public_key);
+                if expect_ok {
+                    result.unwrap_or_else(|e| panic!("T[{j}], mixed-order R: {e}"));
+                    accepted += 1;
+                } else {
+                    assert!(
+                        matches!(result, Err(Error::AuthenticationFailed)),
+                        "T[{j}], small-order R"
+                    );
+                    rejected += 1;
+                }
+            }
+        }
+        assert_eq!((accepted, rejected), (7, 7));
     }
 
     /// `crypto_sign_open` verifies before it copies: a failed open leaves

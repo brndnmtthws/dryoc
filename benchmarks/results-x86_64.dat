@@ -1,4 +1,4 @@
-# dryoc vs libsodium 1.0.18 on an Intel Xeon 6975P-C, single thread,
+# dryoc (45a3975) vs libsodium 1.0.18 on an Intel Xeon 6975P-C, single thread,
 # RUSTFLAGS=-Ctarget-cpu=native. ns/iter as reported by `cargo +nightly bench
 # --features nightly` (BLAKE2b portable SIMD: `--features simd_backend,nightly`).
 # `bytes` is the per-iteration input size; throughput is bytes / ns.

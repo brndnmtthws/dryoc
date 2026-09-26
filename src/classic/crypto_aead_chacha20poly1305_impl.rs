@@ -37,6 +37,17 @@ pub(crate) fn encrypt_with_poly1305_key(
     message: Option<&[u8]>,
     ciphertext: &mut [u8],
 ) -> Poly1305Key {
+    encrypt_with_poly1305_key_into(&mut cipher, message, ciphertext)
+}
+
+/// [`encrypt_with_poly1305_key`] leaving `cipher` positioned after
+/// `ciphertext` for more.
+#[inline(always)]
+fn encrypt_with_poly1305_key_into(
+    cipher: &mut ChaCha20,
+    message: Option<&[u8]>,
+    ciphertext: &mut [u8],
+) -> Poly1305Key {
     let mut block0 = [0u8; 64];
     match message {
         Some(message) => cipher.apply_keystream_b2b_with_head(&mut block0, message, ciphertext),
@@ -55,10 +66,75 @@ pub(crate) fn compute_mac(mac: &mut Tag, mac_key: &mut Poly1305Key, ciphertext: 
     state.update(ad);
     state.update(&PAD0[..pad16(ad.len())]);
     state.update(ciphertext);
-    state.update(&PAD0[..pad16(ciphertext.len())]);
-    state.update(&(ad.len() as u64).to_le_bytes());
-    state.update(&(ciphertext.len() as u64).to_le_bytes());
+    finish_mac(mac, &mut state, ciphertext.len(), ad.len());
+}
+
+/// The ciphertext's padding and the two lengths, then the tag. Takes the
+/// state by reference: moved into a call, its key-derived limbs would leave
+/// an unwiped copy behind.
+#[inline(always)]
+fn finish_mac(mac: &mut Tag, state: &mut Poly1305, ciphertext_len: usize, ad_len: usize) {
+    state.update(&PAD0[..pad16(ciphertext_len)]);
+    // Both lengths as one block, so the state takes it without buffering.
+    let mut lengths = [0u8; 16];
+    lengths[..8].copy_from_slice(&(ad_len as u64).to_le_bytes());
+    lengths[8..].copy_from_slice(&(ciphertext_len as u64).to_le_bytes());
+    state.update(&lengths);
     state.finalize(mac);
+}
+
+/// Encrypts `message` into `ciphertext` (in place when `message` is `None`)
+/// with `cipher`, positioned at block 0, and writes the tag over `ad` and
+/// the ciphertext into `mac`: [`encrypt_with_poly1305_key`] then
+/// [`compute_mac`], except that with the stitched AArch64 kernel (SVE2) the
+/// ciphertext after the first chunk is MACed chunk by chunk inside the
+/// keystream runs of the chunk after it
+/// ([`ChaCha20::apply_keystream_poly`]). The tag is the same either way.
+#[inline]
+pub(crate) fn encrypt_and_mac(
+    cipher: ChaCha20,
+    message: Option<&[u8]>,
+    ciphertext: &mut [u8],
+    ad: &[u8],
+    mac: &mut Tag,
+) {
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    if ciphertext.len() >= 2 * ChaCha20::POLY_CHUNK && ChaCha20::poly_stitched() {
+        let mut cipher = cipher;
+        encrypt_and_mac_stitched(&mut cipher, message, ciphertext, ad, mac);
+        return;
+    }
+    let mut mac_key = encrypt_with_poly1305_key(cipher, message, ciphertext);
+    compute_mac(mac, &mut mac_key, ciphertext, ad);
+}
+
+/// The stitched path of [`encrypt_and_mac`], for at least two chunks. Out of
+/// line so that it adds nothing to the inlined short-message path; `cipher`
+/// is passed by reference, so no copy of its state is left behind.
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+#[inline(never)]
+fn encrypt_and_mac_stitched(
+    cipher: &mut ChaCha20,
+    message: Option<&[u8]>,
+    ciphertext: &mut [u8],
+    ad: &[u8],
+    mac: &mut Tag,
+) {
+    let first = ChaCha20::POLY_CHUNK;
+    // The first chunk and the Poly1305 key block in one run, then `ad`.
+    let (head, _) = ciphertext.split_at_mut(first);
+    let mut mac_key = encrypt_with_poly1305_key_into(cipher, message.map(|m| &m[..first]), head);
+    let mut state = Poly1305::new(&mac_key);
+    mac_key.zeroize();
+    state.update(ad);
+    state.update(&PAD0[..pad16(ad.len())]);
+    let (done, mac_done) = cipher.apply_keystream_poly(message, ciphertext, first, 0, &mut state);
+    match message {
+        Some(message) => cipher.apply_keystream_b2b(&message[done..], &mut ciphertext[done..]),
+        None => cipher.apply_keystream(&mut ciphertext[done..]),
+    }
+    state.update(&ciphertext[mac_done..]);
+    finish_mac(mac, &mut state, ciphertext.len(), ad.len());
 }
 
 /// Verifies `mac` over `ciphertext` and `ad` in constant time. The computed
@@ -124,7 +200,7 @@ macro_rules! impl_chacha20poly1305_aead {
         decrypt_inplace: $decrypt_inplace:ident,
     ) => {
         use $crate::classic::crypto_aead_chacha20poly1305_impl::{
-            compute_mac, encrypt_with_poly1305_key, poly1305_key, verify_mac,
+            encrypt_and_mac, poly1305_key, verify_mac,
         };
 
         $(#[$keygen_inplace_meta])*
@@ -160,10 +236,7 @@ macro_rules! impl_chacha20poly1305_aead {
             validate_length!(exact message.len(), ciphertext.len(), $crate::ErrorContext::Ciphertext);
 
             let associated_data = associated_data.unwrap_or(&[]);
-            let mut mac_key =
-                encrypt_with_poly1305_key(($stream)(nonce, key), Some(message), ciphertext);
-
-            compute_mac(mac, &mut mac_key, ciphertext, associated_data);
+            encrypt_and_mac(($stream)(nonce, key), Some(message), ciphertext, associated_data, mac);
             Ok(())
         }
 
@@ -178,9 +251,7 @@ macro_rules! impl_chacha20poly1305_aead {
             validate_length!(max $messagebytes_max, data.len(), $crate::ErrorContext::Message);
 
             let associated_data = associated_data.unwrap_or(&[]);
-            let mut mac_key = encrypt_with_poly1305_key(($stream)(nonce, key), None, data);
-
-            compute_mac(mac, &mut mac_key, data, associated_data);
+            encrypt_and_mac(($stream)(nonce, key), None, data, associated_data, mac);
             Ok(())
         }
 
@@ -623,6 +694,72 @@ pub(crate) mod test_util {
                         "{ctx}: open combined in place"
                     );
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_prelude::*;
+    use crate::utils::test_util::XorShift64;
+
+    /// [`encrypt_and_mac`] gives the ciphertext and tag of the plain
+    /// keystream-then-MAC construction, buffer to buffer and in place, at
+    /// lengths around whole stitched chunks (512 bytes) where the stitched
+    /// path starts, runs several chunks and hands a tail back.
+    #[test]
+    fn test_encrypt_and_mac_matches_sequential() {
+        let mut rng = XorShift64::new(0x510e_527f_ade6_82d1);
+        let key = rng.next_bytes32();
+        let nonce: [u8; 12] = rng.next_bytes32()[..12].try_into().unwrap();
+        let lens = [
+            0, 64, 511, 512, 1023, 1024, 1025, 1535, 1536, 1600, 2048, 4113, 16384,
+        ];
+        for len in lens {
+            for ad_len in [0, 5, 16, 33] {
+                let message: Vec<u8> = (0..len).map(|_| rng.next_u64() as u8).collect();
+                let ad: Vec<u8> = (0..ad_len).map(|_| rng.next_u64() as u8).collect();
+
+                let mut expected = vec![0u8; len];
+                let mut mac_key = encrypt_with_poly1305_key(
+                    ChaCha20::ietf(&key, &nonce, 0),
+                    Some(&message),
+                    &mut expected,
+                );
+                let mut expected_tag = Tag::default();
+                compute_mac(&mut expected_tag, &mut mac_key, &expected, &ad);
+
+                let mut ciphertext = vec![0u8; len];
+                let mut tag = Tag::default();
+                encrypt_and_mac(
+                    ChaCha20::ietf(&key, &nonce, 0),
+                    Some(&message),
+                    &mut ciphertext,
+                    &ad,
+                    &mut tag,
+                );
+                assert_eq!(
+                    (&ciphertext, tag),
+                    (&expected, expected_tag),
+                    "len {len}, ad {ad_len}"
+                );
+
+                let mut data = message.clone();
+                let mut tag = Tag::default();
+                encrypt_and_mac(
+                    ChaCha20::ietf(&key, &nonce, 0),
+                    None,
+                    &mut data,
+                    &ad,
+                    &mut tag,
+                );
+                assert_eq!(
+                    (&data, tag),
+                    (&expected, expected_tag),
+                    "in place, len {len}, ad {ad_len}"
+                );
             }
         }
     }

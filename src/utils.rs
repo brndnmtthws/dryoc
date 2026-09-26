@@ -141,6 +141,88 @@ pub(crate) fn zeroize_u64s(words: &mut [u64]) {
     zeroize::optimization_barrier(words);
 }
 
+/// Zeroizes `words` like [`zeroize_u64s`]. Used for the ChaCha20 state
+/// wiped on every drop, where one store per word is a measurable part of a
+/// short message.
+pub(crate) fn zeroize_u32s(words: &mut [u32]) {
+    // SAFETY: as in `zeroize_bytes`; neither `u128` nor `u32` has validity
+    // requirements and the three views are disjoint.
+    let (head, wide, tail) = unsafe { words.align_to_mut::<u128>() };
+    zeroize_wide(head, wide, tail);
+    zeroize::optimization_barrier(words);
+}
+
+/// Zeroizes `words` like [`zeroize_u64s`]. Used for ML-KEM's secret
+/// coefficient buffers, where one store per coefficient cost more than a
+/// tenth of an encapsulation.
+pub(crate) fn zeroize_i16s(words: &mut [i16]) {
+    // SAFETY: as in `zeroize_bytes`; neither `u128` nor `i16` has validity
+    // requirements and the three views are disjoint.
+    let (head, wide, tail) = unsafe { words.align_to_mut::<u128>() };
+    zeroize_wide(head, wide, tail);
+    zeroize::optimization_barrier(words);
+}
+
+/// Fixed-size secret buffers that [`WideZeroizing`] wipes with
+/// [`zeroize_bytes`] or [`zeroize_i16s`].
+pub(crate) trait WideZeroize {
+    fn wide_zeroize(&mut self);
+}
+
+impl<const L: usize> WideZeroize for [u8; L] {
+    fn wide_zeroize(&mut self) {
+        zeroize_bytes(self);
+    }
+}
+
+impl<const L: usize, const M: usize> WideZeroize for [[u8; L]; M] {
+    fn wide_zeroize(&mut self) {
+        zeroize_bytes(self.as_flattened_mut());
+    }
+}
+
+impl<const L: usize> WideZeroize for [i16; L] {
+    fn wide_zeroize(&mut self) {
+        zeroize_i16s(self);
+    }
+}
+
+impl<const L: usize, const M: usize> WideZeroize for [[i16; L]; M] {
+    fn wide_zeroize(&mut self) {
+        zeroize_i16s(self.as_flattened_mut());
+    }
+}
+
+/// [`zeroize::Zeroizing`] for [`WideZeroize`] buffers: wiped on drop sixteen
+/// bytes per volatile store instead of one element per store.
+pub(crate) struct WideZeroizing<T: WideZeroize>(T);
+
+impl<T: WideZeroize> WideZeroizing<T> {
+    pub(crate) fn new(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: WideZeroize> core::ops::Deref for WideZeroizing<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: WideZeroize> core::ops::DerefMut for WideZeroizing<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<T: WideZeroize> Drop for WideZeroizing<T> {
+    fn drop(&mut self) {
+        self.0.wide_zeroize();
+    }
+}
+
 /// Clears the three views of one buffer with volatile stores. Callers follow
 /// this with [`zeroize::optimization_barrier`] over the whole buffer, matching
 /// what the `zeroize` crate does after its own volatile writes.
@@ -149,8 +231,17 @@ fn zeroize_wide<T: zeroize::DefaultIsZeroes>(head: &mut [T], words: &mut [u128],
     use zeroize::Zeroize;
 
     head.zeroize();
-    for word in words {
-        // SAFETY: `word` is a valid, aligned, exclusively borrowed `u128`.
+    // Four stores per iteration: one per iteration spent most of a large
+    // wipe (Argon2's memory) on the loop's own two instructions.
+    let (groups, rest) = words.as_chunks_mut::<4>();
+    for group in groups {
+        for word in group {
+            // SAFETY: `word` is a valid, aligned, exclusively borrowed `u128`.
+            unsafe { core::ptr::write_volatile(word, 0) };
+        }
+    }
+    for word in rest {
+        // SAFETY: as above.
         unsafe { core::ptr::write_volatile(word, 0) };
     }
     tail.zeroize();
@@ -185,6 +276,35 @@ mod tests {
         }
     }
 
+    /// Every start offset within a 16-byte-aligned buffer (so the `u128`
+    /// middle starts at each of the four `u32` positions) and lengths around
+    /// the 16- and 64-byte boundaries: exactly the range is cleared.
+    #[test]
+    fn test_zeroize_u32s_covers_unaligned_ends_and_odd_lengths() {
+        #[repr(align(16))]
+        struct Aligned([u32; 40]);
+        const FILL: u32 = 0xa5a5_a5a5;
+        let mut buffer = Aligned([FILL; 40]);
+        for start in 0..4 {
+            for len in [0, 1, 2, 3, 4, 5, 7, 8, 12, 15, 16, 17, 20, 32] {
+                buffer.0.fill(FILL);
+                zeroize_u32s(&mut buffer.0[start..start + len]);
+                assert!(
+                    buffer.0[..start].iter().all(|&w| w == FILL),
+                    "{start} {len}"
+                );
+                assert!(
+                    buffer.0[start..start + len].iter().all(|&w| w == 0),
+                    "{start} {len}"
+                );
+                assert!(
+                    buffer.0[start + len..].iter().all(|&w| w == FILL),
+                    "{start} {len}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_zeroize_bytes_covers_unaligned_ends_and_odd_lengths() {
         let mut buffer = [0xa5u8; 71];
@@ -199,6 +319,29 @@ mod tests {
                 );
                 assert!(
                     buffer[start + len..].iter().all(|&b| b == 0xa5),
+                    "{start} {len}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_zeroize_i16s_covers_unaligned_ends_and_odd_lengths() {
+        let mut buffer = [0x5a5au16 as i16; 43];
+        for start in 0..9 {
+            for len in [0, 1, 7, 8, 9, 15, 16, 17, 34] {
+                buffer.fill(0x5a5a);
+                zeroize_i16s(&mut buffer[start..start + len]);
+                assert!(
+                    buffer[..start].iter().all(|&w| w == 0x5a5a),
+                    "{start} {len}"
+                );
+                assert!(
+                    buffer[start..start + len].iter().all(|&w| w == 0),
+                    "{start} {len}"
+                );
+                assert!(
+                    buffer[start + len..].iter().all(|&w| w == 0x5a5a),
                     "{start} {len}"
                 );
             }

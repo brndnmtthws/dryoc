@@ -1,11 +1,14 @@
 //! AArch64 Keccak-p[1600] on the SHA3 extension (`EOR3`, `RAX1`, `XAR`,
-//! `BCAX`), one or two states per call.
+//! `BCAX`), two states per call; a single state goes to the scalar
+//! permutation in `keccak_soft.rs`, which is faster than this kernel with a
+//! wasted second half. With 24 rounds, [`Kernel::permute_selected`] runs
+//! three states per call through `keccak3_aarch64.rs` (this kernel's round
+//! beside a scalar state on the integer registers).
 //!
 //! Vector `i` holds lane `i` (`x + 5 * y`) of both states, one state per
-//! 64-bit half; a single state runs with a zero second half, as the `keccak`
-//! crate's AArch64 backend does. The round is that backend's (after XKCP's
-//! `KeccakP-1600-ARMv8Asha3.S`): `theta` with `EOR3` and `RAX1`, `rho` and
-//! `pi` with `XAR`, `chi` with `BCAX`.
+//! 64-bit half. The round is the `keccak` crate's AArch64 backend's (after
+//! XKCP's `KeccakP-1600-ARMv8Asha3.S`): `theta` with `EOR3` and `RAX1`, `rho`
+//! and `pi` with `XAR`, `chi` with `BCAX`.
 //!
 //! This replaces the crate backend for dryoc's sponges on CPUs with the SHA3
 //! extension. That backend's single-state entry point copies the state into
@@ -23,7 +26,8 @@ use core::arch::aarch64::{
     vgetq_lane_u64, vrax1q_u64, vxarq_u64,
 };
 
-use super::RC;
+use super::keccak3_aarch64::permute3;
+use super::{Companion, RC, ROUNDS_FULL};
 use crate::aarch64::Sha3;
 
 /// A kernel the running CPU has been verified to support: its variant holds
@@ -47,14 +51,6 @@ impl Kernel {
         detect().into_iter().collect()
     }
 
-    /// Keccak-p[1600, `ROUNDS`] on one state, in place.
-    #[inline]
-    pub(super) fn permute1<const ROUNDS: usize>(self, state: &mut [u64; 25]) {
-        match self {
-            Kernel::Sha3(sha3) => permute1_sha3::<ROUNDS>(sha3, state),
-        }
-    }
-
     /// Keccak-p[1600, `ROUNDS`] on two states, in place.
     #[inline]
     pub(super) fn permute2<const ROUNDS: usize>(self, a: &mut [u64; 25], b: &mut [u64; 25]) {
@@ -63,32 +59,116 @@ impl Kernel {
         }
     }
 
-    /// Applies Keccak-p[1600, `ROUNDS`] to every state in `selected`, two
-    /// at a time in lane order (the last one alone when their number is
-    /// odd), and clears their flags.
+    /// Keccak-p[1600, 24] on three states, in place.
+    #[inline]
+    pub(super) fn permute3(self, a: &mut [u64; 25], b: &mut [u64; 25], c: &mut [u64; 25]) {
+        match self {
+            Kernel::Sha3(sha3) => permute3(sha3, a, b, c),
+        }
+    }
+
+    /// Applies Keccak-p[1600, `ROUNDS`] to every state in `selected` and
+    /// clears their flags.
+    ///
+    /// With 24 rounds the states go three per call, and `companion` (given
+    /// only then) has one permutation in each of the first calls: as many
+    /// as fill the slots the lanes leave free, or its quota if larger,
+    /// while there are at most as many as calls. With fewer rounds they go
+    /// two per call, an odd one alone through the scalar permutation.
     pub(super) fn permute_selected<const ROUNDS: usize, const N: usize>(
         self,
         states: &mut [[u64; 25]; N],
         selected: &mut [bool; N],
+        mut companion: Option<&mut (dyn Companion + '_)>,
     ) {
         let mut lanes = [0; N];
         let mut count = 0;
-        for (lane, _) in selected.iter().enumerate().filter(|(_, s)| **s) {
-            lanes[count] = lane;
-            count += 1;
-        }
-        let (pairs, rest) = lanes[..count].as_chunks::<2>();
-        for &pair in pairs {
-            let [a, b] = states
-                .get_disjoint_mut(pair)
-                .expect("selected lanes are distinct and in bounds");
-            self.permute2::<ROUNDS>(a, b);
-        }
-        if let &[lane] = rest {
-            self.permute1::<ROUNDS>(&mut states[lane]);
-        }
-        for flag in selected.iter_mut() {
+        for (lane, flag) in selected.iter_mut().enumerate() {
+            if *flag {
+                lanes[count] = lane;
+                count += 1;
+            }
             *flag = false;
+        }
+        let lanes = &lanes[..count];
+        if ROUNDS != ROUNDS_FULL {
+            debug_assert!(companion.is_none());
+            let (pairs, rest) = lanes.as_chunks::<2>();
+            for &pair in pairs {
+                let [a, b] = states
+                    .get_disjoint_mut(pair)
+                    .expect("selected lanes are distinct and in bounds");
+                self.permute2::<ROUNDS>(a, b);
+            }
+            if let &[lane] = rest {
+                super::keccak_soft::permute::<ROUNDS>(&mut states[lane]);
+            }
+            return;
+        }
+        if count == 0 {
+            return;
+        }
+        let calls = count.div_ceil(3);
+        let mut take = match companion.as_deref_mut() {
+            Some(companion) => (3 * calls - count).min(calls).max(companion.quota()),
+            None => 0,
+        };
+        while take > (count + take).div_ceil(3) {
+            take -= 1;
+        }
+        let calls = (count + take).div_ceil(3);
+        let (mut left, mut next) = (count + take, 0);
+        for call in 0..calls {
+            // Three states a call and the rest in the last one: a single
+            // state alone (scalar) costs less than splitting the last four
+            // into two pairs.
+            let size = left.min(3);
+            left -= size;
+            let with_companion = call < take;
+            let group = &lanes[next..next + size - usize::from(with_companion)];
+            next += group.len();
+            let extra = match companion.as_deref_mut() {
+                Some(companion) if with_companion => companion.pending(),
+                _ => None,
+            };
+            let permuted = extra.is_some();
+            self.permute_group(states, group, extra);
+            if permuted && let Some(companion) = companion.as_deref_mut() {
+                companion.permuted();
+            }
+        }
+        debug_assert_eq!(next, count);
+    }
+
+    /// Keccak-p[1600, 24] on the states of `lanes` and `extra` (one to
+    /// three of them) in one call.
+    fn permute_group<const N: usize>(
+        self,
+        states: &mut [[u64; 25]; N],
+        lanes: &[usize],
+        extra: Option<&mut [u64; 25]>,
+    ) {
+        let distinct = "selected lanes are distinct and in bounds";
+        match (lanes, extra) {
+            (&[x, y, z], None) => {
+                let [a, b, c] = states.get_disjoint_mut([x, y, z]).expect(distinct);
+                self.permute3(a, b, c);
+            }
+            (&[x, y], Some(c)) => {
+                let [a, b] = states.get_disjoint_mut([x, y]).expect(distinct);
+                self.permute3(a, b, c);
+            }
+            (&[x, y], None) => {
+                let [a, b] = states.get_disjoint_mut([x, y]).expect(distinct);
+                self.permute2::<ROUNDS_FULL>(a, b);
+            }
+            (&[x], Some(b)) => self.permute2::<ROUNDS_FULL>(&mut states[x], b),
+            (&[x], None) => super::keccak_soft::permute::<ROUNDS_FULL>(&mut states[x]),
+            (&[], Some(a)) => super::keccak_soft::permute::<ROUNDS_FULL>(a),
+            // A call reserved for the companion alone, which had no
+            // permutation left.
+            (&[], None) => {}
+            _ => unreachable!("one to three states per call"),
         }
     }
 }
@@ -126,73 +206,82 @@ macro_rules! permute {
         let mut s23: uint64x2_t = $load!(23);
         let mut s24: uint64x2_t = $load!(24);
         let mut round = 24 - $rounds;
+        // One round; the loop runs two per iteration (every round count
+        // used is even), which lets the register allocator alternate the
+        // two rounds' names instead of copying the state back (2-3% faster).
+        macro_rules! round {
+            () => {{
+                let rc = RC[round];
+                // theta
+                let c0 = veor3q_u64(s0, s5, veor3q_u64(s10, s15, s20));
+                let c1 = veor3q_u64(s1, s6, veor3q_u64(s11, s16, s21));
+                let c2 = veor3q_u64(s2, s7, veor3q_u64(s12, s17, s22));
+                let c3 = veor3q_u64(s3, s8, veor3q_u64(s13, s18, s23));
+                let c4 = veor3q_u64(s4, s9, veor3q_u64(s14, s19, s24));
+                let d0 = vrax1q_u64(c4, c1);
+                let d1 = vrax1q_u64(c0, c2);
+                let d2 = vrax1q_u64(c1, c3);
+                let d3 = vrax1q_u64(c2, c4);
+                let d4 = vrax1q_u64(c3, c0);
+                // rho and pi
+                let v0 = veorq_u64(s0, d0);
+                let v25 = vxarq_u64::<63>(s1, d1);
+                let v1 = vxarq_u64::<20>(s6, d1);
+                let v6 = vxarq_u64::<44>(s9, d4);
+                let v9 = vxarq_u64::<3>(s22, d2);
+                let v22 = vxarq_u64::<25>(s14, d4);
+                let v14 = vxarq_u64::<46>(s20, d0);
+                let v26 = vxarq_u64::<2>(s2, d2);
+                let v2 = vxarq_u64::<21>(s12, d2);
+                let v12 = vxarq_u64::<39>(s13, d3);
+                let v13 = vxarq_u64::<56>(s19, d4);
+                let v19 = vxarq_u64::<8>(s23, d3);
+                let v23 = vxarq_u64::<23>(s15, d0);
+                let v15 = vxarq_u64::<37>(s4, d4);
+                let v28 = vxarq_u64::<50>(s24, d4);
+                let v24 = vxarq_u64::<62>(s21, d1);
+                let v8 = vxarq_u64::<9>(s8, d3);
+                let v4 = vxarq_u64::<19>(s16, d1);
+                let v16 = vxarq_u64::<28>(s5, d0);
+                let v5 = vxarq_u64::<36>(s3, d3);
+                let v27 = vxarq_u64::<43>(s18, d3);
+                let v3 = vxarq_u64::<49>(s17, d2);
+                let v30 = vxarq_u64::<54>(s11, d1);
+                let v31 = vxarq_u64::<58>(s7, d2);
+                let v29 = vxarq_u64::<61>(s10, d0);
+                // chi and iota
+                let rc_v = vdupq_n_u64(rc);
+                s0 = veorq_u64(vbcaxq_u64(v0, v2, v1), rc_v);
+                s1 = vbcaxq_u64(v1, v27, v2);
+                s2 = vbcaxq_u64(v2, v28, v27);
+                s3 = vbcaxq_u64(v27, v0, v28);
+                s4 = vbcaxq_u64(v28, v1, v0);
+                s5 = vbcaxq_u64(v5, v29, v6);
+                s6 = vbcaxq_u64(v6, v4, v29);
+                s7 = vbcaxq_u64(v29, v9, v4);
+                s8 = vbcaxq_u64(v4, v5, v9);
+                s9 = vbcaxq_u64(v9, v6, v5);
+                s10 = vbcaxq_u64(v25, v12, v31);
+                s11 = vbcaxq_u64(v31, v13, v12);
+                s12 = vbcaxq_u64(v12, v14, v13);
+                s13 = vbcaxq_u64(v13, v25, v14);
+                s14 = vbcaxq_u64(v14, v31, v25);
+                s15 = vbcaxq_u64(v15, v30, v16);
+                s16 = vbcaxq_u64(v16, v3, v30);
+                s17 = vbcaxq_u64(v30, v19, v3);
+                s18 = vbcaxq_u64(v3, v15, v19);
+                s19 = vbcaxq_u64(v19, v16, v15);
+                s20 = vbcaxq_u64(v26, v22, v8);
+                s21 = vbcaxq_u64(v8, v23, v22);
+                s22 = vbcaxq_u64(v22, v24, v23);
+                s23 = vbcaxq_u64(v23, v26, v24);
+                s24 = vbcaxq_u64(v24, v8, v26);
+                round += 1;
+            }};
+        }
         while round < 24 {
-            let rc = RC[round];
-            // theta
-            let c0 = veor3q_u64(s0, s5, veor3q_u64(s10, s15, s20));
-            let c1 = veor3q_u64(s1, s6, veor3q_u64(s11, s16, s21));
-            let c2 = veor3q_u64(s2, s7, veor3q_u64(s12, s17, s22));
-            let c3 = veor3q_u64(s3, s8, veor3q_u64(s13, s18, s23));
-            let c4 = veor3q_u64(s4, s9, veor3q_u64(s14, s19, s24));
-            let d0 = vrax1q_u64(c4, c1);
-            let d1 = vrax1q_u64(c0, c2);
-            let d2 = vrax1q_u64(c1, c3);
-            let d3 = vrax1q_u64(c2, c4);
-            let d4 = vrax1q_u64(c3, c0);
-            // rho and pi
-            let v0 = veorq_u64(s0, d0);
-            let v25 = vxarq_u64::<63>(s1, d1);
-            let v1 = vxarq_u64::<20>(s6, d1);
-            let v6 = vxarq_u64::<44>(s9, d4);
-            let v9 = vxarq_u64::<3>(s22, d2);
-            let v22 = vxarq_u64::<25>(s14, d4);
-            let v14 = vxarq_u64::<46>(s20, d0);
-            let v26 = vxarq_u64::<2>(s2, d2);
-            let v2 = vxarq_u64::<21>(s12, d2);
-            let v12 = vxarq_u64::<39>(s13, d3);
-            let v13 = vxarq_u64::<56>(s19, d4);
-            let v19 = vxarq_u64::<8>(s23, d3);
-            let v23 = vxarq_u64::<23>(s15, d0);
-            let v15 = vxarq_u64::<37>(s4, d4);
-            let v28 = vxarq_u64::<50>(s24, d4);
-            let v24 = vxarq_u64::<62>(s21, d1);
-            let v8 = vxarq_u64::<9>(s8, d3);
-            let v4 = vxarq_u64::<19>(s16, d1);
-            let v16 = vxarq_u64::<28>(s5, d0);
-            let v5 = vxarq_u64::<36>(s3, d3);
-            let v27 = vxarq_u64::<43>(s18, d3);
-            let v3 = vxarq_u64::<49>(s17, d2);
-            let v30 = vxarq_u64::<54>(s11, d1);
-            let v31 = vxarq_u64::<58>(s7, d2);
-            let v29 = vxarq_u64::<61>(s10, d0);
-            // chi and iota
-            let rc_v = vdupq_n_u64(rc);
-            s0 = veorq_u64(vbcaxq_u64(v0, v2, v1), rc_v);
-            s1 = vbcaxq_u64(v1, v27, v2);
-            s2 = vbcaxq_u64(v2, v28, v27);
-            s3 = vbcaxq_u64(v27, v0, v28);
-            s4 = vbcaxq_u64(v28, v1, v0);
-            s5 = vbcaxq_u64(v5, v29, v6);
-            s6 = vbcaxq_u64(v6, v4, v29);
-            s7 = vbcaxq_u64(v29, v9, v4);
-            s8 = vbcaxq_u64(v4, v5, v9);
-            s9 = vbcaxq_u64(v9, v6, v5);
-            s10 = vbcaxq_u64(v25, v12, v31);
-            s11 = vbcaxq_u64(v31, v13, v12);
-            s12 = vbcaxq_u64(v12, v14, v13);
-            s13 = vbcaxq_u64(v13, v25, v14);
-            s14 = vbcaxq_u64(v14, v31, v25);
-            s15 = vbcaxq_u64(v15, v30, v16);
-            s16 = vbcaxq_u64(v16, v3, v30);
-            s17 = vbcaxq_u64(v30, v19, v3);
-            s18 = vbcaxq_u64(v3, v15, v19);
-            s19 = vbcaxq_u64(v19, v16, v15);
-            s20 = vbcaxq_u64(v26, v22, v8);
-            s21 = vbcaxq_u64(v8, v23, v22);
-            s22 = vbcaxq_u64(v22, v24, v23);
-            s23 = vbcaxq_u64(v23, v26, v24);
-            s24 = vbcaxq_u64(v24, v8, v26);
-            round += 1;
+            round!();
+            round!();
         }
         $store!(0, s0);
         $store!(1, s1);
@@ -222,36 +311,11 @@ macro_rules! permute {
     }};
 }
 
-/// Keccak-p[1600, `ROUNDS`] on one state, with a zero second half.
-#[target_feature(enable = "neon,sha3")]
-fn permute1_sha3_unchecked<const ROUNDS: usize>(state: &mut [u64; 25]) {
-    const { assert!(ROUNDS <= 24) };
-    macro_rules! load {
-        ($i:literal) => {
-            vcombine_u64(vcreate_u64(state[$i]), vcreate_u64(0))
-        };
-    }
-    macro_rules! store {
-        ($i:literal, $v:ident) => {
-            state[$i] = vgetq_lane_u64::<0>($v)
-        };
-    }
-    permute!(ROUNDS, load, store);
-}
-
-/// [`permute1_sha3_unchecked`], safe to call with a [`Sha3`] token.
-#[inline(always)]
-fn permute1_sha3<const ROUNDS: usize>(_: Sha3, state: &mut [u64; 25]) {
-    // SAFETY: a `Sha3` token exists only after detection of `sha3`, which
-    // implies the `neon` the kernel is also compiled for.
-    unsafe { permute1_sha3_unchecked::<ROUNDS>(state) }
-}
-
 /// Keccak-p[1600, `ROUNDS`] on two states, `a` in the low halves and `b` in
 /// the high halves.
 #[target_feature(enable = "neon,sha3")]
 fn permute2_sha3_unchecked<const ROUNDS: usize>(a: &mut [u64; 25], b: &mut [u64; 25]) {
-    const { assert!(ROUNDS <= 24) };
+    const { assert!(ROUNDS <= 24 && ROUNDS.is_multiple_of(2)) };
     macro_rules! load {
         ($i:literal) => {
             vcombine_u64(vcreate_u64(a[$i]), vcreate_u64(b[$i]))
@@ -269,6 +333,7 @@ fn permute2_sha3_unchecked<const ROUNDS: usize>(a: &mut [u64; 25], b: &mut [u64;
 /// [`permute2_sha3_unchecked`], safe to call with a [`Sha3`] token.
 #[inline(always)]
 fn permute2_sha3<const ROUNDS: usize>(_: Sha3, a: &mut [u64; 25], b: &mut [u64; 25]) {
-    // SAFETY: as for `permute1_sha3`.
+    // SAFETY: a `Sha3` token exists only after detection of `sha3`, which
+    // implies the `neon` the kernel is also compiled for.
     unsafe { permute2_sha3_unchecked::<ROUNDS>(a, b) }
 }

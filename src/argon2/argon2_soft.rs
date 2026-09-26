@@ -28,13 +28,13 @@ pub(super) fn fill_block(
 macro_rules! g {
     ($a:ident, $b:ident, $c:ident, $d:ident) => {
         $a = fblamka($a, $b);
-        $d = ($d ^ $a).rotate_right(32);
+        $d = xor_ror::<32>($d, $a);
         $c = fblamka($c, $d);
-        $b = ($b ^ $c).rotate_right(24);
+        $b = xor_ror::<24>($b, $c);
         $a = fblamka($a, $b);
-        $d = ($d ^ $a).rotate_right(16);
+        $d = xor_ror::<16>($d, $a);
         $c = fblamka($c, $d);
-        $b = ($b ^ $c).rotate_right(63);
+        $b = xor_ror::<63>($b, $c);
     };
 }
 
@@ -112,6 +112,38 @@ fn store_word(slot: &mut u64, word: u64) {
     #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
     {
         *slot = word;
+    }
+}
+
+/// `(x ^ y).rotate_right(N)`, where `y` is the word `G` just computed and
+/// `x` an older one. On AArch64 this is `x.rotate_right(N) ^
+/// y.rotate_right(N)`: the rotation of `x` runs off the critical path and
+/// the rotation of `y` folds into one `eor` with a rotated operand, so each
+/// of `G`'s four dependent steps is a cycle shorter. It is an `asm!`
+/// instruction because LLVM folds the two rotations back into one after the
+/// XOR.
+#[inline(always)]
+fn xor_ror<const N: u32>(x: u64, y: u64) -> u64 {
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    {
+        let out;
+        // SAFETY: one register-only instruction: it reads its two inputs,
+        // writes `out`, and touches no memory, stack or flags.
+        unsafe {
+            core::arch::asm!(
+                "eor {out}, {x}, {y}, ror #{n}",
+                out = lateout(reg) out,
+                x = in(reg) x.rotate_right(N),
+                y = in(reg) y,
+                n = const N,
+                options(pure, nomem, nostack, preserves_flags),
+            );
+        }
+        out
+    }
+    #[cfg(not(all(target_arch = "aarch64", not(miri))))]
+    {
+        (x ^ y).rotate_right(N)
     }
 }
 

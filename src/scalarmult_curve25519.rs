@@ -5,8 +5,8 @@
 //! its Montgomery u coordinate, which is far faster than a ladder; the scalar
 //! is first reduced modulo the group order, as libsodium does. The
 //! variable-base function is the RFC 7748 Montgomery ladder over the in-crate
-//! field [`crate::fe25519::Fe`]; inlining the whole ladder step is what dalek's
-//! out-of-line field multiply prevents.
+//! field [`crate::fe25519::Fe`] (its four-limb `Fe64` on AArch64); inlining
+//! the whole ladder step is what dalek's out-of-line field multiply prevents.
 
 use zeroize::Zeroize;
 
@@ -15,6 +15,8 @@ use crate::constants::{
 };
 use crate::edwards25519::mul_base;
 use crate::fe25519::Fe;
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+use crate::fe25519::Fe64;
 
 /// Clamps `s` in place into a valid X25519 scalar: clears the low three bits
 /// (cofactor), clears the top bit, and sets bit 254 (fixed leading bit).
@@ -48,6 +50,62 @@ pub(crate) fn crypto_scalarmult_curve25519_base(
     point.zeroize();
 }
 
+/// `shared = X25519(n, p)` and `public = X25519(n, 9)` (the base point),
+/// as [`crypto_scalarmult_curve25519`] and
+/// [`crypto_scalarmult_curve25519_base`] give them, with one field inversion
+/// for both quotients (Montgomery's trick): `1 / (Z_s W_b)` times `W_b` and
+/// `Z_s`. The base point's denominator `Z - Y` is never zero (a clamped
+/// scalar is not a multiple of the group order), so `public` is right
+/// whenever `shared` is not all zero; for a low-order `p`, where `shared`
+/// is all zero, `public` is zero too, and callers reject that case.
+///
+/// On AArch64 with NEON the base-point multiplication runs as
+/// [`BaseSteps`](crate::edwards25519::BaseSteps), one table addition after
+/// each of the ladder's first steps: the two are independent, and the
+/// ladder's carry chains leave the multipliers idle often enough that the
+/// additions mostly fit in its gaps (measured 0.9 us of `mul_base`'s 5.9
+/// saved on Neoverse V3). The `steps` local is wiped by its `finish`.
+pub(crate) fn crypto_scalarmult_curve25519_and_base(
+    shared: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+    public: &mut [u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+) {
+    let mut clamped = clamp(n);
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+    let ((mut x, mut z), mut point) = {
+        let mut steps = crate::edwards25519::BaseSteps::new(&clamped);
+        let xz = ladder_xz_with(n, p, &mut steps);
+        (xz, steps.finish())
+    };
+    #[cfg(not(all(target_arch = "aarch64", target_feature = "neon", not(miri))))]
+    let ((mut x, mut z), mut point) = {
+        #[cfg(target_arch = "x86_64")]
+        let xz = match crate::x86_64::Bmi2::new() {
+            Some(bmi2) => ladder_xz_bmi2(bmi2, n, p),
+            None => ladder_xz(n, p),
+        };
+        #[cfg(not(target_arch = "x86_64"))]
+        let xz = ladder_xz(n, p);
+        (xz, mul_base(&clamped))
+    };
+    let (mut u, mut w) = point.montgomery_ratio();
+    let mut zw = z.mul(&w);
+    let mut inv = zw.invert();
+    let mut s = x.mul(&w).mul(&inv);
+    let mut b = u.mul(&z).mul(&inv);
+    *shared = s.to_bytes_inline();
+    *public = b.to_bytes_inline();
+
+    clamped.zeroize();
+    point.zeroize();
+    for fe in [
+        &mut x, &mut z, &mut u, &mut w, &mut zw, &mut inv, &mut s, &mut b,
+    ] {
+        fe.zeroize();
+    }
+}
+
 /// On x86-64 with BMI2 the ladder runs in a copy compiled for `mulx` (see
 /// [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
 pub(crate) fn crypto_scalarmult_curve25519(
@@ -72,6 +130,29 @@ fn ladder_bmi2_unchecked(
     ladder(q, n, p)
 }
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+fn ladder_xz_bmi2_unchecked(
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+) -> (Fe, Fe) {
+    ladder_xz(n, p)
+}
+
+/// [`ladder_xz_bmi2_unchecked`], safe to call with a
+/// [`crate::x86_64::Bmi2`] token.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn ladder_xz_bmi2(
+    _: crate::x86_64::Bmi2,
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+) -> (Fe, Fe) {
+    // SAFETY: a `Bmi2` token exists only after detection of `bmi2`,
+    // the feature the ladder copy is compiled for.
+    unsafe { ladder_xz_bmi2_unchecked(n, p) }
+}
+
 /// [`ladder_bmi2_unchecked`], safe to call with a [`crate::x86_64::Bmi2`]
 /// token.
 #[cfg(target_arch = "x86_64")]
@@ -89,6 +170,10 @@ fn ladder_bmi2(
 
 /// The RFC 7748 Montgomery ladder; see [`crypto_scalarmult_curve25519`].
 ///
+/// On AArch64 the ladder runs on the four-limb [`Fe64`] (see
+/// `fe64_aarch64.rs`), whose products take a quarter fewer multiplies, and
+/// converts the result to [`Fe`] for the inversion and encoding.
+///
 /// The `zeroize` calls (out of line at opt-level `z` and `s`) only get
 /// `&mut` to the storage they wipe.
 #[inline(always)]
@@ -97,58 +182,146 @@ fn ladder(
     n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
     p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
 ) {
+    let (mut x, mut z) = ladder_xz(n, p);
+    let mut zinv = z.invert();
+    let mut shared = x.mul(&zinv);
+    *q = shared.to_bytes_inline();
+
+    x.zeroize();
+    z.zeroize();
+    zinv.zeroize();
+    shared.zeroize();
+}
+
+/// Independent work run after each of the first [`LadderExtra::STEPS`]
+/// ladder steps.
+trait LadderExtra {
+    const STEPS: usize;
+    fn step(&mut self, j: usize);
+}
+
+/// No extra work.
+impl LadderExtra for () {
+    const STEPS: usize = 0;
+
+    #[inline(always)]
+    fn step(&mut self, _: usize) {}
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+impl LadderExtra for crate::edwards25519::BaseSteps {
+    const STEPS: usize = Self::STEPS;
+
+    #[inline(always)]
+    fn step(&mut self, j: usize) {
+        Self::step(self, j)
+    }
+}
+
+/// The ladder's projective result `(X, Z)`, `u = X / Z`, before the
+/// inversion. The caller wipes both.
+#[inline(always)]
+fn ladder_xz(
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+) -> (Fe, Fe) {
+    ladder_xz_with(n, p, &mut ())
+}
+
+/// [`ladder_xz`], running `extra`'s steps after the first ladder steps.
+#[inline(always)]
+fn ladder_xz_with<E: LadderExtra>(
+    n: &[u8; CRYPTO_SCALARMULT_CURVE25519_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_CURVE25519_BYTES],
+    extra: &mut E,
+) -> (Fe, Fe) {
     let mut clamped = clamp(n);
     // RFC 7748 requires X25519 implementations to ignore the most significant
     // bit of the final input byte for compatibility with existing point
-    // formats; `Fe::from_bytes` drops it.
-    let x1 = Fe::from_bytes(p);
+    // formats; `from_bytes` drops it.
+    let x1 = Field::from_bytes(p);
 
-    let mut x2 = Fe::ONE;
-    let mut z2 = Fe::ZERO;
+    let mut x2 = Field::ONE;
+    let mut z2 = Field::ZERO;
     let mut x3 = x1;
-    let mut z3 = Fe::ONE;
+    let mut z3 = Field::ONE;
     let mut swap = 0u64;
 
     // RFC 7748 section 5 ladder. Every step performs the same operations on
     // the same registers; the secret scalar only selects `cswap` masks.
-    for t in (0..255).rev() {
+    // Clamping clears bits 0 to 2 of every scalar, so the last three steps
+    // are unrolled below as the doublings they reduce to.
+    for t in (3..255).rev() {
         let bit = u64::from((clamped[t >> 3] >> (t & 7)) & 1);
         swap ^= bit;
-        Fe::cswap(&mut x2, &mut x3, swap);
-        Fe::cswap(&mut z2, &mut z3, swap);
+        Field::cswap(&mut x2, &mut x3, swap);
+        Field::cswap(&mut z2, &mut z3, swap);
         swap = bit;
 
         let a = x2.add(&z2);
         let b = x2.sub(&z2);
         let c = x3.add(&z3);
         let d = x3.sub(&z3);
-        let aa = a.square();
-        let bb = b.square();
+        // Independent products are adjacent, so the out-of-order window
+        // holds two or three at a time while each one's carry chain runs.
         let da = d.mul(&a);
         let cb = c.mul(&b);
-        // Products that need only AA and BB come first so they fill the
-        // multiplier while the DA/CB-dependent chain below is still carrying.
+        let aa = a.square();
+        let bb = b.square();
+        let sum = da.add(&cb);
+        let diff = da.sub(&cb);
         let e = aa.sub(&bb);
+        x3 = sum.square();
+        let diff2 = diff.square();
         x2 = aa.mul(&bb);
         // z2 = E * (BB + (A + 2) / 4 * E), with (A + 2) / 4 = 121666.
-        z2 = e.mul(&bb.add(&e.mul_121666()));
-        x3 = da.add(&cb).square();
-        z3 = x1.mul(&da.sub(&cb).square());
+        let bb_e = e.mul_121666_add(&bb);
+        z3 = x1.mul(&diff2);
+        z2 = e.mul(&bb_e);
+        let j = 254 - t;
+        if j < E::STEPS {
+            extra.step(j);
+        }
     }
-    Fe::cswap(&mut x2, &mut x3, swap);
-    Fe::cswap(&mut z2, &mut z3, swap);
+    Field::cswap(&mut x2, &mut x3, swap);
+    Field::cswap(&mut z2, &mut z3, swap);
+    // Steps 2, 1 and 0: with a zero bit a step's `cswap`s are no-ops after
+    // the one above, and of its outputs only the doubling `(x2, z2)` is used
+    // afterwards; these are that step's own `x2` and `z2` formulas.
+    for _ in 0..3 {
+        let aa = x2.add(&z2).square();
+        let bb = x2.sub(&z2).square();
+        let e = aa.sub(&bb);
+        x2 = aa.mul(&bb);
+        z2 = e.mul(&e.mul_121666_add(&bb));
+    }
 
-    let mut zinv = z2.invert();
-    let mut shared = x2.mul(&zinv);
-    *q = shared.to_bytes_inline();
+    let xz = (to_fe(x2), to_fe(z2));
 
     clamped.zeroize();
-    zinv.zeroize();
-    shared.zeroize();
     x2.zeroize();
     z2.zeroize();
     x3.zeroize();
     z3.zeroize();
+    xz
+}
+
+/// The ladder's field: [`Fe64`] on AArch64, [`Fe`] elsewhere.
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+type Field = Fe64;
+#[cfg(not(all(target_arch = "aarch64", not(miri))))]
+type Field = Fe;
+
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+#[inline(always)]
+fn to_fe(x: Fe64) -> Fe {
+    x.to_fe()
+}
+
+#[cfg(not(all(target_arch = "aarch64", not(miri))))]
+#[inline(always)]
+fn to_fe(x: Fe) -> Fe {
+    x
 }
 
 /// Inputs shared by the X25519 unit tests and the `crypto_core`, `crypto_kx`
@@ -331,6 +504,44 @@ mod tests {
                 assert_eq!(x25519(&k, &u), [0u8; 32], "u {u:02x?}");
                 assert_eq!(MontgomeryPoint(masked).mul_clamped(k).0, [0u8; 32]);
             }
+        }
+    }
+
+    /// The shared-inversion pair equals the separate ladder and base-point
+    /// multiplications on random, near-`p` and small `u` and on scalars
+    /// with the bits clamping touches set; for a low-order `u` (all-zero
+    /// shared secret, which callers reject, including `p` and `p + 1` among
+    /// the near-`p` inputs) both outputs are zero.
+    #[test]
+    fn test_and_base_matches_separate_calls() {
+        let mut rng = XorShift64::new(0x3c6e_f372_fe94_f82b);
+        for i in 0..if cfg!(miri) { 6 } else { 500 } {
+            let mut k = rng.next_bytes32();
+            if i % 5 == 0 {
+                k = [0xff; 32];
+                k[1] = rng.next_u64() as u8;
+            }
+            let u = match i % 3 {
+                0 => rng.next_bytes32(),
+                1 => field_prime_plus((rng.next_u64() % 19) as i8 - 1),
+                _ => {
+                    let mut u = [0u8; 32];
+                    u[0] = 2 + (rng.next_u64() as u8) % 32;
+                    u
+                }
+            };
+            let (mut shared, mut public, mut base) = ([0u8; 32], [0u8; 32], [0u8; 32]);
+            crypto_scalarmult_curve25519_and_base(&mut shared, &mut public, &k, &u);
+            crypto_scalarmult_curve25519_base(&mut base, &k);
+            assert_eq!(shared, x25519(&k, &u), "shared {i}");
+            // `p` and `p + 1` are the low-order 0 and 1.
+            let expected = if shared == [0u8; 32] { [0u8; 32] } else { base };
+            assert_eq!(public, expected, "public {i}");
+        }
+        for u in low_order_u_encodings() {
+            let (mut shared, mut public) = ([1u8; 32], [1u8; 32]);
+            crypto_scalarmult_curve25519_and_base(&mut shared, &mut public, &[0x42; 32], &u);
+            assert_eq!((shared, public), ([0u8; 32], [0u8; 32]), "u {u:02x?}");
         }
     }
 

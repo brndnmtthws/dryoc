@@ -6,9 +6,10 @@
 //! runtime-detected NEON/SVE2 kernels on little-endian AArch64, the
 //! runtime-detected AVX2/AVX-512 kernels on x86-64 and the `simd128` kernel
 //! on WebAssembly builds with that target feature enabled. The portable
-//! scalar block function handles everything else.
-
-use zeroize::Zeroize;
+//! scalar block function handles everything else. With SVE2 the AEAD and
+//! secretstream encryptions also run Poly1305 over the ciphertext inside the
+//! keystream runs of the chunk after it (`apply_keystream_poly`), on the
+//! integer pipes the vector rounds leave idle.
 
 use crate::stream::{BufferToBuffer, InPlace, Sink};
 use crate::utils::{SIGMA, load_u32_le, zeroize_bytes};
@@ -187,6 +188,10 @@ pub(crate) struct ChaCha20 {
 }
 
 impl ChaCha20 {
+    /// Bytes per run of [`apply_keystream_poly`](Self::apply_keystream_poly).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) const POLY_CHUNK: usize = vector::POLY_CHUNK;
+
     /// RFC 8439 / libsodium `_ietf` layout: word 12 is the block counter and
     /// words 13..16 hold the 96-bit nonce.
     pub(crate) fn ietf(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self {
@@ -270,6 +275,99 @@ impl ChaCha20 {
     pub(crate) fn apply_keystream_b2b(&mut self, input: &[u8], output: &mut [u8]) {
         debug_assert_eq!(input.len(), output.len());
         self.apply(BufferToBuffer { input, output });
+    }
+
+    /// Whether [`apply_keystream_poly`](Self::apply_keystream_poly) runs the
+    /// stitched kernel on this CPU (SVE2).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn poly_stitched() -> bool {
+        matches!(vector::detect(), Some(vector::Kernel::Sve2(_)))
+    }
+
+    /// Encrypts `ciphertext[done..]` (from `message[done..]`, or in place)
+    /// in whole [`POLY_CHUNK`](Self::POLY_CHUNK)s, each run also absorbing
+    /// the chunk of ciphertext before it, `ciphertext[done - POLY_CHUNK..
+    /// done]`, into `mac`, which holds the ciphertext up to `mac_done ==
+    /// done - POLY_CHUNK`; then absorbs the last chunk with the stitch key's
+    /// powers. Returns the new `(done, mac_done)`, equal: everything before
+    /// is in `mac`, nothing from there on is encrypted. Returns them
+    /// unchanged without the stitched kernel or a whole chunk on either side.
+    /// `mac` must be at a block boundary; the cipher always is.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn apply_keystream_poly(
+        &mut self,
+        message: Option<&[u8]>,
+        ciphertext: &mut [u8],
+        mut done: usize,
+        mac_done: usize,
+        mac: &mut crate::poly1305::Poly1305,
+    ) -> (usize, usize) {
+        const CHUNK: usize = vector::POLY_CHUNK;
+        let Some(kernel) = vector::detect() else {
+            return (done, mac_done);
+        };
+        if done < CHUNK
+            || done - mac_done != CHUNK
+            || ciphertext.len() - done < CHUNK
+            || !Self::poly_stitched()
+        {
+            return (done, mac_done);
+        }
+        let key = mac.stitch_key();
+        while ciphertext.len() - done >= CHUNK {
+            let mut lanes = mac.stitch_lanes();
+            let (before, rest) = ciphertext.split_at_mut(done);
+            let mac_input = &before[done - CHUNK..].as_chunks::<CHUNK>().0[0];
+            let output = &mut rest.as_chunks_mut::<CHUNK>().0[0];
+            let input = message.map(|m| &m[done..].as_chunks::<CHUNK>().0[0]);
+            let stitched = kernel.xor_chunk_poly(
+                &self.state,
+                self.counter(),
+                input,
+                output,
+                &mut lanes,
+                &key.r,
+                mac_input,
+            );
+            debug_assert!(stitched);
+            mac.stitch_join(&lanes, &key);
+            zeroize::Zeroize::zeroize(&mut lanes);
+            self.advance_counter((CHUNK / 64) as u64);
+            done += CHUNK;
+        }
+        mac.stitch_finish(&key, &ciphertext[done - CHUNK..].as_chunks::<CHUNK>().0[0]);
+        (done, done)
+    }
+
+    /// Encrypts `message` into `ciphertext` (in place when `message` is
+    /// `None`) and absorbs the ciphertext into `mac`, which must be at a
+    /// block boundary: with the stitched kernel, every chunk's MAC after the
+    /// first runs inside the next chunk's keystream run
+    /// ([`apply_keystream_poly`](Self::apply_keystream_poly)).
+    pub(crate) fn apply_keystream_and_mac(
+        &mut self,
+        message: Option<&[u8]>,
+        ciphertext: &mut [u8],
+        mac: &mut crate::poly1305::Poly1305,
+    ) {
+        #[allow(unused_mut)]
+        let (mut done, mut mac_from) = (0, 0);
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if ciphertext.len() >= 2 * Self::POLY_CHUNK && Self::poly_stitched() {
+            let first = Self::POLY_CHUNK;
+            match message {
+                Some(message) => {
+                    self.apply_keystream_b2b(&message[..first], &mut ciphertext[..first])
+                }
+                None => self.apply_keystream(&mut ciphertext[..first]),
+            }
+            (done, mac_from) = self.apply_keystream_poly(message, ciphertext, first, 0, mac);
+        }
+        match message {
+            Some(message) => self.apply_keystream_b2b(&message[done..], &mut ciphertext[done..]),
+            None => self.apply_keystream(&mut ciphertext[done..]),
+        }
+        mac.update(&ciphertext[mac_from..]);
     }
 
     /// Vector kernel for this run: the best one the CPU supports.
@@ -552,7 +650,7 @@ impl ChaCha20 {
 
 impl Drop for ChaCha20 {
     fn drop(&mut self) {
-        self.state.zeroize();
+        crate::utils::zeroize_u32s(&mut self.state);
     }
 }
 
@@ -683,6 +781,54 @@ mod tests {
                 let mut actual = vec![0u8; len];
                 cipher.apply_keystream_b2b(&plaintext, &mut actual);
                 assert_eq!(actual, expected, "b2b, len {len}, counter {counter}");
+            }
+        }
+    }
+
+    /// `apply_keystream_and_mac` gives the keystream and Poly1305 state of
+    /// `apply_keystream` then `update`, buffer to buffer and in place, at
+    /// lengths around whole stitched chunks, after a head block and with a
+    /// MAC already holding one block, as the secretstream push uses it.
+    #[test]
+    fn test_apply_keystream_and_mac_matches_sequential() {
+        use crate::poly1305::{Key as MacKey, Poly1305};
+        let key = [0x42u8; 32];
+        let nonce = [0x24u8; 12];
+        let mut mac_key = MacKey::new();
+        mac_key.copy_from_slice(&[0x5au8; 32]);
+        for len in [0, 100, 1023, 1024, 1025, 1536, 1537, 3000, 8192] {
+            let message = pattern(len);
+            for in_place in [false, true] {
+                let mut reference = ChaCha20::ietf(&key, &nonce, 2);
+                let mut expected = message.clone();
+                reference.apply_keystream(&mut expected);
+                let mut expected_mac = Poly1305::new(&mac_key);
+                expected_mac.update(&[7u8; 64]);
+                expected_mac.update(&expected);
+                let expected_tag = expected_mac.finalize_to_array();
+
+                let mut cipher = ChaCha20::ietf(&key, &nonce, 2);
+                let mut mac = Poly1305::new(&mac_key);
+                mac.update(&[7u8; 64]);
+                let mut ciphertext = if in_place {
+                    message.clone()
+                } else {
+                    vec![0u8; len]
+                };
+                let input = (!in_place).then_some(&message[..]);
+                cipher.apply_keystream_and_mac(input, &mut ciphertext, &mut mac);
+                assert_eq!(ciphertext, expected, "len {len}, in place {in_place}");
+                assert_eq!(
+                    mac.finalize_to_array(),
+                    expected_tag,
+                    "len {len}, in place {in_place}"
+                );
+                // The cipher continues right after the data.
+                let mut next = [0u8; 64];
+                let mut expected_next = [0u8; 64];
+                cipher.apply_keystream(&mut next);
+                reference.apply_keystream(&mut expected_next);
+                assert_eq!(next, expected_next, "len {len}");
             }
         }
     }

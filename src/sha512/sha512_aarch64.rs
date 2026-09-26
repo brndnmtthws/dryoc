@@ -1244,13 +1244,19 @@ fn compress_unchecked(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
     }
     // SAFETY: `state` is a valid 64-byte in/out buffer and `blocks` holds
     // `blocks.len()` readable 128-byte blocks; the loop reads exactly those
-    // bytes and `K64` (640 bytes) through `x3`, and reads and writes
-    // `state` once per block. Only the declared registers and the two
+    // bytes and `K64` (640 bytes) through `x3`, and `state` is read before
+    // the loop and written after it (the chaining value stays in `v24..v27`
+    // between blocks). Only the declared registers and the two
     // pointer/counter operands are written; the block touches no stack.
     unsafe {
         core::arch::asm!(
-            "2:",
             "ld1 {{v24.2d, v25.2d, v26.2d, v27.2d}}, [{st}]",
+            "2:",
+            // The state as it enters the block, for the feed-forward.
+            "mov v30.16b, v24.16b",
+            "mov v31.16b, v25.16b",
+            "mov v6.16b, v26.16b",
+            "mov v7.16b, v27.16b",
             "ld1 {{v16.16b, v17.16b, v18.16b, v19.16b}}, [{blk}], #64",
             "ld1 {{v20.16b, v21.16b, v22.16b, v23.16b}}, [{blk}], #64",
             "mov x3, {k}",
@@ -1335,18 +1341,15 @@ fn compress_unchecked(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
         sched!(23, 16, 19, 20, 22),
         step!(26, 27, 28, 25, 29, 24, 22, 0, 1),
         last_step!(29, 26, 27, 24, 25, 28, 23, 1),
-            // Feed-forward: the state as loaded at the top of the block.
-            "ld1 {{v4.2d, v5.2d, v6.2d, v7.2d}}, [{st}]",
-            "add v29.2d, v29.2d, v4.2d",
-            "add v26.2d, v26.2d, v5.2d",
-            "add v28.2d, v28.2d, v6.2d",
-            "add v24.2d, v24.2d, v7.2d",
-            "str q29, [{st}]",
-            "str q26, [{st}, #16]",
-            "str q28, [{st}, #32]",
-            "str q24, [{st}, #48]",
+            // Feed-forward, back into the roles the next block starts from
+            // (`v27` first: it reads the old `v24`, `v25` before `v26`).
+            "add v27.2d, v24.2d, v7.2d",
+            "add v24.2d, v29.2d, v30.2d",
+            "add v25.2d, v26.2d, v31.2d",
+            "add v26.2d, v28.2d, v6.2d",
             "subs {n}, {n}, #1",
             "b.ne 2b",
+            "st1 {{v24.2d, v25.2d, v26.2d, v27.2d}}, [{st}]",
             st = in(reg) state.as_mut_ptr(),
             blk = inout(reg) blocks.as_ptr() => _,
             n = inout(reg) blocks.len() => _,
@@ -1357,7 +1360,7 @@ fn compress_unchecked(state: &mut [u64; 8], blocks: &[[u8; 128]]) {
             out("v16") _, out("v17") _, out("v18") _, out("v19") _,
             out("v20") _, out("v21") _, out("v22") _, out("v23") _,
             out("v24") _, out("v25") _, out("v26") _, out("v27") _,
-            out("v28") _, out("v29") _,
+            out("v28") _, out("v29") _, out("v30") _, out("v31") _,
             options(nostack),
         );
     }

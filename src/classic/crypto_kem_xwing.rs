@@ -35,7 +35,7 @@
 
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::classic::crypto_core::{crypto_scalarmult, crypto_scalarmult_base};
+use crate::classic::crypto_core::{crypto_scalarmult_and_base, crypto_scalarmult_base};
 use crate::constants::{
     CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES, CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES,
     CRYPTO_KEM_MLKEM768_SECRETKEYBYTES, CRYPTO_KEM_XWING_CIPHERTEXTBYTES,
@@ -47,6 +47,7 @@ use crate::error::Error;
 use crate::keccak::{DOMAIN_SHA3, DOMAIN_SHAKE, RATE_256, ROUNDS_FULL, Sponge, hash};
 use crate::mlkem::{self, Arith};
 use crate::rng::copy_randombytes;
+use crate::utils::zeroize_bytes;
 
 /// X-Wing public key: the ML-KEM-768 public key, then the X25519 public key.
 pub type PublicKey = [u8; CRYPTO_KEM_XWING_PUBLICKEYBYTES];
@@ -67,15 +68,32 @@ pub type EncSeed = [u8; CRYPTO_KEM_XWING_ENCSEEDBYTES];
 const LABEL: &[u8; 6] = b"\\.//^\\";
 
 /// The expanded secret key: the ML-KEM-768 key pair, and the X25519 secret
-/// and public keys. Wiped on drop; [`Expanded::derive`] fills it in place so
-/// no secret is copied out of it.
-#[derive(Zeroize, ZeroizeOnDrop)]
+/// and public keys. Wiped on drop, sixteen bytes per store (a derived wipe
+/// stores each of its 3.6 KB separately); [`Expanded::derive`] fills it in
+/// place so no secret is copied out of it.
 struct Expanded {
     mlkem_public_key: [u8; CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES],
     mlkem_secret_key: [u8; CRYPTO_KEM_MLKEM768_SECRETKEYBYTES],
     x25519_secret_key: [u8; CRYPTO_SCALARMULT_BYTES],
     x25519_public_key: [u8; CRYPTO_SCALARMULT_BYTES],
 }
+
+impl Zeroize for Expanded {
+    fn zeroize(&mut self) {
+        zeroize_bytes(&mut self.mlkem_public_key);
+        zeroize_bytes(&mut self.mlkem_secret_key);
+        zeroize_bytes(&mut self.x25519_secret_key);
+        zeroize_bytes(&mut self.x25519_public_key);
+    }
+}
+
+impl Drop for Expanded {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for Expanded {}
 
 impl Expanded {
     fn zeroed() -> Self {
@@ -93,11 +111,7 @@ impl Expanded {
     fn derive(&mut self, arith: Arith, seed: &SecretKey) {
         let keys = self;
         let mut mlkem_seed = Zeroizing::new([0u8; 64]);
-        let mut sponge = Sponge::<RATE_256, ROUNDS_FULL>::new();
-        sponge.absorb(seed);
-        sponge.pad(DOMAIN_SHAKE);
-        sponge.squeeze(&mut *mlkem_seed);
-        sponge.squeeze(&mut keys.x25519_secret_key);
+        expand(seed, &mut mlkem_seed, &mut keys.x25519_secret_key);
         mlkem::keypair(
             arith,
             &mut keys.mlkem_public_key,
@@ -106,6 +120,20 @@ impl Expanded {
         );
         crypto_scalarmult_base(&mut keys.x25519_public_key, &keys.x25519_secret_key);
     }
+}
+
+/// Expands `seed` with SHAKE256 into the ML-KEM-768 seed `d || z` and the
+/// X25519 secret key.
+fn expand(
+    seed: &SecretKey,
+    mlkem_seed: &mut [u8; 64],
+    x25519_secret_key: &mut [u8; CRYPTO_SCALARMULT_BYTES],
+) {
+    let mut sponge = Sponge::<RATE_256, ROUNDS_FULL>::new();
+    sponge.absorb(seed);
+    sponge.pad(DOMAIN_SHAKE);
+    sponge.squeeze(mlkem_seed);
+    sponge.squeeze(x25519_secret_key);
 }
 
 /// The X-Wing combiner.
@@ -231,10 +259,17 @@ pub(crate) fn enc_deterministic(
         ciphertext.split_at_mut(CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES);
 
     // Both fallible steps run before `ciphertext` is written, so a rejected
-    // key leaves it unchanged, as in libsodium: the X25519 exchange first,
-    // then ML-KEM, which checks the key before encrypting.
+    // key leaves it unchanged, as in libsodium: the X25519 exchange (with
+    // the ephemeral public key, one inversion for both) first, then ML-KEM,
+    // which checks the key before encrypting.
     let mut x25519_secret = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
-    crypto_scalarmult(&mut x25519_secret, x25519_ephemeral, x25519_public_key)?;
+    let mut x25519_ephemeral_public = [0u8; CRYPTO_SCALARMULT_BYTES];
+    crypto_scalarmult_and_base(
+        &mut x25519_secret,
+        &mut x25519_ephemeral_public,
+        x25519_ephemeral,
+        x25519_public_key,
+    )?;
     let mut mlkem_secret = Zeroizing::new([0u8; 32]);
     mlkem::encapsulate(
         arith,
@@ -245,7 +280,7 @@ pub(crate) fn enc_deterministic(
     )?;
     let x25519_ciphertext: &mut [u8; CRYPTO_SCALARMULT_BYTES] =
         x25519_ciphertext.try_into().expect("32-byte X25519 key");
-    crypto_scalarmult_base(x25519_ciphertext, x25519_ephemeral);
+    *x25519_ciphertext = x25519_ephemeral_public;
 
     combine(
         shared_secret,
@@ -283,25 +318,30 @@ pub(crate) fn dec(
     ciphertext: &Ciphertext,
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    let mut keys = Expanded::zeroed();
-    keys.derive(arith, secret_key);
+    // The ML-KEM key pair is not encoded: `decapsulate_seed` decapsulates
+    // under the key pair `seed_keypair` would derive, straight from its seed.
+    let mut mlkem_seed = Zeroizing::new([0u8; 64]);
+    let mut x25519_secret_key = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
+    expand(secret_key, &mut mlkem_seed, &mut x25519_secret_key);
     let (mlkem_ciphertext, x25519_ciphertext) =
         ciphertext.split_at(CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES);
     let x25519_ciphertext: &[u8; CRYPTO_SCALARMULT_BYTES] =
         x25519_ciphertext.try_into().expect("32-byte X25519 key");
 
     let mut x25519_secret = Zeroizing::new([0u8; CRYPTO_SCALARMULT_BYTES]);
-    crypto_scalarmult(
+    let mut x25519_public_key = [0u8; CRYPTO_SCALARMULT_BYTES];
+    crypto_scalarmult_and_base(
         &mut x25519_secret,
-        &keys.x25519_secret_key,
+        &mut x25519_public_key,
+        &x25519_secret_key,
         x25519_ciphertext,
     )?;
     let mut mlkem_secret = Zeroizing::new([0u8; 32]);
-    mlkem::decapsulate(
+    mlkem::decapsulate_seed(
         arith,
         &mut mlkem_secret,
         mlkem_ciphertext.try_into().expect("sized ciphertext"),
-        &keys.mlkem_secret_key,
+        &mlkem_seed,
     );
 
     combine(
@@ -309,7 +349,7 @@ pub(crate) fn dec(
         &*mlkem_secret,
         &*x25519_secret,
         x25519_ciphertext,
-        &keys.x25519_public_key,
+        &x25519_public_key,
     );
     Ok(())
 }

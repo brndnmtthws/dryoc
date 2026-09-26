@@ -7,6 +7,9 @@ use crate::utils::load_u64_le;
 #[derive(Default, Zeroize, ZeroizeOnDrop)]
 pub struct Poly1305 {
     r: [u64; 3],
+    /// The accumulator: on AArch64 (whose block loops run in radix 2^64) in
+    /// radix 2^64 with `h[2]` below 8, elsewhere partially reduced 3x44-bit
+    /// limbs.
     h: [u64; 3],
     pad: [u64; 2],
     /// Pending partial block as little-endian bytes; only the low `buflen`
@@ -16,11 +19,12 @@ pub struct Poly1305 {
     buflen: usize,
 }
 
-/// Minimum run of full blocks worth handing to the NEON path; below this the
-/// key-power precomputation and limb conversions cost more than they save.
-/// Must be at least one `poly1305_neon::CHUNK`.
+/// Minimum run of full blocks worth handing to the four-lane AArch64 path;
+/// below this the lane join costs more than the overlap saves over the
+/// single-lane loop (measured crossover about 320 bytes on Neoverse V3).
+/// Must be at least one `poly1305_aarch64::CHUNK`.
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
-const NEON_MIN_BYTES: usize = 480;
+pub(super) const LANES_MIN_BYTES: usize = 384;
 
 /// Minimum run of full blocks worth handing to the `simd128` path; below
 /// this the key-power setup and limb conversions cost more than they save.
@@ -28,6 +32,10 @@ const NEON_MIN_BYTES: usize = 480;
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 const WASM_MIN_BYTES: usize = 128;
 
+#[cfg_attr(
+    all(target_arch = "aarch64", target_endian = "little", not(miri)),
+    cfg(test)
+)]
 #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
 #[inline]
 fn mul(x: u64, y: u64) -> u128 {
@@ -56,17 +64,47 @@ fn mul(x: u64, y: u64) -> u128 {
     (u128::from(hi) << 64) | u128::from(lo)
 }
 
+#[cfg_attr(
+    all(target_arch = "aarch64", target_endian = "little", not(miri)),
+    cfg(test)
+)]
 #[inline]
 fn shr(in_: u128, shift: u64) -> u64 {
     (in_ >> shift) as u64
 }
 
+#[cfg_attr(
+    all(target_arch = "aarch64", target_endian = "little", not(miri)),
+    cfg(test)
+)]
 #[inline]
 fn lo(in_: u128) -> u64 {
     in_ as u64
 }
 
 pub type Key = StackByteArray<32>;
+
+/// The key of the two Poly1305 lanes that the stitched ChaCha20 kernel runs
+/// over whole 512-byte chunks (`chacha20_neon::Kernel::xor_chunk_poly`):
+/// `r` in radix 2^64 with the folded `s1 = r1 + r1 / 4`, and `r^16`, which
+/// joins the first lane's 16 blocks to the second's. Wiped on drop.
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+pub(crate) struct StitchKey {
+    pub(crate) r: [u64; 3],
+    r16: [u64; 3],
+    /// `[r^8, r^16, r^24]` in 3x44-bit limbs: the four-lane join powers for
+    /// one chunk ([`Poly1305::stitch_finish`]).
+    powers: [[u64; 3]; 3],
+}
+
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+impl Drop for StitchKey {
+    fn drop(&mut self) {
+        self.r.zeroize();
+        self.r16.zeroize();
+        self.powers.zeroize();
+    }
+}
 
 impl Poly1305 {
     pub fn new<K>(key: &K) -> Self
@@ -93,6 +131,71 @@ impl Poly1305 {
         state.pad[1] = load_u64_le(&key.as_array()[24..32]);
 
         state
+    }
+
+    /// The key of a stitched lane: `r` in radix 2^64, with `s1 = r1 + r1 /
+    /// 4`. The caller wipes it.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_r(&self) -> [u64; 3] {
+        let [l0, l1, l2] = self.r;
+        // `r` is clamped below 2^124, with the low two bits of `r1` clear.
+        let r0 = l0 | (l1 << 44);
+        let r1 = (l1 >> 20) | (l2 << 24);
+        [r0, r1, r1 + (r1 >> 2)]
+    }
+
+    /// The stitched lanes' key (see [`StitchKey`]).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_key(&self) -> StitchKey {
+        let mut r2 = super::sq_mod_p(&self.r);
+        let mut r4 = super::sq_mod_p(&r2);
+        let r8 = super::sq_mod_p(&r4);
+        let r16 = super::sq_mod_p(&r8);
+        let r24 = super::mul_mod_p(&r16, &r8);
+        r2.zeroize();
+        r4.zeroize();
+        StitchKey {
+            r: self.stitch_r(),
+            r16: super::limbs64(&r16),
+            powers: [r8, r16, r24],
+        }
+    }
+
+    /// Absorbs one whole stitched chunk (512 bytes) at a block boundary with
+    /// the four-lane path, taking its join powers from `key` instead of
+    /// forming them.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_finish(&mut self, key: &StitchKey, chunk: &[u8; 512]) {
+        debug_assert_eq!(self.buflen, 0);
+        super::poly1305_aarch64::blocks_with_powers(&mut self.h, &self.r, chunk, &key.powers);
+    }
+
+    /// The state as a single stitched lane (radix 2^64); the state must be
+    /// at a block boundary (nothing buffered).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_lane(&self) -> [u64; 3] {
+        debug_assert_eq!(self.buflen, 0);
+        self.h
+    }
+
+    /// Takes a single stitched lane back as the state.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_set(&mut self, lane: &[u64; 3]) {
+        self.h = *lane;
+    }
+
+    /// The stitched lanes' start: the state for the first, zero for the
+    /// second. The state must be at a block boundary (nothing buffered).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_lanes(&self) -> [[u64; 3]; 2] {
+        [self.stitch_lane(), [0; 3]]
+    }
+
+    /// Takes the lanes after one stitched chunk: the state becomes `a r^16 +
+    /// b`, the Horner value of the chunk's 32 blocks.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn stitch_join(&mut self, lanes: &[[u64; 3]; 2], key: &StitchKey) {
+        self.h = super::mul_add_64(&lanes[0], &key.r16, &lanes[1]);
     }
 
     pub fn update(&mut self, input: &[u8]) {
@@ -135,15 +238,13 @@ impl Poly1305 {
         }
     }
 
-    /// Processes a whole number of full blocks, using the NEON, x86-64 or
-    /// `simd128` bulk paths for long runs when available.
+    /// Processes a whole number of full blocks, using the four-lane AArch64,
+    /// x86-64 or `simd128` bulk paths for long runs when available.
     fn full_blocks(&mut self, input: &[u8]) {
         #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
-        if input.len() >= NEON_MIN_BYTES
-            && let Some(neon) = crate::aarch64::Neon::new()
-        {
-            let bulk = input.len() - input.len() % super::poly1305_neon::CHUNK;
-            super::poly1305_neon::blocks(neon, &mut self.h, &self.r, &input[..bulk]);
+        if input.len() >= LANES_MIN_BYTES {
+            let bulk = input.len() - input.len() % super::poly1305_aarch64::CHUNK;
+            super::poly1305_aarch64::blocks(&mut self.h, &self.r, &input[..bulk]);
             self.blocks(&input[bulk..], false);
             return;
         }
@@ -159,11 +260,25 @@ impl Poly1305 {
         self.blocks(input, false);
     }
 
-    /// Scalar block loop over `self.h` with `self.r`. Its working values
-    /// live only in registers and compiler spill slots, which are out of
-    /// Rust's reach and are not wiped; the state itself is wiped by
-    /// `finalize` and on drop.
+    /// Scalar block loop over `self.h` with `self.r`: on AArch64 the
+    /// radix-2^64 `asm!` loop of [`super::poly1305_aarch64::blocks1`],
+    /// elsewhere [`Self::blocks_portable`].
+    #[inline]
     fn blocks(&mut self, input: &[u8], partial: bool) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        super::poly1305_aarch64::blocks1(&mut self.h, &self.r, input, u64::from(!partial));
+        #[cfg(not(all(target_arch = "aarch64", target_endian = "little", not(miri))))]
+        self.blocks_portable(input, partial);
+    }
+
+    /// The portable 3x44-bit block loop. Its working values live only in
+    /// registers and compiler spill slots, which are out of Rust's reach and
+    /// are not wiped; the state itself is wiped on drop.
+    #[cfg_attr(
+        all(target_arch = "aarch64", target_endian = "little", not(miri)),
+        cfg(test)
+    )]
+    fn blocks_portable(&mut self, input: &[u8], partial: bool) {
         let hibit = if partial {
             0u64
         } else {
@@ -175,9 +290,13 @@ impl Poly1305 {
         let r1 = self.r[1];
         let r2 = self.r[2];
 
-        let mut h0 = self.h[0];
-        let mut h1 = self.h[1];
-        let mut h2 = self.h[2];
+        // On AArch64 the state is in radix 2^64 (this loop is only the tests'
+        // reference there).
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        let h = super::carry44(super::limbs44(&self.h));
+        #[cfg(not(all(target_arch = "aarch64", target_endian = "little", not(miri))))]
+        let h = self.h;
+        let [mut h0, mut h1, mut h2] = h;
 
         let s1 = r1 * (5 << 2);
         let s2 = r2 * (5 << 2);
@@ -213,9 +332,14 @@ impl Poly1305 {
             h1 += c;
         }
 
-        self.h[0] = h0;
-        self.h[1] = h1;
-        self.h[2] = h2;
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        {
+            self.h = super::limbs64(&[h0, h1, h2]);
+        }
+        #[cfg(not(all(target_arch = "aarch64", target_endian = "little", not(miri))))]
+        {
+            self.h = [h0, h1, h2];
+        }
     }
 
     pub fn finalize_to_array(&mut self) -> [u8; BLOCK_SIZE] {
@@ -230,74 +354,34 @@ impl Poly1305 {
         // The tag words go straight into `output` as array stores: at
         // opt-level `z` and `s` `copy_from_slice` stays out of line and took
         // them by reference from a stack temporary that was never wiped (the
-        // computed tag is secret when verification fails). The out-of-line
-        // `zeroize` (like this state's `Drop`) only gets `&mut` to the state
-        // it wipes.
+        // computed tag is secret when verification fails). The state is left
+        // to its drop to wipe (a wipe here as well measured 5% of a 64-byte
+        // `crypto_onetimeauth`): callers that do more work afterwards, such as
+        // decrypting after verification, drop or wipe it first.
         // process any remaining block
         if self.buflen > 0 {
             let block = self.buffer.to_le_bytes();
             self.blocks(&pad_partial_block(&block[..self.buflen]), true);
         }
 
-        // fully carry h
-        let mut h0 = self.h[0];
-        let mut h1 = self.h[1];
-        let mut h2 = self.h[2];
-
-        let mut c = h1 >> 44;
-        h1 &= 0xfffffffffff;
-        h2 += c;
-        c = h2 >> 42;
-        h2 &= 0x3ffffffffff;
-        h0 += c * 5;
-        c = h0 >> 44;
-        h0 &= 0xfffffffffff;
-        h1 += c;
-        c = h1 >> 44;
-        h1 &= 0xfffffffffff;
-        h2 += c;
-        c = h2 >> 42;
-        h2 &= 0x3ffffffffff;
-        h0 += c * 5;
-        c = h0 >> 44;
-        h0 &= 0xfffffffffff;
-        h1 += c;
-
-        // compute h + -p
-        let mut g0 = h0.wrapping_add(5);
-        c = g0 >> 44;
-        g0 &= 0xfffffffffff;
-        let mut g1 = h1.wrapping_add(c);
-        c = g1 >> 44;
-        g1 &= 0xfffffffffff;
-        let mut g2 = (h2.wrapping_add(c)).wrapping_sub(1u64 << 42);
-
-        // select h if h < p, or h + -p if h >= p
-        let mut mask = (g2 >> ((8 * 8) - 1)).wrapping_sub(1);
-        g0 &= mask;
-        g1 &= mask;
-        g2 &= mask;
-        mask = !mask;
-        h0 = (h0 & mask) | g0;
-        h1 = (h1 & mask) | g1;
-        h2 = (h2 & mask) | g2;
-
-        // h = (h + pad)
-        let t0 = self.pad[0];
-        let t1 = self.pad[1];
-
-        h0 = h0.wrapping_add(t0 & 0xfffffffffff);
-        c = h0 >> 44;
-        h0 &= 0xfffffffffff;
-        h1 = h1.wrapping_add((((t0 >> 44) | (t1 << 20)) & 0xfffffffffff).wrapping_add(c));
-        c = h1 >> 44;
-        h1 &= 0xfffffffffff;
-        h2 = h2.wrapping_add(((t1 >> 24) & 0x3ffffffffff).wrapping_add(c));
-        h2 &= 0x3ffffffffff;
-
-        // mac = h % (2^128)
-        h0 |= h1 << 44;
-        h1 = (h1 >> 20) | (h2 << 24);
+        // In radix 2^64 (`h2` small, see `limbs64`): fold the bits from 2^130
+        // up once (`2^130 = 5` mod p), leaving `h < 2^130 + 5`, then take
+        // `h - p = h + 5 - 2^130` when `h + 5` reaches 2^130, by masks; the
+        // tag is the low 128 bits of `h + pad`, so `h`'s top limb only
+        // decides the selection.
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        let [h0, h1, h2] = self.h;
+        #[cfg(not(all(target_arch = "aarch64", target_endian = "little", not(miri))))]
+        let [h0, h1, h2] = super::limbs64(&self.h);
+        let (h, carry) =
+            (u128::from(h0) | (u128::from(h1) << 64)).overflowing_add(u128::from((h2 >> 2) * 5));
+        let h2 = (h2 & 3) + u64::from(carry);
+        let (g, carry) = h.overflowing_add(5);
+        let mask = 0u128.wrapping_sub(u128::from((h2 + u64::from(carry)) >> 2));
+        let h = (h & !mask) | (g & mask);
+        let pad = u128::from(self.pad[0]) | (u128::from(self.pad[1]) << 64);
+        let tag = h.wrapping_add(pad);
+        let (h0, h1) = (tag as u64, (tag >> 64) as u64);
 
         // One bounds check per word (not `output[..16]`) keeps two 8-byte
         // stores at opt-level 3; a merged 16-byte store measured +2% on
@@ -305,9 +389,6 @@ impl Poly1305 {
         let (words, _) = output.as_chunks_mut::<8>();
         words[0] = h0.to_le_bytes();
         words[1] = h1.to_le_bytes();
-
-        // zero out the state
-        self.zeroize();
     }
 }
 
@@ -448,6 +529,68 @@ mod tests {
         );
     }
 
+    /// `finalize` gives `((h mod p) + pad) mod 2^128` for states at the
+    /// reduction boundaries (`p - 1`, `p`, `p + 4`, `2^130 - 1`, `2^130`,
+    /// `2^130 + 4`, `2p - 1`) and at the partially reduced limb bounds, in
+    /// every limb split the block loops leave.
+    #[test]
+    fn finalize_reduces_boundary_states() {
+        use num_bigint::BigUint;
+
+        let p = (BigUint::from(1u8) << 130u32) - 5u32;
+        let two130 = BigUint::from(1u8) << 130u32;
+        let values = [
+            BigUint::from(0u8),
+            &p - 1u32,
+            p.clone(),
+            &p + 4u32,
+            &two130 - 1u32,
+            two130.clone(),
+            &two130 + 4u32,
+            &p * 2u32 - 1u32,
+        ];
+        let m44 = BigUint::from((1u64 << 44) - 1);
+        let mut states: Vec<[u64; 3]> = values
+            .iter()
+            .map(|v| {
+                let limb = |shift: u32, mask: &BigUint| {
+                    ((v >> shift) & mask)
+                        .to_u64_digits()
+                        .first()
+                        .copied()
+                        .unwrap_or(0)
+                };
+                [
+                    limb(0, &m44),
+                    limb(44, &m44),
+                    limb(88, &((BigUint::from(1u8) << 64u32) - 1u32)),
+                ]
+            })
+            .collect();
+        // Limbs above their widths, as a block loop's carry can leave them.
+        states.push([(1 << 44) - 1, (1 << 44) + 1023, (1 << 42) + 1023]);
+        states.push([(1 << 44) - 1, (1 << 44) - 1, (1 << 42) - 1]);
+        for key in carry_keys() {
+            for h in &states {
+                let mut mac = Poly1305::new(&key);
+                mac.h = *h;
+                // The AArch64 state is in radix 2^64.
+                #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+                {
+                    mac.h = super::super::limbs64(h);
+                }
+                let pad = BigUint::from(mac.pad[0]) | (BigUint::from(mac.pad[1]) << 64u32);
+                let value = BigUint::from(h[0])
+                    + (BigUint::from(h[1]) << 44u32)
+                    + (BigUint::from(h[2]) << 88u32);
+                let expected = ((value % &p) + pad) % (BigUint::from(1u8) << 128u32);
+                let mut expected_bytes = expected.to_bytes_le();
+                expected_bytes.resize(16, 0);
+                assert_eq!(mac.finalize_to_array().to_vec(), expected_bytes, "h={h:x?}");
+            }
+        }
+    }
+
     /// Deterministic keys stressing the limb carries: all clamped bits set,
     /// a tiny `r`, and a patterned one.
     fn carry_keys() -> [Key; 3] {
@@ -511,12 +654,12 @@ mod tests {
             for len in chunk_counts.iter().map(|chunks| chunks * chunk) {
                 let mut scalar = Poly1305::new(key);
                 let mut vector = Poly1305::new(key);
-                scalar.blocks(&data[..16], false);
+                scalar.blocks_portable(&data[..16], false);
                 vector.blocks(&data[..16], false);
 
-                scalar.blocks(&data[16..16 + len], false);
+                scalar.blocks_portable(&data[16..16 + len], false);
                 bulk(&mut vector.h, &vector.r, &data[16..16 + len]);
-                scalar.blocks(&data[16 + len..16 + len + 48], false);
+                scalar.blocks_portable(&data[16 + len..16 + len + 48], false);
                 vector.blocks(&data[16 + len..16 + len + 48], false);
                 assert_eq!(
                     scalar.finalize_to_array(),
@@ -527,19 +670,49 @@ mod tests {
         }
     }
 
-    /// The NEON bulk kernel, for 1 to 4 of its 160-byte chunks and for 8,
-    /// 16 and 25 chunks (up to 4 KiB).
+    /// The single-lane AArch64 loop leaves the portable loop's state for
+    /// every block count up to 20, full blocks and a padded final block,
+    /// from a nonzero state, with the carry keys and messages.
     #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
     #[test]
-    fn neon_blocks_match_scalar() {
-        use super::super::poly1305_neon::{CHUNK, blocks};
+    fn aarch64_single_lane_matches_portable() {
+        let messages = [carry_message(20 * 16 + 16), vec![0xff; 20 * 16 + 16]];
+        for key in carry_keys() {
+            for data in &messages {
+                for blocks in 0..=20 {
+                    for partial in [false, true] {
+                        let mut portable = Poly1305::new(&key);
+                        let mut asm = Poly1305::new(&key);
+                        portable.blocks_portable(&data[..16], false);
+                        asm.blocks_portable(&data[..16], false);
+                        let input = &data[16..16 + 16 * blocks];
+                        portable.blocks_portable(input, partial);
+                        super::super::poly1305_aarch64::blocks1(
+                            &mut asm.h,
+                            &asm.r,
+                            input,
+                            u64::from(!partial),
+                        );
+                        assert_eq!(
+                            portable.finalize_to_array(),
+                            asm.finalize_to_array(),
+                            "blocks={blocks} partial={partial}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
-        let Some(neon) = crate::aarch64::Neon::new() else {
-            return;
-        };
-        check_bulk_matches_scalar("neon", CHUNK, &[1, 2, 3, 4, 8, 16, 25], |h, r, input| {
-            blocks(neon, h, r, input)
-        });
+    /// The four-lane AArch64 kernel, for 1 to 5 of its 64-byte chunks (one
+    /// block per lane, so the joins use `r^1` to `r^5`) and for 8, 16, 25
+    /// and 64 chunks (up to 4 KiB), from a nonzero state that lane 0 carries.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    #[test]
+    fn aarch64_blocks_match_scalar() {
+        use super::super::poly1305_aarch64::{CHUNK, blocks};
+
+        check_bulk_matches_scalar("aarch64", CHUNK, &[1, 2, 3, 4, 5, 8, 16, 25, 64], blocks);
     }
 
     /// The AVX2 bulk kernel, for 1 to 4 of its 128-byte chunks and for 8,
@@ -655,8 +828,8 @@ mod tests {
     }
 
     /// The production driver must match the scalar block loop at every
-    /// length around the bulk-path thresholds (480 bytes on AArch64; 256,
-    /// 512, 1024 and 2048 on x86-64; 128 with `simd128`) and their 160-, 128-
+    /// length around the bulk-path thresholds (384 bytes on AArch64; 256,
+    /// 512, 1024 and 2048 on x86-64; 128 with `simd128`) and their 64-, 128-
     /// and 256-byte chunk residues (including a 128-byte chunk left over from
     /// the two-chain run), one-shot and split so a partial block is pending
     /// before and after the bulk run.
@@ -810,9 +983,10 @@ mod tests {
             }
         }
 
-        /// Exercises the NEON bulk path (runs of >= `NEON_MIN_BYTES` full-block
-        /// bytes) with every residue of the 160-byte chunking, mixed chunk
-        /// boundaries, and worst-case key/message limbs, against libsodium.
+        /// Exercises the bulk paths (on AArch64 runs of >= `LANES_MIN_BYTES`
+        /// full-block bytes in 64-byte chunks) with every residue of the
+        /// chunking, mixed chunk boundaries, and worst-case key/message limbs,
+        /// against libsodium.
         #[test]
         fn test_libsodium_long_and_chunked() {
             use crate::native_test_util::onetimeauth_poly1305;
@@ -824,7 +998,7 @@ mod tests {
             keys.push(Key::from(&[0xffu8; 32]));
 
             for key in &keys {
-                for len in (464..=1300).chain([4096, 4097, 65536 + 17]) {
+                for len in (96..=1300).chain([4096, 4097, 65536 + 17]) {
                     let mut data = vec![0u8; len];
                     copy_randombytes(&mut data);
                     if len % 3 == 0 {
@@ -836,10 +1010,10 @@ mod tests {
                     mac.update(&data);
                     assert_eq!(mac.finalize_to_array(), so_mac, "one-shot len={len}");
 
-                    // Split so the NEON path runs in the middle of a stream
+                    // Split so the bulk path runs in the middle of a stream
                     // with a pending partial block before and after it, and
                     // so that the split lands inside the first, second or
-                    // third chunk (chunks are 160 bytes, threshold 480).
+                    // third chunk of each backend's chunking.
                     for split in [
                         1usize, 15, 16, 17, 63, 64, 65, 127, 128, 129, 159, 160, 161, 319, 320,
                         321, 479, 480, 481,

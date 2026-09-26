@@ -4,8 +4,12 @@
 //! `FieldElement51` and libsodium's `fe51`. On AArch64 the multiply, square and
 //! multiply-by-121666 are the register-only `asm!` blocks of `fe25519_aarch64`;
 //! elsewhere they are the equivalent `u128` schoolbook products of
-//! `fe25519_soft`. Every operation is branch-free and
-//! its memory access pattern is independent of the values.
+//! `fe25519_soft`. On AArch64 the X25519 ladder and the basepoint
+//! multiplication's additions instead run on the four-limb [`Fe64`] of
+//! `fe64_aarch64`, whose products take fewer multiplies. On AArch64 inversion
+//! uses Bernstein-Yang divsteps (`safegcd`) rather than exponentiation. Every
+//! operation is branch-free and its memory access pattern is independent of the
+//! values.
 
 use zeroize::Zeroize;
 
@@ -13,9 +17,15 @@ use zeroize::Zeroize;
 mod fe25519_aarch64;
 #[cfg(all(target_arch = "aarch64", not(miri)))]
 use fe25519_aarch64 as backend;
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+mod fe64_aarch64;
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+pub(crate) use fe64_aarch64::Fe64;
 
 #[cfg(any(not(target_arch = "aarch64"), miri, test))]
 mod fe25519_soft;
+#[cfg(any(target_arch = "aarch64", test))]
+mod safegcd;
 #[cfg(any(not(target_arch = "aarch64"), miri))]
 use fe25519_soft as backend;
 
@@ -182,10 +192,19 @@ impl Fe {
         Fe(backend::square(&self.0))
     }
 
-    /// Multiplies by the curve constant `(A + 2) / 4 = 121666`.
+    /// Multiplies by the curve constant `(A + 2) / 4 = 121666` (the ladder's;
+    /// on AArch64 the ladder uses `Fe64`).
+    #[cfg(not(all(target_arch = "aarch64", not(miri))))]
     #[inline(always)]
     pub(crate) fn mul_121666(&self) -> Fe {
         Fe(backend::mul_121666(&self.0))
+    }
+
+    /// `self * 121666 + b`, the ladder's `BB + (A + 2) / 4 * E`.
+    #[cfg(not(all(target_arch = "aarch64", not(miri))))]
+    #[inline(always)]
+    pub(crate) fn mul_121666_add(&self, b: &Fe) -> Fe {
+        self.mul_121666().add(b)
     }
 
     #[inline(always)]
@@ -210,8 +229,8 @@ impl Fe {
         Fe(backend::square_chain(&self.0))
     }
 
-    /// `(self^(2^250 - 1), self^11)`, the shared prefix of the inversion and
-    /// square-root exponentiations.
+    /// `(self^(2^250 - 1), self^11)`, the prefix of the inversion
+    /// exponentiation (and of `self^((p - 5) / 8)`).
     #[inline(always)]
     fn pow22501(&self) -> (Fe, Fe) {
         let t0 = self.square(); // 2
@@ -229,18 +248,30 @@ impl Fe {
         (t11.pow2k(50).mul(&t9), t3) // 2^250 - 1
     }
 
-    /// `self^(p - 2)` by the standard 254-squaring, 11-multiply chain.
+    /// `self^-1`, and zero for zero, in constant time.
     ///
-    /// On x86-64 with BMI2 the chain runs in a copy compiled for `mulx`
-    /// (see [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
+    /// On AArch64 by Bernstein-Yang divsteps (see `safegcd`), which measured
+    /// about a third faster there than the exponentiation; elsewhere as
+    /// `self^(p - 2)` by the standard 254-squaring, 11-multiply chain. On
+    /// x86-64 with BMI2 the chain runs in a copy compiled for `mulx` (see
+    /// [`crate::x86_64::Bmi2`]); the arithmetic is the same code.
     pub(crate) fn invert(&self) -> Fe {
-        #[cfg(target_arch = "x86_64")]
-        if let Some(bmi2) = crate::x86_64::Bmi2::new() {
-            return self.invert_bmi2(bmi2);
+        #[cfg(target_arch = "aarch64")]
+        {
+            safegcd::invert(self)
         }
-        self.invert_impl()
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            #[cfg(target_arch = "x86_64")]
+            if let Some(bmi2) = crate::x86_64::Bmi2::new() {
+                return self.invert_bmi2(bmi2);
+            }
+            self.invert_impl()
+        }
     }
 
+    /// `self^(p - 2)`.
+    #[cfg(any(not(target_arch = "aarch64"), test))]
     #[inline(always)]
     fn invert_impl(&self) -> Fe {
         let (t19, t3) = self.pow22501();
@@ -383,6 +414,7 @@ impl Fe {
     /// the same loads, stores and masks either way. At opt-level `z` the
     /// `zip` constructor is out of line, which adds no copy: it only gets
     /// pointers to the ladder's `x2`/`z2`/`x3`/`z3`, which the ladder wipes.
+    #[cfg(not(all(target_arch = "aarch64", not(miri))))]
     #[inline(always)]
     pub(crate) fn cswap(a: &mut Fe, b: &mut Fe, swap: u64) {
         let mask = 0u64.wrapping_sub(swap);
@@ -479,12 +511,14 @@ mod tests {
         let weakly_reduced = |fe: &Fe| fe.0.iter().all(|&l| l < (1 << 51) + (1 << 13));
         let reduced: Vec<Fe> = operands.iter().copied().filter(weakly_reduced).collect();
 
+        #[cfg(not(all(target_arch = "aarch64", not(miri))))]
         let m121666 = BigUint::from(121666u32);
         for (i, a) in operands.iter().enumerate() {
             let ia = int(a);
             let square = a.square();
             assert_eq!(square.to_bytes(), encode(&(&ia * &ia)), "square {i}");
             assert_eq!(square.to_bytes(), a.mul(a).to_bytes(), "square vs mul {i}");
+            #[cfg(not(all(target_arch = "aarch64", not(miri))))]
             assert_eq!(
                 a.mul_121666().to_bytes(),
                 encode(&(&ia * &m121666)),
@@ -718,18 +752,6 @@ mod tests {
                 "square {i}"
             );
             assert!(weakly_reduced(&square), "square {i} bound: {:x?}", square.0);
-
-            let scaled = a.mul_121666();
-            assert_eq!(
-                scaled.to_bytes(),
-                Fe(fe25519_soft::mul_121666(&a.0)).to_bytes(),
-                "mul_121666 {i}"
-            );
-            assert!(
-                weakly_reduced(&scaled),
-                "mul_121666 {i} bound: {:x?}",
-                scaled.0
-            );
 
             // `square_chain` takes reduced inputs (the asm form limbs below
             // 2^52, the portable form below 2^51 + 2^13); feed both the

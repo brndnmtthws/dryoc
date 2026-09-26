@@ -29,9 +29,10 @@ const SET_BLOCKS: u64 = 4;
 const SCALAR_BLOCKS: u64 = 4;
 /// Blocks produced per chunk by the NEON kernels.
 const NEON_BLOCKS: u64 = SET_BLOCKS + SCALAR_BLOCKS;
-/// Blocks produced per chunk by the SVE2 kernel: one vector set and one
-/// scalar block computed inside the same asm block.
-const SVE2_BLOCKS: u64 = SET_BLOCKS + 1;
+/// Blocks produced per chunk by the SVE2 kernel: one vector set and two
+/// scalar blocks, one beside each half of the set's rounds (a run needing
+/// at most five blocks computes one scalar block beside all of them).
+const SVE2_BLOCKS: u64 = SET_BLOCKS + 2;
 
 /// A vector kernel the running CPU has been verified to support: its variant
 /// holds the token for the CPU features the kernel is compiled for, which is
@@ -63,7 +64,46 @@ pub(super) fn detect() -> Option<Kernel> {
     }))
 }
 
+/// Bytes of keystream one stitched run produces (the vector set's four
+/// blocks and one scalar block), and of MAC input it absorbs
+/// ([`Kernel::xor_chunk_poly`]).
+pub(super) const POLY_CHUNK: usize = (SET_BLOCKS as usize + 1) * 64;
+
 impl Kernel {
+    /// With SVE2, XORs the keystream of blocks `counter..counter +
+    /// POLY_CHUNK / 64` into `output` (from `input`, or in place) while the
+    /// same asm block advances one Poly1305 lane `h` over the 20 blocks of
+    /// `mac_input`, in radix 2^64 with the key `r = [r0, r1, r1 + r1 / 4]`
+    /// (see `chacha20_neon::Kernel::xor_chunk_poly`): the lane shares the
+    /// integer pipes with the kernel's scalar block. Returns `false`, doing
+    /// nothing, on the other kernels.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn xor_chunk_poly(
+        self,
+        state: &[u32; 16],
+        counter: u64,
+        input: Option<&[u8; POLY_CHUNK]>,
+        output: &mut [u8; POLY_CHUNK],
+        h: &mut [u64; 3],
+        r: &[u64; 3],
+        mac_input: &[u8; POLY_CHUNK],
+    ) -> bool {
+        match self.0 {
+            Variant::Sve2(sve2) => {
+                xor_chunk_sve2_poly(sve2, state, counter, input, output, h, r, mac_input);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether [`xor_chunk_poly`](Self::xor_chunk_poly) runs (SVE2).
+    #[inline]
+    pub(super) fn stitches_poly(self) -> bool {
+        matches!(self.0, Variant::Sve2(_))
+    }
+
     /// Every kernel the running CPU supports.
     #[cfg(test)]
     pub(super) fn all() -> alloc::vec::Vec<Kernel> {
@@ -98,6 +138,19 @@ impl super::Kernel for Kernel {
         match self.0 {
             Variant::Neon(_) | Variant::Sha3(_) => 4 * 64,
             Variant::Sve2(_) => 2 * 64,
+        }
+    }
+
+    /// On SVE2 the head and two to five data blocks take one run through the
+    /// staging buffer (about one and a half scalar blocks) instead of a
+    /// scalar head block before the data's own run; a single data block goes
+    /// with the head to the interleaved scalar pair. The NEON kernels' runs
+    /// cost about four scalar blocks, so they never stage.
+    #[inline]
+    fn staged_head_min(self) -> usize {
+        match self.0 {
+            Variant::Neon(_) | Variant::Sha3(_) => usize::MAX,
+            Variant::Sve2(_) => 64 + 1,
         }
     }
 
@@ -377,52 +430,128 @@ macro_rules! asm_quarter_round {
     };
 }
 
-/// One Salsa20 double round (a column round followed by a row round) with
-/// `$step`.
-macro_rules! asm_double_round {
-    ($step:ident) => {
+/// All ten double rounds of both the vector set and the scalar block,
+/// unrolled (about 6 KiB of straight-line code): no loop branch to
+/// mispredict at the exit of every run, and no loop head whose alignment
+/// shifts with unrelated code. The scalar rounds are threaded through the
+/// vector ones (a scalar round after every fourth vector quarter round),
+/// which keeps both in the out-of-order window together.
+macro_rules! asm_double_rounds {
+    () => {
         concat!(
-            asm_quarter_round!($step, 0, 4, 8, 12),
-            asm_quarter_round!($step, 5, 9, 13, 1),
-            asm_quarter_round!($step, 10, 14, 2, 6),
-            asm_quarter_round!($step, 15, 3, 7, 11),
-            asm_quarter_round!($step, 0, 1, 2, 3),
-            asm_quarter_round!($step, 5, 6, 7, 4),
-            asm_quarter_round!($step, 10, 11, 8, 9),
-            asm_quarter_round!($step, 15, 12, 13, 14),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
+            asm_vector_dr_1scalar!(),
         )
     };
 }
 
-/// All ten double rounds of both the vector set and the scalar block,
-/// unrolled (about 6 KiB of straight-line code): no loop branch to
-/// mispredict at the exit of every run, and no loop head whose alignment
-/// shifts with unrelated code.
-macro_rules! asm_double_rounds {
+/// One vector double round with one scalar double round threaded through
+/// it, a scalar column or row round after every fourth vector quarter round.
+macro_rules! asm_vector_dr_1scalar {
     () => {
         concat!(
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
-            asm_double_round!(sve2_step),
-            asm_double_round!(scalar_step),
+            asm_quarter_round!(sve2_step, 0, 4, 8, 12),
+            asm_quarter_round!(sve2_step, 5, 9, 13, 1),
+            asm_quarter_round!(sve2_step, 10, 14, 2, 6),
+            asm_quarter_round!(sve2_step, 15, 3, 7, 11),
+            asm_quarter_round!(scalar_step, 0, 4, 8, 12),
+            asm_quarter_round!(scalar_step, 5, 9, 13, 1),
+            asm_quarter_round!(scalar_step, 10, 14, 2, 6),
+            asm_quarter_round!(scalar_step, 15, 3, 7, 11),
+            asm_quarter_round!(sve2_step, 0, 1, 2, 3),
+            asm_quarter_round!(sve2_step, 5, 6, 7, 4),
+            asm_quarter_round!(sve2_step, 10, 11, 8, 9),
+            asm_quarter_round!(sve2_step, 15, 12, 13, 14),
+            asm_quarter_round!(scalar_step, 0, 1, 2, 3),
+            asm_quarter_round!(scalar_step, 5, 6, 7, 4),
+            asm_quarter_round!(scalar_step, 10, 11, 8, 9),
+            asm_quarter_round!(scalar_step, 15, 12, 13, 14),
         )
     };
+}
+
+/// Half of the vector set's ten double rounds with all ten of a scalar
+/// block's, two scalar double rounds per vector one: a scalar double round
+/// (sixteen `add` + `eor` pairs, one dependent pair per step) takes half the
+/// latency of a vector one (`add` + `xar` per step), so two scalar blocks run
+/// one after the other beside one vector set.
+macro_rules! asm_double_rounds_half2 {
+    () => {
+        concat!(
+            asm_vector_dr_2scalar!(),
+            asm_vector_dr_2scalar!(),
+            asm_vector_dr_2scalar!(),
+            asm_vector_dr_2scalar!(),
+            asm_vector_dr_2scalar!(),
+        )
+    };
+}
+
+/// One vector double round with two scalar double rounds threaded through
+/// it, a scalar column or row round after every second vector quarter round.
+macro_rules! asm_vector_dr_2scalar {
+    () => {
+        concat!(
+            asm_quarter_round!(sve2_step, 0, 4, 8, 12),
+            asm_quarter_round!(sve2_step, 5, 9, 13, 1),
+            asm_quarter_round!(scalar_step, 0, 4, 8, 12),
+            asm_quarter_round!(scalar_step, 5, 9, 13, 1),
+            asm_quarter_round!(scalar_step, 10, 14, 2, 6),
+            asm_quarter_round!(scalar_step, 15, 3, 7, 11),
+            asm_quarter_round!(sve2_step, 10, 14, 2, 6),
+            asm_quarter_round!(sve2_step, 15, 3, 7, 11),
+            asm_quarter_round!(scalar_step, 0, 1, 2, 3),
+            asm_quarter_round!(scalar_step, 5, 6, 7, 4),
+            asm_quarter_round!(scalar_step, 10, 11, 8, 9),
+            asm_quarter_round!(scalar_step, 15, 12, 13, 14),
+            asm_quarter_round!(sve2_step, 0, 1, 2, 3),
+            asm_quarter_round!(sve2_step, 5, 6, 7, 4),
+            asm_quarter_round!(scalar_step, 0, 4, 8, 12),
+            asm_quarter_round!(scalar_step, 5, 9, 13, 1),
+            asm_quarter_round!(scalar_step, 10, 14, 2, 6),
+            asm_quarter_round!(scalar_step, 15, 3, 7, 11),
+            asm_quarter_round!(sve2_step, 10, 11, 8, 9),
+            asm_quarter_round!(sve2_step, 15, 12, 13, 14),
+            asm_quarter_round!(scalar_step, 0, 1, 2, 3),
+            asm_quarter_round!(scalar_step, 5, 6, 7, 4),
+            asm_quarter_round!(scalar_step, 10, 11, 8, 9),
+            asm_quarter_round!(scalar_step, 15, 12, 13, 14),
+        )
+    };
+}
+
+/// Five of the vector set's (`v`) double rounds and all ten of the scalar
+/// block `s`'s, in place, with SVE2 `xar` (see [`double_rounds_sve2`]); two
+/// calls run the set's rounds with two scalar blocks.
+#[inline]
+#[target_feature(enable = "neon,sve2")]
+fn half_rounds_sve2(v: &mut [uint32x4_t; 16], s: &mut [u32; 16]) {
+    // SAFETY: as for `double_rounds_sve2`.
+    unsafe {
+        core::arch::asm!(
+            "mov z16.s, #0",
+            asm_double_rounds_half2!(),
+            inout("v0") v[0], inout("v1") v[1], inout("v2") v[2], inout("v3") v[3],
+            inout("v4") v[4], inout("v5") v[5], inout("v6") v[6], inout("v7") v[7],
+            inout("v8") v[8], inout("v9") v[9], inout("v10") v[10], inout("v11") v[11],
+            inout("v12") v[12], inout("v13") v[13], inout("v14") v[14], inout("v15") v[15],
+            out("v16") _, out("v17") _,
+            inout("x0") s[0], inout("x1") s[1], inout("x2") s[2], inout("x3") s[3],
+            inout("x4") s[4], inout("x5") s[5], inout("x6") s[6], inout("x7") s[7],
+            inout("x8") s[8], inout("x9") s[9], inout("x10") s[10], inout("x11") s[11],
+            inout("x12") s[12], inout("x13") s[13], inout("x14") s[14], inout("x15") s[15],
+            out("x16") _,
+            options(pure, nomem, nostack, preserves_flags),
+        );
+    }
 }
 
 /// Runs the Salsa20 rounds on one vector set (`v`, one block per lane) and one
@@ -465,7 +594,8 @@ fn double_rounds_sve2(v: &mut [uint32x4_t; 16], s: &mut [u32; 16]) {
 
 /// XORs the keystream for blocks `counter .. counter + SVE2_BLOCKS` into
 /// `output`; see [`xor_chunk_neon`] for the `output`/`partial` contract.
-/// Blocks `0..4` are the vector set, block `4` the scalar block.
+/// Blocks `0..4` are the vector set, blocks `4` and `5` two scalar blocks,
+/// each computed beside half of the set's rounds.
 #[target_feature(enable = "neon,sve2")]
 fn xor_chunk_sve2_unchecked(
     state: &[u32; 16],
@@ -474,14 +604,29 @@ fn xor_chunk_sve2_unchecked(
     output: &mut [u8],
     partial: Option<&mut [u8; 64]>,
 ) {
+    // A run that needs at most one scalar block computes just that one,
+    // beside all of the set's rounds: the second scalar block costs issue
+    // slots the set's rounds then wait for.
+    let needed = output.len() / 64 + usize::from(partial.is_some());
     let mut dest = Dest::new(SVE2_BLOCKS as usize, input, output, partial);
 
     let mut v = input_lanes!(state, counter);
-    let initial_s = soft::block_input(state, counter.wrapping_add(SET_BLOCKS));
-    let mut s = initial_s;
-    double_rounds_sve2(&mut v, &mut s);
-    if let Some((source, out)) = dest.block(SET_BLOCKS as usize) {
-        finish_scalar_block(&s, &initial_s, source, out);
+    if needed <= SET_BLOCKS as usize + 1 {
+        let initial_s = soft::block_input(state, counter.wrapping_add(SET_BLOCKS));
+        let mut s = initial_s;
+        double_rounds_sve2(&mut v, &mut s);
+        if let Some((source, out)) = dest.block(SET_BLOCKS as usize) {
+            finish_scalar_block(&s, &initial_s, source, out);
+        }
+    } else {
+        for k in 0..2 {
+            let initial_s = soft::block_input(state, counter.wrapping_add(SET_BLOCKS + k));
+            let mut s = initial_s;
+            half_rounds_sve2(&mut v, &mut s);
+            if let Some((source, out)) = dest.block((SET_BLOCKS + k) as usize) {
+                finish_scalar_block(&s, &initial_s, source, out);
+            }
+        }
     }
     // The initial lanes are rebuilt from `state` after the rounds rather than
     // kept across the asm block, which would spill them to the stack and make
@@ -490,6 +635,134 @@ fn xor_chunk_sve2_unchecked(
     let state = core::hint::black_box(state);
     let initial_v = input_lanes!(state, counter);
     finish_set!(v, &initial_v, &mut dest);
+}
+
+/// One vector double round with one scalar double round threaded through
+/// it (as in [`asm_vector_dr_1scalar`]) and a Poly1305 block of lane `"a"`
+/// after each scalar round.
+macro_rules! asm_vector_dr_1scalar_poly {
+    () => {
+        concat!(
+            asm_quarter_round!(sve2_step, 0, 4, 8, 12),
+            asm_quarter_round!(sve2_step, 5, 9, 13, 1),
+            asm_quarter_round!(sve2_step, 10, 14, 2, 6),
+            asm_quarter_round!(sve2_step, 15, 3, 7, 11),
+            asm_quarter_round!(scalar_step, 0, 4, 8, 12),
+            asm_quarter_round!(scalar_step, 5, 9, 13, 1),
+            asm_quarter_round!(scalar_step, 10, 14, 2, 6),
+            asm_quarter_round!(scalar_step, 15, 3, 7, 11),
+            crate::poly1305::poly_block!(no_one "a"),
+            asm_quarter_round!(sve2_step, 0, 1, 2, 3),
+            asm_quarter_round!(sve2_step, 5, 6, 7, 4),
+            asm_quarter_round!(sve2_step, 10, 11, 8, 9),
+            asm_quarter_round!(sve2_step, 15, 12, 13, 14),
+            asm_quarter_round!(scalar_step, 0, 1, 2, 3),
+            asm_quarter_round!(scalar_step, 5, 6, 7, 4),
+            asm_quarter_round!(scalar_step, 10, 11, 8, 9),
+            asm_quarter_round!(scalar_step, 15, 12, 13, 14),
+            crate::poly1305::poly_block!(no_one "a"),
+        )
+    };
+}
+
+/// The rounds of [`double_rounds_sve2`] (the vector set and the scalar block
+/// `s`) with a Poly1305 lane over the 20 blocks of `mac_input`, two per
+/// double round; see [`Kernel::xor_chunk_poly`]. With the scalar block's 17
+/// registers the lane has no room for the `1` register of the `2^128` bit,
+/// which it adds as an immediate instead.
+#[inline]
+#[target_feature(enable = "neon,sve2")]
+fn double_rounds_sve2_poly(
+    v: &mut [uint32x4_t; 16],
+    s: &mut [u32; 16],
+    h: &mut [u64; 3],
+    r: &[u64; 3],
+    mac_input: &[u8; POLY_CHUNK],
+) {
+    let [h0, h1, h2] = h;
+    // SAFETY: as for `double_rounds_sve2` for the vector registers and the
+    // scalar block. The Poly1305 lane reads memory only through `pa`, which
+    // starts at `mac_input` and is advanced by 16 bytes 20 times, so every
+    // load is within the 320 bytes of `mac_input`; nothing is written to
+    // memory and no stack is used. Every other written register is a
+    // declared output or scratch operand, and the flags are clobbered.
+    unsafe {
+        core::arch::asm!(
+            "mov z16.s, #0",
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            asm_vector_dr_1scalar_poly!(),
+            inout("v0") v[0], inout("v1") v[1], inout("v2") v[2], inout("v3") v[3],
+            inout("v4") v[4], inout("v5") v[5], inout("v6") v[6], inout("v7") v[7],
+            inout("v8") v[8], inout("v9") v[9], inout("v10") v[10], inout("v11") v[11],
+            inout("v12") v[12], inout("v13") v[13], inout("v14") v[14], inout("v15") v[15],
+            out("v16") _, out("v17") _,
+            inout("x0") s[0], inout("x1") s[1], inout("x2") s[2], inout("x3") s[3],
+            inout("x4") s[4], inout("x5") s[5], inout("x6") s[6], inout("x7") s[7],
+            inout("x8") s[8], inout("x9") s[9], inout("x10") s[10], inout("x11") s[11],
+            inout("x12") s[12], inout("x13") s[13], inout("x14") s[14], inout("x15") s[15],
+            out("x16") _,
+            pa = inout(reg) mac_input.as_ptr() => _,
+            h0a = inout(reg) *h0, h1a = inout(reg) *h1, h2a = inout(reg) *h2,
+            r0 = in(reg) r[0], r1 = in(reg) r[1], s1 = in(reg) r[2],
+            t0a = out(reg) _, t1a = out(reg) _, d0a = out(reg) _, d1a = out(reg) _,
+            d2a = out(reg) _,
+            options(pure, readonly, nostack),
+        );
+    }
+}
+
+/// [`Kernel::xor_chunk_poly`] on SVE2: the vector set's four blocks and one
+/// scalar block, as in [`xor_chunk_sve2_unchecked`], with the Poly1305 lane
+/// in their asm block.
+#[target_feature(enable = "neon,sve2")]
+#[allow(clippy::too_many_arguments)]
+fn xor_chunk_sve2_poly_unchecked(
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8; POLY_CHUNK]>,
+    output: &mut [u8; POLY_CHUNK],
+    h: &mut [u64; 3],
+    r: &[u64; 3],
+    mac_input: &[u8; POLY_CHUNK],
+) {
+    let mut dest = Dest::new(SET_BLOCKS as usize + 1, input.map(|i| &i[..]), output, None);
+    let mut v = input_lanes!(state, counter);
+    let initial_s = soft::block_input(state, counter.wrapping_add(SET_BLOCKS));
+    let mut s = initial_s;
+    double_rounds_sve2_poly(&mut v, &mut s, h, r, mac_input);
+    if let Some((source, out)) = dest.block(SET_BLOCKS as usize) {
+        finish_scalar_block(&s, &initial_s, source, out);
+    }
+    // Initial lanes rebuilt after the rounds, as in `xor_chunk_sve2_unchecked`.
+    let state = core::hint::black_box(state);
+    let initial_v = input_lanes!(state, counter);
+    finish_set!(v, &initial_v, &mut dest);
+}
+
+/// [`xor_chunk_sve2_poly_unchecked`], safe to call with an [`Sve2`] token.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn xor_chunk_sve2_poly(
+    _: Sve2,
+    state: &[u32; 16],
+    counter: u64,
+    input: Option<&[u8; POLY_CHUNK]>,
+    output: &mut [u8; POLY_CHUNK],
+    h: &mut [u64; 3],
+    r: &[u64; 3],
+    mac_input: &[u8; POLY_CHUNK],
+) {
+    // SAFETY: an `Sve2` token exists only after detection of `sve2`,
+    // which implies `neon`: the features the kernel is compiled for.
+    unsafe { xor_chunk_sve2_poly_unchecked(state, counter, input, output, h, r, mac_input) }
 }
 
 /// [`xor_chunk_sve2_unchecked`], safe to call with an [`Sve2`] token.

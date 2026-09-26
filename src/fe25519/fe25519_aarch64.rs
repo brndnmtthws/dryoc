@@ -1,5 +1,5 @@
-//! Register-only `asm!` bodies for the field multiply, square and multiply
-//! by the curve constant.
+//! Register-only `asm!` bodies for the field multiply and square (the
+//! ladder's multiply by the curve constant is in `fe64_aarch64`).
 //!
 //! LLVM interleaves the 25 (15) `mul`/`umulh` pairs of the portable versions
 //! with the surrounding ladder arithmetic and spills a third of the ladder
@@ -174,8 +174,12 @@ pub(super) fn square(a: &[u64; 5]) -> [u64; 5] {
             // Doubled and 19-scaled limbs shared by the symmetric products.
             "lsl {d0}, {a0}, #1",
             "lsl {d1}, {a1}, #1",
-            "mul {s3}, {a3}, {n19}",
-            "mul {s4}, {a4}, {n19}",
+            // 19 * a3 and 19 * a4 as 17x + 2x: two single-cycle adds
+            // instead of a multiply at the head of the chain.
+            "add {s3}, {a3}, {a3}, lsl #4",
+            "add {s4}, {a4}, {a4}, lsl #4",
+            "add {s3}, {s3}, {a3}, lsl #1",
+            "add {s4}, {s4}, {a4}, lsl #1",
             "lsl {w3}, {s3}, #1",
             "lsl {w4}, {s4}, #1",
             // column 0: a0*a0 + d1*s4 + a2*w3
@@ -287,8 +291,12 @@ pub(super) fn square_chain(a: &[u64; 5]) -> [u64; 5] {
             // Doubled and 19-scaled limbs shared by the symmetric products.
             "lsl {d0}, {a0}, #1",
             "lsl {d1}, {a1}, #1",
-            "mul {s3}, {a3}, {n19}",
-            "mul {s4}, {a4}, {n19}",
+            // 19 * a3 and 19 * a4 as 17x + 2x: two single-cycle adds
+            // instead of a multiply at the head of the chain.
+            "add {s3}, {a3}, {a3}, lsl #4",
+            "add {s4}, {a4}, {a4}, lsl #4",
+            "add {s3}, {s3}, {a3}, lsl #1",
+            "add {s4}, {s4}, {a4}, lsl #1",
             "lsl {w3}, {s3}, #1",
             "lsl {w4}, {s4}, #1",
             // column 0: a0*a0 + d1*s4 + a2*w3
@@ -386,60 +394,6 @@ pub(super) fn square_chain(a: &[u64; 5]) -> [u64; 5] {
             d0 = out(reg) _, d1 = out(reg) _, s3 = out(reg) _, s4 = out(reg) _,
             w3 = out(reg) _, w4 = out(reg) _,
             t0 = out(reg) _, t1 = out(reg) _,
-            h0 = out(reg) _, h1 = out(reg) _, h2 = out(reg) _, h3 = out(reg) _,
-            h4 = out(reg) _,
-            l0 = out(reg) l0, l1 = out(reg) l1, l2 = out(reg) l2, l3 = out(reg) l3,
-            l4 = out(reg) l4,
-            options(pure, nomem, nostack),
-        );
-    }
-    [l0, l1, l2, l3, l4]
-}
-
-/// `121666 * a`, weakly reduced: each product is below 2^71, so the
-/// carry chain alone brings every limb back below 2^51 + 2^13.
-#[inline(always)]
-pub(super) fn mul_121666(a: &[u64; 5]) -> [u64; 5] {
-    let (l0, l1, l2, l3, l4): (u64, u64, u64, u64, u64);
-    // SAFETY: as for `mul`: register-only arithmetic with every written
-    // register declared, no memory or stack access.
-    unsafe {
-        core::arch::asm!(
-            "mul {l0}, {a0}, {k}",
-            "umulh {h0}, {a0}, {k}",
-            "mul {l1}, {a1}, {k}",
-            "umulh {h1}, {a1}, {k}",
-            "mul {l2}, {a2}, {k}",
-            "umulh {h2}, {a2}, {k}",
-            "mul {l3}, {a3}, {k}",
-            "umulh {h3}, {a3}, {k}",
-            "mul {l4}, {a4}, {k}",
-            "umulh {h4}, {a4}, {k}",
-            "extr {t0}, {h0}, {l0}, #51",
-            "adds {l1}, {l1}, {t0}",
-            "adc {h1}, {h1}, xzr",
-            "and {l0}, {l0}, {mask}",
-            "extr {t0}, {h1}, {l1}, #51",
-            "adds {l2}, {l2}, {t0}",
-            "adc {h2}, {h2}, xzr",
-            "and {l1}, {l1}, {mask}",
-            "extr {t0}, {h2}, {l2}, #51",
-            "adds {l3}, {l3}, {t0}",
-            "adc {h3}, {h3}, xzr",
-            "and {l2}, {l2}, {mask}",
-            "extr {t0}, {h3}, {l3}, #51",
-            "adds {l4}, {l4}, {t0}",
-            "adc {h4}, {h4}, xzr",
-            "and {l3}, {l3}, {mask}",
-            "extr {t0}, {h4}, {l4}, #51",
-            "and {l4}, {l4}, {mask}",
-            "madd {l0}, {t0}, {n19}, {l0}",
-            "add {l1}, {l1}, {l0}, lsr #51",
-            "and {l0}, {l0}, {mask}",
-            a0 = in(reg) a[0], a1 = in(reg) a[1], a2 = in(reg) a[2],
-            a3 = in(reg) a[3], a4 = in(reg) a[4],
-            k = in(reg) 121666u64, n19 = in(reg) 19u64, mask = in(reg) MASK51,
-            t0 = out(reg) _,
             h0 = out(reg) _, h1 = out(reg) _, h2 = out(reg) _, h3 = out(reg) _,
             h4 = out(reg) _,
             l0 = out(reg) l0, l1 = out(reg) l1, l2 = out(reg) l2, l3 = out(reg) l3,

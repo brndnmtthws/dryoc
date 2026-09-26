@@ -1,7 +1,9 @@
 //! Group arithmetic on edwards25519 for Ed25519 and `crypto_core`.
 //!
 //! Points use extended twisted Edwards coordinates over
-//! [`crate::fe25519::Fe`]. Two scalar multiplications are provided:
+//! [`crate::fe25519::Fe`]; the formulas are generic over a [`Field`], and
+//! both scalar multiplications run on the four-limb `Fe64` on AArch64.
+//! Two scalar multiplications are provided:
 //!
 //! - [`mul_base`]: `[s]B` for a *secret* scalar `s`, through a precomputed
 //!   table of basepoint multiples in affine Niels form (the layout of
@@ -18,6 +20,8 @@
 use subtle::{Choice, ConditionallySelectable};
 use zeroize::Zeroize;
 
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+use crate::fe25519::Fe64;
 use crate::fe25519::{EDWARDS_D, Fe};
 
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
@@ -43,55 +47,193 @@ const GROUP_ORDER: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
+/// The field arithmetic of the point formulas: [`Fe`], or on AArch64 the
+/// four-limb [`Fe64`], whose products take about a quarter fewer multiplies
+/// (the basepoint and double-scalar multiplications are bound by the
+/// multipliers there). Radix 2^51 needs its documented limb bounds on
+/// multiply inputs and reduced subtrahends, which the formulas keep; four
+/// limbs take any value below `2^256`.
+pub(crate) trait Field: Copy {
+    const ZERO: Self;
+    const ONE: Self;
+    fn add(&self, b: &Self) -> Self;
+    fn sub(&self, b: &Self) -> Self;
+    fn mul(&self, b: &Self) -> Self;
+    fn square(&self) -> Self;
+    /// `-self` for a reduced `self`.
+    fn neg(&self) -> Self;
+    /// `b` when `mask` is all ones and `self` when it is zero, with the same
+    /// operations either way.
+    fn select(&self, b: &Self, mask: u64) -> Self;
+    /// The element given in radix 2^51 with limbs below `2^51` (the
+    /// canonical table entries and constants).
+    fn from_reduced(f: &Fe) -> Self;
+    /// The element given by a public radix-2^51 value.
+    fn from_public(f: &Fe) -> Self;
+    /// The element in radix 2^51, weakly reduced like a multiply output.
+    fn to_fe(self) -> Fe;
+}
+
+impl Field for Fe {
+    const ONE: Fe = Fe::ONE;
+    const ZERO: Fe = Fe::ZERO;
+
+    #[inline(always)]
+    fn add(&self, b: &Fe) -> Fe {
+        Fe::add(self, b)
+    }
+
+    #[inline(always)]
+    fn sub(&self, b: &Fe) -> Fe {
+        Fe::sub(self, b)
+    }
+
+    #[inline(always)]
+    fn mul(&self, b: &Fe) -> Fe {
+        Fe::mul(self, b)
+    }
+
+    #[inline(always)]
+    fn square(&self) -> Fe {
+        Fe::square(self)
+    }
+
+    #[inline(always)]
+    fn neg(&self) -> Fe {
+        Fe::neg(self)
+    }
+
+    #[inline(always)]
+    fn select(&self, b: &Fe, mask: u64) -> Fe {
+        let mut out = *self;
+        out.conditional_assign(b, mask);
+        out
+    }
+
+    #[inline(always)]
+    fn from_reduced(f: &Fe) -> Fe {
+        *f
+    }
+
+    #[inline(always)]
+    fn from_public(f: &Fe) -> Fe {
+        *f
+    }
+
+    #[inline(always)]
+    fn to_fe(self) -> Fe {
+        self
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+impl Field for Fe64 {
+    const ONE: Fe64 = Fe64::ONE;
+    const ZERO: Fe64 = Fe64::ZERO;
+
+    #[inline(always)]
+    fn add(&self, b: &Fe64) -> Fe64 {
+        Fe64::add(self, b)
+    }
+
+    #[inline(always)]
+    fn sub(&self, b: &Fe64) -> Fe64 {
+        Fe64::sub(self, b)
+    }
+
+    #[inline(always)]
+    fn mul(&self, b: &Fe64) -> Fe64 {
+        Fe64::mul(self, b)
+    }
+
+    #[inline(always)]
+    fn square(&self) -> Fe64 {
+        Fe64::square(self)
+    }
+
+    #[inline(always)]
+    fn neg(&self) -> Fe64 {
+        Fe64::ZERO.sub(self)
+    }
+
+    #[inline(always)]
+    fn select(&self, b: &Fe64, mask: u64) -> Fe64 {
+        Fe64::select(self, b, mask)
+    }
+
+    #[inline(always)]
+    fn from_reduced(f: &Fe) -> Fe64 {
+        Fe64::from_fe(f)
+    }
+
+    fn from_public(f: &Fe) -> Fe64 {
+        Fe64::from_bytes(&f.to_bytes())
+    }
+
+    #[inline(always)]
+    fn to_fe(self) -> Fe {
+        Fe64::to_fe(self)
+    }
+}
+
+/// The field of [`mul_base`] and
+/// [`Point::double_scalar_mul_basepoint_vartime`].
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+type ScalarMulField = Fe64;
+/// The field of [`mul_base`] and
+/// [`Point::double_scalar_mul_basepoint_vartime`].
+#[cfg(not(all(target_arch = "aarch64", not(miri))))]
+type ScalarMulField = Fe;
+
 /// Point in extended coordinates: `x = X / Z`, `y = Y / Z`, `x * y = T / Z`.
 ///
 /// Coordinates are always weakly reduced multiply outputs.
 #[derive(Clone, Copy, Zeroize)]
-pub(crate) struct Point {
-    x: Fe,
-    y: Fe,
-    z: Fe,
-    t: Fe,
+pub(crate) struct Point<F = Fe> {
+    x: F,
+    y: F,
+    z: F,
+    t: F,
 }
 
 /// Affine point cached for mixed addition: `(y + x, y - x, 2 d x y)`, each
-/// canonically reduced.
+/// canonically reduced in the tables.
 #[derive(Clone, Copy, Zeroize)]
-struct Niels {
-    y_plus_x: Fe,
-    y_minus_x: Fe,
-    xy2d: Fe,
+struct Niels<F = Fe> {
+    y_plus_x: F,
+    y_minus_x: F,
+    xy2d: F,
 }
 
 /// Point in projective coordinates `(X : Y : Z)`, an extended point with its
 /// `T` dropped. Used between consecutive doublings in the variable-time
 /// double-scalar multiplication, where `T` is only needed by an addition.
 #[derive(Clone, Copy)]
-struct Projective {
-    x: Fe,
-    y: Fe,
-    z: Fe,
+struct Projective<F = Fe> {
+    x: F,
+    y: F,
+    z: F,
 }
 
 /// Extended point cached for repeated variable-base mixed addition:
 /// `(Y + X, Y - X, 2 Z, 2 d T)` (dalek's `ProjectiveNielsPoint` with `Z`
-/// pre-doubled). The sums are add/sub outputs (below 2^53), `t2d` a weakly
-/// reduced multiply output (below 2^51 + 2^13); every field is a valid
-/// `mul` operand (below 2^54) but not canonical.
+/// pre-doubled). In radix 2^51 the sums are add/sub outputs (below 2^53),
+/// `t2d` a weakly reduced multiply output (below 2^51 + 2^13); every field
+/// is a valid `mul` operand (below 2^54) but not canonical.
 #[derive(Clone, Copy)]
-struct ProjectiveNiels {
-    y_plus_x: Fe,
-    y_minus_x: Fe,
-    z2: Fe,
-    t2d: Fe,
+struct ProjectiveNiels<F = Fe> {
+    y_plus_x: F,
+    y_minus_x: F,
+    z2: F,
+    t2d: F,
 }
 
-impl ProjectiveNiels {
+impl<F: Field> ProjectiveNiels<F> {
     /// `-self`: swap the sums and negate `2 d T`.
     ///
     /// Only used by the variable-time verification ladder on public points,
     /// so it may stay out of line.
-    fn neg(&self) -> ProjectiveNiels {
+    fn neg(&self) -> ProjectiveNiels<F> {
         ProjectiveNiels {
             y_plus_x: self.y_minus_x,
             y_minus_x: self.y_plus_x,
@@ -101,11 +243,11 @@ impl ProjectiveNiels {
     }
 }
 
-impl Projective {
-    const IDENTITY: Projective = Projective {
-        x: Fe::ZERO,
-        y: Fe::ONE,
-        z: Fe::ONE,
+impl<F: Field> Projective<F> {
+    const IDENTITY: Projective<F> = Projective {
+        x: F::ZERO,
+        y: F::ONE,
+        z: F::ONE,
     };
 
     /// `E, F, G, H` of dbl-2008-hwcd with `a = -1`, all negated (the same
@@ -113,7 +255,7 @@ impl Projective {
     /// Subtrahends are reduced squares and every multiply input is below
     /// 2^54 per limb.
     #[inline(always)]
-    fn double_parts(&self) -> (Fe, Fe, Fe, Fe) {
+    fn double_parts(&self) -> (F, F, F, F) {
         let a = self.x.square();
         let b = self.y.square();
         let zz = self.z.square();
@@ -128,7 +270,7 @@ impl Projective {
 
     /// `2 * self` without `T` (3M + 4S).
     #[inline(always)]
-    fn double(&self) -> Projective {
+    fn double(&self) -> Projective<F> {
         let (e, f, g, h) = self.double_parts();
         Projective {
             x: e.mul(&f),
@@ -139,7 +281,7 @@ impl Projective {
 
     /// `2 * self` in extended coordinates (4M + 4S).
     #[inline(always)]
-    fn double_extended(&self) -> Point {
+    fn double_extended(&self) -> Point<F> {
         let (e, f, g, h) = self.double_parts();
         Point {
             x: e.mul(&f),
@@ -172,38 +314,74 @@ impl Niels {
         y_minus_x: Fe::ONE,
         xy2d: Fe::ZERO,
     };
+}
 
-    /// Negates in place when `mask` is all ones.
+impl<F: Field> Niels<F> {
+    /// `self`, negated when `mask` is all ones: the sums swapped and
+    /// `2 d x y` negated.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+    #[inline(always)]
+    fn conditional_negate(self, mask: u64) -> Niels<F> {
+        Niels {
+            y_plus_x: self.y_plus_x.select(&self.y_minus_x, mask),
+            y_minus_x: self.y_minus_x.select(&self.y_plus_x, mask),
+            xy2d: self.xy2d.select(&self.xy2d.neg(), mask),
+        }
+    }
+
+    /// The canonical table entry `n` in the field `F`, negated when `mask`
+    /// is all ones: the sums swapped and `2 d x y` negated.
     ///
     /// `#[inline(always)]`: [`select`] applies it to the secret-selected
-    /// entry, and at opt-level `z` and `s` LLVM kept it out of line, taking
-    /// `next` (which stays in registers with NEON) and the negated copy
-    /// through memory.
+    /// entry, and at opt-level `z` and `s` LLVM kept the negation out of
+    /// line, taking the entry (which stays in registers with NEON) and the
+    /// negated copy through memory.
     #[inline(always)]
-    fn conditional_negate(&mut self, mask: u64) {
-        let swapped = Niels {
-            y_plus_x: self.y_minus_x,
-            y_minus_x: self.y_plus_x,
-            xy2d: self.xy2d.neg(),
-        };
-        self.y_plus_x.conditional_assign(&swapped.y_plus_x, mask);
-        self.y_minus_x.conditional_assign(&swapped.y_minus_x, mask);
-        self.xy2d.conditional_assign(&swapped.xy2d, mask);
+    fn from_table(n: &Niels, mask: u64) -> Niels<F> {
+        let p = F::from_reduced(&n.y_plus_x);
+        let m = F::from_reduced(&n.y_minus_x);
+        let t = F::from_reduced(&n.xy2d);
+        Niels {
+            y_plus_x: p.select(&m, mask),
+            y_minus_x: m.select(&p, mask),
+            xy2d: t.select(&t.neg(), mask),
+        }
     }
 }
 
-impl Point {
-    const IDENTITY: Point = Point {
-        x: Fe::ZERO,
-        y: Fe::ONE,
-        z: Fe::ONE,
-        t: Fe::ZERO,
+impl<F: Field> Point<F> {
+    const IDENTITY: Point<F> = Point {
+        x: F::ZERO,
+        y: F::ONE,
+        z: F::ONE,
+        t: F::ZERO,
     };
+
+    /// The public point `p` in the field `F`.
+    fn from_public(p: &Point) -> Point<F> {
+        Point {
+            x: F::from_public(&p.x),
+            y: F::from_public(&p.y),
+            z: F::from_public(&p.z),
+            t: F::from_public(&p.t),
+        }
+    }
+
+    /// The same point in radix 2^51 (weakly reduced).
+    #[inline(always)]
+    fn to_fe(self) -> Point {
+        Point {
+            x: self.x.to_fe(),
+            y: self.y.to_fe(),
+            z: self.z.to_fe(),
+            t: self.t.to_fe(),
+        }
+    }
 
     /// `self + n` (add-2008-hwcd-3 with the cached Niels operand). Every
     /// subtrahend is reduced and every multiply input is below 2^54 per limb.
     #[inline(always)]
-    fn add_niels(&self, n: &Niels) -> Point {
+    fn add_niels(&self, n: &Niels<F>) -> Point<F> {
         let pp = self.y.add(&self.x).mul(&n.y_plus_x);
         let mm = self.y.sub(&self.x).mul(&n.y_minus_x);
         let tt = self.t.mul(&n.xy2d);
@@ -224,7 +402,7 @@ impl Point {
     /// `2 d T` and `2 Z` of the operand are precomputed. Subtrahends are
     /// reduced multiply outputs and every multiply input is below 2^54.
     #[inline(always)]
-    fn add_projective_niels(&self, n: &ProjectiveNiels) -> Point {
+    fn add_projective_niels(&self, n: &ProjectiveNiels<F>) -> Point<F> {
         let pp = self.y.add(&self.x).mul(&n.y_plus_x);
         let mm = self.y.sub(&self.x).mul(&n.y_minus_x);
         let tt = self.t.mul(&n.t2d);
@@ -243,13 +421,13 @@ impl Point {
 
     /// `2 * self` (dbl-2008-hwcd with `a = -1`, 4M + 4S).
     #[inline(always)]
-    fn double(&self) -> Point {
+    fn double(&self) -> Point<F> {
         self.to_projective().double_extended()
     }
 
     /// Drops `T`.
     #[inline(always)]
-    fn to_projective(self) -> Projective {
+    fn to_projective(self) -> Projective<F> {
         Projective {
             x: self.x,
             y: self.y,
@@ -257,6 +435,92 @@ impl Point {
         }
     }
 
+    /// Cached form for repeated mixed additions of this point.
+    #[inline(always)]
+    fn to_projective_niels(self) -> ProjectiveNiels<F> {
+        ProjectiveNiels {
+            y_plus_x: self.y.add(&self.x),
+            y_minus_x: self.y.sub(&self.x),
+            z2: self.z.add(&self.z),
+            t2d: self.t.mul(&F::from_reduced(&EDWARDS_D2)),
+        }
+    }
+
+    /// Odd multiples `self, 3 self, ..., 15 self`, cached for mixed addition.
+    ///
+    /// Not `#[inline(always)]` in unoptimized builds: always-inlining these
+    /// point operations into the caller merges them into one wasm function
+    /// with more than the 50,000 locals that wasm engines allow. In a debug
+    /// build (`debug_assertions`) this is a real call boundary; release
+    /// builds force the inline as before.
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn odd_multiples_niels(self) -> [ProjectiveNiels<F>; 8] {
+        let double = self.double().to_projective_niels();
+        let mut odd = [self.to_projective_niels(); 8];
+        let mut multiple = self;
+        for entry in odd.iter_mut().skip(1) {
+            multiple = multiple.add_projective_niels(&double);
+            *entry = multiple.to_projective_niels();
+        }
+        odd
+    }
+
+    /// `p + da * A + db * B` for NAF digits `da`, `db` (odd or zero) and the
+    /// odd multiples `odd[j] = (2 j + 1) A`.
+    ///
+    /// Not `#[inline(always)]` in unoptimized builds, like
+    /// [`Point::odd_multiples_niels`]: the debug build must not merge its
+    /// point operations into the ladder function (wasm caps functions at
+    /// 50,000 locals). Release builds force the inline so the BMI2 copy of
+    /// the ladder keeps `mulx` codegen for these additions.
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn add_digits(mut p: Point<F>, odd: &[ProjectiveNiels<F>; 8], da: i8, db: i8) -> Point<F> {
+        if da > 0 {
+            p = p.add_projective_niels(&odd[da as usize / 2]);
+        } else if da < 0 {
+            p = p.add_projective_niels(&odd[(-da) as usize / 2].neg());
+        }
+        if db != 0 {
+            let n = &TABLES.odd[db.unsigned_abs() as usize / 2];
+            let negate = if db < 0 { u64::MAX } else { 0 };
+            p = p.add_niels(&Niels::from_table(n, negate));
+        }
+        p
+    }
+
+    /// `[a]A + [b]B` for the point `A` in the field `F`, as
+    /// [`Point::double_scalar_mul_basepoint_vartime`] describes.
+    #[inline(always)]
+    fn double_scalar_mul_basepoint_vartime_in(
+        a_point: &Point,
+        a: &[u8; 32],
+        b: &[u8; 32],
+    ) -> Point {
+        let a_naf = naf::<5>(a);
+        let b_naf = naf::<8>(b);
+
+        let odd = Point::<F>::from_public(a_point).odd_multiples_niels();
+        let top = (0..256).rev().find(|&i| a_naf[i] != 0 || b_naf[i] != 0);
+        let Some(top) = top else {
+            return Point::IDENTITY;
+        };
+        let mut r = Projective::<F>::IDENTITY;
+        for i in (1..=top).rev() {
+            let da = a_naf[i];
+            let db = b_naf[i];
+            if da == 0 && db == 0 {
+                r = r.double();
+                continue;
+            }
+            r = Self::add_digits(r.double_extended(), &odd, da, db).to_projective();
+        }
+        // The final doubling always yields the extended result. When `top`
+        // is 0 this is `double(identity) + digits[0]`, which is also correct.
+        Self::add_digits(r.double_extended(), &odd, a_naf[0], b_naf[0]).to_fe()
+    }
+}
+
+impl Point {
     /// `-self`.
     ///
     /// Only used on public points (`-A` in signature verification), so it
@@ -268,24 +532,6 @@ impl Point {
             z: self.z,
             t: self.t.neg(),
         }
-    }
-
-    /// Cached form for repeated mixed additions of this point.
-    #[inline(always)]
-    fn to_projective_niels(self) -> ProjectiveNiels {
-        ProjectiveNiels {
-            y_plus_x: self.y.add(&self.x),
-            y_minus_x: self.y.sub(&self.x),
-            z2: self.z.add(&self.z),
-            t2d: self.t.mul(&EDWARDS_D2),
-        }
-    }
-
-    /// Whether two points are equal, by cross-multiplying the projective
-    /// coordinates (no inversion). Not constant time; for public points.
-    pub(crate) fn eq_vartime(&self, other: &Point) -> bool {
-        self.x.mul(&other.z).to_bytes() == other.x.mul(&self.z).to_bytes()
-            && self.y.mul(&other.z).to_bytes() == other.y.mul(&self.z).to_bytes()
     }
 
     /// Whether this is the neutral element: `x = 0` and `y = z`. Not constant
@@ -378,74 +624,9 @@ impl Point {
         unsafe { self.double_scalar_mul_basepoint_vartime_bmi2_unchecked(a, b) }
     }
 
-    /// Odd multiples `self, 3 self, ..., 15 self`, cached for mixed addition.
-    ///
-    /// Not `#[inline(always)]` in unoptimized builds: always-inlining these
-    /// point operations into the caller merges them into one wasm function
-    /// with more than the 50,000 locals that wasm engines allow. In a debug
-    /// build (`debug_assertions`) this is a real call boundary; release
-    /// builds force the inline as before.
-    #[cfg_attr(not(debug_assertions), inline(always))]
-    fn odd_multiples_niels(self) -> [ProjectiveNiels; 8] {
-        let double = self.double().to_projective_niels();
-        let mut odd = [self.to_projective_niels(); 8];
-        let mut multiple = self;
-        for entry in odd.iter_mut().skip(1) {
-            multiple = multiple.add_projective_niels(&double);
-            *entry = multiple.to_projective_niels();
-        }
-        odd
-    }
-
     #[inline(always)]
     fn double_scalar_mul_basepoint_vartime_impl(&self, a: &[u8; 32], b: &[u8; 32]) -> Point {
-        let a_naf = naf::<5>(a);
-        let b_naf = naf::<8>(b);
-
-        let odd = self.odd_multiples_niels();
-        let top = (0..256).rev().find(|&i| a_naf[i] != 0 || b_naf[i] != 0);
-        let Some(top) = top else {
-            return Point::IDENTITY;
-        };
-        let mut r = Projective::IDENTITY;
-        for i in (1..=top).rev() {
-            let da = a_naf[i];
-            let db = b_naf[i];
-            if da == 0 && db == 0 {
-                r = r.double();
-                continue;
-            }
-            r = Self::add_digits(r.double_extended(), &odd, da, db).to_projective();
-        }
-        // The final doubling always yields the extended result. When `top`
-        // is 0 this is `double(identity) + digits[0]`, which is also correct.
-        Self::add_digits(r.double_extended(), &odd, a_naf[0], b_naf[0])
-    }
-
-    /// `p + da * A + db * B` for NAF digits `da`, `db` (odd or zero) and the
-    /// odd multiples `odd[j] = (2 j + 1) A`.
-    ///
-    /// Not `#[inline(always)]` in unoptimized builds, like
-    /// [`Point::odd_multiples_niels`]: the debug build must not merge its
-    /// point operations into the ladder function (wasm caps functions at
-    /// 50,000 locals). Release builds force the inline so the BMI2 copy of
-    /// the ladder keeps `mulx` codegen for these additions.
-    #[cfg_attr(not(debug_assertions), inline(always))]
-    fn add_digits(mut p: Point, odd: &[ProjectiveNiels; 8], da: i8, db: i8) -> Point {
-        if da > 0 {
-            p = p.add_projective_niels(&odd[da as usize / 2]);
-        } else if da < 0 {
-            p = p.add_projective_niels(&odd[(-da) as usize / 2].neg());
-        }
-        let basepoint_odd = &TABLES.odd;
-        if db > 0 {
-            p = p.add_niels(&basepoint_odd[db as usize / 2]);
-        } else if db < 0 {
-            let mut n = basepoint_odd[(-db) as usize / 2];
-            n.conditional_negate(u64::MAX);
-            p = p.add_niels(&n);
-        }
-        p
+        Point::<ScalarMulField>::double_scalar_mul_basepoint_vartime_in(self, a, b)
     }
 
     /// Ed25519 encoding: the y coordinate with the sign of x in the top bit.
@@ -472,13 +653,20 @@ impl Point {
     /// that wipe their point afterwards would pass an unwiped copy.
     #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_montgomery(&self) -> [u8; 32] {
-        let u = self.z.add(&self.y);
-        let mut w = self.z.sub(&self.y);
+        let (u, mut w) = self.montgomery_ratio();
         let mut winv = w.invert();
         let out = u.mul(&winv).to_bytes();
         w.zeroize();
         winv.zeroize();
         out
+    }
+
+    /// The numerator and denominator `(Z + Y, Z - Y)` of
+    /// [`to_montgomery`](Self::to_montgomery)'s `u`, for callers that share
+    /// one inversion between several quotients.
+    #[inline(always)]
+    pub(crate) fn montgomery_ratio(&self) -> (Fe, Fe) {
+        (self.z.add(&self.y), self.z.sub(&self.y))
     }
 }
 
@@ -499,7 +687,7 @@ struct Tables {
 /// inlines, and targets without NEON) the one copy that reaches memory is
 /// the caller's, which [`mul_base`] wipes. With NEON the dispatcher and the
 /// kernel are always inlined and `out` stays in registers.
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", any(miri, test)))]
 #[inline(always)]
 fn select_row(row: &[Niels; 8], magnitude: u8, out: &mut Niels) {
     edwards25519_neon::select_row(row, magnitude, out)
@@ -539,17 +727,26 @@ fn ct_eq_u8(a: u8, b: u8) -> Choice {
     Choice::from(((x | x.wrapping_neg()) >> 7) ^ 1)
 }
 
-/// Selects `[digit * 256^k] B` for `digit` in `-8..=8` into `out` without
-/// revealing the digit through timing or memory access.
+/// Selects `[digit * 256^k] B` for `digit` in `-8..=8` from `row` in the
+/// field `F`, with `entry` as the lookup's storage, without revealing the
+/// digit through timing or memory access.
+#[cfg(not(all(target_arch = "aarch64", target_feature = "neon", not(miri))))]
 #[inline(always)]
-fn select(row: &[Niels; 8], digit: i8, out: &mut Niels) {
+fn select<F: Field>(row: &[Niels; 8], digit: i8, entry: &mut Niels) -> Niels<F> {
+    let (magnitude, negate) = magnitude_and_sign(digit);
+    select_row(row, magnitude, entry);
+    Niels::from_table(entry, negate)
+}
+
+/// `|digit|` and a mask that is all ones when `digit` is negative, without
+/// a branch.
+#[inline(always)]
+fn magnitude_and_sign(digit: i8) -> (u8, u64) {
     let negative = ((digit as i16) >> 8) as u8 & 1;
     // |digit| via the two's complement identity (d ^ m) - m for m in {0, -1}.
     let sign_mask = 0u8.wrapping_sub(negative);
     let magnitude = ((digit as u8) ^ sign_mask).wrapping_sub(sign_mask);
-
-    select_row(row, magnitude, out);
-    out.conditional_negate(0u64.wrapping_sub(u64::from(negative)));
+    (magnitude, 0u64.wrapping_sub(u64::from(negative)))
 }
 
 /// Signed radix-16 digits of a little-endian scalar below 2^255, each in
@@ -637,9 +834,69 @@ fn mul_base_bmi2(_: crate::x86_64::Bmi2, scalar: &[u8; 32]) -> Point {
     unsafe { mul_base_bmi2_unchecked(scalar) }
 }
 
+/// [`mul_base`] as a fixed sequence of [`BaseSteps::STEPS`] point
+/// operations, for a caller that interleaves them with independent work
+/// (X-Wing runs one per step of its X25519 ladder, whose multiplies leave
+/// the multipliers partly idle). The result is the sum of the odd-digit
+/// entries times 16 plus the even-digit entries, the point [`mul_base`]
+/// gives, in other projective coordinates. Every step runs the same
+/// operations; the secret digits only select table entries, in constant
+/// time.
+///
+/// The digits and the accumulator are fields of the caller's local, which
+/// [`BaseSteps::finish`] wipes in place.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+pub(crate) struct BaseSteps {
+    digits: [i8; 64],
+    acc: Point<ScalarMulField>,
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+impl BaseSteps {
+    /// 32 odd-digit additions, four doublings, 32 even-digit additions.
+    pub(crate) const STEPS: usize = 68;
+
+    #[inline(always)]
+    pub(crate) fn new(scalar: &[u8; 32]) -> Self {
+        Self {
+            digits: radix16(scalar),
+            acc: Point::IDENTITY,
+        }
+    }
+
+    /// Runs step `j`; the steps must run in order, `j` from 0 to
+    /// [`Self::STEPS`] - 1.
+    #[inline(always)]
+    pub(crate) fn step(&mut self, j: usize) {
+        let (k, digit) = match j {
+            0..32 => (j, self.digits[2 * j + 1]),
+            32..36 => {
+                self.acc = self.acc.double();
+                return;
+            }
+            _ => (j - 36, self.digits[2 * (j - 36)]),
+        };
+        let (magnitude, negate) = magnitude_and_sign(digit);
+        let entry = edwards25519_neon::select_row64(&tables::BASE64[k], magnitude)
+            .conditional_negate(negate);
+        self.acc = self.acc.add_niels(&entry);
+    }
+
+    /// The point, once every step has run; wipes the digits and the
+    /// accumulator.
+    #[inline(always)]
+    pub(crate) fn finish(&mut self) -> Point {
+        let p = self.acc.to_fe();
+        self.digits.zeroize();
+        self.acc.zeroize();
+        p
+    }
+}
+
 #[inline(always)]
 fn mul_base_impl(scalar: &[u8; 32]) -> Point {
     let mut digits = radix16(scalar);
+    #[cfg(not(all(target_arch = "aarch64", target_feature = "neon", not(miri))))]
     let table = &TABLES.base;
 
     // sum over odd digits, times 16, plus the sum over even digits. Each
@@ -649,36 +906,77 @@ fn mul_base_impl(scalar: &[u8; 32]) -> Point {
     // outside the out-of-order window. The digit sequence is fixed, so this
     // changes no data-dependent behaviour.
     //
-    // Without NEON, `next` is the only lookup storage whose address reaches
-    // memory: it is passed to the out-of-line `select_row`, so it is wiped
-    // once at the end. With NEON the lookup is always inlined and `next`
-    // stays in registers and spill slots like `entry`, the point and the
-    // field temporaries, which cannot be reliably wiped; wiping them would
-    // only force them into memory. The `zeroize` calls, out of line at
-    // opt-level `z`, only get `&mut` to the storage they wipe.
-    let mut p = Point::IDENTITY;
-    let mut next = Niels::IDENTITY;
-    select(&table[0], digits[1], &mut next);
-    for k in 0..32 {
-        let entry = next;
-        if k + 1 < 32 {
-            select(&table[k + 1], digits[2 * (k + 1) + 1], &mut next);
-        } else {
-            select(&table[0], digits[0], &mut next);
-        }
-        p = p.add_niels(&entry);
+    // Without NEON, the lookup storage `entry` is the only storage whose
+    // address reaches memory: it is passed to the out-of-line `select_row`,
+    // so it is wiped once at the end. With NEON the lookup is always inlined
+    // and it stays in registers and spill slots like the looked-up entries,
+    // the points and the field temporaries, which cannot be reliably wiped;
+    // wiping them would only force them into memory. The `zeroize` calls,
+    // out of line at opt-level `z`, only get `&mut` to the storage they
+    // wipe.
+    //
+    // On AArch64 each loop body starts on a 64-byte boundary: with the
+    // head wherever unrelated code left it, this function measured up to
+    // 12% slower on Neoverse V3 (more backend stalls, same instructions).
+    macro_rules! align_body {
+        () => {
+            #[cfg(all(target_arch = "aarch64", not(miri)))]
+            // SAFETY: an assembler alignment directive: it emits only `nop`
+            // padding, reads and writes no register, memory or flag.
+            unsafe {
+                core::arch::asm!(".p2align 6", options(nomem, nostack, preserves_flags))
+            };
+        };
     }
-    p = p.double().double().double().double();
-    for k in 0..32 {
-        let entry = next;
-        if k + 1 < 32 {
-            select(&table[k + 1], digits[2 * (k + 1)], &mut next);
-        }
-        p = p.add_niels(&entry);
+    // The odd-digit and even-digit sums are two independent accumulators,
+    // interleaved so each addition's multiplies fill the other's carry
+    // chains; they are combined as `16 * odd + even` at the end. On AArch64
+    // they are four-limb points (see [`ScalarMulField`]); the looked-up
+    // entries convert (and are negated) on the way in.
+    #[cfg(not(all(target_arch = "aarch64", target_feature = "neon", not(miri))))]
+    let mut entry = Niels::IDENTITY;
+    // With NEON on AArch64 the rows come from the four-limb copy of the
+    // table, which needs no conversion.
+    // A macro rather than a closure: a closure may stay out of line, and
+    // then returns the looked-up entry through a stack slot.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+    macro_rules! lookup {
+        ($k:expr, $digit:expr) => {{
+            let (magnitude, negate) = magnitude_and_sign($digit);
+            edwards25519_neon::select_row64(&tables::BASE64[$k], magnitude)
+                .conditional_negate(negate)
+        }};
     }
-
+    #[cfg(not(all(target_arch = "aarch64", target_feature = "neon", not(miri))))]
+    macro_rules! lookup {
+        ($k:expr, $digit:expr) => {
+            select(&table[$k], $digit, &mut entry)
+        };
+    }
+    let mut odd = Point::<ScalarMulField>::IDENTITY;
+    let mut even = Point::<ScalarMulField>::IDENTITY;
+    let mut next_odd = lookup!(0, digits[1]);
+    let mut next_even = lookup!(0, digits[0]);
+    for k in 0..32 {
+        align_body!();
+        let (entry_odd, entry_even) = (next_odd, next_even);
+        if k + 1 < 32 {
+            next_odd = lookup!(k + 1, digits[2 * (k + 1) + 1]);
+            next_even = lookup!(k + 1, digits[2 * (k + 1)]);
+        }
+        odd = odd.add_niels(&entry_odd);
+        even = even.add_niels(&entry_even);
+    }
     #[cfg(not(all(target_arch = "aarch64", target_feature = "neon")))]
-    next.zeroize();
+    entry.zeroize();
+    let (odd, even) = (odd.to_fe(), even.to_fe());
+    let p = odd
+        .double()
+        .double()
+        .double()
+        .double()
+        .add_projective_niels(&even.to_projective_niels());
+
     digits.zeroize();
     p
 }
@@ -896,43 +1194,52 @@ mod tests {
     /// `add_digits` adds `da * A + db * B` for every NAF digit pair the
     /// double-scalar multiplication can produce (odd `da` in `-15..=15`, odd
     /// `db` in `-127..=127`, and zeros), checking the odd-multiple cache, the
-    /// negation branches and every `TABLES.odd` entry in use.
+    /// negation branches and every `TABLES.odd` entry in use, in radix 2^51
+    /// and in the field the scalar multiplications use.
     #[test]
     fn test_add_digits_matches_dalek() {
-        use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
-        use curve25519_dalek::edwards::EdwardsPoint;
+        fn check<F: Field>() {
+            use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
+            use curve25519_dalek::edwards::EdwardsPoint;
 
-        let mut rng = XorShift64::new(0x7137_4491_23ef_65cd);
-        let a_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
-        let q_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
-        let dalek_a: EdwardsPoint = ED25519_BASEPOINT_TABLE * &a_scalar;
-        let dalek_q: EdwardsPoint = ED25519_BASEPOINT_TABLE * &q_scalar;
-        let a = Point::decompress(&dalek_a.compress().to_bytes()).unwrap();
-        let q = Point::decompress(&dalek_q.compress().to_bytes()).unwrap();
-        let odd = a.odd_multiples_niels();
+            let mut rng = XorShift64::new(0x7137_4491_23ef_65cd);
+            let a_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
+            let q_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
+            let dalek_a: EdwardsPoint = ED25519_BASEPOINT_TABLE * &a_scalar;
+            let dalek_q: EdwardsPoint = ED25519_BASEPOINT_TABLE * &q_scalar;
+            let a = Point::decompress(&dalek_a.compress().to_bytes()).unwrap();
+            let q = Point::decompress(&dalek_q.compress().to_bytes()).unwrap();
+            let odd = Point::<F>::from_public(&a).odd_multiples_niels();
+            let q = Point::<F>::from_public(&q);
 
-        let scale = |d: i8| {
-            let magnitude = Scalar::from(d.unsigned_abs());
-            if d < 0 { -magnitude } else { magnitude }
-        };
-        // Miri covers zero, both signs and the extrema; native tests cover
-        // every digit pair.
-        let digits = |width: i8| {
-            (-width..=width)
-                .filter(move |d| d % 2 != 0 && (!cfg!(miri) || d.abs() == 1 || d.abs() == width))
-                .chain([0])
-        };
-        for da in digits(15) {
-            for db in digits(127) {
-                let expected = dalek_q + dalek_a * scale(da) + ED25519_BASEPOINT_POINT * scale(db);
-                let actual = Point::add_digits(q, &odd, da, db);
-                assert_eq!(
-                    actual.compress(),
-                    expected.compress().to_bytes(),
-                    "da {da}, db {db}"
-                );
+            let scale = |d: i8| {
+                let magnitude = Scalar::from(d.unsigned_abs());
+                if d < 0 { -magnitude } else { magnitude }
+            };
+            // Miri covers zero, both signs and the extrema; native tests
+            // cover every digit pair.
+            let digits = |width: i8| {
+                (-width..=width)
+                    .filter(move |d| {
+                        d % 2 != 0 && (!cfg!(miri) || d.abs() == 1 || d.abs() == width)
+                    })
+                    .chain([0])
+            };
+            for da in digits(15) {
+                for db in digits(127) {
+                    let expected =
+                        dalek_q + dalek_a * scale(da) + ED25519_BASEPOINT_POINT * scale(db);
+                    let actual = Point::add_digits(q, &odd, da, db).to_fe();
+                    assert_eq!(
+                        actual.compress(),
+                        expected.compress().to_bytes(),
+                        "da {da}, db {db}"
+                    );
+                }
             }
         }
+        check::<Fe>();
+        check::<ScalarMulField>();
     }
 
     /// Doubling, negation, cached and fixed-base addition and the
@@ -1212,6 +1519,31 @@ mod tests {
                 } else {
                     assert_eq!(expected, limbs(&row[usize::from(magnitude) - 1]));
                 }
+            }
+        }
+    }
+
+    /// The four-limb NEON lookup in `BASE64` returns the scalar lookup's
+    /// entry in four limbs, for every row and every digit magnitude `0..=8`
+    /// (the identity for 0), which also checks the table's conversion.
+    #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+    #[test]
+    fn test_neon_select_row64_matches_scalar() {
+        for (k, row) in TABLES.base.iter().enumerate() {
+            for magnitude in 0..=8u8 {
+                let mut expected = Niels::IDENTITY;
+                select_row_scalar(row, magnitude, &mut expected);
+                let got = edwards25519_neon::select_row64(&tables::BASE64[k], magnitude);
+                let four = |fe: &Fe| Fe64::from_fe(fe).0;
+                assert_eq!(
+                    [got.y_plus_x.0, got.y_minus_x.0, got.xy2d.0],
+                    [
+                        four(&expected.y_plus_x),
+                        four(&expected.y_minus_x),
+                        four(&expected.xy2d)
+                    ],
+                    "row {k}, magnitude {magnitude}"
+                );
             }
         }
     }

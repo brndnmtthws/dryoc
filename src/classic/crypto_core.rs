@@ -62,6 +62,28 @@ pub fn crypto_scalarmult(
     }
 }
 
+/// [`crypto_scalarmult`] of `p` and [`crypto_scalarmult_base`] with the same
+/// secret `n`, sharing one field inversion (X-Wing needs both). `public` is
+/// only meaningful when this returns `Ok`.
+///
+/// # Errors
+///
+/// As [`crypto_scalarmult`].
+pub(crate) fn crypto_scalarmult_and_base(
+    q: &mut [u8; CRYPTO_SCALARMULT_BYTES],
+    public: &mut [u8; CRYPTO_SCALARMULT_BYTES],
+    n: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
+    p: &[u8; CRYPTO_SCALARMULT_BYTES],
+) -> Result<(), Error> {
+    crate::scalarmult_curve25519::crypto_scalarmult_curve25519_and_base(q, public, n, p);
+
+    if q.ct_eq(&[0u8; CRYPTO_SCALARMULT_BYTES]).into() {
+        Err(Error::invalid_key(crate::ErrorContext::Curve25519PublicKey))
+    } else {
+        Ok(())
+    }
+}
+
 /// Implements the HChaCha20 function.
 ///
 /// Compatible with libsodium's `crypto_core_hchacha20`.

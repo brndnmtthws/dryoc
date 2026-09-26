@@ -10,17 +10,20 @@
 //!
 //! Polynomials are 256 signed 16-bit coefficients modulo `q = 3329`. The
 //! three costly polynomial operations (forward NTT, inverse NTT and the
-//! NTT-domain multiply-add) go through [`Arith`], which picks a vector
-//! backend at runtime when the CPU has one (NEON, AVX2), or at compile time
-//! on WebAssembly builds with `simd128` enabled. Every backend computes
-//! exactly the values of the portable code in `mlkem_soft.rs`. Everything else
-//! (sampling, compression, encoding) is shared. Secret-dependent code has
-//! no secret-dependent branches or memory indices: compression uses
-//! multiplications instead of division, and the decapsulation comparison
-//! and key selection are constant-time.
+//! NTT-domain multiply-add) and the bulk of the matrix's rejection sampling
+//! go through [`Arith`], which picks a vector backend at runtime when the
+//! CPU has one (NEON, AVX2), or at compile time on WebAssembly builds with
+//! `simd128` enabled. Every backend computes exactly the values of the
+//! portable code in `mlkem_soft.rs` (and of [`rej_uniform`]). Everything
+//! else (noise sampling, compression, encoding) is shared. Secret-dependent
+//! code has no secret-dependent branches or memory indices: compression
+//! uses multiplications instead of division, and the decapsulation
+//! comparison and key selection are constant-time. Rejection sampling
+//! branches on and indexes by its candidates, which come from the public
+//! matrix seed.
 //!
 //! Zeroization: secret polynomials, seeds and hash outputs live in
-//! `Zeroizing` buffers or are wiped explicitly, and the helpers work in
+//! `WideZeroizing` buffers or are wiped explicitly, and the helpers work in
 //! place on them through references. At opt-level `z`, `s` or `2` several
 //! helpers are out of line (the [`Arith`] methods and backend kernels,
 //! `poly_reduce`, `poly_add_assign`, `encode12_vec`, `decode12_vec`, `g`,
@@ -30,7 +33,6 @@
 //! not secret values.
 
 use subtle::{ConditionallySelectable, ConstantTimeEq};
-use zeroize::{Zeroize, Zeroizing};
 
 use crate::constants::{
     CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES, CRYPTO_KEM_MLKEM768_ENCSEEDBYTES,
@@ -39,8 +41,10 @@ use crate::constants::{
 };
 use crate::error::{Error, ErrorContext};
 use crate::keccak::{
-    DOMAIN_SHA3, DOMAIN_SHAKE, ParSponge, RATE_128, RATE_256, RATE_512, ROUNDS_FULL, hash,
+    Chain, Companion, DOMAIN_SHA3, DOMAIN_SHAKE, ParSponge, RATE_128, RATE_256, RATE_512,
+    ROUNDS_FULL, hash,
 };
+use crate::utils::{WideZeroizing, zeroize_bytes};
 
 #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
 mod mlkem_neon;
@@ -165,10 +169,99 @@ impl Arith {
         }
     }
 
+    /// `basemul_acc(r[i], a[i], b)` for every row `i`; the NEON kernel forms
+    /// `b`'s share of the products once for all rows.
+    #[inline]
+    fn basemul_rows<const R: usize>(self, r: [&mut Poly; R], a: [&PolyVec; R], b: &PolyVec) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if let Self::Neon(kernel) = self {
+            kernel.basemul_rows(r, a, b);
+            return;
+        }
+        for (r, a) in r.into_iter().zip(a) {
+            self.basemul_acc(r, a, b);
+        }
+    }
+
+    /// [`poly_add_assign`] of each of `addends`, then [`poly_reduce`]; one pass
+    /// with the NEON kernel.
+    #[inline]
+    fn add_reduce<const M: usize>(self, r: &mut Poly, addends: [&Poly; M]) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if let Self::Neon(kernel) = self {
+            kernel.add_reduce(r, addends);
+            return;
+        }
+        for a in addends {
+            poly_add_assign(r, a);
+        }
+        self.reduce(r);
+    }
+
+    /// [`poly_tomont`], [`poly_add_assign`] of `a`, then [`poly_reduce`]; one
+    /// pass with the NEON kernel.
+    #[inline]
+    fn tomont_add_reduce(self, r: &mut Poly, a: &Poly) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if let Self::Neon(kernel) = self {
+            kernel.tomont_add_reduce(r, a);
+            return;
+        }
+        poly_tomont(r);
+        poly_add_assign(r, a);
+        self.reduce(r);
+    }
+
+    /// [`poly_to_msg`], with the NEON kernel where there is one.
+    #[inline]
+    fn poly_to_msg(self, m: &mut [u8; 32], a: &Poly) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if let Self::Neon(kernel) = self {
+            kernel.poly_to_msg(m, a);
+            return;
+        }
+        poly_to_msg(m, a);
+    }
+
+    /// [`decompress_u`], with the NEON kernel where there is one.
+    #[inline]
+    fn decompress_u(self, u: &mut PolyVec, bytes: &[u8]) {
+        #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+        if let Self::Neon(kernel) = self {
+            kernel.decompress10(u.as_flattened_mut().as_chunks_mut::<8>().0, bytes);
+            return;
+        }
+        decompress_u(u, bytes);
+    }
+
+    /// [`poly_reduce`], with the NEON kernel where there is one.
+    #[inline]
+    fn reduce(self, r: &mut Poly) {
+        match self {
+            #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+            Self::Neon(kernel) => kernel.reduce(r),
+            #[allow(unreachable_patterns)]
+            _ => poly_reduce(r),
+        }
+    }
+
     fn ntt_vec(self, v: &mut PolyVec) {
         for p in v {
             self.ntt(p);
         }
+    }
+
+    /// [`rej_uniform`], with the bulk of `bytes` sampled by the vector
+    /// backend where it has a kernel for it.
+    #[inline]
+    fn rej_uniform(self, poly: &mut Poly, filled: &mut usize, bytes: &[u8]) {
+        let used = match self {
+            #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+            Self::Neon(kernel) => kernel.rej_uniform(poly, filled, bytes),
+            #[allow(unreachable_patterns)]
+            _ => 0,
+        };
+        rej_uniform(poly, filled, &bytes[used..]);
     }
 }
 
@@ -219,25 +312,37 @@ const MATRIX_BLOCKS: usize = 3;
 /// Appends the coefficients below `q` among the 12-bit candidates in
 /// `bytes` to `poly[*filled..]` (FIPS 203 `SampleNTT`'s rejection step).
 /// The matrix seed is public, so the data-dependent loop leaks nothing
-/// secret.
+/// secret. Every candidate is stored at the next free slot and the slot
+/// advances only when it is accepted, so the one in five rejections is not
+/// a mispredicted branch; a rejected value is overwritten by the next
+/// candidate, and the only branch is the rarely taken full-polynomial exit.
 fn rej_uniform(poly: &mut Poly, filled: &mut usize, bytes: &[u8]) {
-    for bytes in bytes.as_chunks::<3>().0 {
+    let mut n = *filled;
+    'fill: for bytes in bytes.as_chunks::<3>().0 {
         let d1 = u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0f) << 8);
         let d2 = u16::from(bytes[1] >> 4) | (u16::from(bytes[2]) << 4);
         for d in [d1, d2] {
-            if d < Q as u16 && *filled < N {
-                poly[*filled] = d as i16;
-                *filled += 1;
-            }
+            let Some(slot) = poly.get_mut(n) else {
+                break 'fill;
+            };
+            *slot = d as i16;
+            n += usize::from(d < Q as u16);
         }
     }
+    *filled = n;
 }
 
 /// The matrix `A` in the NTT domain, or its transpose: entry `(i, j)` of
 /// `A` is `SampleNTT(rho || j || i)`. The nine SHAKE128 streams are
 /// squeezed together, then one more block at a time for the entries that
-/// still need coefficients.
-fn gen_matrix(rho: &[u8], transposed: bool) -> [PolyVec; K] {
+/// still need coefficients. `companion`'s permutations take slots in the
+/// streams' multi-state calls (see [`Companion`]).
+fn gen_matrix(
+    arith: Arith,
+    rho: &[u8],
+    transposed: bool,
+    mut companion: Option<&mut dyn Companion>,
+) -> [PolyVec; K] {
     let indices: [[u8; 2]; K * K] = core::array::from_fn(|n| {
         let (i, j) = ((n / K) as u8, (n % K) as u8);
         if transposed { [i, j] } else { [j, i] }
@@ -245,19 +350,22 @@ fn gen_matrix(rho: &[u8], transposed: bool) -> [PolyVec; K] {
     let mut xof = ParSponge::<RATE_128, ROUNDS_FULL, { K * K }>::new();
     xof.absorb([rho; K * K]);
     xof.absorb(indices.each_ref().map(|x| &x[..]));
-    xof.pad(DOMAIN_SHAKE);
+    xof.pad_with(DOMAIN_SHAKE, companion.as_deref_mut());
 
     let mut a = [[[0i16; N]; K]; K];
     let mut filled = [0; K * K];
     let mut blocks = [[0u8; MATRIX_BLOCKS * RATE_128]; K * K];
-    xof.squeeze(blocks.each_mut().map(|b| &mut b[..]));
+    xof.squeeze_with(
+        blocks.each_mut().map(|b| &mut b[..]),
+        companion.as_deref_mut(),
+    );
     for ((poly, filled), block) in a
         .as_flattened_mut()
         .iter_mut()
         .zip(&mut filled)
         .zip(&blocks)
     {
-        rej_uniform(poly, filled, block);
+        arith.rej_uniform(poly, filled, block);
     }
     while filled.iter().any(|&f| f < N) {
         let mut blocks = [[0u8; RATE_128]; K * K];
@@ -267,14 +375,14 @@ fn gen_matrix(rho: &[u8], transposed: bool) -> [PolyVec; K] {
                 *output = &mut [];
             }
         }
-        xof.squeeze(outputs);
+        xof.squeeze_with(outputs, companion.as_deref_mut());
         for ((poly, filled), block) in a
             .as_flattened_mut()
             .iter_mut()
             .zip(&mut filled)
             .zip(&blocks)
         {
-            rej_uniform(poly, filled, block);
+            arith.rej_uniform(poly, filled, block);
         }
     }
     a
@@ -283,30 +391,30 @@ fn gen_matrix(rho: &[u8], transposed: bool) -> [PolyVec; K] {
 /// Samples `M` polynomials with coefficients from the centered binomial
 /// distribution with `eta = 2`, polynomial `i` from `PRF(seed, nonces[i])`
 /// = SHAKE256 of `seed || nonces[i]` (FIPS 203 `SamplePolyCBD`), with the
-/// `M` streams computed together. ML-KEM-768 uses `eta = 2` for all three
-/// noise vectors.
-fn cbd2<const M: usize>(polys: &mut [Poly; M], seed: &[u8; 32], nonces: [u8; M]) {
+/// `M` streams computed together (with `companion` as in [`gen_matrix`]).
+/// ML-KEM-768 uses `eta = 2` for all three noise vectors.
+fn cbd2<const M: usize>(
+    polys: &mut [Poly; M],
+    seed: &[u8; 32],
+    nonces: [u8; M],
+    companion: Option<&mut dyn Companion>,
+) {
     let mut prf = ParSponge::<RATE_256, ROUNDS_FULL, M>::new();
     prf.absorb([&seed[..]; M]);
     prf.absorb(nonces.each_ref().map(core::slice::from_ref));
-    prf.pad(DOMAIN_SHAKE);
-    let mut buf = Zeroizing::new([[0u8; 64 * 2]; M]);
+    prf.pad_with(DOMAIN_SHAKE, companion);
+    let mut buf = WideZeroizing::new([[0u8; 64 * 2]; M]);
     prf.squeeze(buf.each_mut().map(|b| &mut b[..]));
 
+    // Byte `k` of the stream gives coefficients `2k` (low nibble) and `2k +
+    // 1` (high nibble); LLVM vectorizes this byte-to-pair loop (`usubl`,
+    // `st2`).
     for (poly, buf) in polys.iter_mut().zip(buf.iter()) {
-        for (coeffs, word) in poly
-            .as_chunks_mut::<8>()
-            .0
-            .iter_mut()
-            .zip(buf.as_chunks::<4>().0)
-        {
-            let t = u32::from_le_bytes(*word);
-            let d = (t & 0x5555_5555) + ((t >> 1) & 0x5555_5555);
-            for (j, c) in coeffs.iter_mut().enumerate() {
-                let a = ((d >> (4 * j)) & 3) as i16;
-                let b = ((d >> (4 * j + 2)) & 3) as i16;
-                *c = a - b;
-            }
+        for (pair, &byte) in poly.as_chunks_mut::<2>().0.iter_mut().zip(buf) {
+            let d = (byte & 0x55) + ((byte >> 1) & 0x55);
+            let lo = i16::from(d & 3) - i16::from((d >> 2) & 3);
+            let hi = i16::from((d >> 4) & 3) - i16::from(d >> 6);
+            *pair = [lo, hi];
         }
     }
 }
@@ -404,16 +512,22 @@ fn decompress_u(u: &mut PolyVec, bytes: &[u8]) {
     let mut chunks = bytes.as_chunks::<5>().0.iter();
     for p in u {
         for c in p.as_chunks_mut::<4>().0 {
-            let b = chunks.next().expect("sized buffer").map(u32::from);
-            let t = [
-                b[0] | (b[1] << 8),
-                (b[1] >> 2) | (b[2] << 6),
-                (b[2] >> 4) | (b[3] << 4),
-                (b[3] >> 6) | (b[4] << 2),
-            ];
-            *c = t.map(|t| (((t & 0x3ff) * Q as u32 + 512) >> 10) as i16);
+            decompress10(c, chunks.next().expect("sized buffer"));
         }
     }
+}
+
+/// Four coefficients of [`decompress_u`] from five bytes.
+#[inline(always)]
+fn decompress10(c: &mut [i16; 4], b: &[u8; 5]) {
+    let b = b.map(u32::from);
+    let t = [
+        b[0] | (b[1] << 8),
+        (b[1] >> 2) | (b[2] << 6),
+        (b[2] >> 4) | (b[3] << 4),
+        (b[3] >> 6) | (b[4] << 2),
+    ];
+    *c = t.map(|t| (((t & 0x3ff) * Q as u32 + 512) >> 10) as i16);
 }
 
 /// `Compress_4` of one coefficient.
@@ -474,20 +588,22 @@ impl<'a> PublicKey<'a> {
         decode12_vec(&mut t_hat, t_bytes).then_some(Self { t_hat, rho })
     }
 
-    /// K-PKE.Encrypt of `m` with randomness `coins`.
+    /// K-PKE.Encrypt of `m` with randomness `coins`, given the transposed
+    /// matrix `at` from [`gen_matrix`]; `companion` as in [`cbd2`].
     fn encrypt(
         &self,
         arith: Arith,
+        at: &[PolyVec; K],
         ct: &mut [u8; CIPHERTEXTBYTES],
         m: &[u8; 32],
         coins: &[u8; 32],
+        companion: Option<&mut dyn Companion>,
     ) {
-        let at = gen_matrix(self.rho, true);
         // `y`, `e1` and `e2` use nonces `0..2K + 1`, then comes `mu`.
-        let mut polys = Zeroizing::new([[0i16; N]; 2 * K + 2]);
+        let mut polys = WideZeroizing::new([[0i16; N]; 2 * K + 2]);
         let (noise, mu) = polys.split_at_mut(2 * K + 1);
         let noise: &mut [Poly; 2 * K + 1] = noise.try_into().expect("2K + 1 polynomials");
-        cbd2(noise, coins, core::array::from_fn(|i| i as u8));
+        cbd2(noise, coins, core::array::from_fn(|i| i as u8), companion);
         poly_from_msg(&mut mu[0], m);
         let (y, rest) = noise
             .split_first_chunk_mut::<K>()
@@ -495,27 +611,69 @@ impl<'a> PublicKey<'a> {
         let (e1, e2) = rest.split_at(K);
         arith.ntt_vec(y);
 
-        let mut u = Zeroizing::new([[0i16; N]; K]);
-        for (ui, row) in u.iter_mut().zip(&at) {
-            arith.basemul_acc(ui, row, y);
+        let mut u = WideZeroizing::new([[0i16; N]; K]);
+        let mut v = WideZeroizing::new([0i16; N]);
+        let [u0, u1, u2] = &mut *u;
+        arith.basemul_rows(
+            [u0, u1, u2, &mut *v],
+            [&at[0], &at[1], &at[2], &self.t_hat],
+            y,
+        );
+        for ui in u.iter_mut() {
             arith.invntt_tomont(ui);
         }
-        let mut v = Zeroizing::new([0i16; N]);
-        arith.basemul_acc(&mut v, &self.t_hat, y);
         arith.invntt_tomont(&mut v);
 
         for (ui, e1i) in u.iter_mut().zip(e1.iter()) {
-            poly_add_assign(ui, e1i);
-            poly_reduce(ui);
+            arith.add_reduce(ui, [e1i]);
         }
-        poly_add_assign(&mut v, &e2[0]);
-        poly_add_assign(&mut v, &mu[0]);
-        poly_reduce(&mut v);
+        arith.add_reduce(&mut v, [&e2[0], &mu[0]]);
 
         let (ct_u, ct_v) = ct.split_at_mut(POLYVEC_COMPRESSEDBYTES);
         compress_u(ct_u, &u);
         compress_v(ct_v, &v);
     }
+}
+
+/// K-PKE.KeyGen from `d` (FIPS 203 `K-PKE.KeyGen`, before encoding):
+/// writes the noise `s_hat || e_hat` (NTT domain) to `noise` and `t_hat`
+/// (reduced) to `t_hat`, and returns the matrix `A` (not transposed) and
+/// `rho`.
+#[inline(always)]
+fn pke_keygen(
+    arith: Arith,
+    d: &[u8],
+    noise: &mut [Poly; 2 * K],
+    t_hat: &mut PolyVec,
+) -> ([PolyVec; K], [u8; 32]) {
+    let mut rho_sigma = WideZeroizing::new([[0u8; 32]; 2]);
+    g(&mut rho_sigma, &[d, &[K as u8]]);
+    let [rho, sigma] = &*rho_sigma;
+
+    let a = gen_matrix(arith, rho, false, None);
+    // `s` and `e` use nonces `0..2K`.
+    cbd2(noise, sigma, core::array::from_fn(|i| i as u8), None);
+    let [s, e]: &mut [PolyVec; 2] = noise
+        .as_chunks_mut::<K>()
+        .0
+        .try_into()
+        .expect("two vectors");
+    arith.ntt_vec(s);
+    arith.ntt_vec(e);
+
+    let [t0, t1, t2] = &mut *t_hat;
+    arith.basemul_rows([t0, t1, t2], [&a[0], &a[1], &a[2]], s);
+    for (t, e) in t_hat.iter_mut().zip(e.iter()) {
+        arith.tomont_add_reduce(t, e);
+    }
+    (a, *rho)
+}
+
+/// Encodes `ek = ByteEncode_12(t_hat) || rho`.
+fn encode_ek(pk: &mut [u8; PUBLICKEYBYTES], t_hat: &PolyVec, rho: &[u8; 32]) {
+    let (t_bytes, pk_rho) = pk.split_at_mut(K * POLYBYTES);
+    encode12_vec(t_bytes, t_hat);
+    pk_rho.copy_from_slice(rho);
 }
 
 /// `ML-KEM.KeyGen_internal(d, z)` for `seed = d || z`.
@@ -526,37 +684,15 @@ pub(crate) fn keypair(
     seed: &[u8; SEEDBYTES],
 ) {
     let (d, z) = seed.split_at(32);
-    let mut rho_sigma = Zeroizing::new([[0u8; 32]; 2]);
-    g(&mut rho_sigma, &[d, &[K as u8]]);
-    let [rho, sigma] = &*rho_sigma;
-
-    let a = gen_matrix(rho, false);
-    // `s` and `e` use nonces `0..2K`.
-    let mut noise = Zeroizing::new([[0i16; N]; 2 * K]);
-    cbd2(&mut noise, sigma, core::array::from_fn(|i| i as u8));
-    let [s, e]: &mut [PolyVec; 2] = noise
-        .as_chunks_mut::<K>()
-        .0
-        .try_into()
-        .expect("two vectors");
-    arith.ntt_vec(s);
-    arith.ntt_vec(e);
-
+    let mut noise = WideZeroizing::new([[0i16; N]; 2 * K]);
     let mut t_hat = [[0i16; N]; K];
-    for ((t, row), e) in t_hat.iter_mut().zip(&a).zip(e.iter()) {
-        arith.basemul_acc(t, row, s);
-        poly_tomont(t);
-        poly_add_assign(t, e);
-        poly_reduce(t);
-    }
-
-    let (t_bytes, pk_rho) = pk.split_at_mut(K * POLYBYTES);
-    encode12_vec(t_bytes, &t_hat);
-    pk_rho.copy_from_slice(rho);
+    let (_, rho) = pke_keygen(arith, d, &mut noise, &mut t_hat);
+    encode_ek(pk, &t_hat, &rho);
 
     let (sk_s, rest) = sk.split_at_mut(K * POLYBYTES);
     let (sk_pk, rest) = rest.split_at_mut(PUBLICKEYBYTES);
     let (sk_h, sk_z) = rest.split_at_mut(32);
+    let s: &PolyVec = noise.first_chunk::<K>().expect("K polynomials");
     encode12_vec(sk_s, s);
     sk_pk.copy_from_slice(pk);
     sk_h.copy_from_slice(&h(pk));
@@ -578,12 +714,87 @@ pub(crate) fn encapsulate(
     m: &[u8; ENCSEEDBYTES],
 ) -> Result<(), Error> {
     let key = PublicKey::decode(pk).ok_or(Error::invalid_key(ErrorContext::PublicKey))?;
-    let mut k_r = Zeroizing::new([[0u8; 32]; 2]);
-    g(&mut k_r, &[m, &h(pk)]);
+    // `H(ek)` is needed before the coins, the matrix only needs `rho`: the
+    // hash's permutations ride along with the matrix's streams, spread over
+    // its `MATRIX_BLOCKS` steps over all nine.
+    let pk_parts = [&pk[..]];
+    let mut pk_hash = Chain::<RATE_256>::new(DOMAIN_SHA3, &pk_parts, MATRIX_BLOCKS);
+    let at = gen_matrix(arith, key.rho, true, Some(&mut pk_hash));
+    let mut h = [0u8; 32];
+    pk_hash.finish(&mut h);
+    let mut k_r = WideZeroizing::new([[0u8; 32]; 2]);
+    g(&mut k_r, &[m, &h]);
     let [k, r] = &*k_r;
-    key.encrypt(arith, ct, m, r);
+    key.encrypt(arith, &at, ct, m, r, None);
     ss.copy_from_slice(k);
     Ok(())
+}
+
+/// The implicit-rejection key `J(z || c)` of [`decaps_with`]: still to be
+/// finished (its remaining permutations riding along with the
+/// re-encryption's noise sampling), or already computed into the caller's
+/// wiped buffer.
+enum Rejection<'a, 'b> {
+    Pending(&'a mut Chain<'b, RATE_256>),
+    Ready(&'a [u8; SHAREDSECRETBYTES]),
+}
+
+/// The Fujisaki-Okamoto part of `ML-KEM.Decaps_internal` shared by
+/// [`decapsulate`] and [`decapsulate_seed`]: K-PKE.Decrypt with `s_hat`
+/// (reduced), re-encryption under `key` with the transposed matrix `at`,
+/// and the constant-time choice between `K` and the implicit-rejection key
+/// `rejection`.
+#[allow(clippy::too_many_arguments)]
+fn decaps_with(
+    arith: Arith,
+    ss: &mut [u8; SHAREDSECRETBYTES],
+    ct: &[u8; CIPHERTEXTBYTES],
+    s_hat: &PolyVec,
+    key: &PublicKey<'_>,
+    at: &[PolyVec; K],
+    pk_hash: &[u8],
+    rejection: Rejection<'_, '_>,
+) {
+    // K-PKE.Decrypt.
+    let mut polys = WideZeroizing::new([[0i16; N]; K + 2]);
+    let (u, rest) = polys
+        .split_first_chunk_mut::<K>()
+        .expect("K + 2 polynomials");
+    let [v, w]: &mut [Poly; 2] = rest.try_into().expect("two polynomials");
+    let (ct_u, ct_v) = ct.split_at(POLYVEC_COMPRESSEDBYTES);
+    arith.decompress_u(u, ct_u);
+    decompress_v(v, ct_v);
+    arith.ntt_vec(u);
+    arith.basemul_acc(w, s_hat, u);
+    arith.invntt_tomont(w);
+    for (v, w) in v.iter_mut().zip(w.iter_mut()) {
+        *w = v.wrapping_sub(*w);
+    }
+    arith.reduce(w);
+    let mut m = WideZeroizing::new([0u8; 32]);
+    arith.poly_to_msg(&mut m, w);
+
+    let mut k_r = WideZeroizing::new([[0u8; 32]; 2]);
+    g(&mut k_r, &[&m[..], pk_hash]);
+    let [k, r] = &*k_r;
+    let mut ct_prime = [0u8; CIPHERTEXTBYTES];
+    let mut finished = WideZeroizing::new([0u8; SHAREDSECRETBYTES]);
+    let reject: &[u8; SHAREDSECRETBYTES] = match rejection {
+        Rejection::Pending(chain) => {
+            key.encrypt(arith, at, &mut ct_prime, &m, r, Some(&mut *chain));
+            chain.finish(&mut *finished);
+            &finished
+        }
+        Rejection::Ready(reject) => {
+            key.encrypt(arith, at, &mut ct_prime, &m, r, None);
+            reject
+        }
+    };
+    let matches = ct_eq_ciphertext(ct, &ct_prime);
+    for ((out, &k), &reject) in ss.iter_mut().zip(k).zip(reject.iter()) {
+        *out = u8::conditional_select(&reject, &k, matches);
+    }
+    zeroize_bytes(&mut ct_prime);
 }
 
 /// `ML-KEM.Decaps_internal(dk, c)`. A ciphertext that does not re-encrypt
@@ -598,25 +809,9 @@ pub(crate) fn decapsulate(
     let (sk_s, rest) = sk.split_at(K * POLYBYTES);
     let (pk, rest) = rest.split_at(PUBLICKEYBYTES);
     let (pk_hash, z) = rest.split_at(32);
-    let pk: &[u8; PUBLICKEYBYTES] = pk.try_into().expect("sized public key");
 
-    // K-PKE.Decrypt.
-    let mut polys = Zeroizing::new(([[0i16; N]; K], [[0i16; N]; K], [0i16; N], [0i16; N]));
-    let (s_hat, u, v, w) = &mut *polys;
-    decode12_vec(s_hat, sk_s);
-    let (ct_u, ct_v) = ct.split_at(POLYVEC_COMPRESSEDBYTES);
-    decompress_u(u, ct_u);
-    decompress_v(v, ct_v);
-    arith.ntt_vec(u);
-    arith.basemul_acc(w, s_hat, u);
-    arith.invntt_tomont(w);
-    for (v, w) in v.iter_mut().zip(w.iter_mut()) {
-        *w = v.wrapping_sub(*w);
-    }
-    poly_reduce(w);
-    let mut m = Zeroizing::new([0u8; 32]);
-    poly_to_msg(&mut m, w);
-
+    let mut s_hat = WideZeroizing::new([[0i16; N]; K]);
+    decode12_vec(&mut s_hat, sk_s);
     // Re-encrypt under the embedded key; it was checked when stored, and
     // libsodium does not re-check it here, so neither do we.
     let mut t_hat = [[0; N]; K];
@@ -625,19 +820,87 @@ pub(crate) fn decapsulate(
         t_hat,
         rho: &pk[K * POLYBYTES..],
     };
-    let mut k_r = Zeroizing::new([[0u8; 32]; 2]);
-    g(&mut k_r, &[&m[..], pk_hash]);
-    let [k, r] = &*k_r;
-    let mut ct_prime = [0u8; CIPHERTEXTBYTES];
-    key.encrypt(arith, &mut ct_prime, &m, r);
+    // `J(z || c)` depends on nothing computed here: its permutations ride
+    // along with the streams of the matrix's `MATRIX_BLOCKS` steps over all
+    // nine and of the noise sampling's step over all seven, spread over
+    // those steps.
+    let rejection_parts = [z, &ct[..]];
+    let mut rejection = Chain::<RATE_256>::new(DOMAIN_SHAKE, &rejection_parts, MATRIX_BLOCKS + 1);
+    let at = gen_matrix(arith, key.rho, true, Some(&mut rejection));
+    decaps_with(
+        arith,
+        ss,
+        ct,
+        &s_hat,
+        &key,
+        &at,
+        pk_hash,
+        Rejection::Pending(&mut rejection),
+    );
+}
 
-    let mut reject = Zeroizing::new([0u8; SHAREDSECRETBYTES]);
-    hash::<RATE_256>(&mut *reject, DOMAIN_SHAKE, &[z, ct]);
-    let matches = ct.ct_eq(&ct_prime);
-    for ((out, &k), &reject) in ss.iter_mut().zip(k).zip(reject.iter()) {
-        *out = u8::conditional_select(&reject, &k, matches);
+/// [`decapsulate`] under the key pair [`keypair`] derives from `seed`,
+/// without encoding the decapsulation key: the key generation's matrix `A`,
+/// transposed, serves the re-encryption, so the matrix is sampled once
+/// instead of twice, and `s_hat` and `t_hat` are used as computed rather
+/// than encoded and decoded. The result is exactly `decapsulate` of
+/// `keypair(seed)`'s secret key: every value is the same modulo `q`, and
+/// the outputs are canonical encodings of those values.
+pub(crate) fn decapsulate_seed(
+    arith: Arith,
+    ss: &mut [u8; SHAREDSECRETBYTES],
+    ct: &[u8; CIPHERTEXTBYTES],
+    seed: &[u8; SEEDBYTES],
+) {
+    let (d, z) = seed.split_at(32);
+    let mut noise = WideZeroizing::new([[0i16; N]; 2 * K]);
+    let mut t_hat = [[0i16; N]; K];
+    let (a, rho) = pke_keygen(arith, d, &mut noise, &mut t_hat);
+    let mut pk = [0u8; PUBLICKEYBYTES];
+    encode_ek(&mut pk, &t_hat, &rho);
+    // `H(ek)` and `J(z || c)` both take nine blocks, so they run as the two
+    // lanes of one sponge; `ek`'s first 32 bytes go in with `z` so the lanes
+    // fill their blocks in step.
+    let mut pk_hash = [0u8; 32];
+    let mut reject = WideZeroizing::new([0u8; SHAREDSECRETBYTES]);
+    {
+        let mut sponge = ParSponge::<RATE_256, ROUNDS_FULL, 2>::new();
+        let (pk_head, pk_tail) = pk.split_at(32);
+        sponge.absorb([pk_head, z]);
+        sponge.absorb([pk_tail, &ct[..]]);
+        sponge.pad_lanes([DOMAIN_SHA3, DOMAIN_SHAKE]);
+        sponge.squeeze([&mut pk_hash, &mut *reject]);
     }
-    ct_prime.zeroize();
+
+    // Decryption takes `s_hat` reduced, as decoding would give it.
+    let s_hat: &mut PolyVec = noise.first_chunk_mut::<K>().expect("K polynomials");
+    for p in s_hat.iter_mut() {
+        arith.reduce(p);
+    }
+    let at: [PolyVec; K] = core::array::from_fn(|i| core::array::from_fn(|j| a[j][i]));
+    let key = PublicKey { t_hat, rho: &rho };
+    decaps_with(
+        arith,
+        ss,
+        ct,
+        s_hat,
+        &key,
+        &at,
+        &pk_hash,
+        Rejection::Ready(&reject),
+    );
+}
+
+/// `a == b` in constant time: the XORs of the 136 eight-byte words are ORed
+/// together without a branch and only the total goes through `subtle`,
+/// whose slice comparison passes each of the 1,088 bytes through its
+/// optimization barrier (measured at 8% of a decapsulation).
+fn ct_eq_ciphertext(a: &[u8; CIPHERTEXTBYTES], b: &[u8; CIPHERTEXTBYTES]) -> subtle::Choice {
+    let (a, b) = (a.as_chunks::<8>().0, b.as_chunks::<8>().0);
+    let diff = a.iter().zip(b).fold(0u64, |diff, (x, y)| {
+        diff | (u64::from_ne_bytes(*x) ^ u64::from_ne_bytes(*y))
+    });
+    diff.ct_eq(&0)
 }
 
 #[cfg(test)]

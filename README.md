@@ -53,29 +53,31 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 
 ## Performance
 
-On the optimized workloads shown below, dryoc is faster than libsodium 1.0.18
-on both x86-64 and AArch64. Each result compares the two libraries in the same
-process, using the same buffers, one thread, and `-Ctarget-cpu=native`:
+On the optimized workloads shown below, dryoc is faster than libsodium on both
+x86-64 (against libsodium 1.0.18) and AArch64 (against libsodium 1.0.22).
+Each result compares the two libraries in the same process, using the same
+buffers, one thread, and `-Ctarget-cpu=native`:
 
 | Workload | Intel Xeon 6975P-C (AVX-512) | Arm Neoverse V3 (NEON/SVE2) |
 | --- | ---: | ---: |
-| Poly1305, 1 MiB | `5.85x faster` | `3.28x faster` |
-| Poly1305, 16 KiB | `5.59x faster` | `3.14x faster` |
-| XSalsa20-Poly1305 secretbox, 1 MiB | `3.07x faster` | `2.84x faster` |
-| XSalsa20-Poly1305 secretbox, 1 KiB | `3.16x faster` | `2.04x faster` |
-| BLAKE2b, 694,200 B | `1.19x faster` | `1.43x faster` |
+| Poly1305, 1 MiB | `5.85x faster` | `3.61x faster` |
+| Poly1305, 16 KiB | `5.59x faster` | `3.51x faster` |
+| XSalsa20-Poly1305 secretbox, 1 MiB | `3.07x faster` | `4.00x faster` |
+| XSalsa20-Poly1305 secretbox, 1 KiB | `3.16x faster` | `2.60x faster` |
+| BLAKE2b, 694,200 B | `1.19x faster` | `1.42x faster` |
 
 ![dryoc speedup over libsodium by workload](benchmarks/speedup.svg)
 
-These results do not require `-Ctarget-cpu=native`: the optimized Poly1305
-and Salsa20 implementations, and the x86-64 BLAKE2b implementation, are
-selected automatically at runtime, while the AArch64 BLAKE2b rounds use only
-baseline instructions. Omitting the flag changes the results above by no more
-than 6%. Argon2id results vary more with the machine and build flags.
+These results do not require `-Ctarget-cpu=native`: the optimized
+implementations that need CPU extensions are selected automatically at
+runtime, and the AArch64 Poly1305 and BLAKE2b code uses only baseline
+instructions. Omitting the flag changes the results above by no more than 6%
+on the Xeon and 2.4% on the Neoverse V3. Argon2id results vary more with the
+machine, the build flags and the libsodium release.
 
 Against libsodium 1.0.22, ML-KEM-768 key generation, encapsulation and
-decapsulation are `1.87x`, `1.89x` and `1.93x` faster on the Neoverse V3,
-and X-Wing is `1.33x`–`1.45x` faster. See
+decapsulation are `2.99x`, `3.40x` and `3.80x` faster on the Neoverse V3,
+and X-Wing is `1.95x`–`2.32x` faster. See
 [BENCHMARKS.md](BENCHMARKS.md) for the full results, test environment, builds
 without CPU-specific flags, and workloads where libsodium is as fast or faster.
 
@@ -98,10 +100,10 @@ the `simd_backend` feature. Implementations that need optional CPU extensions,
 such as NEON, SVE2, the SHA-2 and SHA-3 instructions, AVX2, AVX-512, and BMI2,
 are selected at runtime when the CPU supports them, or from the compile-time
 target features without `std` (see [Cargo features](#cargo-features)). The
-AArch64 `asm!`
-implementations of the BLAKE2b rounds, the scalar ChaCha20 rounds, and
-Curve25519 field multiplication use only baseline instructions and are used on
-that architecture outside Miri. Curve25519 and Ed25519 group operations are
+AArch64 `asm!` implementations of the Poly1305 block loops, the BLAKE2b
+rounds, the scalar ChaCha20 rounds, and Curve25519 field multiplication use
+only baseline instructions and are used on that architecture outside Miri.
+Curve25519 and Ed25519 group operations are
 also unaffected by the `simd_backend` feature.
 
 ### WebAssembly SIMD
@@ -263,13 +265,28 @@ the ML-KEM polynomial arithmetic and the 4-way Keccak permutation,
 lane sets, an AVX-512
 Ed25519 basepoint table lookup, and BMI2-compiled copies of the Curve25519
 scalar multiplication, inversion and square-root loops), and the AArch64
-backends: detected NEON entry points for Poly1305, XSalsa20, ChaCha20,
-the Ed25519 basepoint table lookup and the ML-KEM polynomial arithmetic (with
-16-byte coefficient-row loads and stores), register-only SVE2 `asm!` blocks for
-the ChaCha20 and XSalsa20 rounds, scalar `asm!` blocks for the ChaCha20 and
-BLAKE2b rounds and the Curve25519 field products, and detected
+backends: detected NEON entry points for XSalsa20, ChaCha20,
+the Ed25519 basepoint table lookup (with 16-byte table loads) and the ML-KEM
+polynomial arithmetic, message encoding, ciphertext decompression and matrix rejection
+sampling (with 16-byte
+coefficient-row and input loads and
+stores), register-only SVE2 `asm!` blocks for
+the ChaCha20 and XSalsa20 rounds (a variant of each also runs Poly1305
+over the preceding ciphertext, reading only that input), SVE2 `asm!` passes
+of the Argon2 block permutation (reading and writing only the block), scalar `asm!`
+blocks for the ChaCha20 and
+BLAKE2b rounds, the Poly1305 block loops (one lane, or four each reading a
+quarter of the input), the Curve25519 field products and the divstep loop of the
+Curve25519 inversion, a `.p2align` directive that
+pins the Ed25519 basepoint multiplication loops' alignment, and detected
 `sha2`/`sha3` instruction `asm!` loops for the SHA-256 and SHA-512
-compression functions, and the detected SHA3-extension Keccak permutation.
+compression functions, the detected SHA3-extension Keccak permutation (and
+a generated `asm!` block running it on two states beside a third on the
+integer registers in a three-pass loop, reading its round-constant table
+and reading and writing only an 80-byte stack frame of spill slots and its
+pass counter, which it wipes and releases), and
+single rotated-operand `eor`/`bic` instructions in the scalar Keccak rounds
+and the Argon2 `G` function.
 `PwHash::into_parts` moves fields out of a value with
 a zeroizing `Drop` (`ManuallyDrop` + `ptr::read`). CPU features are detected
 at runtime with the `std` feature and taken from the compile-time target
