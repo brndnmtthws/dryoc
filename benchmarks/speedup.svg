@@ -6,7 +6,7 @@
 >
 
 <title>Gnuplot</title>
-<desc>Produced by GNUPLOT 6.0 patchlevel 2 </desc>
+<desc>Produced by GNUPLOT 6.0 patchlevel 5 </desc>
 
 <g id="gnuplot_canvas">
 
@@ -182,49 +182,49 @@
 	<path stroke='black'  d='M88.40,105.31 L116.35,105.31 L116.35,95.57 L88.40,95.57 L88.40,105.31 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '115.54,422.50 135.45,422.50 135.45,341.07 115.54,341.07 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '115.54,422.50 135.45,422.50 135.45,347.88 115.54,347.88 '/>
 	</g>
-	<path stroke='black'  d='M115.54,422.50 L115.54,341.08 L135.44,341.08 L135.44,422.50 L115.54,422.50 Z  '/></g>
+	<path stroke='black'  d='M115.54,422.50 L115.54,347.89 L135.44,347.89 L135.44,422.50 L115.54,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '181.88,422.50 201.80,422.50 201.80,261.22 181.88,261.22 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '181.88,422.50 201.80,422.50 201.80,297.43 181.88,297.43 '/>
 	</g>
-	<path stroke='black'  d='M181.88,422.50 L181.88,261.23 L201.79,261.23 L201.79,422.50 L181.88,422.50 Z  '/></g>
+	<path stroke='black'  d='M181.88,422.50 L181.88,297.44 L201.79,297.44 L201.79,422.50 L181.88,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '248.23,422.50 268.14,422.50 268.14,130.57 248.23,130.57 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '248.23,422.50 268.14,422.50 268.14,209.88 248.23,209.88 '/>
 	</g>
-	<path stroke='black'  d='M248.23,422.50 L248.23,130.58 L268.13,130.58 L268.13,422.50 L248.23,422.50 Z  '/></g>
+	<path stroke='black'  d='M248.23,422.50 L248.23,209.89 L268.13,209.89 L268.13,422.50 L248.23,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '314.57,422.50 334.49,422.50 334.49,116.89 314.57,116.89 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '314.57,422.50 334.49,422.50 334.49,198.67 314.57,198.67 '/>
 	</g>
-	<path stroke='black'  d='M314.57,422.50 L314.57,116.90 L334.48,116.90 L334.48,422.50 L314.57,422.50 Z  '/></g>
+	<path stroke='black'  d='M314.57,422.50 L314.57,198.68 L334.48,198.68 L334.48,422.50 L314.57,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '380.92,422.50 400.83,422.50 400.83,352.13 380.92,352.13 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '380.92,422.50 400.83,422.50 400.83,349.94 380.92,349.94 '/>
 	</g>
-	<path stroke='black'  d='M380.92,422.50 L380.92,352.14 L400.82,352.14 L400.82,422.50 L380.92,422.50 Z  '/></g>
+	<path stroke='black'  d='M380.92,422.50 L380.92,349.95 L400.82,349.95 L400.82,422.50 L380.92,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '447.26,422.50 467.18,422.50 467.18,257.56 447.26,257.56 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '447.26,422.50 467.18,422.50 467.18,251.96 447.26,251.96 '/>
 	</g>
-	<path stroke='black'  d='M447.26,422.50 L447.26,257.57 L467.17,257.57 L467.17,422.50 L447.26,422.50 Z  '/></g>
+	<path stroke='black'  d='M447.26,422.50 L447.26,251.97 L467.17,251.97 L467.17,422.50 L447.26,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '513.61,422.50 533.52,422.50 533.52,258.92 513.61,258.92 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '513.61,422.50 533.52,422.50 533.52,277.32 513.61,277.32 '/>
 	</g>
-	<path stroke='black'  d='M513.61,422.50 L513.61,258.93 L533.51,258.93 L533.51,422.50 L513.61,422.50 Z  '/></g>
+	<path stroke='black'  d='M513.61,422.50 L513.61,277.33 L533.51,277.33 L533.51,422.50 L513.61,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '579.95,422.50 599.87,422.50 599.87,262.11 579.95,262.11 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '579.95,422.50 599.87,422.50 599.87,281.29 579.95,281.29 '/>
 	</g>
-	<path stroke='black'  d='M579.95,422.50 L579.95,262.12 L599.86,262.12 L599.86,422.50 L579.95,422.50 Z  '/></g>
+	<path stroke='black'  d='M579.95,422.50 L579.95,281.30 L599.86,281.30 L599.86,422.50 L579.95,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '646.30,422.50 666.21,422.50 666.21,361.17 646.30,361.17 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '646.30,422.50 666.21,422.50 666.21,358.53 646.30,358.53 '/>
 	</g>
-	<path stroke='black'  d='M646.30,422.50 L646.30,361.18 L666.20,361.18 L666.20,422.50 L646.30,422.50 Z  '/></g>
+	<path stroke='black'  d='M646.30,422.50 L646.30,358.54 L666.20,358.54 L666.20,422.50 L646.30,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
 		<polygon fill = 'rgb( 47, 111, 179)' points = '712.64,422.50 732.56,422.50 732.56,365.06 712.64,365.06 '/>
@@ -232,14 +232,14 @@
 	<path stroke='black'  d='M712.64,422.50 L712.64,365.07 L732.55,365.07 L732.55,422.50 L712.64,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '778.99,422.50 798.90,422.50 798.90,360.19 778.99,360.19 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '778.99,422.50 798.90,422.50 798.90,361.57 778.99,361.57 '/>
 	</g>
-	<path stroke='black'  d='M778.99,422.50 L778.99,360.20 L798.89,360.20 L798.89,422.50 L778.99,422.50 Z  '/></g>
+	<path stroke='black'  d='M778.99,422.50 L778.99,361.58 L798.89,361.58 L798.89,422.50 L778.99,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<g stroke='none' shape-rendering='crispEdges'>
-		<polygon fill = 'rgb( 47, 111, 179)' points = '845.34,422.50 865.25,422.50 865.25,355.24 845.34,355.24 '/>
+		<polygon fill = 'rgb( 47, 111, 179)' points = '845.34,422.50 865.25,422.50 865.25,356.92 845.34,356.92 '/>
 	</g>
-	<path stroke='black'  d='M845.34,422.50 L845.34,355.25 L865.24,355.25 L865.24,422.50 L845.34,422.50 Z  '/></g>
+	<path stroke='black'  d='M845.34,422.50 L845.34,356.93 L865.24,356.93 L865.24,422.50 L845.34,422.50 Z  '/></g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 </g>
 	</g>
@@ -319,41 +319,41 @@
 	</g>
 	<g id="gnuplot_plot_3"  fill="none"><title>gnuplot_plot_3</title>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<g transform="translate(125.49,332.31)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >1.56x</tspan></text>
+	<g transform="translate(125.49,339.12)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >1.43x</tspan></text>
 	</g>
-	<g transform="translate(191.83,252.46)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >3.09x</tspan></text>
+	<g transform="translate(191.83,288.67)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >2.40x</tspan></text>
 	</g>
-	<g transform="translate(258.18,121.81)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >5.59x</tspan></text>
+	<g transform="translate(258.18,201.12)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >4.07x</tspan></text>
 	</g>
-	<g transform="translate(324.52,108.13)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >5.85x</tspan></text>
+	<g transform="translate(324.52,189.91)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >4.29x</tspan></text>
 	</g>
-	<g transform="translate(390.87,343.37)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >1.35x</tspan></text>
+	<g transform="translate(390.87,341.18)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >1.39x</tspan></text>
 	</g>
-	<g transform="translate(457.21,248.80)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >3.16x</tspan></text>
+	<g transform="translate(457.21,243.20)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >3.27x</tspan></text>
 	</g>
-	<g transform="translate(523.56,250.16)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >3.13x</tspan></text>
+	<g transform="translate(523.56,268.56)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >2.78x</tspan></text>
 	</g>
-	<g transform="translate(589.91,253.35)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >3.07x</tspan></text>
+	<g transform="translate(589.91,272.53)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >2.71x</tspan></text>
 	</g>
-	<g transform="translate(656.25,352.41)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >1.17x</tspan></text>
+	<g transform="translate(656.25,349.77)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >1.23x</tspan></text>
 	</g>
 	<g transform="translate(722.60,356.30)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
 		<text><tspan font-family="sans-serif" >1.10x</tspan></text>
 	</g>
-	<g transform="translate(788.94,351.43)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >1.19x</tspan></text>
+	<g transform="translate(788.94,352.81)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >1.17x</tspan></text>
 	</g>
-	<g transform="translate(855.29,346.48)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif" >1.29x</tspan></text>
+	<g transform="translate(855.29,348.16)" stroke="none" fill="black" font-family="sans-serif" font-size="9.00"  text-anchor="middle">
+		<text><tspan font-family="sans-serif" >1.26x</tspan></text>
 	</g>
 </g>
 	</g>
@@ -444,7 +444,7 @@
 		<text><tspan font-family="sans-serif" >dryoc speedup over libsodium (higher is better)</tspan></text>
 	</g>
 	<g transform="translate(501.44,52.99)" stroke="none" fill="black" font-family="sans-serif" font-size="13.00"  text-anchor="middle">
-		<text><tspan font-family="sans-serif"  font-size="10.4">single thread, -Ctarget-cpu=native; Xeon vs libsodium 1.0.18, Neoverse V3 vs 1.0.22</tspan><tspan font-size="13.0" dy="0.00"></tspan></text>
+		<text><tspan font-family="sans-serif"  font-size="10.4">single thread, -Ctarget-cpu=native; both machines vs libsodium 1.0.22</tspan></text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">

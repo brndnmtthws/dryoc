@@ -53,18 +53,18 @@ See the [API documentation](https://docs.rs/dryoc/latest/dryoc/) and
 
 ## Performance
 
-On the optimized workloads shown below, dryoc is faster than libsodium on both
-x86-64 (against libsodium 1.0.18) and AArch64 (against libsodium 1.0.22).
+On the optimized workloads shown below, dryoc is faster than libsodium 1.0.22 on both
+x86-64 and AArch64.
 Each result compares the two libraries in the same process, using the same
 buffers, one thread, and `-Ctarget-cpu=native`:
 
 | Workload | Intel Xeon 6975P-C (AVX-512) | Arm Neoverse V3 (NEON/SVE2) |
 | --- | ---: | ---: |
-| Poly1305, 1 MiB | `5.85x faster` | `3.61x faster` |
-| Poly1305, 16 KiB | `5.59x faster` | `3.51x faster` |
-| XSalsa20-Poly1305 secretbox, 1 MiB | `3.07x faster` | `4.00x faster` |
-| XSalsa20-Poly1305 secretbox, 1 KiB | `3.16x faster` | `2.60x faster` |
-| BLAKE2b, 694,200 B | `1.19x faster` | `1.42x faster` |
+| Poly1305, 1 MiB | `4.29x faster` | `3.61x faster` |
+| Poly1305, 16 KiB | `4.07x faster` | `3.51x faster` |
+| XSalsa20-Poly1305 secretbox, 1 MiB | `2.71x faster` | `4.00x faster` |
+| XSalsa20-Poly1305 secretbox, 1 KiB | `3.27x faster` | `2.60x faster` |
+| BLAKE2b, 694,200 B | `1.17x faster` | `1.42x faster` |
 
 ![dryoc speedup over libsodium by workload](benchmarks/speedup.svg)
 
@@ -76,8 +76,9 @@ on the Xeon and 2.4% on the Neoverse V3. Argon2id results vary more with the
 machine, the build flags and the libsodium release.
 
 Against libsodium 1.0.22, ML-KEM-768 key generation, encapsulation and
-decapsulation are `2.99x`, `3.40x` and `3.80x` faster on the Neoverse V3,
-and X-Wing is `1.95x`–`2.32x` faster. See
+decapsulation are `1.61x`, `1.93x` and `2.15x` faster on the Xeon and `2.99x`,
+`3.40x` and `3.80x` faster on the Neoverse V3, and X-Wing is `1.49x`–`1.71x`
+faster on the Xeon and `1.95x`–`2.32x` faster on the Neoverse V3. See
 [BENCHMARKS.md](BENCHMARKS.md) for the full results, test environment, builds
 without CPU-specific flags, and workloads where libsodium is as fast or faster.
 

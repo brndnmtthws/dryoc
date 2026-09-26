@@ -49,7 +49,7 @@ set terminal svg size 960,520 dynamic font "sans-serif,13" background rgb "white
 
 set output "benchmarks/speedup.svg"
 
-set title "dryoc speedup over libsodium (higher is better)\n{/*0.8 single thread, -Ctarget-cpu=native; Xeon vs libsodium 1.0.18, Neoverse V3 vs 1.0.22}"
+set title "dryoc speedup over libsodium (higher is better)\n{/*0.8 single thread, -Ctarget-cpu=native; both machines vs libsodium 1.0.22}"
 set ylabel "throughput ratio, dryoc / libsodium"
 set yrange [0:6.6]
 set ytics 1
@@ -83,7 +83,7 @@ eval group_labels("graph -0.14")
 do for [m=1:2] {
     data = (m == 1) ? x86_data : arm_data
     name = (m == 1) ? x86_name : arm_name
-    sodium = (m == 1) ? "1.0.18" : "1.0.22"
+    sodium = "1.0.22"
     set output sprintf("benchmarks/throughput-%s.svg", (m == 1) ? "x86_64" : "aarch64")
     set title sprintf("Single-thread throughput, dryoc vs libsodium %s\n{/*0.8 %s, -Ctarget-cpu=native; log scale}", sodium, name)
     plot data using (mbps($3,$4)):xtic(1) lc rgb dryoc_color title "dryoc", \
