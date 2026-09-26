@@ -429,14 +429,19 @@ macro_rules! hmac_state_wrapper {
                 Self(state)
             }
 
-            #[doc = concat!("`", stringify!($update), "`.")]
+            #[doc = concat!("`", stringify!($update), "`. An empty `message` is")]
+            /// passed as a null pointer with length 0, as C callers do.
             pub(crate) fn update(&mut self, message: &[u8]) {
                 init();
-                // SAFETY: the state was set up by `new`, and `message` is
-                // live for its length.
-                let rc = unsafe {
-                    ffi::$update(&mut self.0, message.as_ptr(), message.len() as c_ulonglong)
+                let ptr = if message.is_empty() {
+                    std::ptr::null()
+                } else {
+                    message.as_ptr()
                 };
+                // SAFETY: the state was set up by `new`. `ptr` is either null
+                // with length 0, which libsodium never dereferences, or points
+                // to `message`, which is live for its length.
+                let rc = unsafe { ffi::$update(&mut self.0, ptr, message.len() as c_ulonglong) };
                 assert_eq!(rc, 0);
             }
 
