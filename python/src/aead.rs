@@ -97,7 +97,7 @@ secret_key_class! {
             let message = plaintext.as_slice();
             let aad = opt_slice(&associated_data);
             let envelope = maybe_detach(py, message.len(), || {
-                dryocaead::DryocAeadEnvelope::seal_to_vec(message, aad, &self.key)
+                dryocaead::DryocAeadEnvelope::seal_to_vecbox(message, aad, &self.key)
                     .map(dryocaead::VecEnvelope::into_vec)
             })
             .or_raise()?;

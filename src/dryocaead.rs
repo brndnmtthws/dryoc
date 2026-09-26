@@ -54,7 +54,8 @@
 //! let message = b"Arbitrary data to encrypt";
 //! let aad = b"metadata";
 //!
-//! let envelope = DryocAeadEnvelope::seal_to_vec(message, Some(aad), &key).expect("seal failed");
+//! let envelope =
+//!     DryocAeadEnvelope::seal_to_vecbox(message, Some(aad), &key).expect("seal failed");
 //! let bytes = envelope.to_vec();
 //! let envelope = VecEnvelope::from_bytes(&bytes).expect("from bytes");
 //! let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
@@ -749,7 +750,7 @@ macro_rules! impl_aead_envelope_seal {
             /// # Panics
             ///
             /// Panics if the operating system's random number generator fails.
-            pub fn seal_to_vec<Message: Bytes + ?Sized, SecretKey: ByteArray<$keybytes>>(
+            pub fn seal_to_vecbox<Message: Bytes + ?Sized, SecretKey: ByteArray<$keybytes>>(
                 message: &Message,
                 associated_data: Option<&[u8]>,
                 key: &SecretKey,
@@ -916,33 +917,6 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
     }
 }
 
-impl<'a, Algorithm: AeadAlgorithm, Mac, Data: From<&'a [u8]>> AeadBox<Algorithm, Mac, Data> {
-    /// Returns a new box with ciphertext copied from `input` and `tag`
-    /// consumed.
-    pub fn with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
-        Self {
-            algorithm: PhantomData,
-            tag,
-            data: input.into(),
-        }
-    }
-}
-
-impl<'a, Algorithm: AeadAlgorithm, Nonce, Mac, Data: From<&'a [u8]>>
-    AeadEnvelope<Algorithm, Nonce, Mac, Data>
-{
-    /// Returns a new envelope with nonce and tag consumed and ciphertext copied
-    /// from `input`.
-    pub fn with_nonce_data_and_mac(nonce: Nonce, tag: Mac, input: &'a [u8]) -> Self {
-        Self {
-            algorithm: PhantomData,
-            nonce,
-            tag,
-            data: input.into(),
-        }
-    }
-}
-
 impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> PartialEq
     for AeadBox<Algorithm, Mac, Data>
 {
@@ -1045,7 +1019,7 @@ mod tests {
         let message = b"hello";
         let aad = b"metadata";
 
-        let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("seal");
+        let envelope = VecEnvelope::seal_to_vecbox(message, Some(aad), &key).expect("seal");
         let bytes = envelope.to_vec();
         assert_eq!(
             bytes.len(),
@@ -1069,7 +1043,7 @@ mod tests {
         let message = b"hello";
         let aad = b"metadata";
 
-        let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("seal");
+        let envelope = VecEnvelope::seal_to_vecbox(message, Some(aad), &key).expect("seal");
 
         envelope
             .open_to_vec(Some(b"wrong aad"), &key)
@@ -1104,7 +1078,7 @@ mod tests {
     fn test_envelope_empty_message_and_no_aad() {
         let key = Key::generate();
 
-        let envelope = VecEnvelope::seal_to_vec(&[], None, &key).expect("seal");
+        let envelope = VecEnvelope::seal_to_vecbox(&[], None, &key).expect("seal");
         assert_eq!(
             envelope.to_vec().len(),
             CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
@@ -1311,7 +1285,7 @@ mod tests {
             let (parsed_nonce, tag, data) = envelope.into_parts();
             assert_eq!(parsed_nonce, nonce);
             assert_eq!(
-                VecEnvelope::with_nonce_data_and_mac(parsed_nonce, tag, &data).into_vec(),
+                VecEnvelope::from_parts(parsed_nonce, tag, data).into_vec(),
                 envelope_bytes
             );
         }

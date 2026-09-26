@@ -588,10 +588,20 @@ impl<
 impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>
     SignedMessage<Signature, Message>
 {
-    /// Returns a new box with `tag`, `data` and (optional) `ephemeral_pk`,
-    /// consuming each.
+    /// Returns a new signed message from `signature` and `message`, consuming
+    /// each.
     pub fn from_parts(signature: Signature, message: Message) -> Self {
         Self { signature, message }
+    }
+
+    /// Returns the signature.
+    pub fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    /// Returns the signed message.
+    pub fn message(&self) -> &Message {
+        &self.message
     }
 
     /// Copies `self` into a new [`Vec`]
@@ -600,8 +610,8 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
         self.to_bytes()
     }
 
-    /// Moves the tag, data, and (optional) ephemeral public key out of this
-    /// instance, returning them as a tuple.
+    /// Moves the signature and message out of this instance, returning them
+    /// as a tuple.
     pub fn into_parts(self) -> (Signature, Message) {
         (self.signature, self.message)
     }

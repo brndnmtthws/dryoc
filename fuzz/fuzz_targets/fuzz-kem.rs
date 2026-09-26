@@ -452,7 +452,7 @@ fuzz_target!(|data: &[u8]| {
     }
 
     // Sealed box of the trailing input bytes to the X-Wing key pair, opened
-    // through the reference decapsulation and key schedule and by `unseal`.
+    // through the reference decapsulation and key schedule and by `open`.
     let message = data;
     let sealed = VecBox::seal_to_vecbox(message, &keypair.public_key).expect("seal to honest key");
     let wire = sealed.to_vec();
@@ -478,7 +478,7 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(opened, message);
     let parsed = VecBox::from_bytes(&wire).expect("parse sealed box");
     assert_eq!(parsed.to_vec(), wire);
-    assert_eq!(parsed.unseal_to_vec(&keypair).expect("unseal"), message);
+    assert_eq!(parsed.open_to_vec(&keypair).expect("open"), message);
 
     // One flipped byte anywhere (enc, ciphertext or tag) fails to open, and
     // so does every truncation: too short to parse, or a shifted tag.
@@ -487,7 +487,7 @@ fuzz_target!(|data: &[u8]| {
     tampered[index] ^= flips[2] | 1;
     let tampered = VecBox::from_bytes(&tampered).expect("same length parses");
     assert!(
-        tampered.unseal_to_vec(&keypair).is_err(),
+        tampered.open_to_vec(&keypair).is_err(),
         "opened a box with byte {index} flipped"
     );
     let removed = 1 + usize::from(u16::from_le_bytes([flips[3], flips[4]])) % wire.len();
@@ -499,7 +499,7 @@ fuzz_target!(|data: &[u8]| {
                 "parsed a {removed}-byte-short box"
             );
             assert!(
-                truncated_box.unseal_to_vec(&keypair).is_err(),
+                truncated_box.open_to_vec(&keypair).is_err(),
                 "opened a box {removed} bytes short"
             );
         }

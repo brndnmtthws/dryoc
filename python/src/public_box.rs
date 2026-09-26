@@ -314,7 +314,7 @@ impl SealedBox {
         let ciphertext = ciphertext.as_slice();
         let plaintext = maybe_detach(py, ciphertext.len(), || {
             VecBox::from_sealed_bytes(ciphertext)
-                .and_then(|sealed| sealed.unseal_to_vec(pair))
+                .and_then(|sealed| sealed.open_to_vec(pair))
                 .map(Zeroizing::new)
         })
         .or_raise()?;
