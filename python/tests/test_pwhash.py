@@ -69,4 +69,4 @@ def test_invalid_parameters() -> None:
     with pytest.raises(InvalidInputError):
         pwhash.hash("pw", memlimit=1024, strength=MIN)
     with pytest.raises(ValueError):
-        pwhash.hash("pw", algorithm=7, strength=MIN)  # type: ignore[arg-type]
+        pwhash.hash("pw", algorithm=7, strength=MIN)  # ty: ignore[invalid-argument-type]

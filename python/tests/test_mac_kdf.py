@@ -23,7 +23,7 @@ MACS = [
 
 
 @pytest.mark.parametrize(("cls", "oneshot", "oracle"), MACS)
-def test_hmac_matches_stdlib(cls, oneshot, oracle) -> None:  # type: ignore[no-untyped-def]
+def test_hmac_matches_stdlib(cls, oneshot, oracle) -> None:
     for data in (b"", b"message", bytes(5000)):
         expected = oracle(KEY, data)
         assert oneshot(KEY, data) == expected
@@ -46,7 +46,7 @@ def test_poly1305_rfc8439() -> None:
 
 
 @pytest.mark.parametrize("cls", [m[0] for m in MACS] + [mac.Poly1305])
-def test_mac_lifecycle(cls) -> None:  # type: ignore[no-untyped-def]
+def test_mac_lifecycle(cls) -> None:
     key = cls.generate_key()
     assert len(key) == cls.KEY_SIZE
     authenticator = cls(key)
@@ -67,7 +67,7 @@ def test_mac_lifecycle(cls) -> None:  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.parametrize("make", BUFFER_TYPES)
-def test_mac_bytes_like(make) -> None:  # type: ignore[no-untyped-def]
+def test_mac_bytes_like(make) -> None:
     assert mac.hmac_sha256(make(KEY), make(b"data")) == stdlib_hmac("sha256", KEY, b"data")
 
 
@@ -83,14 +83,18 @@ KDF_KAT = {
     0: (
         "e9136a52b9690eb4df4e9665e819a6d3",
         "c13fcc2e6cd0cd0f82d93b163a5696c5105378f8c629d36baf3ae0239de9c280",
-        "a0c724404728c8bb95e5433eb6a9716171144d61efb23e74b873fcbeda51d807"
-        "1b5d70aae12066dfc94ce943f145aa176c055040c3dd73b0a15e36254d450614",
+        (
+            "a0c724404728c8bb95e5433eb6a9716171144d61efb23e74b873fcbeda51d807"
+            "1b5d70aae12066dfc94ce943f145aa176c055040c3dd73b0a15e36254d450614"
+        ),
     ),
     2**64 - 1: (
         "040f6b7312b53bce5d711bb9c589cdd4",
         "500c3043b2b9177ec843ecbe9f98f92d8c11fbbd10a225ab844548de89c21d55",
-        "6be4464350f6934d151c1bb8f555bc18e75028be95b892c6dca047101f2827a1"
-        "950b2b0fb35e996a2782db9a760e76c8b8da52e362f741bf5bcfefff0fc943fc",
+        (
+            "6be4464350f6934d151c1bb8f555bc18e75028be95b892c6dca047101f2827a1"
+            "950b2b0fb35e996a2782db9a760e76c8b8da52e362f741bf5bcfefff0fc943fc"
+        ),
     ),
 }
 
@@ -148,7 +152,7 @@ def test_hkdf_sha256_rfc5869_case_1() -> None:
     ("oneshot", "cls", "algorithm"),
     [(kdf.hkdf_sha256, kdf.HkdfSha256, "sha256"), (kdf.hkdf_sha512, kdf.HkdfSha512, "sha512")],
 )
-def test_hkdf_matches_reference(oneshot, cls, algorithm) -> None:  # type: ignore[no-untyped-def]
+def test_hkdf_matches_reference(oneshot, cls, algorithm) -> None:
     for salt in (b"", b"salt"):
         for length in (0, 1, 32, 100, cls.MAX_OUTPUT_SIZE):
             expected = python_hkdf(algorithm, b"ikm", salt, b"info", length)

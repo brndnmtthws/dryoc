@@ -36,8 +36,8 @@ from dryoc import (
 )
 from dryoc._dryoc import __version__, random_bytes
 from dryoc._types import EncryptedMessage
-from dryoc.kx import SessionKeys
 from dryoc.exceptions import CryptoError, DryocError, InvalidInputError
+from dryoc.kx import SessionKeys
 
 __all__ = [
     "CryptoError",

@@ -13,7 +13,7 @@ class XChaCha20Poly1305:
     KEY_SIZE: ClassVar[int]
     NONCE_SIZE: ClassVar[int]
     TAG_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, key: Buffer) -> Self: ...
@@ -41,7 +41,7 @@ class ChaCha20Poly1305:
     KEY_SIZE: ClassVar[int]
     NONCE_SIZE: ClassVar[int]
     TAG_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, key: Buffer) -> Self: ...

@@ -12,8 +12,8 @@ Both sides use :class:`dryoc.box.KeyPair` key pairs. Example::
 
 from dryoc._dryoc import box_KeyPair as KeyPair
 from dryoc._dryoc import box_PublicKey as PublicKey
-from dryoc._dryoc import kx_SessionKeys as SessionKeys
 from dryoc._dryoc import kx_client_session_keys as client_session_keys
 from dryoc._dryoc import kx_server_session_keys as server_session_keys
+from dryoc._dryoc import kx_SessionKeys as SessionKeys
 
 __all__ = ["KeyPair", "PublicKey", "SessionKeys", "client_session_keys", "server_session_keys"]

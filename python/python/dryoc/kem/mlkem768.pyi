@@ -22,7 +22,7 @@ class PublicKey:
 @final
 class SecretKey:
     SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, key: Buffer) -> Self: ...
@@ -32,7 +32,7 @@ class SecretKey:
 @final
 class KeyPair:
     SEED_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     @classmethod
     def generate(cls) -> Self: ...
     @classmethod

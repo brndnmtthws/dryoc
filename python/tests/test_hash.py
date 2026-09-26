@@ -19,7 +19,7 @@ FIXED = [
 
 
 @pytest.mark.parametrize(("cls", "oneshot", "name", "digest_size", "block_size"), FIXED)
-def test_fixed_hashes_match_hashlib(cls, oneshot, name, digest_size, block_size) -> None:  # type: ignore[no-untyped-def]
+def test_fixed_hashes_match_hashlib(cls, oneshot, name, digest_size, block_size) -> None:
     assert (cls.name, cls.digest_size, cls.block_size) == (name, digest_size, block_size)
     for message in MESSAGES:
         expected = hashlib.new(name, message)
@@ -30,7 +30,7 @@ def test_fixed_hashes_match_hashlib(cls, oneshot, name, digest_size, block_size)
 
 
 @pytest.mark.parametrize(("cls", "oneshot", "name", "digest_size", "block_size"), FIXED)
-def test_hashlib_protocol(cls, oneshot, name, digest_size, block_size) -> None:  # type: ignore[no-untyped-def]
+def test_hashlib_protocol(cls, oneshot, name, digest_size, block_size) -> None:
     h = cls()
     for chunk in (b"a", bytearray(b"b" * 200), memoryview(b"c" * 5000)):
         h.update(chunk)
@@ -89,7 +89,7 @@ def test_blake2b_key_too_long() -> None:
         (dhash.Shake256, dhash.shake256, hashlib.shake_256, 136),
     ],
 )
-def test_shake_matches_hashlib(cls, oneshot, reference, rate) -> None:  # type: ignore[no-untyped-def]
+def test_shake_matches_hashlib(cls, oneshot, reference, rate) -> None:
     assert (cls.name, cls.digest_size, cls.block_size) == (reference().name, 0, rate)
     for message in MESSAGES:
         expected = reference(message)
@@ -113,7 +113,12 @@ def unhex(spaced: str) -> bytes:
 
 # RFC 9861 section 5 (as vendored in dryoc's Rust tests).
 TURBOSHAKE128 = [
-    (b"", 0x1F, 64, "1E415F1C5983AFF2169217277D17BB538CD945A397DDEC541F1CE41AF2C1B74C3E8CCAE2A4DAE56C84A04C2385C03C15E8193BDF58737363321691C05462C8DF"),
+    (
+        b"",
+        0x1F,
+        64,
+        "1E415F1C5983AFF2169217277D17BB538CD945A397DDEC541F1CE41AF2C1B74C3E8CCAE2A4DAE56C84A04C2385C03C15E8193BDF58737363321691C05462C8DF",
+    ),
     (ptn(1), 0x1F, 32, "55CEDD6F60AF7BB29A4042AE832EF3F58DB7299F893EBB9247247D856958DAA9"),
     (ptn(17), 0x1F, 32, "9C97D036A3BAC819DB70EDE0CA554EC6E4C2A1A4FFBFD9EC269CA6A111161233"),
     (ptn(17**2), 0x1F, 32, "96C77C279E0126F7FC07C9B07F5CDAE1E0BE60BDBE10620040E75D7223A624D2"),
@@ -125,8 +130,18 @@ TURBOSHAKE128 = [
     (b"\xff" * 3, 0x7F, 32, "16274CC656D44CEFD422395D0F9053BDA6D28E122ABA15C765E5AD0E6EAF26F9"),
 ]
 TURBOSHAKE256 = [
-    (b"", 0x1F, 64, "367A329DAFEA871C7802EC67F905AE13C57695DC2C6663C61035F59A18F8E7DB11EDC0E12E91EA60EB6B32DF06DD7F002FBAFABB6E13EC1CC20D995547600DB0"),
-    (ptn(1), 0x1F, 64, "3E1712F928F8EAF1054632B2AA0A246ED8B0C378728F60BC970410155C28820E90CC90D8A3006AA2372C5C5EA176B0682BF22BAE7467AC94F74D43D39B0482E2"),
+    (
+        b"",
+        0x1F,
+        64,
+        "367A329DAFEA871C7802EC67F905AE13C57695DC2C6663C61035F59A18F8E7DB11EDC0E12E91EA60EB6B32DF06DD7F002FBAFABB6E13EC1CC20D995547600DB0",
+    ),
+    (
+        ptn(1),
+        0x1F,
+        64,
+        "3E1712F928F8EAF1054632B2AA0A246ED8B0C378728F60BC970410155C28820E90CC90D8A3006AA2372C5C5EA176B0682BF22BAE7467AC94F74D43D39B0482E2",
+    ),
 ]
 
 

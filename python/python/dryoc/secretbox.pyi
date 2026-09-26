@@ -14,7 +14,7 @@ class SecretBox:
     KEY_SIZE: ClassVar[int]
     NONCE_SIZE: ClassVar[int]
     MAC_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, key: Buffer) -> Self: ...

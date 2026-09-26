@@ -1,0 +1,7 @@
+# Covers every Python file in the repository: the bindings in `python/`,
+# `release.py` and `src/keccak/keccak3_aarch64.py`. CI runs
+# `ruff check ..` and `ruff format --check ..` from `python/`.
+line-length = 100
+target-version = "py311"
+# Import sorting treats the bindings' package as first-party.
+src = ["python/python"]

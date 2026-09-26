@@ -36,9 +36,9 @@ builds from the source distribution, which needs a Rust toolchain, version
 ```python
 from dryoc.secretbox import SecretBox
 
-key = SecretBox.generate()                 # or SecretBox(existing_32_byte_key)
-message = key.encrypt(b"attack at dawn")   # a random nonce is generated
-ciphertext, nonce = message                # EncryptedMessage(ciphertext, nonce)
+key = SecretBox.generate()  # or SecretBox(existing_32_byte_key)
+message = key.encrypt(b"attack at dawn")  # a random nonce is generated
+ciphertext, nonce = message  # EncryptedMessage(ciphertext, nonce)
 assert key.decrypt(ciphertext, nonce) == b"attack at dawn"
 assert key.decrypt(*message) == b"attack at dawn"
 ```
@@ -85,7 +85,7 @@ assert SealedBox(bob).decrypt(sealed) == b"a secret admirer"
 from dryoc.kem import xwing
 from dryoc.sealedbox import SealedBox
 
-recipient = xwing.KeyPair.generate()    # X-Wing: ML-KEM-768 + X25519
+recipient = xwing.KeyPair.generate()  # X-Wing: ML-KEM-768 + X25519
 
 sealed = SealedBox(recipient.public_key).encrypt(b"store now, decrypt never")
 assert SealedBox(recipient).decrypt(sealed) == b"store now, decrypt never"
@@ -132,7 +132,7 @@ from dryoc.sign import SigningKey
 signing_key = SigningKey.generate()
 signature = signing_key.sign(b"release v2.0.0")
 
-verify_key = signing_key.verify_key          # share bytes(verify_key)
+verify_key = signing_key.verify_key  # share bytes(verify_key)
 verify_key.verify(signature, b"release v2.0.0")  # returns None, or raises
 try:
     verify_key.verify(signature, b"release v6.6.6")
@@ -148,7 +148,7 @@ incrementally.
 ```python
 from dryoc import CryptoError, pwhash, random_bytes
 
-stored = pwhash.hash("correct horse battery staple")   # "$argon2id$v=19$..."
+stored = pwhash.hash("correct horse battery staple")  # "$argon2id$v=19$..."
 pwhash.verify(stored, "correct horse battery staple")  # raises CryptoError if wrong
 
 salt = random_bytes(pwhash.SALT_SIZE)
@@ -184,7 +184,7 @@ from dryoc import hash
 
 assert hash.sha256(b"abc") == hash.Sha256(b"abc").digest()
 
-h = hash.Blake2b(digest_size=32, key=b"k" * 32)   # keyed BLAKE2b
+h = hash.Blake2b(digest_size=32, key=b"k" * 32)  # keyed BLAKE2b
 h.update(b"streamed ")
 h.update(b"input")
 tag = h.hexdigest()
@@ -205,9 +205,9 @@ from dryoc import kdf, mac
 
 key = mac.HmacSha512256.generate_key()
 tag = mac.hmac_sha512256(key, b"message")
-mac.HmacSha512256(key, b"message").verify(tag)    # constant time; raises on mismatch
+mac.HmacSha512256(key, b"message").verify(tag)  # constant time; raises on mismatch
 
-master = kdf.Kdf.generate(context=b"MyApp v1")   # libsodium crypto_kdf
+master = kdf.Kdf.generate(context=b"MyApp v1")  # libsodium crypto_kdf
 encryption_key, signing_seed = master.derive(1), master.derive(2)
 
 okm = kdf.hkdf_sha256(b"input keying material", salt=b"salt", info=b"purpose")

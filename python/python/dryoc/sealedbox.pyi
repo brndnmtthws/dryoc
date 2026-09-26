@@ -11,7 +11,7 @@ class SealedBox:
     """Anonymous post-quantum public-key encryption (HPKE with X-Wing)."""
 
     OVERHEAD: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, recipient: PublicKey | KeyPair | SecretKey) -> Self: ...
     @property
     def public_key(self) -> PublicKey: ...

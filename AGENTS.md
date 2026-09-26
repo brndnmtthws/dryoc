@@ -128,8 +128,11 @@ from `python/` (CI runs the same checks against the built wheel):
 ```sh
 uv sync                  # .venv with the dev group; builds the extension (release)
 uv run pytest
-uv run python -m mypy.stubtest dryoc
-uv run mypy --strict python/dryoc tests
+uv run ruff check ..     # ruff.toml at the root covers every Python file
+uv run ruff format --check ..
+uv run ty check . ../src/keccak/keccak3_aarch64.py
+uv sync --script ../release.py
+uv run ty check --python "$(uv python find --script ../release.py)" ../release.py
 uv run pyright --verifytypes dryoc --ignoreexternal
 cargo clippy --locked --all-targets -- -D warnings
 cargo +nightly fmt --check

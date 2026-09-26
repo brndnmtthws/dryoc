@@ -23,7 +23,7 @@ class SecretKey:
     """An X25519 secret key."""
 
     SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, key: Buffer) -> Self: ...
@@ -39,7 +39,7 @@ class KeyPair:
     """An X25519 key pair."""
 
     SEED_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     @classmethod
     def generate(cls) -> Self: ...
     @classmethod
@@ -58,7 +58,7 @@ class Box:
 
     NONCE_SIZE: ClassVar[int]
     MAC_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, secret_key: KeyPair | SecretKey, public_key: PublicKey) -> Self: ...
     def encrypt(self, plaintext: Buffer, nonce: Buffer | None = None) -> EncryptedMessage: ...
     def decrypt(self, ciphertext: Buffer, nonce: Buffer) -> bytes: ...
@@ -68,7 +68,7 @@ class SealedBox:
     """Anonymous public-key encryption (``crypto_box_seal``)."""
 
     OVERHEAD: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, recipient: PublicKey | KeyPair | SecretKey) -> Self: ...
     @property
     def public_key(self) -> PublicKey: ...

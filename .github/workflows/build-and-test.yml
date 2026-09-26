@@ -516,11 +516,17 @@ jobs:
           toolchain: nightly
           profile: minimal
           components: clippy rustfmt
+      # ruff and ty cover every Python file in the repository. release.py is
+      # checked against its own script environment, which has its tomlkit
+      # dependency.
       - name: Lint Python and Rust code
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3'
         run: |
-          uv run --no-sync python -m mypy.stubtest dryoc
-          uv run --no-sync mypy --strict python/dryoc tests
+          uv run --no-sync ruff check ..
+          uv run --no-sync ruff format --check ..
+          uv run --no-sync ty check . ../src/keccak/keccak3_aarch64.py
+          uv sync --script ../release.py
+          uv run --no-sync ty check --python "$(uv python find --script ../release.py)" ../release.py
           uv run --no-sync pyright --verifytypes dryoc --ignoreexternal
           cargo clippy --locked --all-targets -- -D warnings
           cargo +nightly fmt --check

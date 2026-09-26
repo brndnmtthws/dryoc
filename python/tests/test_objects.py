@@ -66,7 +66,7 @@ def test_secret_objects(name: str, make: Callable[[], Any]) -> None:
         hash(key)
     with pytest.raises(TypeError):
         pickle.dumps(key)
-    assert key == key
+    assert key == key  # noqa: PLR0124 - exercises the constant-time __eq__ on itself
     assert key != make()
     assert key != raw
     assert type(key).__module__ == "dryoc." + name.rsplit(".", 1)[0]
@@ -106,7 +106,7 @@ def test_exception_hierarchy() -> None:
 def test_non_bytes_like_inputs_raise_type_error(value: object) -> None:
     key = secretbox.SecretBox.generate()
     with pytest.raises(TypeError, match="bytes-like"):
-        key.encrypt(value)  # type: ignore[arg-type]
+        key.encrypt(value)  # ty: ignore[invalid-argument-type]
 
 
 WORDS = array.array("I", range(2048))

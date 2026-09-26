@@ -4,7 +4,6 @@ __pycache__/
 *.so
 *.pyd
 /dist
-.mypy_cache/
 .pytest_cache/
 .ruff_cache/
 /.python-version

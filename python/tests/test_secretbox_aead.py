@@ -52,7 +52,7 @@ def test_secretbox_explicit_nonce_is_deterministic_and_libsodium_sized() -> None
 
 
 @pytest.mark.parametrize("make", BUFFER_TYPES)
-def test_bytes_like_inputs(make) -> None:  # type: ignore[no-untyped-def]
+def test_bytes_like_inputs(make) -> None:
     raw = bytes(range(32))
     key = SecretBox(make(raw))
     sealed = key.encrypt(make(b"payload"), make(bytes(24)))
@@ -72,7 +72,7 @@ def test_bytes_like_inputs(make) -> None:  # type: ignore[no-untyped-def]
         pytest.param(lambda m: (m.ciphertext[:-1], m.nonce), id="truncated"),
     ],
 )
-def test_secretbox_tampering_raises(tamper) -> None:  # type: ignore[no-untyped-def]
+def test_secretbox_tampering_raises(tamper) -> None:
     key = SecretBox.generate()
     with pytest.raises(CryptoError):
         key.decrypt(*tamper(key.encrypt(b"some secret message")))
@@ -122,7 +122,7 @@ def test_xchacha_envelope_layout_and_tampering() -> None:
 def test_chacha20poly1305_requires_a_nonce() -> None:
     key = ChaCha20Poly1305.generate()
     with pytest.raises(TypeError):
-        key.encrypt(b"x")  # type: ignore[call-arg]
+        key.encrypt(b"x")  # ty: ignore[missing-argument]
 
 
 @pytest.mark.parametrize(
@@ -135,7 +135,7 @@ def test_chacha20poly1305_requires_a_nonce() -> None:
         (lambda: ChaCha20Poly1305.generate().encrypt(b"x", bytes(24)), "exactly 12"),
     ],
 )
-def test_wrong_lengths_raise_value_error(call, match: str) -> None:  # type: ignore[no-untyped-def]
+def test_wrong_lengths_raise_value_error(call, match: str) -> None:
     with pytest.raises(ValueError, match=match) as info:
         call()
     assert isinstance(info.value, InvalidInputError)

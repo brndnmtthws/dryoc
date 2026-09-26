@@ -38,10 +38,12 @@ def test_box_roundtrip_both_directions() -> None:
 
 
 @pytest.mark.parametrize("make", BUFFER_TYPES)
-def test_box_bytes_like_inputs(make) -> None:  # type: ignore[no-untyped-def]
+def test_box_bytes_like_inputs(make) -> None:
     alice, bob = KeyPair.generate(), KeyPair.generate()
     message = Box(alice, bob.public_key).encrypt(make(b"data"), make(bytes(24)))
-    assert Box(bob, alice.public_key).decrypt(make(message.ciphertext), make(message.nonce)) == b"data"
+    assert (
+        Box(bob, alice.public_key).decrypt(make(message.ciphertext), make(message.nonce)) == b"data"
+    )
 
 
 def test_box_rejects_tampering_and_wrong_keys() -> None:
@@ -83,7 +85,7 @@ def test_sealed_box_failures() -> None:
     with pytest.raises(TypeError, match="cannot decrypt"):
         SealedBox(bob.public_key).decrypt(sealed)
     with pytest.raises(TypeError):
-        SealedBox(bytes(bob.public_key))  # type: ignore[arg-type]
+        SealedBox(bytes(bob.public_key))  # ty: ignore[invalid-argument-type]
 
 
 def test_kx_session_keys_match_between_client_and_server() -> None:

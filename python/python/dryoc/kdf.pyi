@@ -12,7 +12,7 @@ class Kdf:
     CONTEXT_SIZE: ClassVar[int]
     MIN_SUBKEY_SIZE: ClassVar[int]
     MAX_SUBKEY_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer, context: Buffer) -> Self: ...
     @classmethod
     def generate(cls, context: Buffer) -> Self: ...
@@ -25,7 +25,7 @@ class Kdf:
 class _Hkdf:
     SIZE: ClassVar[int]
     MAX_OUTPUT_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, key: Buffer) -> Self: ...

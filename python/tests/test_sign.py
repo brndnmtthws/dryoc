@@ -66,7 +66,7 @@ def test_ed25519ph_is_single_use() -> None:
 
 
 @pytest.mark.parametrize("make", BUFFER_TYPES)
-def test_sign_and_verify_bytes_like(make) -> None:  # type: ignore[no-untyped-def]
+def test_sign_and_verify_bytes_like(make) -> None:
     key = SigningKey.generate()
     signature = key.sign(make(b"message"))
     key.verify_key.verify(make(signature), make(b"message"))
