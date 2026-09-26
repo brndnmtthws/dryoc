@@ -191,10 +191,8 @@ macro_rules! kem_classes {
             fn __eq__(&self, other: &Bound<'_, Self>) -> bool {
                 let other = &other.get().pair;
                 crate::util::ct_eq_pair(
-                    self.pair.public_key.as_ref(),
-                    self.pair.secret_key.as_ref(),
-                    other.public_key.as_ref(),
-                    other.secret_key.as_ref(),
+                    (self.pair.public_key.as_ref(), self.pair.secret_key.as_ref()),
+                    (other.public_key.as_ref(), other.secret_key.as_ref()),
                 )
             }
 

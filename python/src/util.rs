@@ -247,10 +247,10 @@ pub(crate) fn short_hex(data: &[u8]) -> String {
 }
 
 /// Compares both key-pair components in constant time.
-pub(crate) fn ct_eq_pair(a1: &[u8], b1: &[u8], a2: &[u8], b2: &[u8]) -> bool {
+pub(crate) fn ct_eq_pair(lhs: (&[u8], &[u8]), rhs: (&[u8], &[u8])) -> bool {
     use subtle::ConstantTimeEq;
 
-    bool::from(a1.ct_eq(a2) & b1.ct_eq(b2))
+    bool::from(lhs.0.ct_eq(rhs.0) & lhs.1.ct_eq(rhs.1))
 }
 
 /// Formats a key-pair repr with its public key shown and secret key redacted.

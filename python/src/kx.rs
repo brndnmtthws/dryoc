@@ -55,10 +55,8 @@ impl SessionKeys {
     fn __eq__(&self, other: &Bound<'_, Self>) -> bool {
         let other = other.get();
         crate::util::ct_eq_pair(
-            self.rx.as_ref(),
-            self.tx.as_ref(),
-            other.rx.as_ref(),
-            other.tx.as_ref(),
+            (self.rx.as_ref(), self.tx.as_ref()),
+            (other.rx.as_ref(), other.tx.as_ref()),
         )
     }
 

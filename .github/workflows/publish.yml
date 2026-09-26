@@ -47,8 +47,6 @@ jobs:
           cache-generation: features-optional-features
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       - name: Verify tag matches crate version
         shell: bash
         run: |

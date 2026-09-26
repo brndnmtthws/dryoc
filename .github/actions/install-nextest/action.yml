@@ -5,7 +5,8 @@ description: Install cargo-nextest with cargo-binstall
 inputs:
   packages:
     description: cargo-binstall package arguments
-    required: true
+    required: false
+    default: --locked cargo-nextest
 
 runs:
   using: composite

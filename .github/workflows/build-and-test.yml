@@ -166,8 +166,6 @@ jobs:
           cache-generation: platform-${{ matrix.features }}
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       - run: mbx build --features ${{ env.FEATURES }}
       - run: mbx nextest run --features ${{ env.FEATURES }}
         env:
@@ -218,8 +216,6 @@ jobs:
           cache-generation: features-${{ matrix.name }}
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       - run: mbx nextest run --all-targets ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: 1
@@ -240,8 +236,6 @@ jobs:
           cache-generation: msrv
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       - run: mbx nextest run --all-targets --features wincode_0_6
       - run: mbx check --no-default-features
       - run: mbx check --no-default-features --features alloc
@@ -262,8 +256,6 @@ jobs:
           cache-generation: all-features
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       - run: mbx nextest run --all-targets --all-features
         env:
           RUST_BACKTRACE: 1
@@ -344,8 +336,6 @@ jobs:
           cache-generation: no-std-target-features
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       - run: mbx nextest run --all-targets --no-default-features
         env:
           RUST_BACKTRACE: 1
@@ -380,8 +370,6 @@ jobs:
           components: miri rust-src
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-        with:
-          packages: --locked cargo-nextest
       # Miri cannot be wrapped by mbx. It builds its own interpreted sysroot.
       - run: cargo +nightly miri setup --target x86_64-unknown-linux-gnu
       # Miri cannot enforce protected-memory page permissions or call
