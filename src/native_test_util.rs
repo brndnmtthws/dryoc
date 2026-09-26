@@ -46,6 +46,9 @@ impl PlainState for ffi::crypto_xof_turboshake256_state {}
 impl PlainState for ffi::crypto_sign_ed25519ph_state {}
 impl PlainState for ffi::crypto_secretstream_xchacha20poly1305_state {}
 impl PlainState for ffi::crypto_generichash_state {}
+impl PlainState for ffi::crypto_auth_hmacsha256_state {}
+// Also `crypto_auth_hmacsha512256_state`, which aliases it.
+impl PlainState for ffi::crypto_auth_hmacsha512_state {}
 
 /// A zero-filled state for a libsodium `init` function to set up. The
 /// `init` functions write only the part of the opaque storage they use, so
@@ -141,9 +144,9 @@ pub(crate) fn box_open_easy(
     checked(rc, message)
 }
 
-/// `crypto_box_curve25519xsalsa20poly1305_beforenm`.
-#[cfg(feature = "alloc")]
-pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> [u8; 32] {
+/// `crypto_box_curve25519xsalsa20poly1305_beforenm`; libsodium rejects
+/// low-order public keys.
+pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> Result<[u8; 32], ()> {
     init();
     let (pk, sk) = (fixed::<32>(pk), fixed::<32>(sk));
     let mut key = [0u8; 32];
@@ -155,8 +158,7 @@ pub(crate) fn box_beforenm(pk: &[u8], sk: &[u8]) -> [u8; 32] {
             sk.as_ptr(),
         )
     };
-    assert_eq!(rc, 0);
-    key
+    checked(rc, key)
 }
 
 /// `crypto_box_easy_afternm`.
@@ -407,6 +409,72 @@ mac_wrapper!(auth_hmacsha512, crypto_auth_hmacsha512, 32, 64);
 mac_wrapper!(auth_hmacsha512256, crypto_auth_hmacsha512256, 32, 32);
 mac_wrapper!(onetimeauth_poly1305, crypto_onetimeauth_poly1305, 32, 16);
 mac_wrapper!(shorthash_siphash24, crypto_shorthash_siphash24, 16, 8);
+
+/// Defines a streaming state wrapper over one libsodium
+/// `crypto_auth_hmacsha*` family, which takes a key of any length.
+macro_rules! hmac_state_wrapper {
+    ($state:ident($ffi_state:ident), $init:ident, $update:ident, $final:ident, $bytes:literal) => {
+        #[doc = concat!("Streaming `", stringify!($init), "` state.")]
+        pub(crate) struct $state(ffi::$ffi_state);
+
+        impl $state {
+            #[doc = concat!("`", stringify!($init), "`.")]
+            pub(crate) fn new(key: &[u8]) -> Self {
+                init();
+                let mut state = zeroed_state::<ffi::$ffi_state>();
+                // SAFETY: `state` is a live, fully initialized state value
+                // and `key` is live for its length.
+                let rc = unsafe { ffi::$init(&mut state, key.as_ptr(), key.len()) };
+                assert_eq!(rc, 0);
+                Self(state)
+            }
+
+            #[doc = concat!("`", stringify!($update), "`.")]
+            pub(crate) fn update(&mut self, message: &[u8]) {
+                init();
+                // SAFETY: the state was set up by `new`, and `message` is
+                // live for its length.
+                let rc = unsafe {
+                    ffi::$update(&mut self.0, message.as_ptr(), message.len() as c_ulonglong)
+                };
+                assert_eq!(rc, 0);
+            }
+
+            #[doc = concat!("`", stringify!($final), "`.")]
+            pub(crate) fn finalize(mut self) -> [u8; $bytes] {
+                init();
+                let mut mac = [0u8; $bytes];
+                // SAFETY: the state was set up by `new`, and `mac` is writable
+                // for the tag size.
+                let rc = unsafe { ffi::$final(&mut self.0, mac.as_mut_ptr()) };
+                assert_eq!(rc, 0);
+                mac
+            }
+        }
+    };
+}
+
+hmac_state_wrapper!(
+    AuthHmacSha256State(crypto_auth_hmacsha256_state),
+    crypto_auth_hmacsha256_init,
+    crypto_auth_hmacsha256_update,
+    crypto_auth_hmacsha256_final,
+    32
+);
+hmac_state_wrapper!(
+    AuthHmacSha512State(crypto_auth_hmacsha512_state),
+    crypto_auth_hmacsha512_init,
+    crypto_auth_hmacsha512_update,
+    crypto_auth_hmacsha512_final,
+    64
+);
+hmac_state_wrapper!(
+    AuthHmacSha512256State(crypto_auth_hmacsha512256_state),
+    crypto_auth_hmacsha512256_init,
+    crypto_auth_hmacsha512256_update,
+    crypto_auth_hmacsha512256_final,
+    32
+);
 
 /// Defines a one-shot hash wrapper and a streaming state wrapper over one
 /// libsodium `crypto_hash_*` function family with a `BYTES`-byte digest.
@@ -793,7 +861,27 @@ pub(crate) fn generichash_multipart(
     checked(rc, output)
 }
 
-/// Defines a `crypto_kx_*_session_keys` wrapper returning `(rx, tx)`.
+/// `crypto_kx_seed_keypair`, returning `(pk, sk)`.
+pub(crate) fn kx_seed_keypair(seed: &[u8]) -> ([u8; 32], [u8; 32]) {
+    init();
+    let seed = fixed::<32>(seed);
+    let (mut pk, mut sk) = ([0u8; 32], [0u8; 32]);
+    // SAFETY: `pk` and `sk` are writable 32-byte arrays and `seed` is 32
+    // bytes, the sizes libsodium requires.
+    let rc =
+        unsafe { ffi::crypto_kx_seed_keypair(pk.as_mut_ptr(), sk.as_mut_ptr(), seed.as_ptr()) };
+    assert_eq!(rc, 0);
+    (pk, sk)
+}
+
+/// Fill of the `rx` and `tx` buffers the `kx_*_session_keys` wrappers hand
+/// to libsodium, so a rejection can be checked to have written neither.
+const KX_RX_FILL: [u8; 32] = [0xa5; 32];
+const KX_TX_FILL: [u8; 32] = [0x5a; 32];
+
+/// Defines a `crypto_kx_*_session_keys` wrapper returning `(rx, tx)`. When
+/// libsodium rejects the peer key, the wrapper also asserts that it left both
+/// session keys unwritten, the behavior dryoc matches.
 macro_rules! kx_wrapper {
     ($name:ident, $ffi:ident) => {
         #[doc = concat!("`", stringify!($ffi), "`, returning `(rx, tx)`.")]
@@ -804,7 +892,7 @@ macro_rules! kx_wrapper {
         ) -> Result<([u8; 32], [u8; 32]), ()> {
             init();
             let (pk, sk, peer_pk) = (fixed::<32>(pk), fixed::<32>(sk), fixed::<32>(peer_pk));
-            let (mut rx, mut tx) = ([0u8; 32], [0u8; 32]);
+            let (mut rx, mut tx) = (KX_RX_FILL, KX_TX_FILL);
             // SAFETY: `rx` and `tx` are writable 32-byte arrays and all three
             // keys are 32 bytes.
             let rc = unsafe {
@@ -816,6 +904,10 @@ macro_rules! kx_wrapper {
                     peer_pk.as_ptr(),
                 )
             };
+            if rc != 0 {
+                assert_eq!(rx, KX_RX_FILL, "libsodium wrote rx for a rejected key");
+                assert_eq!(tx, KX_TX_FILL, "libsodium wrote tx for a rejected key");
+            }
             checked(rc, (rx, tx))
         }
     };
@@ -919,6 +1011,41 @@ pub(crate) fn pwhash_argon2id_str_verify(encoded: &[u8], password: &[u8]) -> boo
             password.as_ptr().cast(),
             password.len() as c_ulonglong,
         ) == 0
+    }
+}
+
+/// `crypto_pwhash_str_verify` for the encoded hash `encoded`.
+#[cfg(feature = "base64")]
+pub(crate) fn pwhash_str_verify(encoded: &str, password: &[u8]) -> bool {
+    init();
+    let encoded = std::ffi::CString::new(encoded).expect("encoded hash has no NUL");
+    // SAFETY: `encoded` is a NUL-terminated C string and `password` is live
+    // for its length.
+    unsafe {
+        ffi::crypto_pwhash_str_verify(
+            encoded.as_ptr(),
+            password.as_ptr().cast(),
+            password.len() as c_ulonglong,
+        ) == 0
+    }
+}
+
+/// `crypto_pwhash_str_needs_rehash`: `Err(())` for a string libsodium
+/// rejects, otherwise whether it needs rehashing for the given limits.
+#[cfg(feature = "base64")]
+pub(crate) fn pwhash_str_needs_rehash(
+    encoded: &str,
+    opslimit: u64,
+    memlimit: usize,
+) -> Result<bool, ()> {
+    init();
+    let encoded = std::ffi::CString::new(encoded).expect("encoded hash has no NUL");
+    // SAFETY: `encoded` is a NUL-terminated C string.
+    let rc = unsafe { ffi::crypto_pwhash_str_needs_rehash(encoded.as_ptr(), opslimit, memlimit) };
+    match rc {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(()),
     }
 }
 

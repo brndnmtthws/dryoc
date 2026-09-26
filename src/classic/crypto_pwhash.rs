@@ -1351,35 +1351,28 @@ mod tests {
     #[cfg(all(feature = "base64", dryoc_native_tests))]
     #[test]
     fn mutation_matrix_matches_libsodium() {
-        use std::ffi::CString;
-
-        crate::native_test_util::init();
+        use crate::native_test_util::{pwhash_str_needs_rehash, pwhash_str_verify};
 
         for (name, encoded, _) in mutated_password_hashes() {
-            let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
-            let sodium_verify = unsafe {
-                libsodium_sys::crypto_pwhash_str_verify(
-                    encoded_c.as_ptr(),
-                    b"password".as_ptr().cast(),
-                    8,
-                )
-            };
-            let sodium_rehash = unsafe {
-                libsodium_sys::crypto_pwhash_str_needs_rehash(encoded_c.as_ptr(), 1, 8192)
-            };
+            let sodium_verify = pwhash_str_verify(&encoded, b"password");
+            let sodium_rehash = pwhash_str_needs_rehash(&encoded, 1, 8192);
             assert_eq!(
                 crypto_pwhash_str_verify(&encoded, b"password").is_ok(),
-                sodium_verify == 0,
+                sodium_verify,
                 "verify: {name}"
             );
             let ours_rehash = crypto_pwhash_str_needs_rehash(&encoded, 1, 8192);
             assert_eq!(
                 ours_rehash.is_err(),
-                sodium_rehash < 0,
+                sodium_rehash.is_err(),
                 "rehash validity: {name}"
             );
             if let Ok(ours_rehash) = ours_rehash {
-                assert_eq!(ours_rehash, sodium_rehash == 1, "rehash result: {name}");
+                assert_eq!(
+                    ours_rehash,
+                    sodium_rehash == Ok(true),
+                    "rehash result: {name}"
+                );
             }
         }
     }
@@ -1387,9 +1380,7 @@ mod tests {
     #[cfg(all(feature = "base64", dryoc_native_tests))]
     #[test]
     fn algorithm_and_parallelism_mutations_match_libsodium() {
-        use std::ffi::CString;
-
-        crate::native_test_util::init();
+        use crate::native_test_util::{pwhash_str_needs_rehash, pwhash_str_verify};
 
         for (encoded, memlimit) in [
             (
@@ -1398,24 +1389,13 @@ mod tests {
             ),
             (FIXED_PASSWORD_HASH_M16.replace("p=1", "p=2"), 16_384),
         ] {
-            let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
-            let sodium_verify = unsafe {
-                libsodium_sys::crypto_pwhash_str_verify(
-                    encoded_c.as_ptr(),
-                    b"password".as_ptr().cast(),
-                    8,
-                )
-            };
-            let sodium_rehash = unsafe {
-                libsodium_sys::crypto_pwhash_str_needs_rehash(encoded_c.as_ptr(), 1, memlimit)
-            };
             assert_eq!(
                 crypto_pwhash_str_verify(&encoded, b"password").is_ok(),
-                sodium_verify == 0
+                pwhash_str_verify(&encoded, b"password")
             );
             assert_eq!(
                 crypto_pwhash_str_needs_rehash(&encoded, 1, memlimit).expect("rehash"),
-                sodium_rehash == 1
+                pwhash_str_needs_rehash(&encoded, 1, memlimit) == Ok(true)
             );
         }
     }
@@ -1424,31 +1404,22 @@ mod tests {
     #[cfg(all(feature = "base64", dryoc_native_tests))]
     #[test]
     fn exact_maximum_encoded_length_matches_libsodium() {
-        use std::ffi::CString;
-
-        crate::native_test_util::init();
+        use crate::native_test_util::{pwhash_str_needs_rehash, pwhash_str_verify};
 
         let encoded = exact_max_password_hash();
-        let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
-        let sodium_verify = unsafe {
-            libsodium_sys::crypto_pwhash_str_verify(
-                encoded_c.as_ptr(),
-                b"password".as_ptr().cast(),
-                8,
-            )
-        };
-        let sodium_rehash =
-            unsafe { libsodium_sys::crypto_pwhash_str_needs_rehash(encoded_c.as_ptr(), 1, 8192) };
         // Both must accept: an `Err == -1` agreement would hide a broken hash.
         // libsodium's verify recomputes Argon2id from the decoded 8-byte salt
         // and compares all 66 bytes, so this is also the raw-hash parity check
         // (the raw `crypto_pwhash` API expects a fixed 16-byte salt, so it
         // cannot reproduce this string's parameters directly).
         crypto_pwhash_str_verify(&encoded, b"password").expect("dryoc verifies");
-        assert_eq!(sodium_verify, 0, "libsodium verifies the 66-byte hash");
+        assert!(
+            pwhash_str_verify(&encoded, b"password"),
+            "libsodium verifies the 66-byte hash"
+        );
         assert_eq!(
             crypto_pwhash_str_needs_rehash(&encoded, 1, 8192).expect("rehash"),
-            sodium_rehash == 1
+            pwhash_str_needs_rehash(&encoded, 1, 8192) == Ok(true)
         );
     }
 
@@ -1456,10 +1427,6 @@ mod tests {
     #[cfg(all(feature = "base64", dryoc_native_tests))]
     #[test]
     fn longer_encoded_hash_verifies_like_libsodium() {
-        use std::ffi::CString;
-
-        crate::native_test_util::init();
-
         let password = b"long hash test password";
         let salt = [0x5au8; 16];
         let hash = crate::native_test_util::pwhash_argon2id::<64>(password, &salt, 1, 8192);
@@ -1470,16 +1437,9 @@ mod tests {
         assert_eq!(parsed.pwhash.as_deref(), Some(hash.as_slice()));
         crypto_pwhash_str_verify(&encoded, password).expect("dryoc verifies long hash");
 
-        let encoded_c = CString::new(encoded.as_bytes()).expect("no NUL");
-        // SAFETY: `encoded_c` is a valid NUL-terminated hash and `password`
-        // is live for its stated length.
-        let sodium_rc = unsafe {
-            libsodium_sys::crypto_pwhash_str_verify(
-                encoded_c.as_ptr(),
-                password.as_ptr().cast(),
-                password.len() as u64,
-            )
-        };
-        assert_eq!(sodium_rc, 0, "libsodium verifies the 64-byte hash");
+        assert!(
+            crate::native_test_util::pwhash_str_verify(&encoded, password),
+            "libsodium verifies the 64-byte hash"
+        );
     }
 }

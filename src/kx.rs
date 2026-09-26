@@ -484,7 +484,8 @@ mod tests {
     #[cfg(dryoc_native_tests)]
     #[test]
     fn sessions_match_libsodium_session_keys() {
-        crate::native_test_util::init();
+        use crate::native_test_util::{kx_client_session_keys, kx_server_session_keys};
+
         let mut rng = XorShift64::new(0x6c69_6273_6f64_6b78);
         for _ in 0..8 {
             let client = KeyPair::from_seed(&rng.next_bytes32());
@@ -494,31 +495,15 @@ mod tests {
             let server_session =
                 Session::new_server_with_defaults(&server, &client.public_key).expect("server");
 
-            let mut rx = [0u8; CRYPTO_KX_SESSIONKEYBYTES];
-            let mut tx = [0u8; CRYPTO_KX_SESSIONKEYBYTES];
-            let rc = unsafe {
-                libsodium_sys::crypto_kx_client_session_keys(
-                    rx.as_mut_ptr(),
-                    tx.as_mut_ptr(),
-                    client.public_key.as_ptr(),
-                    client.secret_key.as_ptr(),
-                    server.public_key.as_ptr(),
-                )
-            };
-            assert_eq!(rc, 0);
+            let (rx, tx) =
+                kx_client_session_keys(&client.public_key, &client.secret_key, &server.public_key)
+                    .expect("libsodium client");
             assert_eq!(client_session.rx_as_array(), &rx);
             assert_eq!(client_session.tx_as_array(), &tx);
 
-            let rc = unsafe {
-                libsodium_sys::crypto_kx_server_session_keys(
-                    rx.as_mut_ptr(),
-                    tx.as_mut_ptr(),
-                    server.public_key.as_ptr(),
-                    server.secret_key.as_ptr(),
-                    client.public_key.as_ptr(),
-                )
-            };
-            assert_eq!(rc, 0);
+            let (rx, tx) =
+                kx_server_session_keys(&server.public_key, &server.secret_key, &client.public_key)
+                    .expect("libsodium server");
             assert_eq!(server_session.rx_as_array(), &rx);
             assert_eq!(server_session.tx_as_array(), &tx);
         }

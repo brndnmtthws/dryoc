@@ -327,7 +327,7 @@ pub mod classic {
     //! libsodium code or when fixed-size byte arrays and byte slices are a
     //! better fit than the Rustaceous types.
     mod crypto_aead_chacha20poly1305_impl;
-    mod crypto_auth_hmac_impl;
+    pub(crate) mod crypto_auth_hmac_impl;
     mod crypto_box_impl;
     mod crypto_secretbox_impl;
     mod generichash_blake2b;

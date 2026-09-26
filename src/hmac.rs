@@ -404,59 +404,11 @@ where
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-
-    /// RFC 4231 test cases 1-4. libsodium's `crypto_auth_hmacsha*` take
-    /// fixed 32-byte keys, so the shorter RFC keys are zero-padded, which HMAC
-    /// defines to produce the same tag. HMAC-SHA-512-256 is the 32-byte
-    /// truncation of HMAC-SHA-512.
-    struct Case {
-        key: &'static [u8],
-        message: &'static [u8],
-        sha256: &'static str,
-        sha512: &'static str,
-    }
-
-    const CASES: [Case; 4] = [
-        Case {
-            key: &[0x0b; 20],
-            message: b"Hi There",
-            sha256: "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
-            sha512: concat!(
-                "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde",
-                "daa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
-            ),
-        },
-        Case {
-            key: b"Jefe",
-            message: b"what do ya want for nothing?",
-            sha256: "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
-            sha512: concat!(
-                "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea250554",
-                "9758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737",
-            ),
-        },
-        Case {
-            key: &[0xaa; 20],
-            message: &[0xdd; 50],
-            sha256: "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe",
-            sha512: concat!(
-                "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39",
-                "bf3e848279a722c806b485a47e67c807b946a337bee8942674278859e13292fb",
-            ),
-        },
-        Case {
-            key: &[
-                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-                0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
-            ],
-            message: &[0xcd; 50],
-            sha256: "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b",
-            sha512: concat!(
-                "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3db",
-                "a91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd",
-            ),
-        },
-    ];
+    // RFC 4231 test cases 1-4. libsodium's `crypto_auth_hmacsha*` take
+    // fixed 32-byte keys, so the shorter RFC keys are zero-padded, which HMAC
+    // defines to produce the same tag. HMAC-SHA-512-256 is the 32-byte
+    // truncation of HMAC-SHA-512.
+    use crate::classic::crypto_auth_hmac_impl::test_util::RFC4231_PADDABLE_KEYS as CASES;
 
     fn padded_key<const KEY_LENGTH: usize>(key: &[u8]) -> StackByteArray<KEY_LENGTH> {
         let mut padded = StackByteArray::<KEY_LENGTH>::default();
@@ -544,26 +496,26 @@ mod tests {
 
     #[test]
     fn rfc4231_vectors_through_all_three_variants() {
-        for case in &CASES {
-            let sha256 = hex::decode(case.sha256).expect("hex");
-            let sha512 = hex::decode(case.sha512).expect("hex");
+        for case in CASES {
+            let sha256 = case.sha256();
+            let sha512 = case.sha512();
             assert_variant::<
                 HmacSha256Variant,
                 CRYPTO_AUTH_HMACSHA256_KEYBYTES,
                 CRYPTO_AUTH_HMACSHA256_BYTES,
-            >(padded_key(case.key), case.message, &sha256);
+            >(padded_key(case.key), case.data, &sha256);
             assert_variant::<
                 HmacSha512Variant,
                 CRYPTO_AUTH_HMACSHA512_KEYBYTES,
                 CRYPTO_AUTH_HMACSHA512_BYTES,
-            >(padded_key(case.key), case.message, &sha512);
+            >(padded_key(case.key), case.data, &sha512);
             assert_variant::<
                 HmacSha512256Variant,
                 CRYPTO_AUTH_HMACSHA512256_KEYBYTES,
                 CRYPTO_AUTH_HMACSHA512256_BYTES,
             >(
                 padded_key(case.key),
-                case.message,
+                case.data,
                 &sha512[..CRYPTO_AUTH_HMACSHA512256_BYTES],
             );
         }
@@ -571,53 +523,53 @@ mod tests {
 
     #[test]
     fn rustaceous_and_classic_macs_verify_each_other() {
-        for case in &CASES {
+        for case in CASES {
             let key256: HmacSha256Key = padded_key(case.key);
-            let mac = HmacSha256::compute_to_vec(key256.clone(), case.message);
+            let mac = HmacSha256::compute_to_vec(key256.clone(), case.data);
             crypto_auth_hmacsha256_verify(
                 mac.as_slice().try_into().expect("MAC length"),
-                case.message,
+                case.data,
                 key256.as_array(),
             )
             .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA256_BYTES];
-            crypto_auth_hmacsha256(&mut classic, case.message, key256.as_array());
-            HmacSha256::compute_and_verify(&classic, key256.clone(), case.message)
+            crypto_auth_hmacsha256(&mut classic, case.data, key256.as_array());
+            HmacSha256::compute_and_verify(&classic, key256.clone(), case.data)
                 .expect("rustaceous verify");
             let mut verifier = HmacSha256::new(key256);
-            verifier.update(case.message);
+            verifier.update(case.data);
             verifier.verify(&classic).expect("incremental verify");
 
             let key512: HmacSha512Key = padded_key(case.key);
-            let mac = HmacSha512::compute_to_vec(key512.clone(), case.message);
+            let mac = HmacSha512::compute_to_vec(key512.clone(), case.data);
             crypto_auth_hmacsha512_verify(
                 mac.as_slice().try_into().expect("MAC length"),
-                case.message,
+                case.data,
                 key512.as_array(),
             )
             .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
-            crypto_auth_hmacsha512(&mut classic, case.message, key512.as_array());
-            HmacSha512::compute_and_verify(&classic, key512.clone(), case.message)
+            crypto_auth_hmacsha512(&mut classic, case.data, key512.as_array());
+            HmacSha512::compute_and_verify(&classic, key512.clone(), case.data)
                 .expect("rustaceous verify");
             let mut verifier = HmacSha512::new(key512);
-            verifier.update(case.message);
+            verifier.update(case.data);
             verifier.verify(&classic).expect("incremental verify");
 
             let key512256: HmacSha512256Key = padded_key(case.key);
-            let mac = HmacSha512256::compute_to_vec(key512256.clone(), case.message);
+            let mac = HmacSha512256::compute_to_vec(key512256.clone(), case.data);
             crypto_auth_hmacsha512256_verify(
                 mac.as_slice().try_into().expect("MAC length"),
-                case.message,
+                case.data,
                 key512256.as_array(),
             )
             .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA512256_BYTES];
-            crypto_auth_hmacsha512256(&mut classic, case.message, key512256.as_array());
-            HmacSha512256::compute_and_verify(&classic, key512256.clone(), case.message)
+            crypto_auth_hmacsha512256(&mut classic, case.data, key512256.as_array());
+            HmacSha512256::compute_and_verify(&classic, key512256.clone(), case.data)
                 .expect("rustaceous verify");
             let mut verifier = HmacSha512256::new(key512256);
-            verifier.update(case.message);
+            verifier.update(case.data);
             verifier.verify(&classic).expect("incremental verify");
         }
     }
@@ -634,15 +586,15 @@ mod tests {
             Hmac::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_to_vec(key, input)
         }
 
-        let case = &CASES[0];
-        let sha256 = hex::decode(case.sha256).expect("hex");
-        let sha512 = hex::decode(case.sha512).expect("hex");
+        let case = CASES[0];
+        let sha256 = case.sha256();
+        let sha512 = case.sha512();
         assert_eq!(
             compute_with_variant::<
                 HmacSha256Variant,
                 CRYPTO_AUTH_HMACSHA256_KEYBYTES,
                 CRYPTO_AUTH_HMACSHA256_BYTES,
-            >(padded_key(case.key), case.message),
+            >(padded_key(case.key), case.data),
             sha256
         );
         assert_eq!(
@@ -650,14 +602,14 @@ mod tests {
                 HmacSha512Variant,
                 CRYPTO_AUTH_HMACSHA512_KEYBYTES,
                 CRYPTO_AUTH_HMACSHA512_BYTES,
-            >(padded_key(case.key), case.message),
+            >(padded_key(case.key), case.data),
             sha512
         );
         let truncated = compute_with_variant::<
             HmacSha512256Variant,
             CRYPTO_AUTH_HMACSHA512256_KEYBYTES,
             CRYPTO_AUTH_HMACSHA512256_BYTES,
-        >(padded_key(case.key), case.message);
+        >(padded_key(case.key), case.data);
         assert_eq!(truncated, &sha512[..CRYPTO_AUTH_HMACSHA512256_BYTES]);
         // Same key length and MAC length, different hash: the aliases must not
         // collapse onto one another.
@@ -669,18 +621,18 @@ mod tests {
     fn rfc4231_keys_match_libsodium() {
         use crate::native_test_util::{auth_hmacsha256, auth_hmacsha512, auth_hmacsha512256};
 
-        for case in &CASES {
+        for case in CASES {
             let key: HmacSha256Key = padded_key(case.key);
-            let so_tag = auth_hmacsha256(case.message, key.as_slice());
-            assert_eq!(HmacSha256::compute_to_vec(key, case.message), so_tag);
+            let so_tag = auth_hmacsha256(case.data, key.as_slice());
+            assert_eq!(HmacSha256::compute_to_vec(key, case.data), so_tag);
 
             let key: HmacSha512Key = padded_key(case.key);
-            let so_tag = auth_hmacsha512(case.message, key.as_slice());
-            assert_eq!(HmacSha512::compute_to_vec(key, case.message), so_tag);
+            let so_tag = auth_hmacsha512(case.data, key.as_slice());
+            assert_eq!(HmacSha512::compute_to_vec(key, case.data), so_tag);
 
             let key: HmacSha512256Key = padded_key(case.key);
-            let so_tag = auth_hmacsha512256(case.message, key.as_slice());
-            assert_eq!(HmacSha512256::compute_to_vec(key, case.message), so_tag);
+            let so_tag = auth_hmacsha512256(case.data, key.as_slice());
+            assert_eq!(HmacSha512256::compute_to_vec(key, case.data), so_tag);
         }
     }
 }

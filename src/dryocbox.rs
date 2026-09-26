@@ -1253,32 +1253,22 @@ mod tests {
 
         #[test]
         fn nacl_vector_matches_libsodium_box_and_beforenm() {
-            crate::native_test_util::init();
             let v = nacl_vector();
             let so_boxed =
                 sodium::box_easy(&v.message, &v.nonce, &v.bob.public_key, &v.alice.secret_key);
             assert_eq!(so_boxed, v.boxed);
 
             let precalc = v.alice.precalculate(&v.bob.public_key).expect("precalc");
-            let so_precalc = sodium::box_beforenm(&v.bob.public_key, &v.alice.secret_key);
+            let so_precalc = sodium::box_beforenm(&v.bob.public_key, &v.alice.secret_key)
+                .expect("libsodium beforenm");
             assert_eq!(precalc.as_slice(), so_precalc.as_slice());
-
-            let mut sodium_key = [0u8; CRYPTO_BOX_BEFORENMBYTES];
-            let rc = unsafe {
-                libsodium_sys::crypto_box_beforenm(
-                    sodium_key.as_mut_ptr(),
-                    v.bob.public_key.as_ptr(),
-                    v.alice.secret_key.as_ptr(),
-                )
-            };
-            assert_eq!(rc, 0);
-            assert_eq!(precalc.as_array(), &sodium_key);
         }
 
         #[test]
         fn libsodium_regular_and_precomputed_boxes_decrypt_with_rustaceous() {
             let v = nacl_vector();
-            let so_precalc = sodium::box_beforenm(&v.bob.public_key, &v.alice.secret_key);
+            let so_precalc = sodium::box_beforenm(&v.bob.public_key, &v.alice.secret_key)
+                .expect("libsodium beforenm");
             let precalc = v.bob.precalculate(&v.alice.public_key).expect("precalc");
 
             for len in [0, 1, 15, 16, 17, 63, 64, 65, v.message.len()] {

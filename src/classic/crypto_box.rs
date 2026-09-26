@@ -951,24 +951,17 @@ mod tests {
         /// bit 255) is refused by the precomputation, as libsodium does.
         #[test]
         fn test_crypto_box_beforenm_low_order_compatibility() {
-            crate::native_test_util::init();
             let (_, secret_key) = crypto_box_seed_keypair(&[0x54; CRYPTO_BOX_SEEDBYTES]);
 
             for public_key in crate::scalarmult_curve25519::test_vectors::low_order_u_encodings() {
-                let mut sodium_key = Key::default();
-                let sodium_result = unsafe {
-                    libsodium_sys::crypto_box_curve25519xsalsa20poly1305_beforenm(
-                        sodium_key.as_mut_ptr(),
-                        public_key.as_ptr(),
-                        secret_key.as_ptr(),
-                    )
-                };
-
                 assert!(
                     crypto_box_beforenm(&public_key, &secret_key).is_err(),
                     "{public_key:02x?}"
                 );
-                assert_eq!(sodium_result, -1, "{public_key:02x?}");
+                assert!(
+                    crate::native_test_util::box_beforenm(&public_key, &secret_key).is_err(),
+                    "{public_key:02x?}"
+                );
             }
         }
 
@@ -987,15 +980,8 @@ mod tests {
             let sender_key = crypto_box_beforenm(&recipient_pk, &sender_sk).unwrap();
             let recipient_key = crypto_box_beforenm(&sender_pk, &recipient_sk).unwrap();
             assert_eq!(sender_key, recipient_key);
-            let mut sodium_key = Key::default();
-            let result = unsafe {
-                libsodium_sys::crypto_box_beforenm(
-                    sodium_key.as_mut_ptr(),
-                    recipient_pk.as_ptr(),
-                    sender_sk.as_ptr(),
-                )
-            };
-            assert_eq!(result, 0);
+            let sodium_key = crate::native_test_util::box_beforenm(&recipient_pk, &sender_sk)
+                .expect("libsodium beforenm");
             assert_eq!(sender_key, sodium_key);
 
             let mut rng = crate::utils::test_util::XorShift64::new(0x243f_6a88_85a3_08d3);

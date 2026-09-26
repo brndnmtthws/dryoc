@@ -93,184 +93,31 @@ pub fn crypto_auth_hmacsha256_final(state: HmacSha256State, output: &mut Mac) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_prelude::*;
+    use crate::classic::crypto_auth_hmac_impl::test_util::hmac_classic_tests;
 
-    fn compute_hmac(key: &[u8], message: &[u8]) -> Mac {
-        let mut mac = Mac::default();
-        let mut state = crypto_auth_hmacsha256_init(key);
-        crypto_auth_hmacsha256_update(&mut state, message);
-        crypto_auth_hmacsha256_final(state, &mut mac);
-        mac
-    }
-
-    fn assert_hmac(key: &[u8], message: &[u8], expected_hex: &str) {
-        let mac = compute_hmac(key, message);
-        let expected = hex::decode(expected_hex).expect("hex failed");
-        assert_eq!(mac.as_slice(), expected.as_slice());
-    }
-
-    #[test]
-    fn test_rfc4231_case_1() {
-        let key = [0x0bu8; 20];
-        assert_hmac(
-            &key,
-            b"Hi There",
-            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
-        );
-    }
-
-    #[test]
-    fn test_rfc4231_short_key_case_2() {
-        assert_hmac(
-            b"Jefe",
-            b"what do ya want for nothing?",
-            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
-        );
-    }
-
-    #[test]
-    fn test_rfc4231_long_message_case_3() {
-        let key = [0xaau8; 20];
-        let message = [0xddu8; 50];
-        assert_hmac(
-            &key,
-            &message,
-            "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe",
-        );
-    }
-
-    #[test]
-    fn test_rfc4231_case_4() {
-        let key =
-            hex::decode("0102030405060708090a0b0c0d0e0f10111213141516171819").expect("hex failed");
-        let message = [0xcdu8; 50];
-        assert_hmac(
-            &key,
-            &message,
-            "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b",
-        );
-    }
-
-    #[test]
-    fn test_rfc4231_long_key_case_6() {
-        let key = [0xaau8; 131];
-        assert_hmac(
-            &key,
-            b"Test Using Larger Than Block-Size Key - Hash Key First",
-            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
-        );
-    }
-
-    #[test]
-    fn test_rfc4231_long_key_and_message_case_7() {
-        let key = [0xaau8; 131];
-        assert_hmac(
-            &key,
-            b"This is a test using a larger than block-size key and a larger than block-size data. \
-              The key needs to be hashed before being used by the HMAC algorithm.",
-            "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2",
-        );
-    }
-
-    #[test]
-    fn test_one_shot_matches_incremental_for_keybytes_key() {
-        let key = [0x0bu8; CRYPTO_AUTH_HMACSHA256_KEYBYTES];
-        let message = b"message";
-        let mut one_shot = Mac::default();
-        crypto_auth_hmacsha256(&mut one_shot, message, &key);
-        assert_eq!(one_shot, compute_hmac(&key, message));
-    }
-
-    #[cfg(dryoc_native_tests)]
-    #[test]
-    fn test_libsodium_compatibility() {
-        use crate::native_test_util::auth_hmacsha256;
-
-        let key = crypto_auth_hmacsha256_keygen();
-        let message = b"message to authenticate";
-        let so_mac = auth_hmacsha256(message, &key);
-
-        let mut mac = Mac::default();
-        crypto_auth_hmacsha256(&mut mac, message, &key);
-        assert_eq!(mac.as_slice(), so_mac.as_slice());
-        crypto_auth_hmacsha256_verify(&mac, message, &key).expect("verify failed");
-
-        let mut state = crypto_auth_hmacsha256_init(&key);
-        crypto_auth_hmacsha256_update(&mut state, b"message ");
-        crypto_auth_hmacsha256_update(&mut state, b"to authenticate");
-        let mut state_mac = Mac::default();
-        crypto_auth_hmacsha256_final(state, &mut state_mac);
-        assert_eq!(state_mac.as_slice(), so_mac.as_slice());
-    }
-
-    fn manual_hmac(key: &[u8], message: &[u8]) -> Mac {
-        crate::classic::crypto_auth_hmac_impl::test_util::reference_hmac::<
-            sha2::Sha256,
-            64,
-            CRYPTO_AUTH_HMACSHA256_BYTES,
-        >(key, message)
-    }
-
-    #[cfg(dryoc_native_tests)]
-    fn sodium_hmac(key: &[u8], message: &[u8]) -> Mac {
-        crate::native_test_util::init();
-        let mut state = unsafe { core::mem::zeroed() };
-        assert_eq!(
-            unsafe {
-                libsodium_sys::crypto_auth_hmacsha256_init(&mut state, key.as_ptr(), key.len())
-            },
-            0
-        );
-        assert_eq!(
-            unsafe {
-                libsodium_sys::crypto_auth_hmacsha256_update(&mut state, core::ptr::null(), 0)
-            },
-            0
-        );
-        for chunk in message.chunks(17) {
-            assert_eq!(
-                unsafe {
-                    libsodium_sys::crypto_auth_hmacsha256_update(
-                        &mut state,
-                        chunk.as_ptr(),
-                        chunk.len() as u64,
-                    )
-                },
-                0
-            );
-        }
-        let mut mac = Mac::default();
-        assert_eq!(
-            unsafe { libsodium_sys::crypto_auth_hmacsha256_final(&mut state, mac.as_mut_ptr()) },
-            0
-        );
-        mac
-    }
-
-    /// Empty and block-boundary keys/messages, including the key-hashing
-    /// transition at B+1, against the independent `sha2` construction and,
-    /// natively, libsodium's variable-key incremental API.
-    #[test]
-    fn test_key_and_message_block_boundaries() {
-        for key_len in [0usize, 63, 64, 65] {
-            let key: Vec<u8> = (0..key_len as u32).map(|i| (i * 37 % 251) as u8).collect();
-            for message_len in [0usize, 63, 64, 65] {
-                let message: Vec<u8> = (0..message_len as u32)
-                    .map(|i| (i * 31 % 251) as u8)
-                    .collect();
-                let expected = manual_hmac(&key, &message);
-                let mut state = crypto_auth_hmacsha256_init(&key);
-                crypto_auth_hmacsha256_update(&mut state, b"");
-                for chunk in message.chunks(17) {
-                    crypto_auth_hmacsha256_update(&mut state, chunk);
-                    crypto_auth_hmacsha256_update(&mut state, b"");
-                }
-                let mut actual = Mac::default();
-                crypto_auth_hmacsha256_final(state, &mut actual);
-                assert_eq!(actual, expected, "key {key_len}, message {message_len}");
-                #[cfg(dryoc_native_tests)]
-                assert_eq!(actual, sodium_hmac(&key, &message));
-            }
-        }
+    hmac_classic_tests! {
+        hash: sha2::Sha256,
+        block: 64,
+        bytes: CRYPTO_AUTH_HMACSHA256_BYTES,
+        keybytes: CRYPTO_AUTH_HMACSHA256_KEYBYTES,
+        tag: sha256,
+        chunk: 17,
+        one_shot: crypto_auth_hmacsha256,
+        verify: crypto_auth_hmacsha256_verify,
+        keygen: crypto_auth_hmacsha256_keygen,
+        init: crypto_auth_hmacsha256_init,
+        update: crypto_auth_hmacsha256_update,
+        finalize: crypto_auth_hmacsha256_final,
+        sodium_one_shot: auth_hmacsha256,
+        sodium_state: AuthHmacSha256State,
+        keybytes_test: test_one_shot_matches_incremental_for_keybytes_key(b"message"),
+        rfc4231: {
+            test_rfc4231_case_1 => RFC4231_CASE_1,
+            test_rfc4231_short_key_case_2 => RFC4231_CASE_2,
+            test_rfc4231_long_message_case_3 => RFC4231_CASE_3,
+            test_rfc4231_case_4 => RFC4231_CASE_4,
+            test_rfc4231_long_key_case_6 => RFC4231_CASE_6,
+            test_rfc4231_long_key_and_message_case_7 => RFC4231_CASE_7,
+        },
     }
 }
