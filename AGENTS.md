@@ -158,9 +158,14 @@ updated `python/Cargo.lock` in the same change. `publish.yml` checks this with
 is published.
 
 Releases are cut with `./release.py` (a stdlib-only `uv run --script`).
-First merge a bump PR that sets both `Cargo.toml` versions, runs
+First merge a bump PR: `./release.py --bump major|minor|patch` (add
+`--dry-run` to preview) sets both `Cargo.toml` versions and the README's
+`dryoc = { version = ... }` snippet, runs
 `cargo update -p dryoc --manifest-path python/Cargo.toml` and `uv lock` (in
-`python/`), and commits both lockfiles. Then, on an up-to-date `main`, run
+`python/`), and restores every file if a step fails; it does not commit. A
+bump from a prerelease finishes it (`patch` takes `2.1.0-rc.1` to `2.1.0`);
+prerelease versions themselves are set by hand. Commit the changed files,
+including both lockfiles, and open the PR. Then, on an up-to-date `main`, run
 `./release.py --dry-run` and `./release.py`. It checks that `git`, `cargo`,
 `uv` and `gh` are installed; that `main` is clean and equal to `origin/main`;
 that both manifests carry the release version, which must be SemVer, newer
