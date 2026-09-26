@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["tomlkit>=0.13"]
 # ///
 """Cut a dryoc release: check that main is releasable, then tag and push it.
 
@@ -9,6 +9,12 @@ Pushing the `vX.Y.Z` tag starts `.github/workflows/publish.yml`, which
 publishes the crate to crates.io and the Python package to PyPI.
 
     ./release.py [VERSION] [--dry-run] [--yes]
+
+`--bump major|minor|patch` instead prepares the version-bump PR: it sets the
+next version in both `Cargo.toml` files (and the README's dependency snippet)
+and refreshes `python/Cargo.lock` and `python/uv.lock`, without committing.
+
+    ./release.py --bump LEVEL [--dry-run]
 """
 
 import argparse
@@ -20,10 +26,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 
-import tomllib
+import tomlkit
+from tomlkit.exceptions import TOMLKitError
 
 ROOT = Path(__file__).resolve().parent
 REPO = "brndnmtthws/dryoc"
@@ -39,6 +46,12 @@ SEMVER = re.compile(
 PEP440_PRE = {"alpha": "a", "beta": "b", "rc": "rc"}
 
 SemverKey = tuple[int, int, int, int, tuple[tuple[int, int, str], ...]]
+BUMP_LEVELS = ("major", "minor", "patch")
+MANIFESTS = ("Cargo.toml", "python/Cargo.toml")
+LOCKFILES = ("python/Cargo.lock", "python/uv.lock")
+README = "README.md"
+# Fenced TOML blocks in the README, which hold the `dryoc = ...` snippet.
+TOML_FENCE = re.compile(r"(?ms)^```toml\n(.*?)^```$")
 
 
 class CheckError(Exception):
@@ -105,8 +118,35 @@ def pep440(version: str) -> str:
 
 
 def package_version(manifest: str) -> str:
-    with (ROOT / manifest).open("rb") as f:
-        return str(tomllib.load(f)["package"]["version"])
+    try:
+        return str(tomlkit.parse((ROOT / manifest).read_text())["package"]["version"])
+    except (TOMLKitError, KeyError) as err:
+        raise CheckError(f"cannot read the version from {manifest}: {err}") from None
+
+
+def bumped(version: str, level: str) -> str:
+    """The next `level` release after `version`.
+
+    A prerelease of that release is finished rather than skipped, as in
+    `npm version`: patch takes 2.1.0-rc.1 to 2.1.0, minor takes 2.1.0-rc.1 to
+    2.1.0 but 2.1.1-rc.1 to 2.2.0.
+    """
+    match = SEMVER.fullmatch(version.split("+", 1)[0])
+    if match is None:
+        raise CheckError(f"{version!r} is not a SemVer version")
+    major, minor, patch = (int(part) for part in match.groups()[:3])
+    pre = match[4] is not None
+    if level == "major":
+        return f"{major if pre and minor == patch == 0 else major + 1}.0.0"
+    if level == "minor":
+        return f"{major}.{minor if pre and patch == 0 else minor + 1}.0"
+    return f"{major}.{minor}.{patch if pre else patch + 1}"
+
+
+def cargo_requirement(version: str) -> str:
+    """The caret requirement users write for `version`: `2` or `0.7`."""
+    major, minor, _ = version.split("-", 1)[0].split(".")
+    return major if major != "0" else f"0.{minor}"
 
 
 def check_tools() -> str:
@@ -257,20 +297,123 @@ def publish_run_url(tag: str) -> str:
     return f"https://github.com/{REPO}/actions/workflows/publish.yml"
 
 
+def set_package_version(manifest: str, version: str) -> None:
+    path = ROOT / manifest
+    doc = tomlkit.parse(path.read_text())
+    # `[package.metadata.*]` after other tables makes `package` a proxy, not a
+    # `Table`, so accept any table-like mapping.
+    package = doc.get("package")
+    if not isinstance(package, MutableMapping):
+        raise CheckError(f"{manifest} has no [package] table")
+    package["version"] = version
+    path.write_text(doc.as_string())
+
+
+def with_readme_requirement(text: str, version: str) -> str:
+    """`text` with the `dryoc` requirement in its TOML blocks set for `version`."""
+    requirement = cargo_requirement(version)
+
+    def update(block: re.Match[str]) -> str:
+        try:
+            doc = tomlkit.parse(block[1])
+        except TOMLKitError as err:
+            raise CheckError(f"{README} has an invalid TOML block: {err}") from None
+        # A bare `dryoc = ...` line, or one under `[dependencies]`.
+        deps = doc.get("dependencies", doc)
+        dep = deps.get("dryoc") if isinstance(deps, MutableMapping) else None
+        if isinstance(dep, str):
+            deps["dryoc"] = requirement
+        elif isinstance(dep, MutableMapping) and "version" in dep:
+            dep["version"] = requirement
+        else:
+            return block[0]
+        return f"```toml\n{doc.as_string()}```"
+
+    return TOML_FENCE.sub(update, text)
+
+
+def bump(level: str, dry_run: bool) -> int:
+    missing = [tool for tool in ("cargo", "uv") if shutil.which(tool) is None]
+    if missing:
+        raise CheckError(f"not on PATH: {', '.join(missing)}")
+    root, python = (package_version(manifest) for manifest in MANIFESTS)
+    if root != python:
+        raise CheckError(
+            f"Cargo.toml is {root} but python/Cargo.toml is {python}; "
+            "make them equal first"
+        )
+    version = bumped(root, level)
+    readme = (ROOT / README).read_text()
+    new_readme = with_readme_requirement(readme, version)
+    print(f"Bumping dryoc {root} -> {version} ({level})")
+    if dry_run:
+        files = [*MANIFESTS, *([README] if new_readme != readme else [])]
+        print(
+            f"Dry run: would set {', '.join(files)} and refresh "
+            f"{' and '.join(LOCKFILES)}; nothing changed."
+        )
+        return 0
+
+    paths = [*MANIFESTS, README, *LOCKFILES]
+    before = {name: (ROOT / name).read_bytes() for name in paths}
+    try:
+        for manifest in MANIFESTS:
+            set_package_version(manifest, version)
+            print(f"  ✓ {manifest}: {version}")
+        if new_readme != readme:
+            (ROOT / README).write_text(new_readme)
+            print(
+                f'  ✓ {README}: dryoc = {{ version = "{cargo_requirement(version)}" }}'
+            )
+        run("cargo", "update", "-p", "dryoc", "--manifest-path", "python/Cargo.toml")
+        run("uv", "lock", cwd=ROOT / "python")
+        print(f"  ✓ lockfiles: {check_locks()}")
+    except BaseException:
+        for name, data in before.items():
+            (ROOT / name).write_bytes(data)
+        print(f"Bump failed; restored {', '.join(paths)}.", file=sys.stderr)
+        raise
+
+    changed = [name for name in paths if (ROOT / name).read_bytes() != before[name]]
+    tag = f"v{version}"
+    print(
+        "\nNext: open the bump PR; once it merges, run ./release.py on main.\n"
+        f"  git switch -c release-{tag}\n"
+        f"  git commit -m 'release: {tag}' -- {' '.join(changed)}\n"
+        f"  git push -u origin release-{tag} && gh pr create --fill"
+    )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "version", nargs="?", help="default: the root Cargo.toml version"
     )
-    parser.add_argument("--dry-run", action="store_true", help="run the checks only")
+    parser.add_argument(
+        "--bump",
+        choices=BUMP_LEVELS,
+        help="set the next major/minor/patch version and refresh the lockfiles "
+        "instead of releasing",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run the checks only; with --bump, "
+        "print the new version without changing anything",
+    )
     parser.add_argument(
         "--yes", action="store_true", help="tag and push without asking"
     )
     args = parser.parse_args()
+    if args.bump:
+        if args.version or args.yes:
+            parser.error("--bump takes neither VERSION nor --yes")
+        return bump(args.bump, args.dry_run)
     try:
         version = (args.version or package_version("Cargo.toml")).removeprefix("v")
-    except (OSError, tomllib.TOMLDecodeError, KeyError) as err:
-        print(f"error: cannot read the version from Cargo.toml: {err}", file=sys.stderr)
+    except (OSError, CheckError) as err:
+        print(f"error: {err}", file=sys.stderr)
         return 1
     tag = f"v{version}"
 
