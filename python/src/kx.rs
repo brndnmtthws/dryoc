@@ -53,11 +53,13 @@ impl SessionKeys {
 
     /// Compares both keys in constant time.
     fn __eq__(&self, other: &Bound<'_, Self>) -> bool {
-        use subtle::ConstantTimeEq;
         let other = other.get();
-        let rx: &[u8] = self.rx.as_ref();
-        let tx: &[u8] = self.tx.as_ref();
-        bool::from(rx.ct_eq(other.rx.as_ref()) & tx.ct_eq(other.tx.as_ref()))
+        crate::util::ct_eq_pair(
+            self.rx.as_ref(),
+            self.tx.as_ref(),
+            other.rx.as_ref(),
+            other.tx.as_ref(),
+        )
     }
 
     fn __repr__(&self) -> &'static str {

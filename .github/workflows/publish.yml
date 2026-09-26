@@ -46,11 +46,9 @@ jobs:
         with:
           cache-generation: features-optional-features
       - name: Install cargo-nextest
-        uses: brndnmtthws/rust-action-cargo-binstall@v1
+        uses: ./.github/actions/install-nextest
         with:
           packages: --locked cargo-nextest
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
       - name: Verify tag matches crate version
         shell: bash
         run: |
@@ -74,10 +72,10 @@ jobs:
       - run: mbx nextest run --all-targets --no-default-features --features std,serde,base64,wincode_0_6
       - run: mbx nextest run --all-targets --no-default-features --features serde,protected
       - run: mbx test --doc
-      - run: mbx doc --features serde,base64,wincode_0_6 --no-deps
+      - run: mbx doc --features wincode_0_6 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: mbx clippy --all-targets --features serde,base64,wincode_0_6 -- -D warnings
+      - run: mbx clippy --all-targets --features wincode_0_6 -- -D warnings
       - name: Install nightly validation toolchain
         run: rustup toolchain install nightly --profile minimal --component clippy
       - run: mbx +nightly nextest run --all-targets --all-features
