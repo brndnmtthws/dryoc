@@ -47,12 +47,35 @@ pub(crate) fn block(input: &[u32; 16], counter: u64, out: &mut [u8; 64]) {
     });
 }
 
+/// [`block`] for blocks `counter` and `counter + 1` at once, into `out0` and
+/// `out1`. A block's rounds are one dependent chain that leaves most of the
+/// integer pipes idle; the two independent chains are interleaved, so the
+/// pair costs well under two blocks. Wiping as for [`block`].
+#[cfg(any(target_arch = "aarch64", test))]
+pub(crate) fn block2(input: &[u32; 16], counter: u64, out0: &mut [u8; 64], out1: &mut [u8; 64]) {
+    let initial0 = block_input(input, counter);
+    let initial1 = block_input(input, counter.wrapping_add(1));
+    let (mut x, mut y) = (initial0, initial1);
+    for _ in 0..10 {
+        double_round(&mut x);
+        double_round(&mut y);
+    }
+    let out0 = out0.as_chunks_mut::<4>().0;
+    crate::stream::each_word!(I, {
+        out0[I] = x[I].wrapping_add(initial0[I]).to_le_bytes();
+    });
+    let out1 = out1.as_chunks_mut::<4>().0;
+    crate::stream::each_word!(I, {
+        out1[I] = y[I].wrapping_add(initial1[I]).to_le_bytes();
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use salsa20::Salsa20;
     use salsa20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 
-    use super::block;
+    use super::{block, block2};
     use crate::utils::{SIGMA, load_u32_le};
 
     /// The Salsa20 input words for `key` and `nonce` with a zero counter.
@@ -125,6 +148,11 @@ mod tests {
                 rustcrypto_block(&key, &nonce, counter),
                 "block {counter}"
             );
+            // The pair from `counter` is `block` at `counter` and the next.
+            let (mut out0, mut out1, mut next) = ([0u8; 64], [0u8; 64], [0u8; 64]);
+            block2(&input, counter, &mut out0, &mut out1);
+            block(&input, counter + 1, &mut next);
+            assert_eq!((out0, out1), (out, next), "block2 {counter}");
         }
     }
 

@@ -87,7 +87,7 @@
 //! ```
 
 use subtle::ConstantTimeEq;
-use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::chacha20::ChaCha20;
 use crate::classic::crypto_core::crypto_core_hchacha20;
@@ -105,7 +105,7 @@ use crate::error::*;
 use crate::poly1305::Poly1305;
 use crate::rng::copy_randombytes;
 use crate::types::*;
-use crate::utils::{increment_bytes, pad16, verify_ct, xor_buf};
+use crate::utils::{WideZeroizing, increment_bytes, pad16, verify_ct, xor_buf, zeroize_bytes};
 
 /// A secret for authenticated secret streams.
 pub type Key = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES];
@@ -117,11 +117,28 @@ pub type Header = [u8; CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES];
 /// Stream state data
 ///
 /// Equality compares the key and nonce in constant time.
-#[derive(Clone, Default, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Default)]
 pub struct State {
     k: Key,
     nonce: Nonce,
 }
+
+/// Wipes sixteen bytes per store, where a derived impl stores one byte at a
+/// time; states are cloned and dropped around every message.
+impl Zeroize for State {
+    fn zeroize(&mut self) {
+        zeroize_bytes(&mut self.k);
+        zeroize_bytes(&mut self.nonce);
+    }
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for State {}
 
 impl PartialEq for State {
     fn eq(&self, other: &Self) -> bool {
@@ -200,15 +217,15 @@ fn secretstream_init_mac(
     state: &State,
     block: &mut [u8; 64],
     associated_data: &[u8],
-) -> (ChaCha20, Zeroizing<Poly1305>) {
+) -> (ChaCha20, Poly1305) {
     let mut cipher = ChaCha20::ietf(&state.k, &state.nonce, 0);
 
     // Blocks 0 and 1 come out of one keystream run.
-    let mut block0 = Zeroizing::new([0u8; 64]);
+    let mut block0 = WideZeroizing::new([0u8; 64]);
     cipher.apply_keystream_with_head(&mut block0, block);
     let mut mac_key = crate::poly1305::Key::new();
     mac_key.copy_from_slice(&block0[..mac_key.len()]);
-    let mut mac = Zeroizing::new(Poly1305::new(&mac_key));
+    let mut mac = Poly1305::new(&mac_key);
     mac_key.zeroize();
     drop(block0);
 
@@ -300,7 +317,7 @@ fn secretstream_init(state: &mut State, header: &Header, key: &Key) {
 /// Compatible with libsodium's
 /// `crypto_secretstream_xchacha20poly1305_rekey`.
 pub fn crypto_secretstream_xchacha20poly1305_rekey(state: &mut State) {
-    let mut new_state = Zeroizing::new(
+    let mut new_state = WideZeroizing::new(
         [0u8; CRYPTO_STREAM_CHACHA20_IETF_KEYBYTES
             + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_INONCEBYTES],
     );
@@ -353,18 +370,17 @@ pub fn crypto_secretstream_xchacha20poly1305_push(
 
     // Block 0 keys the MAC, block 1 carries the tag, the message starts at
     // block 2; each call below consumes whole blocks.
-    let mut block = Zeroizing::new([0u8; 64]);
+    let mut block = WideZeroizing::new([0u8; 64]);
     block[0] = tag;
     let (mut cipher, mut mac) = secretstream_init_mac(state, &mut block, associated_data);
     mac.update(&*block);
 
     let mlen = message.len();
     ciphertext[0] = block[0];
-    cipher.apply_keystream_b2b(message, &mut ciphertext[1..(1 + mlen)]);
+    cipher.apply_keystream_and_mac(Some(message), &mut ciphertext[1..(1 + mlen)], &mut mac);
 
     let size_data = secretstream_length_block(associated_data.len(), mlen);
 
-    mac.update(&ciphertext[1..(1 + mlen)]);
     // this is to workaround an unfortunate padding bug in libsodium, there's a
     // note in commit 290197ba3ee72245fdab5e971c8de43a82b19874. There's no
     // safety issue, so we can just pretend it's not a bug.
@@ -414,7 +430,7 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     // Block 0 keys the MAC, block 1 carries the tag, the message starts at
     // block 2; each call below consumes whole blocks.
-    let mut block = Zeroizing::new([0u8; 64]);
+    let mut block = WideZeroizing::new([0u8; 64]);
     block[0] = ciphertext[0];
     let (mut cipher, mut mac) = secretstream_init_mac(state, &mut block, associated_data);
 
@@ -432,14 +448,17 @@ pub fn crypto_secretstream_xchacha20poly1305_pull(
 
     let size_data = secretstream_length_block(associated_data.len(), mlen);
     mac.update(&size_data);
-    let mac = Zeroizing::new(mac.finalize_to_array());
+    let computed = WideZeroizing::new(mac.finalize_to_array());
+    // `finalize_to_array` leaves the wipe to the state's drop, which comes
+    // only at the end of this function: wipe it before decrypting.
+    mac.zeroize();
 
-    verify_ct(&ciphertext[1 + mlen..], mac.as_slice())?;
+    verify_ct(&ciphertext[1 + mlen..], computed.as_slice())?;
 
     cipher.apply_keystream_b2b(&ciphertext[1..1 + mlen], &mut message[..mlen]);
     *tag = decrypted_tag;
 
-    secretstream_advance(state, &*mac, decrypted_tag);
+    secretstream_advance(state, &*computed, decrypted_tag);
 
     Ok(mlen)
 }

@@ -21,7 +21,9 @@
 //! vectors with 64-bit and 32-bit transposes so that each butterfly's inputs
 //! again sit in the same lane of two vectors. Coefficients enter and leave
 //! every operation in the portable order. All control flow and memory access
-//! is independent of the coefficients.
+//! of the arithmetic is independent of the coefficients; only the
+//! rejection sampler of the public matrix ([`rej_uniform_unchecked`])
+//! branches on and indexes a shuffle table by its candidates.
 //!
 //! Zeroization: the kernels load rows of the caller's polynomial, transform
 //! them in vector registers and store them back in place. The polynomials
@@ -32,15 +34,18 @@
 //! memory, so the kernels add no wipes of their own.
 
 use core::arch::aarch64::{
-    int16x8_t, vaddq_s16, vdupq_n_s16, vhsubq_s16, vld1q_s16, vmlsq_n_s16, vmulq_n_s16, vmulq_s16,
-    vqdmulhq_n_s16, vqdmulhq_s16, vreinterpretq_s16_s32, vreinterpretq_s16_s64,
-    vreinterpretq_s32_s16, vreinterpretq_s64_s16, vshrq_n_s16, vst1q_s16, vsubq_s16, vtrn1q_s32,
-    vtrn1q_s64, vtrn2q_s32, vtrn2q_s64, vuzp1q_s16, vuzp1q_s32, vuzp2q_s16, vuzp2q_s32, vzip1q_s16,
-    vzip1q_s32, vzip2q_s16, vzip2q_s32,
+    int16x8_t, uint8x16_t, uint16x8_t, vaddq_s16, vaddvq_u16, vandq_u16, vcltq_u16, vdup_n_u16,
+    vdupq_n_s16, vdupq_n_u16, vget_low_u16, vhsubq_s16, vld1q_s16, vld1q_u8, vld1q_u16,
+    vmlsq_n_s16, vmull_high_u16, vmull_u16, vmulq_n_s16, vmulq_s16, vqdmulhq_n_s16, vqdmulhq_s16,
+    vqtbl1q_u8, vreinterpretq_s16_s32, vreinterpretq_s16_s64, vreinterpretq_s16_u8,
+    vreinterpretq_s16_u16, vreinterpretq_s32_s16, vreinterpretq_s64_s16, vreinterpretq_u8_u16,
+    vreinterpretq_u16_s16, vreinterpretq_u16_u8, vrshrn_high_n_u32, vrshrn_n_u32, vshlq_u16,
+    vshrq_n_s16, vst1q_s16, vsubq_s16, vtrn1q_s32, vtrn1q_s64, vtrn2q_s32, vtrn2q_s64, vuzp1q_s16,
+    vuzp1q_s32, vuzp2q_s16, vuzp2q_s32, vzip1q_s16, vzip1q_s32, vzip2q_s16, vzip2q_s32,
 };
 
-use super::mlkem_soft::{BARRETT_V, INVNTT_F, QINV, ZETAS};
-use super::{Poly, Q};
+use super::mlkem_soft::{BARRETT_V, INVNTT_F, QINV, R2, ZETAS};
+use super::{N, Poly, Q};
 use crate::aarch64::Neon;
 
 /// A kernel the running CPU has been verified to support: it holds the
@@ -75,6 +80,52 @@ impl Kernel {
     #[inline]
     pub(super) fn basemul_acc<const K: usize>(self, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
         basemul_acc(self.0, r, a, b)
+    }
+
+    #[inline]
+    pub(super) fn basemul_rows<const K: usize, const R: usize>(
+        self,
+        r: [&mut Poly; R],
+        a: [&[Poly; K]; R],
+        b: &[Poly; K],
+    ) {
+        basemul_rows(self.0, r, a, b)
+    }
+
+    #[inline]
+    pub(super) fn reduce(self, r: &mut Poly) {
+        reduce(self.0, r)
+    }
+
+    /// `super::poly_to_msg` of a Barrett-reduced polynomial.
+    #[inline]
+    pub(super) fn poly_to_msg(self, m: &mut [u8; 32], a: &Poly) {
+        poly_to_msg(self.0, m, a)
+    }
+
+    /// `super::decompress_u` on the coefficients as rows of eight, from ten
+    /// bytes each.
+    #[inline]
+    pub(super) fn decompress10(self, rows: &mut [[i16; 8]], bytes: &[u8]) {
+        decompress10(self.0, rows, bytes)
+    }
+
+    #[inline]
+    pub(super) fn add_reduce<const M: usize>(self, r: &mut Poly, addends: [&Poly; M]) {
+        add_reduce(self.0, r, addends)
+    }
+
+    #[inline]
+    pub(super) fn tomont_add_reduce(self, r: &mut Poly, a: &Poly) {
+        tomont_add_reduce(self.0, r, a)
+    }
+
+    /// The bulk of `super::rej_uniform`: samples from the start of `bytes`
+    /// while whole eight-candidate groups fit, and returns how many bytes it
+    /// consumed (a multiple of three) for the scalar loop to finish.
+    #[inline]
+    pub(super) fn rej_uniform(self, poly: &mut Poly, filled: &mut usize, bytes: &[u8]) -> usize {
+        rej_uniform(self.0, poly, filled, bytes)
     }
 }
 
@@ -190,6 +241,64 @@ macro_rules! fqmul_zeta {
 fn barrett_reduce(a: int16x8_t) -> int16x8_t {
     let t = vshrq_n_s16::<11>(vqdmulhq_n_s16(a, BARRETT_V));
     vmlsq_n_s16(a, t, Q)
+}
+
+/// `super::poly_reduce`: every coefficient through [`barrett_reduce`],
+/// eight at a time.
+#[target_feature(enable = "neon")]
+fn reduce_unchecked(r: &mut Poly) {
+    for row in rows(r) {
+        store(row, barrett_reduce(load(row)));
+    }
+}
+
+/// `super::poly_add_assign` of each of `addends`, then `super::poly_reduce`,
+/// in one pass.
+#[target_feature(enable = "neon")]
+fn add_reduce_unchecked<const M: usize>(r: &mut Poly, addends: [&Poly; M]) {
+    let addends = addends.map(|a| a.as_chunks::<8>().0);
+    for (i, row) in rows(r).iter_mut().enumerate() {
+        let mut x = load(row);
+        for a in &addends {
+            x = vaddq_s16(x, load(&a[i]));
+        }
+        store(row, barrett_reduce(x));
+    }
+}
+
+/// [`add_reduce_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn add_reduce<const M: usize>(_: Neon, r: &mut Poly, addends: [&Poly; M]) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { add_reduce_unchecked::<M>(r, addends) }
+}
+
+/// `super::poly_tomont`, `super::poly_add_assign` of `a` and
+/// `super::poly_reduce`, in one pass.
+#[target_feature(enable = "neon")]
+fn tomont_add_reduce_unchecked(r: &mut Poly, a: &Poly) {
+    let (r2, r2_qinv) = (vdupq_n_s16(R2), vdupq_n_s16(R2.wrapping_mul(QINV)));
+    for (row, a) in rows(r).iter_mut().zip(a.as_chunks::<8>().0) {
+        let x = vaddq_s16(fqmul(load(row), r2, r2_qinv), load(a));
+        store(row, barrett_reduce(x));
+    }
+}
+
+/// [`tomont_add_reduce_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn tomont_add_reduce(_: Neon, r: &mut Poly, a: &Poly) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { tomont_add_reduce_unchecked(r, a) }
+}
+
+/// [`reduce_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn reduce(_: Neon, r: &mut Poly) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { reduce_unchecked(r) }
 }
 
 /// Forward (Cooley-Tukey) butterfly `(a + t, a - t)` with `t = fqmul(zeta,
@@ -394,27 +503,46 @@ macro_rules! store_rows {
 /// kept `#[inline]` layer and twiddle helpers out of line (and at `z` and
 /// `s` left the index loops rolled), which put the vectors, copies of the
 /// secret coefficients, in stack memory nothing wipes.
+///
+/// Each pass processes two independent groups of eight vectors together:
+/// one group's three dependent layers leave the vector pipes idle, and the
+/// interleaved second group fills them.
 #[target_feature(enable = "neon")]
 fn ntt_unchecked(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 128, 64, 32 on rows j, j + 4, ..., j + 28.
-    for j in 0..4 {
+    for j in [0, 2] {
         let mut v = load_rows!(rows, j, 4);
+        let mut w = load_rows!(rows, j + 1, 4);
         ct_layer!(v, 4, 1);
+        ct_layer!(w, 4, 1);
         ct_layer!(v, 2, 2);
+        ct_layer!(w, 2, 2);
         ct_layer!(v, 1, 4);
+        ct_layer!(w, 1, 4);
         store_rows!(rows, j, 4, v);
+        store_rows!(rows, j + 1, 4, w);
     }
     // Layers len = 16, 8, 4, 2 on 64 consecutive coefficients.
-    for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        let mut v = load_rows!(rows, 0, 1);
+    for (h, rows) in rows.as_chunks_mut::<16>().0.iter_mut().enumerate() {
+        let (q, r) = (2 * h, 2 * h + 1);
+        let (rows_q, rows_r) = halves(rows);
+        let mut v = load_rows!(rows_q, 0, 1);
+        let mut w = load_rows!(rows_r, 0, 1);
         ct_layer!(v, 2, 8 + 2 * q);
+        ct_layer!(w, 2, 8 + 2 * r);
         ct_layer!(v, 1, 16 + 4 * q);
+        ct_layer!(w, 1, 16 + 4 * r);
         ntt_pair!(v, 0 1, 4 * q);
+        ntt_pair!(w, 0 1, 4 * r);
         ntt_pair!(v, 2 3, 4 * q + 1);
+        ntt_pair!(w, 2 3, 4 * r + 1);
         ntt_pair!(v, 4 5, 4 * q + 2);
+        ntt_pair!(w, 4 5, 4 * r + 2);
         ntt_pair!(v, 6 7, 4 * q + 3);
-        store_rows!(rows, 0, 1, v);
+        ntt_pair!(w, 6 7, 4 * r + 3);
+        store_rows!(rows_q, 0, 1, v);
+        store_rows!(rows_r, 0, 1, w);
     }
 }
 
@@ -426,35 +554,46 @@ fn ntt(_: Neon, r: &mut Poly) {
     unsafe { ntt_unchecked(r) }
 }
 
-/// `mlkem_soft::invntt_tomont`, spelled out like [`ntt_unchecked`].
+/// The two halves of sixteen rows, as arrays.
+#[inline(always)]
+fn halves(rows: &mut [[i16; 8]; 16]) -> (&mut [[i16; 8]; 8], &mut [[i16; 8]; 8]) {
+    let (a, b) = rows.split_at_mut(8);
+    (a.try_into().unwrap(), b.try_into().unwrap())
+}
+
+/// `mlkem_soft::invntt_tomont`, spelled out and two groups at a time like
+/// [`ntt_unchecked`].
 #[target_feature(enable = "neon")]
 fn invntt_tomont_unchecked(r: &mut Poly) {
     let rows = rows(r);
     // Layers len = 2, 4, 8, 16 on 64 consecutive coefficients.
-    for (q, rows) in rows.as_chunks_mut::<8>().0.iter_mut().enumerate() {
-        let mut v = load_rows!(rows, 0, 1);
+    for (h, rows) in rows.as_chunks_mut::<16>().0.iter_mut().enumerate() {
+        let (q, r) = (2 * h, 2 * h + 1);
+        let (rows_q, rows_r) = halves(rows);
+        let mut v = load_rows!(rows_q, 0, 1);
+        let mut w = load_rows!(rows_r, 0, 1);
         invntt_pair!(v, 0 1, 4 * q);
+        invntt_pair!(w, 0 1, 4 * r);
         invntt_pair!(v, 2 3, 4 * q + 1);
+        invntt_pair!(w, 2 3, 4 * r + 1);
         invntt_pair!(v, 4 5, 4 * q + 2);
+        invntt_pair!(w, 4 5, 4 * r + 2);
         invntt_pair!(v, 6 7, 4 * q + 3);
+        invntt_pair!(w, 6 7, 4 * r + 3);
         gs_layer!(v, 1, 31 - 4 * q);
+        gs_layer!(w, 1, 31 - 4 * r);
         gs_layer!(v, 2, 15 - 2 * q);
-        store_rows!(rows, 0, 1, v);
+        gs_layer!(w, 2, 15 - 2 * r);
+        store_rows!(rows_q, 0, 1, v);
+        store_rows!(rows_r, 0, 1, w);
     }
     // Layers len = 32, 64, 128 and the final scaling on rows j, j + 4, ...,
     // j + 28.
     let f = vdupq_n_s16(INVNTT_F);
     let f_qinv = vdupq_n_s16(INVNTT_F.wrapping_mul(QINV));
-    for j in 0..4 {
-        let mut v = load_rows!(rows, j, 4);
-        gs_layer!(v, 1, 7);
-        gs_layer!(v, 2, 3);
-        gs_layer!(v, 4, 1);
-        let [v0, v1, v2, v3, v4, v5, v6, v7] = v;
-        store_rows!(
-            rows,
-            j,
-            4,
+    macro_rules! scaled {
+        ($v:expr) => {{
+            let [v0, v1, v2, v3, v4, v5, v6, v7] = $v;
             [
                 fqmul(v0, f, f_qinv),
                 fqmul(v1, f, f_qinv),
@@ -465,7 +604,19 @@ fn invntt_tomont_unchecked(r: &mut Poly) {
                 fqmul(v6, f, f_qinv),
                 fqmul(v7, f, f_qinv),
             ]
-        );
+        }};
+    }
+    for j in [0, 2] {
+        let mut v = load_rows!(rows, j, 4);
+        let mut w = load_rows!(rows, j + 1, 4);
+        gs_layer!(v, 1, 7);
+        gs_layer!(w, 1, 7);
+        gs_layer!(v, 2, 3);
+        gs_layer!(w, 2, 3);
+        gs_layer!(v, 4, 1);
+        gs_layer!(w, 4, 1);
+        store_rows!(rows, j, 4, scaled!(v));
+        store_rows!(rows, j + 1, 4, scaled!(w));
     }
 }
 
@@ -520,12 +671,250 @@ fn basemul_acc_unchecked<const K: usize>(r: &mut Poly, a: &[Poly; K], b: &[Poly;
     }
 }
 
+/// [`basemul_acc_unchecked`] for `R` rows `a[i]` against the same `b`, whose
+/// de-interleaved coefficients and Montgomery multipliers are formed once per
+/// sixteen coefficients for all rows. Each row's arithmetic is exactly
+/// `basemul_acc`'s.
+#[target_feature(enable = "neon")]
+fn basemul_rows_unchecked<const K: usize, const R: usize>(
+    r: [&mut Poly; R],
+    a: [&[Poly; K]; R],
+    b: &[Poly; K],
+) {
+    let split = |[lo, hi]: &[[i16; 8]; 2]| {
+        let (lo, hi) = (load(lo), load(hi));
+        (vuzp1q_s16(lo, hi), vuzp2q_s16(lo, hi))
+    };
+    let mut outs: [&mut [[[i16; 8]; 2]; 16]; R] = r.map(|r| {
+        r.as_chunks_mut::<8>()
+            .0
+            .as_chunks_mut::<2>()
+            .0
+            .try_into()
+            .unwrap()
+    });
+    for p in 0..16 {
+        let (zeta, zeta_qinv) = twiddle(&BASEMUL[p]);
+        let bs: [_; K] = core::array::from_fn(|k| {
+            let (b0, b1) = split(&pairs(&b[k])[p]);
+            (b0, b1, vmulq_n_s16(b0, QINV), vmulq_n_s16(b1, QINV))
+        });
+        for (out, a) in outs.iter_mut().zip(a) {
+            let (mut c0, mut c1) = (vdupq_n_s16(0), vdupq_n_s16(0));
+            for (a, &(b0, b1, b0_qinv, b1_qinv)) in a.iter().zip(&bs) {
+                let (a0, a1) = split(&pairs(a)[p]);
+                let x = vaddq_s16(
+                    fqmul(fqmul(a1, b1, b1_qinv), zeta, zeta_qinv),
+                    fqmul(a0, b0, b0_qinv),
+                );
+                let y = vaddq_s16(fqmul(a0, b1, b1_qinv), fqmul(a1, b0, b0_qinv));
+                c0 = vaddq_s16(c0, x);
+                c1 = vaddq_s16(c1, y);
+            }
+            let (c0, c1) = (barrett_reduce(c0), barrett_reduce(c1));
+            store(&mut out[p][0], vzip1q_s16(c0, c1));
+            store(&mut out[p][1], vzip2q_s16(c0, c1));
+        }
+    }
+}
+
+/// [`basemul_rows_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn basemul_rows<const K: usize, const R: usize>(
+    _: Neon,
+    r: [&mut Poly; R],
+    a: [&[Poly; K]; R],
+    b: &[Poly; K],
+) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { basemul_rows_unchecked::<K, R>(r, a, b) }
+}
+
 /// [`basemul_acc_unchecked`], safe to call with a [`Neon`] token.
 #[inline(always)]
 fn basemul_acc<const K: usize>(_: Neon, r: &mut Poly, a: &[Poly; K], b: &[Poly; K]) {
     // SAFETY: a `Neon` token exists only after detection of `neon`, the
     // feature the kernel is compiled for.
     unsafe { basemul_acc_unchecked::<K>(r, a, b) }
+}
+
+/// Byte gather that puts candidate `j` of twelve bytes (two per three
+/// bytes) in 16-bit lane `j`: bytes `3j/2, 3j/2 + 1`, still to be masked
+/// (even `j`) or shifted right by four (odd `j`).
+const REJ_GATHER: [u8; 16] = [0, 1, 1, 2, 3, 4, 4, 5, 6, 7, 7, 8, 9, 10, 10, 11];
+/// Per-lane shifts for [`REJ_GATHER`]'s lanes: odd candidates are the high
+/// twelve bits of their pair.
+const REJ_SHIFT: [i16; 8] = [0, -4, 0, -4, 0, -4, 0, -4];
+/// Lane `j`'s bit in the acceptance mask.
+const REJ_BITS: [u16; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+/// Entry `m` moves the 16-bit lanes whose bit is set in `m` to the front,
+/// in order; the remaining bytes select zero (an out-of-range `tbl` index).
+const REJ_COMPRESS: [[u8; 16]; 256] = {
+    let mut table = [[0xff; 16]; 256];
+    let mut m = 0;
+    while m < 256 {
+        let (mut lane, mut k) = (0, 0);
+        while lane < 8 {
+            if m >> lane & 1 == 1 {
+                table[m][2 * k] = 2 * lane as u8;
+                table[m][2 * k + 1] = 2 * lane as u8 + 1;
+                k += 1;
+            }
+            lane += 1;
+        }
+        m += 1;
+    }
+    table
+};
+
+/// Accepted candidates per acceptance mask of [`REJ_COMPRESS`].
+const REJ_COUNT: [u8; 256] = {
+    let mut table = [0; 256];
+    let mut m = 0;
+    while m < 256 {
+        table[m] = (m as u8).count_ones() as u8;
+        m += 1;
+    }
+    table
+};
+
+/// `super::poly_to_msg` (`ByteEncode_1(Compress_1(a))`) of a
+/// Barrett-reduced polynomial, coefficients in `[0, q]`: `Compress_1` is 1
+/// exactly for the coefficients in `[833, 2496]` (`q` itself maps to 0), so
+/// bit `j` of byte `i` is one unsigned compare of coefficient `8 i + j`
+/// minus 833 against 1664, and the byte the sum of the lane weights
+/// [`REJ_BITS`] the compare selects. No branch or index depends on the
+/// coefficients, which are secret (the decrypted message).
+#[target_feature(enable = "neon")]
+fn poly_to_msg_unchecked(m: &mut [u8; 32], a: &Poly) {
+    let bits = load_u16(&REJ_BITS);
+    let (low, width) = (vdupq_n_s16(833), vdupq_n_u16(1664));
+    for (byte, row) in m.iter_mut().zip(a.as_chunks::<8>().0) {
+        let d = vreinterpretq_u16_s16(vsubq_s16(load(row), low));
+        *byte = vaddvq_u16(vandq_u16(vcltq_u16(d, width), bits)) as u8;
+    }
+}
+
+/// [`poly_to_msg_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn poly_to_msg(_: Neon, m: &mut [u8; 32], a: &Poly) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { poly_to_msg_unchecked(m, a) }
+}
+
+/// For eight 10-bit fields in ten bytes: the two bytes holding field `j`,
+/// as the low and high byte of 16-bit lane `j`.
+const DECOMPRESS10_GATHER: [u8; 16] = [0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 6, 7, 7, 8, 8, 9];
+/// The right shift (as a negative left shift) that brings each field of
+/// [`DECOMPRESS10_GATHER`]'s lanes to bit 0.
+const DECOMPRESS10_SHIFT: [i16; 8] = [0, -2, -4, -6, 0, -2, -4, -6];
+
+/// `super::decompress_u` (`ByteDecode_10` then `Decompress_10`): eight
+/// coefficients from each ten bytes, `(t * q + 512) >> 10` as a widening
+/// multiply and a rounding narrowing shift. The last row, whose sixteen-byte
+/// load would run past `bytes`, goes through the scalar code. The input is
+/// the public ciphertext.
+#[target_feature(enable = "neon")]
+fn decompress10_unchecked(rows: &mut [[i16; 8]], bytes: &[u8]) {
+    debug_assert_eq!(bytes.len(), rows.len() * 10);
+    let gather = load_u8(&DECOMPRESS10_GATHER);
+    let shift = load(&DECOMPRESS10_SHIFT);
+    let mask = vdupq_n_u16(0x3ff);
+    let (q, q_half) = (vdupq_n_u16(Q as u16), vdup_n_u16(Q as u16));
+    for (i, row) in rows.iter_mut().enumerate() {
+        let group = &bytes[10 * i..10 * i + 10];
+        let Some(chunk) = bytes.get(10 * i..10 * i + 16) else {
+            let (halves, _) = row.as_chunks_mut::<4>();
+            let (fives, _) = group.as_chunks::<5>();
+            super::decompress10(&mut halves[0], &fives[0]);
+            super::decompress10(&mut halves[1], &fives[1]);
+            continue;
+        };
+        let raw = load_u8(chunk.try_into().expect("sixteen bytes"));
+        let t = vandq_u16(
+            vshlq_u16(vreinterpretq_u16_u8(vqtbl1q_u8(raw, gather)), shift),
+            mask,
+        );
+        let lo = vmull_u16(vget_low_u16(t), q_half);
+        let hi = vmull_high_u16(t, q);
+        let r = vrshrn_high_n_u32::<10>(vrshrn_n_u32::<10>(lo), hi);
+        store(row, vreinterpretq_s16_u16(r));
+    }
+}
+
+/// [`decompress10_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn decompress10(_: Neon, rows: &mut [[i16; 8]], bytes: &[u8]) {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { decompress10_unchecked(rows, bytes) }
+}
+
+/// Loads sixteen bytes (`ldr q`).
+#[inline]
+#[target_feature(enable = "neon")]
+fn load_u8(c: &[u8; 16]) -> uint8x16_t {
+    // SAFETY: `c` refers to sixteen initialized bytes, exactly what `ld1`
+    // reads, and `ld1` of bytes has no alignment requirement.
+    unsafe { vld1q_u8(c.as_ptr()) }
+}
+
+/// Loads eight 16-bit lanes (`ldr q`).
+#[inline]
+#[target_feature(enable = "neon")]
+fn load_u16(c: &[u16; 8]) -> uint16x8_t {
+    // SAFETY: `c` refers to eight initialized `u16`s, exactly the 16 bytes
+    // `ld1` reads, and `ld1` has no alignment requirement beyond that of
+    // `u16`.
+    unsafe { vld1q_u16(c.as_ptr()) }
+}
+
+/// `super::rej_uniform` eight candidates (twelve bytes) at a time, while
+/// `poly` has room for all eight: the accepted ones are packed to the front
+/// by a [`REJ_COMPRESS`] shuffle and stored at `poly[*filled..]` with the
+/// rest zeroed, and `*filled` advances by their number, so the next group
+/// overwrites the zeros. Returns the bytes consumed. The table index and
+/// the loop depend on the candidates, which is fine: the matrix is public.
+#[target_feature(enable = "neon")]
+fn rej_uniform_unchecked(poly: &mut Poly, filled: &mut usize, bytes: &[u8]) -> usize {
+    let gather = load_u8(&REJ_GATHER);
+    let shift = load(&REJ_SHIFT);
+    let bits = load_u16(&REJ_BITS);
+    let (mask12, q) = (vdupq_n_u16(0x0fff), vdupq_n_u16(Q as u16));
+    let (mut n, mut used) = (*filled, 0);
+    // Each group reads sixteen bytes and consumes twelve.
+    while n <= N - 8 {
+        let Some(chunk) = bytes.get(used..used + 16) else {
+            break;
+        };
+        let raw = load_u8(chunk.try_into().expect("sixteen bytes"));
+        let d = vandq_u16(
+            vshlq_u16(vreinterpretq_u16_u8(vqtbl1q_u8(raw, gather)), shift),
+            mask12,
+        );
+        let accept = vcltq_u16(d, q);
+        // The eight lane bits sum to at most 255: as a `u8` the index needs
+        // no bounds check against the 256-entry tables.
+        let mask = usize::from(vaddvq_u16(vandq_u16(accept, bits)) as u8);
+        let count = REJ_COUNT[mask];
+        let packed = vqtbl1q_u8(vreinterpretq_u8_u16(d), load_u8(&REJ_COMPRESS[mask]));
+        let slots: &mut [i16; 8] = (&mut poly[n..n + 8]).try_into().expect("eight slots");
+        store(slots, vreinterpretq_s16_u8(packed));
+        n += usize::from(count);
+        used += 12;
+    }
+    *filled = n;
+    used
+}
+
+/// [`rej_uniform_unchecked`], safe to call with a [`Neon`] token.
+#[inline(always)]
+fn rej_uniform(_: Neon, poly: &mut Poly, filled: &mut usize, bytes: &[u8]) -> usize {
+    // SAFETY: a `Neon` token exists only after detection of `neon`, the
+    // feature the kernel is compiled for.
+    unsafe { rej_uniform_unchecked(poly, filled, bytes) }
 }
 
 #[cfg(test)]

@@ -152,6 +152,8 @@ macro_rules! apply_block_rounds {
     }};
 }
 
+#[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+mod argon2_neon;
 #[cfg(all(feature = "simd_backend", feature = "nightly"))]
 mod argon2_simd;
 #[cfg(any(test, not(all(feature = "simd_backend", feature = "nightly"))))]
@@ -167,8 +169,8 @@ use argon2_soft::fill_block as fill_block_portable;
 /// Overwrites `dst` with the compression of `prev_block` and `ref_block`,
 /// `P(R) ^ R` for `R = prev_block ^ ref_block`, XORing the previous contents
 /// of `dst` in as well when `xor_old` (the second and later passes). Uses the
-/// runtime-detected x86-64 kernel when there is one, else the portable
-/// backend. Out of line at opt-level `z` and `s` (as is
+/// runtime-detected x86-64 or AArch64 SVE2 kernel when there is one, else the
+/// portable backend. Out of line at opt-level `z` and `s` (as is
 /// [`prepare_in_place`] at `z`), which adds no copy: it only gets
 /// references to the memory region's blocks and to `Block` locals, all of
 /// which wipe themselves on drop.
@@ -185,6 +187,11 @@ fn fill_block(
         kernel.fill_block(dst, prev_block, ref_block, xor_old, scratch);
         return;
     }
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    if let Some(kernel) = argon2_neon::detect() {
+        kernel.fill_block(dst, prev_block, ref_block, xor_old, scratch);
+        return;
+    }
     fill_block_portable(dst, prev_block, ref_block, xor_old, scratch);
 }
 
@@ -193,7 +200,7 @@ fn fill_block(
 /// it. [`Argon2Instance::initialize`] reserves the exact size before the
 /// blocks are created, so the vector never reallocates and leaves no copy
 /// behind; `Vec` helpers that stay out of line only move pointers and
-/// lengths, or the zero block that `resize` clones.
+/// lengths.
 #[derive(Default)]
 struct BlockRegion {
     memory: Vec<Block>,
@@ -257,9 +264,11 @@ impl Argon2Instance {
         // 1. Memory allocation
         try_reserve_argon2(&mut self.region.memory, self.memory_blocks as usize)?;
         try_reserve_argon2(&mut self.pseudo_rands, self.segment_length as usize)?;
+        // Each block written in place as zeros, rather than cloned from a
+        // zero block (a load for every store).
         self.region
             .memory
-            .resize(self.memory_blocks as usize, Default::default());
+            .resize_with(self.memory_blocks as usize, Block::default);
         self.pseudo_rands.resize(self.segment_length as usize, 0);
         Ok(())
     }
@@ -1005,7 +1014,8 @@ mod tests {
 
     #[cfg(any(
         all(feature = "simd_backend", feature = "nightly"),
-        target_arch = "x86_64"
+        target_arch = "x86_64",
+        all(target_arch = "aarch64", target_endian = "little", not(miri))
     ))]
     fn test_block(seed: u64) -> Block {
         let mut block = Block::default();
@@ -1023,7 +1033,8 @@ mod tests {
     /// passes, `Some(old)`).
     #[cfg(any(
         all(feature = "simd_backend", feature = "nightly"),
-        target_arch = "x86_64"
+        target_arch = "x86_64",
+        all(target_arch = "aarch64", target_endian = "little", not(miri))
     ))]
     fn fill_block_cases() -> Vec<(Block, Block, Option<Block>)> {
         let mut cases = vec![
@@ -1062,7 +1073,8 @@ mod tests {
     /// scalar block compression.
     #[cfg(any(
         all(feature = "simd_backend", feature = "nightly"),
-        target_arch = "x86_64"
+        target_arch = "x86_64",
+        all(target_arch = "aarch64", target_endian = "little", not(miri))
     ))]
     fn check_fill_block_matches_soft(
         name: &str,
@@ -1104,6 +1116,17 @@ mod tests {
     #[test]
     fn test_fill_block_x86_64_matches_soft() {
         for kernel in argon2_x86_64::Kernel::all() {
+            check_fill_block_matches_soft(&format!("{kernel:?}"), |d, p, r, x, s| {
+                kernel.fill_block(d, p, r, x, s)
+            });
+        }
+        check_fill_block_matches_soft("dispatch", fill_block);
+    }
+
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    #[test]
+    fn test_fill_block_aarch64_matches_soft() {
+        for kernel in argon2_neon::Kernel::all() {
             check_fill_block_matches_soft(&format!("{kernel:?}"), |d, p, r, x, s| {
                 kernel.fill_block(d, p, r, x, s)
             });

@@ -7,6 +7,8 @@
 
 use super::{Niels, Tables};
 use crate::fe25519::Fe;
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+use crate::fe25519::Fe64;
 
 /// A table entry from the limbs of `(y + x, y - x, 2 d x y)`.
 const fn n(y_plus_x: [u64; 5], y_minus_x: [u64; 5], xy2d: [u64; 5]) -> Niels {
@@ -19,6 +21,43 @@ const fn n(y_plus_x: [u64; 5], y_minus_x: [u64; 5], xy2d: [u64; 5]) -> Niels {
 
 /// `base[k][j - 1] = [j * 256^k] B` for `k` in `0..32`, `j` in `1..=8`, and
 /// `odd[j] = [2 j + 1] B` for `j` in `0..64`.
+/// `TABLES.base` with four-limb coordinates, for the AArch64 NEON lookup
+/// ([`super::mul_base`] accumulates in four limbs there): each coordinate is
+/// two whole 16-byte vectors, and the entries need no conversion.
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+pub(super) static BASE64: [[Niels<Fe64>; 8]; 32] = {
+    const fn pack(f: &Fe) -> Fe64 {
+        let l = f.0;
+        Fe64([
+            l[0] | (l[1] << 51),
+            (l[1] >> 13) | (l[2] << 38),
+            (l[2] >> 26) | (l[3] << 25),
+            (l[3] >> 39) | (l[4] << 12),
+        ])
+    }
+    let zero = Fe64([0; 4]);
+    let mut out = [[Niels {
+        y_plus_x: zero,
+        y_minus_x: zero,
+        xy2d: zero,
+    }; 8]; 32];
+    let mut k = 0;
+    while k < 32 {
+        let mut j = 0;
+        while j < 8 {
+            let e = &TABLES.base[k][j];
+            out[k][j] = Niels {
+                y_plus_x: pack(&e.y_plus_x),
+                y_minus_x: pack(&e.y_minus_x),
+                xy2d: pack(&e.xy2d),
+            };
+            j += 1;
+        }
+        k += 1;
+    }
+    out
+};
+
 #[rustfmt::skip]
 pub(super) static TABLES: Tables = Tables {
     base: [

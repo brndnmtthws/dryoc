@@ -118,6 +118,7 @@ pub(super) fn square_chain(a: &[u64; 5]) -> [u64; 5] {
 
 /// `121666 * a`, weakly reduced.
 #[inline(always)]
+#[cfg(not(all(target_arch = "aarch64", not(miri))))]
 pub(super) fn mul_121666(a: &[u64; 5]) -> [u64; 5] {
     let m = |x: u64| u128::from(x) * 121666u128;
     carry(m(a[0]), m(a[1]), m(a[2]), m(a[3]), m(a[4]))

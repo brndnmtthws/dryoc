@@ -3,3 +3,6 @@ Cargo.lock
 
 # Ignore IDE stuff
 .vscode/
+
+# Python bytecode (src/keccak/keccak3_aarch64.py)
+__pycache__/

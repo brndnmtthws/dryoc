@@ -6,7 +6,10 @@
 //! runtime-detected AVX2/AVX-512 kernels on x86-64, the `simd128` kernel on
 //! WebAssembly builds with that target feature enabled, or the portable-SIMD
 //! kernel with `simd_backend` + `nightly` elsewhere. The portable scalar
-//! block function handles everything else.
+//! block function handles everything else. With SVE2 the secretbox
+//! encryption also runs Poly1305 over the ciphertext inside the keystream
+//! runs (`apply_keystream_poly`), on the integer pipes beside the kernel's
+//! scalar block.
 
 use zeroize::Zeroize;
 
@@ -169,6 +172,10 @@ pub(crate) struct XSalsa20 {
 }
 
 impl XSalsa20 {
+    /// Bytes per run of [`apply_keystream_poly`](Self::apply_keystream_poly).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) const POLY_CHUNK: usize = vector::POLY_CHUNK;
+
     pub(crate) fn new(key: &[u8; 32], nonce: &[u8; 24]) -> Self {
         let mut hsalsa20_input = [0u8; 16];
         hsalsa20_input.copy_from_slice(&nonce[..16]);
@@ -216,6 +223,63 @@ impl XSalsa20 {
     pub(crate) fn apply_keystream_b2b(&mut self, input: &[u8], output: &mut [u8]) {
         debug_assert_eq!(input.len(), output.len());
         self.apply(BufferToBuffer { input, output });
+    }
+
+    /// Whether [`apply_keystream_poly`](Self::apply_keystream_poly) runs the
+    /// stitched kernel on this CPU (SVE2).
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn poly_stitched() -> bool {
+        vector::detect().is_some_and(|kernel| kernel.stitches_poly())
+    }
+
+    /// Encrypts `ciphertext[done..]` (from `input[done..]`, or in place)
+    /// in whole [`POLY_CHUNK`](Self::POLY_CHUNK)s with the stitched kernel,
+    /// each run also absorbing `ciphertext[mac_done..mac_done + POLY_CHUNK]`
+    /// into `mac`, while `mac_done + POLY_CHUNK <= done`; returns the new
+    /// `(done, mac_done)`. The keystream must be at a block boundary
+    /// (nothing buffered) and `mac` too. Returns them unchanged without the
+    /// stitched kernel.
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", not(miri)))]
+    pub(crate) fn apply_keystream_poly(
+        &mut self,
+        input: Option<&[u8]>,
+        ciphertext: &mut [u8],
+        mut done: usize,
+        mut mac_done: usize,
+        mac: &mut crate::poly1305::Poly1305,
+    ) -> (usize, usize) {
+        const CHUNK: usize = vector::POLY_CHUNK;
+        let Some(kernel) = vector::detect() else {
+            return (done, mac_done);
+        };
+        if self.pos != 64 || !kernel.stitches_poly() {
+            return (done, mac_done);
+        }
+        let mut r = mac.stitch_r();
+        while ciphertext.len() - done >= CHUNK && done - mac_done >= CHUNK {
+            let mut h = mac.stitch_lane();
+            let (before, rest) = ciphertext.split_at_mut(done);
+            let mac_input = &before[mac_done..].as_chunks::<CHUNK>().0[0];
+            let output = &mut rest.as_chunks_mut::<CHUNK>().0[0];
+            let input = input.map(|input| &input[done..].as_chunks::<CHUNK>().0[0]);
+            let stitched = kernel.xor_chunk_poly(
+                &self.state,
+                self.counter,
+                input,
+                output,
+                &mut h,
+                &r,
+                mac_input,
+            );
+            debug_assert!(stitched);
+            mac.stitch_set(&h);
+            h.zeroize();
+            self.advance_counter((CHUNK / 64) as u64);
+            done += CHUNK;
+            mac_done += CHUNK;
+        }
+        r.zeroize();
+        (done, mac_done)
     }
 
     /// On a fresh keystream (no block started), writes the raw keystream of
@@ -287,6 +351,13 @@ impl XSalsa20 {
         if len >= kernel.staged_head_min() && len.div_ceil(64) < kernel.blocks() {
             return self.apply_with_head_staged(kernel, head, sink);
         }
+        // With a single block of data (whole or partial) the head and that
+        // block are two interleaved scalar blocks, for about the latency of
+        // one (a run costs about one and a half on SVE2, four on NEON).
+        #[cfg(target_arch = "aarch64")]
+        if (1..=64).contains(&len) {
+            return self.apply_head_and_block(head, sink);
+        }
         // A companion block costs a fraction of a scalar block, but a run
         // costs about two; with a single block of data (whole or partial)
         // two scalar blocks are cheaper than a run with a companion.
@@ -299,6 +370,17 @@ impl XSalsa20 {
         }
         self.run_chunks(kernel, &mut sink);
         self.apply_blocks(sink);
+    }
+
+    /// The head block and the one block of `sink` (1 to 64 bytes) from one
+    /// interleaved pair of scalar blocks; a partial block stays buffered.
+    #[cfg(target_arch = "aarch64")]
+    fn apply_head_and_block<S: Sink>(&mut self, head: &mut [u8; 64], mut sink: S) {
+        salsa20_soft::block2(&self.state, self.counter, head, &mut self.buffer);
+        self.advance_counter(2);
+        let len = sink.len();
+        sink.xor(&self.buffer[..len]);
+        self.pos = len;
     }
 
     /// The head block and all of `sink` (together at most one lane set, the
@@ -889,6 +971,9 @@ mod tests {
                 31,
                 32,
                 33,
+                63,
+                64,
+                65,
                 64 * 15 + 32,
                 64 * 16,
                 64 * 16 + 32,

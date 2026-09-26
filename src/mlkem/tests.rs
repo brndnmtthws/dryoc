@@ -138,6 +138,32 @@ fn test_acvp_decapsulation() {
     }
 }
 
+/// Decapsulation straight from a seed gives exactly what decapsulation
+/// under the seed's key pair gives: the encapsulated key for valid
+/// ciphertexts and the implicit-rejection key for modified ones.
+#[test]
+fn test_decapsulate_seed_matches_decapsulate() {
+    let mut rng = crate::utils::test_util::XorShift64::new(0x6d6c_6b65_6d5f_7365);
+    for arith in Arith::all() {
+        for i in 0..6 {
+            let mut seed = [0u8; SEEDBYTES];
+            seed[..32].copy_from_slice(&rng.next_bytes32());
+            seed[32..].copy_from_slice(&rng.next_bytes32());
+            let (pk, sk) = keypair_vec(arith, &seed);
+            let (mut ct, ss) = encapsulate_vec(arith, &pk, &rng.next_bytes32()).expect("valid key");
+            for modified in [false, true] {
+                if modified {
+                    ct[(i * 331) % CIPHERTEXTBYTES] ^= 1 << (i % 8);
+                }
+                let mut from_seed = [0u8; 32];
+                decapsulate_seed(arith, &mut from_seed, &ct, &seed);
+                assert_eq!(from_seed, decapsulate_vec(arith, &ct, &sk), "{arith:?} {i}");
+                assert_eq!(from_seed == ss, !modified, "{arith:?} {i}");
+            }
+        }
+    }
+}
+
 #[test]
 fn test_acvp_encapsulation_key_check() {
     for record in records(include_str!("test-vectors/mlkem768_acvp_ek_check.txt")) {
@@ -332,6 +358,105 @@ fn test_backends_match_soft() {
             Arith::Soft.basemul_acc(&mut expected, &a, &b);
             arith.basemul_acc(&mut r, &a, &b);
             assert_eq!(r, expected, "{arith:?} basemul round {round}");
+
+            // Rows against one right-hand side: each row is its own
+            // `basemul_acc`.
+            let rows: [PolyVec; 3] = [a, b, core::array::from_fn(|i| a[(i + 1) % K])];
+            let mut expected = [[0; N]; 3];
+            for (e, row) in expected.iter_mut().zip(&rows) {
+                Arith::Soft.basemul_acc(e, row, &b);
+            }
+            let mut r = [[0; N]; 3];
+            let [r0, r1, r2] = &mut r;
+            arith.basemul_rows([r0, r1, r2], [&rows[0], &rows[1], &rows[2]], &b);
+            assert_eq!(r, expected, "{arith:?} basemul rows round {round}");
+
+            // The fused tails, on multiply and transform outputs plus noise
+            // (and the message).
+            let (mut r, mut expected) = (c, c);
+            poly_tomont(&mut expected);
+            poly_add_assign(&mut expected, &a[1]);
+            poly_reduce(&mut expected);
+            arith.tomont_add_reduce(&mut r, &a[1]);
+            assert_eq!(r, expected, "{arith:?} tomont_add_reduce round {round}");
+            let (mut r, mut expected) = (c, c);
+            poly_add_assign(&mut expected, &b[0]);
+            poly_add_assign(&mut expected, &a[2]);
+            poly_reduce(&mut expected);
+            arith.add_reduce(&mut r, [&b[0], &a[2]]);
+            assert_eq!(r, expected, "{arith:?} add_reduce round {round}");
+
+            // Ciphertext bytes of every value (all ones in the first round).
+            let mut x = 0x2545_f491_4f6c_dd1d ^ round as u64;
+            let bytes: [u8; POLYVEC_COMPRESSEDBYTES] = std::array::from_fn(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                if round == 0 { 0xff } else { x as u8 }
+            });
+            let (mut u, mut expected) = ([[0; N]; K], [[0; N]; K]);
+            decompress_u(&mut expected, &bytes);
+            arith.decompress_u(&mut u, &bytes);
+            assert_eq!(u, expected, "{arith:?} decompress_u round {round}");
+        }
+
+        // `poly_to_msg` of every Barrett-reduced value `[0, q]`, each at
+        // every lane position of its byte.
+        for start in 0..8 {
+            let mut values = (0..=Q).cycle().skip(start);
+            for _ in 0..(Q as usize + 1).div_ceil(N) {
+                let p: Poly = std::array::from_fn(|_| values.next().unwrap());
+                let (mut m, mut expected) = ([0u8; 32], [0u8; 32]);
+                poly_to_msg(&mut expected, &p);
+                arith.poly_to_msg(&mut m, &p);
+                assert_eq!(m, expected, "{arith:?} poly_to_msg from {start}");
+            }
+        }
+    }
+}
+
+/// Every backend's rejection sampling accepts exactly the portable loop's
+/// coefficients, from any fill level (including the last eight slots, where
+/// the vector loop hands over), over byte runs of every length around its
+/// sixteen-byte reads and with all, none or some candidates rejected.
+#[test]
+fn test_rej_uniform_backends_match_soft() {
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state as u8
+    };
+    let fills = [0, 1, 7, 100, 247, 248, 249, 250, 255, 256];
+    let lens = (0..64).chain([165, 168, 171, 504, 507]);
+    for arith in Arith::all().into_iter().filter(|&a| a != Arith::Soft) {
+        for len in lens.clone() {
+            for kind in 0..4 {
+                // Random, all accepted (zero), all rejected (0xff) and
+                // candidates just either side of q.
+                let bytes: Vec<u8> = (0..len)
+                    .map(|i| match kind {
+                        0 => next(),
+                        1 => 0,
+                        2 => 0xff,
+                        _ => [0x00, 0x1d, 0xd0, 0x01, 0x0d, 0xd0][i % 6] ^ (next() & 1),
+                    })
+                    .collect();
+                for &fill in &fills {
+                    let start: Poly = std::array::from_fn(|i| i as i16);
+                    let (mut expected, mut expected_filled) = (start, fill);
+                    Arith::Soft.rej_uniform(&mut expected, &mut expected_filled, &bytes);
+                    let (mut got, mut got_filled) = (start, fill);
+                    arith.rej_uniform(&mut got, &mut got_filled, &bytes);
+                    assert_eq!(got_filled, expected_filled, "{arith:?} {len} {kind} {fill}");
+                    assert_eq!(
+                        got[..got_filled],
+                        expected[..expected_filled],
+                        "{arith:?} {len} {kind} {fill}"
+                    );
+                }
+            }
         }
     }
 }
