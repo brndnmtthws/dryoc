@@ -322,102 +322,16 @@ pub struct AeadEnvelope<Algorithm: AeadAlgorithm, Nonce, Mac, Data> {
 #[cfg(feature = "wincode_0_6")]
 macro_rules! impl_wincode_aead {
     ($box:ty, $envelope:ty, $abytes:expr, $npubbytes:expr) => {
-        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
-        // SAFETY: The implementation writes exactly the fields used to
-        // reconstruct the box below, using `wincode` schema implementations
-        // for each initialized field and preserving their order.
-        unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for $box {
-            type Src = Self;
+        impl_wincode_schema!($box {
+            data: Vec<u8> = (src => &src.data, data => data),
+            tag: [u8; $abytes] = (src => src.tag.as_array(), tag => tag.into()),
+        } extra { algorithm: PhantomData });
 
-            fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
-                Ok(<Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?
-                    + <[u8; $abytes] as wincode::SchemaWrite<C>>::size_of(src.tag.as_array())?)
-            }
-
-            fn write(
-                mut writer: impl wincode::io::Writer,
-                src: &Self::Src,
-            ) -> wincode::WriteResult<()> {
-                <Vec<u8> as wincode::SchemaWrite<C>>::write(writer.by_ref(), &src.data)?;
-                <[u8; $abytes] as wincode::SchemaWrite<C>>::write(writer, src.tag.as_array())
-            }
-        }
-
-        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
-        // SAFETY: The implementation fully initializes `dst` with a valid box
-        // after successfully reading each field in the same order as
-        // `SchemaWrite`.
-        unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for $box {
-            type Dst = Self;
-
-            fn read(
-                mut reader: impl wincode::io::Reader<'de>,
-                dst: &mut core::mem::MaybeUninit<Self::Dst>,
-            ) -> wincode::ReadResult<()> {
-                let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
-                let tag = <[u8; $abytes] as wincode::SchemaRead<'de, C>>::get(reader)?;
-                dst.write(Self {
-                    algorithm: PhantomData,
-                    tag: tag.into(),
-                    data,
-                });
-                Ok(())
-            }
-        }
-
-        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
-        // SAFETY: The implementation writes exactly the fields used to
-        // reconstruct the envelope below, using `wincode` schema
-        // implementations for each initialized field and preserving their
-        // order.
-        unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for $envelope {
-            type Src = Self;
-
-            fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
-                Ok(
-                    <[u8; $npubbytes] as wincode::SchemaWrite<C>>::size_of(src.nonce.as_array())?
-                        + <Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?
-                        + <[u8; $abytes] as wincode::SchemaWrite<C>>::size_of(src.tag.as_array())?,
-                )
-            }
-
-            fn write(
-                mut writer: impl wincode::io::Writer,
-                src: &Self::Src,
-            ) -> wincode::WriteResult<()> {
-                <[u8; $npubbytes] as wincode::SchemaWrite<C>>::write(
-                    writer.by_ref(),
-                    src.nonce.as_array(),
-                )?;
-                <Vec<u8> as wincode::SchemaWrite<C>>::write(writer.by_ref(), &src.data)?;
-                <[u8; $abytes] as wincode::SchemaWrite<C>>::write(writer, src.tag.as_array())
-            }
-        }
-
-        #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "wincode_0_6")))]
-        // SAFETY: The implementation fully initializes `dst` with a valid
-        // envelope after successfully reading each field in the same order as
-        // `SchemaWrite`.
-        unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for $envelope {
-            type Dst = Self;
-
-            fn read(
-                mut reader: impl wincode::io::Reader<'de>,
-                dst: &mut core::mem::MaybeUninit<Self::Dst>,
-            ) -> wincode::ReadResult<()> {
-                let nonce =
-                    <[u8; $npubbytes] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
-                let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
-                let tag = <[u8; $abytes] as wincode::SchemaRead<'de, C>>::get(reader)?;
-                dst.write(Self {
-                    algorithm: PhantomData,
-                    nonce: nonce.into(),
-                    tag: tag.into(),
-                    data,
-                });
-                Ok(())
-            }
-        }
+        impl_wincode_schema!($envelope {
+            nonce: [u8; $npubbytes] = (src => src.nonce.as_array(), nonce => nonce.into()),
+            data: Vec<u8> = (src => &src.data, data => data),
+            tag: [u8; $abytes] = (src => src.tag.as_array(), tag => tag.into()),
+        } extra { algorithm: PhantomData });
     };
 }
 
