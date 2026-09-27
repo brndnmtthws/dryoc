@@ -145,6 +145,7 @@ pub fn crypto_generichash_final(state: GenericHashState, output: &mut [u8]) -> R
 /// Generates a random hash key using the OS's random number source.
 ///
 /// Equivalent to libsodium's `crypto_generichash_keygen`
+#[must_use]
 pub fn crypto_generichash_keygen() -> [u8; CRYPTO_GENERICHASH_KEYBYTES] {
     let mut key = [0u8; CRYPTO_GENERICHASH_KEYBYTES];
     crate::rng::copy_randombytes(&mut key);

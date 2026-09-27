@@ -75,12 +75,14 @@ pub fn crypto_sign_seed_keypair_inplace(
 
 /// Randomly generates a new Ed25519 `(PublicKey, SecretKey)` keypair that can
 /// be used for message signing.
+#[must_use]
 pub fn crypto_sign_keypair() -> (PublicKey, SecretKey) {
     crypto_sign_ed25519_keypair()
 }
 
 /// Returns a keypair derived from `seed`, which can be used for message
 /// signing.
+#[must_use]
 pub fn crypto_sign_seed_keypair(seed: &[u8; 32]) -> (PublicKey, SecretKey) {
     crypto_sign_ed25519_seed_keypair(seed)
 }
@@ -139,7 +141,8 @@ pub fn crypto_sign_detached(
     message: &[u8],
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    crypto_sign_ed25519_detached(signature, message, secret_key)
+    crypto_sign_ed25519_detached(signature, message, secret_key);
+    Ok(())
 }
 
 /// Verifies that `signature` is a valid signature for `message` using the given
@@ -162,10 +165,11 @@ pub fn crypto_sign_verify_detached(
 
 /// State for incremental signing interface.
 pub struct SignerState {
-    state: Ed25519SignerState,
+    pub(crate) state: Ed25519SignerState,
 }
 
 /// Initializes the incremental signing interface.
+#[must_use]
 pub fn crypto_sign_init() -> SignerState {
     SignerState {
         state: crypto_sign_ed25519ph_init(),
@@ -190,7 +194,8 @@ pub fn crypto_sign_final_create(
     signature: &mut Signature,
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    crypto_sign_ed25519ph_final_create(state.state, signature, secret_key)
+    crypto_sign_ed25519ph_final_create(state.state, signature, secret_key);
+    Ok(())
 }
 
 /// Verifies the computed signature for `state` and `public_key` matches

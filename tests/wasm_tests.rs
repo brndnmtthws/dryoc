@@ -17,20 +17,20 @@ use dryoc::classic::crypto_xof::{
 };
 use dryoc::constants::{CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES, CRYPTO_KEM_XWING_CIPHERTEXTBYTES};
 use dryoc::dryocaead::{Key as AeadKey, Nonce as AeadNonce, VecBox as AeadVecBox};
-use dryoc::dryocbox::{DryocBox, KeyPair, NewByteArray, Nonce};
+use dryoc::dryocbox::{DryocBox, Nonce, StackKeyPair};
 use dryoc::dryocsecretbox::{DryocSecretBox, Key};
 use dryoc::dryocstream::{DryocStream, Header, Key as StreamKey, Tag};
 use dryoc::generichash::GenericHash;
 use dryoc::hkdf::HkdfSha256;
 use dryoc::hmac::{HmacSha256, HmacSha256Key, HmacSha512, HmacSha512Key};
 use dryoc::kdf::StackKdf;
-use dryoc::kx::{KeyPair as KxKeyPair, StackSession};
+use dryoc::kx::{StackKeyPair as KxKeyPair, StackSession};
 use dryoc::onetimeauth::OnetimeAuth;
 use dryoc::precalc::PrecalcSecretKey;
 #[cfg(feature = "base64")]
 use dryoc::pwhash::VecPwHash;
 use dryoc::sign::{SigningKeyPair, VecSignedMessage};
-use dryoc::types::{ByteArray, Bytes, StackByteArray};
+use dryoc::types::{ByteArray, Bytes, NewByteArray, StackByteArray};
 use dryoc::xof::{Shake128, TurboShake128, TurboShake256};
 use vector_file::{field, records};
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -58,7 +58,7 @@ fn hpke_labeled_extract(salt: &[u8], label: &[u8], ikm: &[u8]) -> HkdfSha256 {
 fn hpke_labeled_expand(prk: &HkdfSha256, label: &[u8], info: &[u8], len: usize) -> Vec<u8> {
     let len_bytes = u16::try_from(len).expect("short output").to_be_bytes();
     let labeled_info = [&len_bytes[..], b"HPKE-v1", HPKE_SUITE_ID, label, info].concat();
-    prk.expand_to_vec(len, &labeled_info)
+    prk.expand_to_vec(&labeled_info, len)
         .expect("expand failed")
 }
 
@@ -90,8 +90,8 @@ fn rfc4231_key<const N: usize>() -> [u8; N] {
 
 #[wasm_bindgen_test]
 fn dryocbox_roundtrip() {
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"wasm dryocbox";
 
@@ -116,8 +116,8 @@ fn dryocbox_roundtrip() {
 
 #[wasm_bindgen_test]
 fn dryocbox_precalc_roundtrip() {
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"wasm dryocbox precalc";
     let shared_key =
@@ -144,7 +144,7 @@ fn dryocsecretbox_roundtrip() {
     let message = b"wasm dryocsecretbox";
 
     let dryocsecretbox: dryoc::dryocsecretbox::VecBox =
-        DryocSecretBox::encrypt(message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
@@ -159,7 +159,7 @@ fn dryocstream_roundtrip() {
     let message = b"wasm secretstream".to_vec();
     let associated_data = b"fixed-width lengths".to_vec();
     let ciphertext = push_stream
-        .push_to_vec(&message, Some(&associated_data), Tag::FINAL)
+        .push_to_vec(&message, Some(&associated_data), Tag::Final)
         .expect("secretstream push failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
@@ -168,7 +168,7 @@ fn dryocstream_roundtrip() {
         .expect("secretstream pull failed");
 
     assert_eq!(decrypted, message);
-    assert_eq!(tag, Tag::FINAL);
+    assert_eq!(tag, Tag::Final);
 }
 
 #[wasm_bindgen_test]
@@ -258,7 +258,7 @@ fn sign_rfc_8032_known_answer() {
         SigningKeyPair::from_seed(&seed);
     assert_eq!(keypair.public_key.as_slice(), &expected_public_key);
 
-    let signed: VecSignedMessage = keypair.sign(Vec::new()).expect("sign failed");
+    let signed: VecSignedMessage = keypair.sign(Vec::new());
     signed.verify(&keypair.public_key).expect("verify failed");
     assert_eq!(signed.to_vec(), expected_signature);
 
@@ -349,15 +349,15 @@ fn auth_rfc_4231_known_answer() {
     let expected = unhex("87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde");
     let key = dryoc::auth::Key::from(rfc4231_key::<32>());
 
-    assert_eq!(Auth::compute_to_vec(key.clone(), b"Hi There"), expected);
+    assert_eq!(Auth::compute_to_vec(&key, b"Hi There"), expected);
 
-    let mut auth = Auth::new(key.clone());
+    let mut auth = Auth::new(&key);
     auth.update(b"Hi ");
     auth.update(b"There");
     auth.verify(&dryoc::auth::Mac::try_from(expected.as_slice()).expect("mac"))
         .expect("verify failed");
 
-    let mut auth = Auth::new(key);
+    let mut auth = Auth::new(&key);
     auth.update(b"Hi there");
     assert!(
         auth.verify(&dryoc::auth::Mac::try_from(expected.as_slice()).expect("mac"))
@@ -379,11 +379,11 @@ fn onetimeauth_rfc_7539_known_answer() {
     ];
 
     assert_eq!(
-        OnetimeAuth::compute_to_vec(key.clone(), b"Cryptographic Forum Research Group"),
+        OnetimeAuth::compute_to_vec(&key, b"Cryptographic Forum Research Group"),
         expected
     );
 
-    let mut auth = OnetimeAuth::new(key);
+    let mut auth = OnetimeAuth::new(&key);
     auth.update(b"Cryptographic Forum ");
     auth.update(b"Research Group");
     auth.verify(&dryoc::onetimeauth::Mac::from(expected))
@@ -393,13 +393,13 @@ fn onetimeauth_rfc_7539_known_answer() {
 #[wasm_bindgen_test]
 fn hmac_rfc_4231_known_answer() {
     // RFC 4231 test case 1.
-    let sha256 = HmacSha256::compute_to_vec(HmacSha256Key::from(rfc4231_key::<32>()), b"Hi There");
+    let sha256 = HmacSha256::compute_to_vec(&HmacSha256Key::from(rfc4231_key::<32>()), b"Hi There");
     assert_eq!(
         sha256,
         unhex("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
     );
 
-    let sha512 = HmacSha512::compute_to_vec(HmacSha512Key::from(rfc4231_key::<32>()), b"Hi There");
+    let sha512 = HmacSha512::compute_to_vec(&HmacSha512Key::from(rfc4231_key::<32>()), b"Hi There");
     assert_eq!(
         sha512,
         unhex(concat!(
@@ -408,7 +408,7 @@ fn hmac_rfc_4231_known_answer() {
         ))
     );
 
-    let mut incremental = HmacSha256::new(HmacSha256Key::from(rfc4231_key::<32>()));
+    let mut incremental = HmacSha256::new(&HmacSha256Key::from(rfc4231_key::<32>()));
     incremental.update(b"Hi ");
     incremental.update(b"There");
     assert_eq!(incremental.finalize_to_vec(), sha256);
@@ -422,7 +422,7 @@ fn hkdf_rfc_5869_known_answer() {
     let info = unhex("f0f1f2f3f4f5f6f7f8f9");
 
     let hkdf = HkdfSha256::extract(Some(&salt), &ikm);
-    let okm = hkdf.expand_to_vec(42, &info).expect("expand failed");
+    let okm = hkdf.expand_to_vec(&info, 42).expect("expand failed");
     assert_eq!(
         okm,
         unhex(concat!(
@@ -439,7 +439,7 @@ fn hkdf_rfc_5869_known_answer() {
     );
     assert_eq!(
         HkdfSha256::from_prk(prk)
-            .expand_to_vec(42, &info)
+            .expand_to_vec(&info, 42)
             .expect("expand failed"),
         okm
     );
@@ -567,7 +567,7 @@ fn xof_rfc_9861_turboshake_known_answer() {
     );
     // The last 32 of 10032 output bytes: 59 full blocks, then a partial one.
     let mut reader = TurboShake128::new().finalize();
-    reader.squeeze_to_vec(10032 - 32);
+    let _skipped = reader.squeeze_to_vec(10032 - 32);
     assert_eq!(
         reader.squeeze_to_vec(32),
         unhex("a3b9b0385900ce761f22aed548e754da10a5242d62e8c658e3f3a923a7555607")
@@ -598,7 +598,7 @@ fn xof_rfc_9861_turboshake_known_answer() {
         ))
     );
     let mut reader = TurboShake256::new().finalize();
-    reader.squeeze_to_vec(10032 - 32);
+    let _skipped = reader.squeeze_to_vec(10032 - 32);
     assert_eq!(
         reader.squeeze_to_vec(32),
         unhex("abefa11630c661269249742685ec082f207265dccf2f43534e9c61ba0c9d1d75")

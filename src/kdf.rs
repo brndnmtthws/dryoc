@@ -134,6 +134,7 @@ impl<
 > Kdf<Key, Context>
 {
     /// Randomly generates a new pair of main key and context.
+    #[must_use]
     pub fn generate() -> Self {
         Self {
             main_key: Key::generate(),
@@ -195,24 +196,16 @@ impl<
     }
 
     /// Constructs a new instance from `key` and `context`, consuming them both.
+    #[must_use]
     pub fn from_parts(main_key: Key, context: Context) -> Self {
         Self { main_key, context }
     }
 
     /// Moves the key and context out of this instance, returning them as a
     /// tuple.
+    #[must_use]
     pub fn into_parts(self) -> (Key, Context) {
         (self.main_key, self.context)
-    }
-}
-
-impl Kdf<Key, Context> {
-    /// Randomly generates a new pair of main key and context.
-    pub fn generate_with_defaults() -> Self {
-        Self {
-            main_key: Key::generate(),
-            context: Context::generate(),
-        }
     }
 }
 

@@ -97,8 +97,10 @@ pub trait MutByteArray<const LENGTH: usize>: ByteArray<LENGTH> + MutBytes {
 /// Fixed-length byte array that can be created and initialized.
 pub trait NewByteArray<const LENGTH: usize>: MutByteArray<LENGTH> + NewBytes {
     /// Returns a new fixed-length byte array, initialized with zeroes.
+    #[must_use]
     fn new_byte_array() -> Self;
     /// Returns a new fixed-length byte array, filled with random values.
+    #[must_use]
     fn generate() -> Self;
 }
 
@@ -113,7 +115,11 @@ pub trait MutBytes: Bytes {
 
 /// Arbitrary-length byte array that can be created and initialized.
 pub trait NewBytes: MutBytes {
-    /// Returns an empty, unallocated, arbitrary-length byte array.
+    /// Returns a new byte array. Fixed-length types (such as
+    /// [`StackByteArray`], `[u8; LENGTH]` and `HeapByteArray`) hold `LENGTH`
+    /// zero bytes; resizable types (such as `Vec<u8>` and `HeapBytes`) are
+    /// empty.
+    #[must_use]
     fn new_bytes() -> Self;
 }
 
@@ -361,13 +367,6 @@ impl MutBytes for [u8] {
     }
 }
 
-impl<const LENGTH: usize> StackByteArray<LENGTH> {
-    /// Returns a new fixed-length stack-allocated array
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 impl<const LENGTH: usize> core::convert::AsRef<[u8; LENGTH]> for StackByteArray<LENGTH> {
     fn as_ref(&self) -> &[u8; LENGTH] {
         &self.0
@@ -527,7 +526,7 @@ mod tests {
         check(&[][..], &[]);
         check(&Vec::<u8>::new(), &[]);
         check(&[0u8; 0], &[]);
-        check(&StackByteArray::<0>::new(), &[]);
+        check(&StackByteArray::<0>::default(), &[]);
     }
 
     #[test]
@@ -553,7 +552,7 @@ mod tests {
         check(&mut slice_backing[..]);
         assert_eq!(slice_backing[2], SRC[2] ^ 0xff);
 
-        let mut stack = StackByteArray::<6>::new();
+        let mut stack = StackByteArray::<6>::default();
         check(&mut stack);
         assert_eq!(stack[2], SRC[2] ^ 0xff);
     }
@@ -581,7 +580,7 @@ mod tests {
         assert_ne!(array, [0; 32]);
 
         let stack = <StackByteArray<32> as NewByteArray<32>>::generate();
-        assert_ne!(stack, StackByteArray::<32>::new());
+        assert_ne!(stack, StackByteArray::<32>::default());
         assert_ne!(stack.as_slice(), array.as_slice());
     }
 
@@ -646,8 +645,11 @@ mod tests {
         assert_eq!(a, b);
         b[3] = 5;
         assert_ne!(a, b);
-        assert_ne!(StackByteArray::<4>::new(), a);
-        assert_eq!(StackByteArray::<0>::new(), StackByteArray::<0>::new());
+        assert_ne!(StackByteArray::<4>::default(), a);
+        assert_eq!(
+            StackByteArray::<0>::default(),
+            StackByteArray::<0>::default()
+        );
     }
 
     #[test]

@@ -27,8 +27,8 @@
 //! let key = HmacSha256Key::generate();
 //! let message = b"Uneasy lies the head that wears a crown.";
 //!
-//! let mac: HmacSha256Mac = HmacSha256::compute(key.clone(), message);
-//! HmacSha256::compute_and_verify(&mac, key, message).expect("verify failed");
+//! let mac: HmacSha256Mac = HmacSha256::compute(&key, message);
+//! HmacSha256::compute_and_verify(&mac, &key, message).expect("verify failed");
 //! ```
 //!
 //! The concrete authenticators are type aliases over [`Hmac`] and can also be
@@ -41,12 +41,12 @@
 //! use dryoc::types::*;
 //!
 //! let key = HmacSha512256Key::generate();
-//! let mut auth = HmacSha512256::new(key.clone());
+//! let mut auth = HmacSha512256::new(&key);
 //! auth.update(b"Though she be but little, ");
 //! auth.update(b"she is fierce.");
 //! let mac: HmacSha512256Mac = auth.finalize();
 //!
-//! let mut verifier = HmacSha512256::new(key);
+//! let mut verifier = HmacSha512256::new(&key);
 //! verifier.update(b"Though she be but little, ");
 //! verifier.update(b"she is fierce.");
 //! verifier.verify(&mac).expect("verify failed");
@@ -62,7 +62,7 @@
 //! use dryoc::types::*;
 //!
 //! fn authenticate<Variant, const KEY_LENGTH: usize, const MAC_LENGTH: usize>(
-//!     key: StackByteArray<KEY_LENGTH>,
+//!     key: &StackByteArray<KEY_LENGTH>,
 //!     input: &[u8],
 //! ) -> Vec<u8>
 //! where
@@ -77,8 +77,8 @@
 //!     HmacSha256Variant,
 //!     CRYPTO_AUTH_HMACSHA256_KEYBYTES,
 //!     CRYPTO_AUTH_HMACSHA256_BYTES,
-//! >(key.clone(), message);
-//! let concrete_mac = HmacSha256::compute_to_vec(key, message);
+//! >(&key, message);
+//! let concrete_mac = HmacSha256::compute_to_vec(&key, message);
 //! assert_eq!(generic_mac, concrete_mac);
 //! # }
 //! ```
@@ -143,7 +143,7 @@ pub mod protected {
     //! let key = HmacSha256Key::generate_readonly_locked().expect("key failed");
     //! let input = HeapBytes::from_slice_into_readonly_locked(b"More matter, with less art.")
     //!     .expect("input failed");
-    //! let mac: Locked<HmacSha256Mac> = HmacSha256::compute(key, &input);
+    //! let mac: Locked<HmacSha256Mac> = HmacSha256::compute(&key, &input);
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -162,27 +162,44 @@ pub mod protected {
     pub type HmacSha512256Mac = HeapByteArray<CRYPTO_AUTH_HMACSHA512256_BYTES>;
 }
 
-/// HMAC algorithm variant used by [`Hmac`].
-pub trait HmacVariant<const KEY_LENGTH: usize, const MAC_LENGTH: usize> {
-    /// Incremental state for this HMAC variant.
-    type State;
-    /// Default stack-allocated MAC type used by verification.
-    type Mac: NewByteArray<MAC_LENGTH> + Zeroize;
+mod sealed {
+    use crate::error::Error;
+    use crate::types::NewByteArray;
 
-    /// Computes a MAC in one shot.
-    fn compute(mac: &mut [u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]);
-    /// Verifies a MAC in one shot.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `mac` does not authenticate `input` under `key`.
-    fn verify(mac: &[u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]) -> Result<(), Error>;
-    /// Initializes incremental authentication.
-    fn init(key: &[u8; KEY_LENGTH]) -> Self::State;
-    /// Updates incremental authentication.
-    fn update(state: &mut Self::State, input: &[u8]);
-    /// Finalizes incremental authentication.
-    fn finalize(state: Self::State, mac: &mut [u8; MAC_LENGTH]);
+    /// The primitive operations behind an [`HmacVariant`](super::HmacVariant),
+    /// private to dryoc.
+    pub trait Sealed<const KEY_LENGTH: usize, const MAC_LENGTH: usize> {
+        /// Incremental state for this HMAC variant.
+        type State;
+        /// Default stack-allocated MAC type used by verification.
+        type Mac: NewByteArray<MAC_LENGTH> + zeroize::Zeroize;
+
+        /// Computes a MAC in one shot.
+        fn compute(mac: &mut [u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]);
+        /// Verifies a MAC in one shot.
+        fn verify(
+            mac: &[u8; MAC_LENGTH],
+            input: &[u8],
+            key: &[u8; KEY_LENGTH],
+        ) -> Result<(), Error>;
+        /// Initializes incremental authentication.
+        fn init(key: &[u8; KEY_LENGTH]) -> Self::State;
+        /// Updates incremental authentication.
+        fn update(state: &mut Self::State, input: &[u8]);
+        /// Finalizes incremental authentication.
+        fn finalize(state: Self::State, mac: &mut [u8; MAC_LENGTH]);
+    }
+}
+
+/// HMAC algorithm variant used by [`Hmac`]: [`HmacSha256Variant`],
+/// [`HmacSha512Variant`] or [`HmacSha512256Variant`].
+///
+/// This trait is sealed so applications cannot plug in custom cryptographic
+/// algorithms; use it to write code that is generic over the provided
+/// variants.
+pub trait HmacVariant<const KEY_LENGTH: usize, const MAC_LENGTH: usize>:
+    sealed::Sealed<KEY_LENGTH, MAC_LENGTH>
+{
 }
 
 /// Rustaceous HMAC authenticator for a specific [`HmacVariant`].
@@ -227,7 +244,9 @@ macro_rules! impl_hmac_variant {
         $update:path,
         $finalize:path
     ) => {
-        impl HmacVariant<$key_len, $mac_len> for $variant {
+        impl HmacVariant<$key_len, $mac_len> for $variant {}
+
+        impl sealed::Sealed<$key_len, $mac_len> for $variant {
             type Mac = $mac;
             type State = $state;
 
@@ -304,15 +323,13 @@ where
 {
     /// Computes and returns the message authentication code for `input` using
     /// `key`.
-    ///
-    /// This function takes ownership of `key`, but HMAC keys may authenticate
-    /// multiple messages. Clone the key first when it is needed again.
+    #[must_use]
     pub fn compute<
+        Output: NewByteArray<MAC_LENGTH>,
         Key: ByteArray<KEY_LENGTH>,
         Input: Bytes + ?Sized,
-        Output: NewByteArray<MAC_LENGTH>,
     >(
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Output {
         let mut output = Output::new_byte_array();
@@ -322,11 +339,12 @@ where
 
     /// Convenience wrapper around [`Self::compute`] that returns a [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn compute_to_vec<Key: ByteArray<KEY_LENGTH>, Input: Bytes + ?Sized>(
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute::<_, _, StackByteArray<MAC_LENGTH>>(key, input).to_vec()
+        Self::compute::<StackByteArray<MAC_LENGTH>, _, _>(key, input).to_vec()
     }
 
     /// Verifies `other_mac` against `input` using `key`.
@@ -341,17 +359,15 @@ where
         Input: Bytes + ?Sized,
     >(
         other_mac: &OtherMac,
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Result<(), Error> {
         Variant::verify(other_mac.as_array(), input.as_slice(), key.as_array())
     }
 
     /// Returns a new incremental authenticator for `key`.
-    ///
-    /// This function takes ownership of `key`, but HMAC keys may authenticate
-    /// multiple messages. Clone the key first when it is needed again.
-    pub fn new<Key: ByteArray<KEY_LENGTH>>(key: Key) -> Self {
+    #[must_use]
+    pub fn new<Key: ByteArray<KEY_LENGTH>>(key: &Key) -> Self {
         Self {
             state: Variant::init(key.as_array()),
             _variant: PhantomData,
@@ -364,6 +380,7 @@ where
     }
 
     /// Finalizes this authenticator, returning the message authentication code.
+    #[must_use]
     pub fn finalize<Output: NewByteArray<MAC_LENGTH>>(self) -> Output {
         let mut output = Output::new_byte_array();
         Variant::finalize(self.state, output.as_mut_array());
@@ -373,6 +390,7 @@ where
     /// Finalizes this authenticator, returning the message authentication code
     /// as a [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize::<StackByteArray<MAC_LENGTH>>().to_vec()
     }
@@ -430,13 +448,13 @@ mod tests {
         type H<V, const K: usize, const M: usize> = Hmac<V, K, M>;
 
         assert_eq!(
-            H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_to_vec(key.clone(), message),
+            H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_to_vec(&key, message),
             expected
         );
         let fixed: StackByteArray<MAC_LENGTH> =
-            H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute(key.clone(), message);
+            H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute(&key, message);
         assert_eq!(fixed.as_slice(), expected);
-        H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_and_verify(&fixed, key.clone(), message)
+        H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_and_verify(&fixed, &key, message)
             .expect("one-shot verify failed");
 
         let split = message.len() / 3;
@@ -451,13 +469,13 @@ mod tests {
                 &[][..],
             ],
         ] {
-            let mut auth = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(key.clone());
+            let mut auth = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(&key);
             for part in &parts {
                 auth.update(*part);
             }
             assert_eq!(auth.finalize_to_vec(), expected);
 
-            let mut verifier = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(key.clone());
+            let mut verifier = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(&key);
             for part in &parts {
                 verifier.update(*part);
             }
@@ -468,14 +486,10 @@ mod tests {
             let mut flipped = fixed.clone();
             flipped[index] ^= 1;
             assert!(matches!(
-                H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_and_verify(
-                    &flipped,
-                    key.clone(),
-                    message
-                ),
+                H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_and_verify(&flipped, &key, message),
                 Err(Error::AuthenticationFailed)
             ));
-            let mut verifier = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(key.clone());
+            let mut verifier = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(&key);
             verifier.update(message);
             assert!(matches!(
                 verifier.verify(&flipped),
@@ -486,10 +500,10 @@ mod tests {
         let mut wrong_key = key.clone();
         wrong_key[KEY_LENGTH - 1] ^= 1;
         assert!(matches!(
-            H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_and_verify(&fixed, wrong_key, message),
+            H::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_and_verify(&fixed, &wrong_key, message),
             Err(Error::AuthenticationFailed)
         ));
-        let mut verifier = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(key);
+        let mut verifier = H::<Variant, KEY_LENGTH, MAC_LENGTH>::new(&key);
         verifier.update(&message[..message.len() - 1]);
         assert!(matches!(
             verifier.verify(&fixed),
@@ -528,7 +542,7 @@ mod tests {
     fn rustaceous_and_classic_macs_verify_each_other() {
         for case in CASES {
             let key256: HmacSha256Key = padded_key(case.key);
-            let mac = HmacSha256::compute_to_vec(key256.clone(), case.data);
+            let mac = HmacSha256::compute_to_vec(&key256, case.data);
             crypto_auth_hmacsha256_verify(
                 mac.as_slice().try_into().expect("MAC length"),
                 case.data,
@@ -537,14 +551,14 @@ mod tests {
             .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA256_BYTES];
             crypto_auth_hmacsha256(&mut classic, case.data, key256.as_array());
-            HmacSha256::compute_and_verify(&classic, key256.clone(), case.data)
+            HmacSha256::compute_and_verify(&classic, &key256, case.data)
                 .expect("rustaceous verify");
-            let mut verifier = HmacSha256::new(key256);
+            let mut verifier = HmacSha256::new(&key256);
             verifier.update(case.data);
             verifier.verify(&classic).expect("incremental verify");
 
             let key512: HmacSha512Key = padded_key(case.key);
-            let mac = HmacSha512::compute_to_vec(key512.clone(), case.data);
+            let mac = HmacSha512::compute_to_vec(&key512, case.data);
             crypto_auth_hmacsha512_verify(
                 mac.as_slice().try_into().expect("MAC length"),
                 case.data,
@@ -553,14 +567,14 @@ mod tests {
             .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA512_BYTES];
             crypto_auth_hmacsha512(&mut classic, case.data, key512.as_array());
-            HmacSha512::compute_and_verify(&classic, key512.clone(), case.data)
+            HmacSha512::compute_and_verify(&classic, &key512, case.data)
                 .expect("rustaceous verify");
-            let mut verifier = HmacSha512::new(key512);
+            let mut verifier = HmacSha512::new(&key512);
             verifier.update(case.data);
             verifier.verify(&classic).expect("incremental verify");
 
             let key512256: HmacSha512256Key = padded_key(case.key);
-            let mac = HmacSha512256::compute_to_vec(key512256.clone(), case.data);
+            let mac = HmacSha512256::compute_to_vec(&key512256, case.data);
             crypto_auth_hmacsha512256_verify(
                 mac.as_slice().try_into().expect("MAC length"),
                 case.data,
@@ -569,9 +583,9 @@ mod tests {
             .expect("classic verify");
             let mut classic = [0u8; CRYPTO_AUTH_HMACSHA512256_BYTES];
             crypto_auth_hmacsha512256(&mut classic, case.data, key512256.as_array());
-            HmacSha512256::compute_and_verify(&classic, key512256.clone(), case.data)
+            HmacSha512256::compute_and_verify(&classic, &key512256, case.data)
                 .expect("rustaceous verify");
-            let mut verifier = HmacSha512256::new(key512256);
+            let mut verifier = HmacSha512256::new(&key512256);
             verifier.update(case.data);
             verifier.verify(&classic).expect("incremental verify");
         }
@@ -586,7 +600,7 @@ mod tests {
         where
             Variant: HmacVariant<KEY_LENGTH, MAC_LENGTH>,
         {
-            Hmac::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_to_vec(key, input)
+            Hmac::<Variant, KEY_LENGTH, MAC_LENGTH>::compute_to_vec(&key, input)
         }
 
         let case = CASES[0];
@@ -627,15 +641,15 @@ mod tests {
         for case in CASES {
             let key: HmacSha256Key = padded_key(case.key);
             let so_tag = auth_hmacsha256(case.data, key.as_slice());
-            assert_eq!(HmacSha256::compute_to_vec(key, case.data), so_tag);
+            assert_eq!(HmacSha256::compute_to_vec(&key, case.data), so_tag);
 
             let key: HmacSha512Key = padded_key(case.key);
             let so_tag = auth_hmacsha512(case.data, key.as_slice());
-            assert_eq!(HmacSha512::compute_to_vec(key, case.data), so_tag);
+            assert_eq!(HmacSha512::compute_to_vec(&key, case.data), so_tag);
 
             let key: HmacSha512256Key = padded_key(case.key);
             let so_tag = auth_hmacsha512256(case.data, key.as_slice());
-            assert_eq!(HmacSha512256::compute_to_vec(key, case.data), so_tag);
+            assert_eq!(HmacSha512256::compute_to_vec(&key, case.data), so_tag);
         }
     }
 }

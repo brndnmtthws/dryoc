@@ -32,7 +32,7 @@
 //! let password = b"But, for my own part, it was Greek to me.";
 //!
 //! // Hash the password, generating a random salt
-//! let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+//! let pwhash = VecPwHash::hash(password, Config::interactive()).expect("unable to hash");
 //!
 //! pwhash.verify(password).expect("verification failed");
 //! pwhash
@@ -201,6 +201,7 @@ impl Config {
     ///
     /// This is the default preset for online operations where users wait for
     /// the result.
+    #[must_use]
     pub fn interactive() -> Self {
         Self::preset(
             CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
@@ -211,6 +212,7 @@ impl Config {
     /// Returns libsodium's moderate password hashing configuration.
     ///
     /// This preset uses more time and memory than [`Config::interactive`].
+    #[must_use]
     pub fn moderate() -> Self {
         Self::preset(
             CRYPTO_PWHASH_OPSLIMIT_MODERATE,
@@ -222,6 +224,7 @@ impl Config {
     ///
     /// This preset has the highest resource requirements. Use it only when the
     /// deployment can tolerate its latency and memory use.
+    #[must_use]
     pub fn sensitive() -> Self {
         Self::preset(
             CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
@@ -375,7 +378,10 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// Returns an error if a work limit, memory limit, hash length, or password
     /// length is outside the supported range, or if the
     /// underlying Argon2 operation fails.
-    pub fn hash<Password: Bytes>(password: &Password, config: Config) -> Result<Self, Error> {
+    pub fn hash<Password: Bytes + ?Sized>(
+        password: &Password,
+        config: Config,
+    ) -> Result<Self, Error> {
         validate_direct_config(
             &config,
             config.hash_length,
@@ -400,39 +406,6 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
 
         Ok(Self { hash, salt, config })
     }
-
-    /// Hashes `password` with a random salt and a default configuration
-    /// suitable for interactive hashing, returning the hash, salt, and config
-    /// upon success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_interactive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
-        Self::hash(password, Config::interactive())
-    }
-
-    /// Hashes `password` with a random salt and a default configuration
-    /// suitable for moderate hashing, returning the hash, salt, and config upon
-    /// success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_moderate<Password: Bytes>(password: &Password) -> Result<Self, Error> {
-        Self::hash(password, Config::moderate())
-    }
-
-    /// Hashes `password` with a random salt and a default configuration
-    /// suitable for sensitive hashing, returning the hash, salt, and config
-    /// upon success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_sensitive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
-        Self::hash(password, Config::sensitive())
-    }
 }
 
 impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
@@ -447,7 +420,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Ha
     /// Returns an error if a work limit, memory limit, hash length, salt
     /// length, or password length is outside the supported range, or if the
     /// underlying Argon2 operation fails.
-    pub fn hash_with_salt<Password: Bytes>(
+    pub fn hash_with_salt<Password: Bytes + ?Sized>(
         password: &Password,
         salt: Salt,
         config: Config,
@@ -552,11 +525,10 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     ///
     /// let password = b"Come what come may, time and the hour runs through the roughest day.";
     ///
-    /// let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+    /// let pwhash = VecPwHash::hash(password, Config::interactive()).expect("unable to hash");
     /// let pw_string = pwhash.to_encoded_string().expect("unable to encode hash");
     ///
-    /// let parsed_pwhash =
-    ///     PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+    /// let parsed_pwhash = VecPwHash::from_string(&pw_string).expect("couldn't parse hashed password");
     ///
     /// parsed_pwhash.verify(password).expect("verification failed");
     /// parsed_pwhash
@@ -612,7 +584,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     ///
     /// Returns an error if the password does not match, if the stored salt or
     /// configuration is invalid, or if the underlying Argon2 operation fails.
-    pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
+    pub fn verify<Password: Bytes + ?Sized>(&self, password: &Password) -> Result<(), Error> {
         let (t_cost, m_cost) =
             crypto_pwhash::convert_costs_checked(self.config.opslimit, self.config.memlimit)?;
         crypto_pwhash::verify_pwhash_parts(
@@ -632,6 +604,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// This function does not validate the parts. Invalid values are reported
     /// when an operation such as [`PwHash::verify`] or
     /// [`PwHash::to_encoded_string`] uses them.
+    #[must_use]
     pub fn from_parts(hash: Hash, salt: Salt, config: Config) -> Self {
         Self { hash, salt, config }
     }
@@ -639,6 +612,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Moves the hash, salt, and config out of this instance, returning them as
     /// a tuple. The returned hash no longer benefits from the instance's
     /// drop-time zeroization.
+    #[must_use]
     pub fn into_parts(self) -> (Hash, Salt, Config) {
         let this = core::mem::ManuallyDrop::new(self);
         // SAFETY: Each field is read exactly once from `this`; suppressing its
@@ -666,9 +640,9 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// length is outside the supported range, or if the underlying Argon2
     /// operation fails.
     pub fn derive_keypair<
-        Password: Bytes + Zeroize,
         PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
+        Password: Bytes + Zeroize + ?Sized,
     >(
         password: &Password,
         salt: Salt,
@@ -692,36 +666,6 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
         Ok(keypair::KeyPair::<PublicKey, SecretKey>::from_secret_key(
             secret_key,
         ))
-    }
-}
-
-impl PwHash<Hash, Salt> {
-    /// Hashes `password` using default (interactive) config parameters,
-    /// returning the `Vec<u8>`-based hash and salt, with config, upon success.
-    ///
-    /// This function provides reasonable defaults, and is provided for
-    /// convenience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the password length is unsupported or the
-    /// underlying Argon2 operation fails.
-    pub fn hash_with_defaults<Password: Bytes>(password: &Password) -> Result<Self, Error> {
-        Self::hash_interactive(password)
-    }
-
-    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
-    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
-    /// Parses the `hashed_password` string, returning a new hash instance upon
-    /// success. Wraps [`PwHash::from_string`], provided for convenience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the string is malformed, uses an unsupported
-    /// algorithm or version, omits a required field, or contains an invalid
-    /// encoded value.
-    pub fn from_string_with_defaults(hashed_password: &str) -> Result<Self, Error> {
-        Self::from_string(hashed_password)
     }
 }
 
@@ -1046,7 +990,6 @@ mod tests {
                 VecPwHash::from_string(input).is_err(),
                 "accepted malformed string {input:?}"
             );
-            assert!(PwHash::from_string_with_defaults(input).is_err());
         }
 
         // The unmodified vector still parses, so the rejections above are not
@@ -1055,7 +998,7 @@ mod tests {
             format!("{prefix}{params}${salt}${hash}"),
             LIBSODIUM_ARGON2ID_STR
         );
-        PwHash::from_string_with_defaults(LIBSODIUM_ARGON2ID_STR).expect("valid string");
+        VecPwHash::from_string(LIBSODIUM_ARGON2ID_STR).expect("valid string");
     }
 
     #[cfg(feature = "base64")]
@@ -1164,7 +1107,7 @@ mod tests {
             if cfg!(miri) {
                 VecPwHash::hash(password, argon2id_min())
             } else {
-                PwHash::hash_with_defaults(password)
+                VecPwHash::hash(password, Config::interactive())
             }
             .expect("unable to hash")
         };
@@ -1230,7 +1173,7 @@ mod tests {
             .expect("couldn't encode password hash");
 
         let parsed_pwhash =
-            PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+            VecPwHash::from_string(&pw_string).expect("couldn't parse hashed password");
 
         parsed_pwhash.verify(password).expect("verification failed");
         parsed_pwhash

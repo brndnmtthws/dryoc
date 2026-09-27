@@ -192,14 +192,15 @@ pub(crate) fn crypto_sign_ed25519(
     let sig: &mut [u8; CRYPTO_SIGN_ED25519_BYTES] =
         <&mut [u8; CRYPTO_SIGN_ED25519_BYTES]>::try_from(sig).unwrap();
     sm.copy_from_slice(message);
-    crypto_sign_ed25519_detached(sig, message, secret_key)
+    crypto_sign_ed25519_detached(sig, message, secret_key);
+    Ok(())
 }
 
 pub(crate) fn crypto_sign_ed25519_detached(
     signature: &mut Signature,
     message: &[u8],
     secret_key: &SecretKey,
-) -> Result<(), Error> {
+) {
     crypto_sign_ed25519_detached_impl(signature, message, secret_key, false)
 }
 
@@ -209,13 +210,7 @@ fn crypto_sign_ed25519_detached_impl(
     message: &[u8],
     secret_key: &SecretKey,
     prehashed: bool,
-) -> Result<(), Error> {
-    validate_length!(
-        exact CRYPTO_SIGN_ED25519_BYTES,
-        signature.len(),
-        crate::ErrorContext::Signature
-    );
-
+) {
     let mut az: [u8; CRYPTO_HASH_SHA512_BYTES] = Sha512::compute(&secret_key[..32]);
 
     let mut hasher = Sha512::new();
@@ -260,8 +255,6 @@ fn crypto_sign_ed25519_detached_impl(
     k.zeroize();
     signing_scalar.zeroize();
     sig.zeroize();
-
-    Ok(())
 }
 
 pub(crate) fn crypto_sign_ed25519_verify_detached(
@@ -368,11 +361,10 @@ pub(crate) fn crypto_sign_ed25519ph_final_create(
     state: Ed25519SignerState,
     signature: &mut Signature,
     secret_key: &SecretKey,
-) -> Result<(), Error> {
+) {
     let mut hash: [u8; CRYPTO_HASH_SHA512_BYTES] = state.hasher.finalize();
-    let res = crypto_sign_ed25519_detached_impl(signature, &hash, secret_key, true);
+    crypto_sign_ed25519_detached_impl(signature, &hash, secret_key, true);
     hash.zeroize();
-    res
 }
 
 pub(crate) fn crypto_sign_ed25519ph_final_verify(
@@ -416,7 +408,7 @@ mod regression_tests {
         let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[7u8; 32]);
 
         let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key);
         crypto_sign_ed25519_verify_detached(&signature, message, &public_key).unwrap();
         add_group_order_to_s(&mut signature);
         assert!(matches!(
@@ -438,7 +430,7 @@ mod regression_tests {
         let mut signer = crypto_sign_ed25519ph_init();
         crypto_sign_ed25519ph_update(&mut signer, message);
         let mut prehash_signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519ph_final_create(signer, &mut prehash_signature, &secret_key).unwrap();
+        crypto_sign_ed25519ph_final_create(signer, &mut prehash_signature, &secret_key);
         add_group_order_to_s(&mut prehash_signature);
 
         let mut verifier = crypto_sign_ed25519ph_init();
@@ -620,7 +612,7 @@ mod vector_tests {
             assert_eq!(secret_key[32..], public_key, "secret key suffix {i}");
 
             let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-            crypto_sign_ed25519_detached(&mut signature, &message, &secret_key).unwrap();
+            crypto_sign_ed25519_detached(&mut signature, &message, &secret_key);
             assert_eq!(signature, expected_signature, "signature {i}");
             crypto_sign_ed25519_verify_detached(&expected_signature, &message, &public_key)
                 .unwrap_or_else(|e| panic!("verify {i}: {e}"));
@@ -662,7 +654,7 @@ mod vector_tests {
             crypto_sign_ed25519ph_update(&mut signer, &message[..split]);
             crypto_sign_ed25519ph_update(&mut signer, &message[split..]);
             let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-            crypto_sign_ed25519ph_final_create(signer, &mut signature, &secret_key).unwrap();
+            crypto_sign_ed25519ph_final_create(signer, &mut signature, &secret_key);
             assert_eq!(signature, expected_signature, "split {split}");
 
             let mut verifier = crypto_sign_ed25519ph_init();
@@ -677,7 +669,7 @@ mod vector_tests {
             Err(Error::AuthenticationFailed)
         ));
         let mut plain_signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519_detached(&mut plain_signature, &message, &secret_key).unwrap();
+        crypto_sign_ed25519_detached(&mut plain_signature, &message, &secret_key);
         assert_ne!(plain_signature, expected_signature);
         let mut verifier = crypto_sign_ed25519ph_init();
         crypto_sign_ed25519ph_update(&mut verifier, &message);
@@ -728,7 +720,7 @@ mod vector_tests {
         let message = b"point encoding policy";
         let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[12u8; 32]);
         let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key);
 
         for encoding in rejected_point_encodings() {
             let mut bad_r = signature;
@@ -758,7 +750,7 @@ mod vector_tests {
         let message = b"error precedence";
         let (_, secret_key) = crypto_sign_ed25519_seed_keypair(&[15u8; 32]);
         let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key);
 
         let encodings = rejected_point_encodings();
         for bad_r in &encodings {
@@ -960,7 +952,7 @@ mod tests {
         let message = b"malleability regression";
         let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[7u8; 32]);
         let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key);
         super::regression_tests::add_group_order_to_s(&mut signature);
 
         assert!(crypto_sign_ed25519_verify_detached(&signature, message, &public_key).is_err());
@@ -1001,7 +993,7 @@ mod tests {
         let message = b"encoding policy compatibility";
         let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&[15u8; 32]);
         let mut signature = [0u8; CRYPTO_SIGN_ED25519_BYTES];
-        crypto_sign_ed25519_detached(&mut signature, message, &secret_key).unwrap();
+        crypto_sign_ed25519_detached(&mut signature, message, &secret_key);
         assert!(sodium_verify_detached(&signature, message, &public_key));
 
         for s in super::vector_tests::rejected_scalars() {

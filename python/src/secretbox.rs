@@ -43,8 +43,9 @@ secret_key_class! {
             };
             let message = plaintext.as_slice();
             let sealed = maybe_detach(py, message.len(), || {
-                DryocSecretBox::encrypt_to_vecbox(message, &nonce, &self.key).into_vec()
-            });
+                DryocSecretBox::encrypt_to_vecbox(message, &nonce, &self.key).map(VecBox::into_vec)
+            })
+            .or_raise()?;
             encrypted_message(py, nonce.as_ref(), &sealed)
         }
 

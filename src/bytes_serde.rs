@@ -204,9 +204,9 @@ impl_serialize_bytes!([const LENGTH: usize] StackByteArray<LENGTH>);
 
 impl_deserialize_fixed!(
     StackByteArray<LENGTH>,
-    StackByteArray::<LENGTH>::new(),
+    StackByteArray::<LENGTH>::default(),
     |v| {
-        let mut arr = StackByteArray::<LENGTH>::new();
+        let mut arr = StackByteArray::<LENGTH>::default();
         arr.copy_from_slice(v);
         Ok(arr)
     }

@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 ///
 /// Panics if the operating system's random number generator fails.
 #[cfg(feature = "alloc")]
+#[must_use]
 pub fn randombytes_buf(len: usize) -> Vec<u8> {
     let mut r: Vec<u8> = vec![0; len];
     copy_randombytes(r.as_mut_slice());

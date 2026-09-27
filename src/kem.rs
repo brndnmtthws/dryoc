@@ -20,7 +20,7 @@
 //! ```
 //! use dryoc::kem::*;
 //!
-//! let recipient = KeyPair::generate_with_defaults();
+//! let recipient = StackKeyPair::generate();
 //!
 //! // The sender needs only the recipient's public key.
 //! let (ciphertext, sender_secret): (Ciphertext, SharedSecret) =
@@ -68,7 +68,7 @@ macro_rules! kem_api {
         use crate::classic::$classic::{$enc, $seed_keypair};
         use crate::error::Error;
         use crate::rng::copy_randombytes;
-        pub use crate::types::*;
+        use crate::types::*;
 
         #[doc = concat!("Stack-allocated ", $algo, " public key.")]
         pub type PublicKey = StackByteArray<{ $pk_bytes }>;
@@ -115,6 +115,7 @@ macro_rules! kem_api {
         > KeyPair<PublicKey, SecretKey>
         {
             /// Generates a random key pair.
+            #[must_use]
             pub fn generate() -> Self {
                 let mut seed = Zeroizing::new([0u8; $seed_bytes]);
                 copy_randombytes(seed.as_mut_slice());
@@ -122,6 +123,7 @@ macro_rules! kem_api {
             }
 
             /// Deterministically derives a key pair from `seed`.
+            #[must_use]
             pub fn from_seed<Seed: ByteArray<{ $seed_bytes }>>(seed: &Seed) -> Self {
                 let mut public_key = PublicKey::new_byte_array();
                 let mut secret_key = SecretKey::new_byte_array();
@@ -143,6 +145,7 @@ macro_rules! kem_api {
         > KeyPair<PublicKey, SecretKey>
         {
             /// Returns the key pair for `secret_key`, deriving its public key.
+            #[must_use]
             pub fn from_secret_key(secret_key: SecretKey) -> Self {
                 let mut public_key = PublicKey::new_byte_array();
                 {
@@ -154,14 +157,6 @@ macro_rules! kem_api {
                     public_key,
                     secret_key,
                 }
-            }
-        }
-
-        impl KeyPair<PublicKey, SecretKey> {
-            /// Generates a random key pair of stack-allocated arrays.
-            /// Provided for convenience.
-            pub fn generate_with_defaults() -> Self {
-                Self::generate()
             }
         }
 
@@ -183,8 +178,8 @@ macro_rules! kem_api {
             /// of `ciphertext` is a low-order point. ML-KEM-768 decapsulation
             /// does not fail.
             pub fn decapsulate<
-                Ciphertext: ByteArray<{ $ct_bytes }>,
                 SharedSecret: NewByteArray<{ $ss_bytes }>,
+                Ciphertext: ByteArray<{ $ct_bytes }>,
             >(
                 &self,
                 ciphertext: &Ciphertext,
@@ -210,9 +205,9 @@ macro_rules! kem_api {
         /// Returns [`Error::InvalidKey`] if `public_key` is not a valid public
         /// key.
         pub fn encapsulate<
-            PublicKey: ByteArray<{ $pk_bytes }>,
             Ciphertext: NewByteArray<{ $ct_bytes }>,
             SharedSecret: NewByteArray<{ $ss_bytes }>,
+            PublicKey: ByteArray<{ $pk_bytes }>,
         >(
             public_key: &PublicKey,
         ) -> Result<(Ciphertext, SharedSecret), Error> {

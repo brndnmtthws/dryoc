@@ -790,7 +790,7 @@ mod tests {
         use crate::poly1305::{Key as MacKey, Poly1305};
         let key = [0x42u8; 32];
         let nonce = [0x24u8; 12];
-        let mut mac_key = MacKey::new();
+        let mut mac_key = MacKey::default();
         mac_key.copy_from_slice(&[0x5au8; 32]);
         for len in [0, 100, 1023, 1024, 1025, 1536, 1537, 3000, 8192] {
             let message = pattern(len);

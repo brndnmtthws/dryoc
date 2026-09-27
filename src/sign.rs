@@ -6,9 +6,10 @@
 //! encrypt the message.
 //!
 //! [`SigningKeyPair::sign`] signs a complete message with Ed25519. Use
-//! [`IncrementalSigner`] when the message is too large to keep in memory or
-//! arrives in parts. The incremental API uses Ed25519ph, so its signatures
-//! cannot be verified by the single-part Ed25519 API, or vice versa.
+//! [`Ed25519phSigner`] when the message is too large to keep in memory or
+//! arrives in parts. It implements Ed25519ph (prehashed Ed25519, RFC 8032),
+//! which is a different signature scheme: its signatures cannot be verified by
+//! the single-part Ed25519 API, or vice versa.
 //!
 //! The verifier must obtain the signer's public key through a trusted channel.
 //! A signature only proves control of the matching secret key; it does not
@@ -31,11 +32,11 @@
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
-//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+//! let keypair = StackSigningKeyPair::generate();
 //! let message = b"Fair is foul, and foul is fair: Hover through the fog and filthy air.";
 //!
-//! // Sign the message, using default types (stack-allocated byte array, Vec<u8>)
-//! let signed_message = keypair.sign_with_defaults(message).expect("signing failed");
+//! // Sign the message into a Vec-backed signed message
+//! let signed_message = keypair.sign_to_vecbox(message);
 //!
 //! // Verify the message signature
 //! signed_message
@@ -50,7 +51,7 @@
 //! use dryoc::sign::*;
 //!
 //! let seed = Seed::from([7u8; dryoc::constants::CRYPTO_SIGN_SEEDBYTES]);
-//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+//! let keypair = StackSigningKeyPair::from_seed(&seed);
 //!
 //! let extracted_seed: Seed = keypair.to_seed();
 //! let extracted_public_key: PublicKey = keypair.to_public_key();
@@ -59,23 +60,31 @@
 //! assert_eq!(extracted_public_key, keypair.public_key);
 //! ```
 //!
-//! ## Incremental (multi-part) interface
+//! ## Ed25519ph (multi-part) interface
 //!
 //! ```
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
-//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+//! let keypair = StackSigningKeyPair::generate();
 //!
-//! // Initialize the incremental signer interface
-//! let mut signer = IncrementalSigner::new();
+//! // Initialize the Ed25519ph signer
+//! let mut signer = Ed25519phSigner::new();
 //! signer.update(b"This above all: to thine ownself be true.");
 //! signer.update(b"And it must follow, as the night the day,");
 //! signer.update(b"Thou canst not then be false to any man.");
 //!
-//! let signature: Signature = signer
-//!     .finalize(&keypair.secret_key)
-//!     .expect("signing failed");
+//! let signature: Signature = signer.finalize(&keypair.secret_key);
+//!
+//! // Ed25519ph signatures are verified with an `Ed25519phSigner` fed the same
+//! // message, not with `SignedMessage::verify`
+//! let mut verifier = Ed25519phSigner::new();
+//! verifier.update(b"This above all: to thine ownself be true.");
+//! verifier.update(b"And it must follow, as the night the day,");
+//! verifier.update(b"Thou canst not then be false to any man.");
+//! verifier
+//!     .verify(&signature, &keypair.public_key)
+//!     .expect("verification failed");
 //! ```
 //!
 //! ## Additional resources
@@ -96,10 +105,12 @@ use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::classic::crypto_sign::{
-    SignerState, crypto_sign_detached, crypto_sign_ed25519_sk_to_pk,
-    crypto_sign_ed25519_sk_to_seed, crypto_sign_final_create, crypto_sign_final_verify,
-    crypto_sign_init, crypto_sign_keypair_inplace, crypto_sign_seed_keypair_inplace,
-    crypto_sign_update, crypto_sign_verify_detached,
+    SignerState, crypto_sign_ed25519_sk_to_pk, crypto_sign_ed25519_sk_to_seed,
+    crypto_sign_final_verify, crypto_sign_init, crypto_sign_keypair_inplace,
+    crypto_sign_seed_keypair_inplace, crypto_sign_update, crypto_sign_verify_detached,
+};
+use crate::classic::crypto_sign_ed25519::{
+    crypto_sign_ed25519_detached, crypto_sign_ed25519ph_final_create,
 };
 use crate::constants::{
     CRYPTO_SIGN_BYTES, CRYPTO_SIGN_PUBLICKEYBYTES, CRYPTO_SIGN_SECRETKEYBYTES,
@@ -120,8 +131,30 @@ pub type Signature = StackByteArray<CRYPTO_SIGN_BYTES>;
 /// Heap-allocated message for message signing.
 #[cfg(feature = "alloc")]
 pub type Message = Vec<u8>;
+/// Stack-allocated signing keypair type alias.
+pub type StackSigningKeyPair = SigningKeyPair<PublicKey, SecretKey>;
+
+/// Checks if the given key is a valid prime-order Ed25519 public key.
+///
+/// The canonical compressed encoding is required. The high bit, which
+/// encodes the sign of the x-coordinate, may legitimately be set.
+///
+/// This is a strict prime-subgroup policy, not a generic Ed25519 signature
+/// validity predicate. Use it when an application or point-arithmetic
+/// protocol requires canonical, nonidentity, prime-order keys. Verify
+/// signatures with [`SignedMessage::verify`] or
+/// [`crypto_sign_verify_detached`] instead; some signature profiles
+/// intentionally define different point-acceptance rules.
+///
+/// Use [`crate::keypair::is_valid_public_key`] for X25519 keys used with
+/// [`crypto_box`](crate::classic::crypto_box).
+#[must_use]
+pub fn is_valid_public_key<PK: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(key: &PK) -> bool {
+    crate::classic::crypto_core::crypto_core_ed25519_is_valid_point(key.as_array())
+}
 
 /// Extracts the Ed25519 seed from a signing secret key.
+#[must_use]
 pub fn secret_key_to_seed<
     SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>,
     SigningSecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -134,6 +167,7 @@ pub fn secret_key_to_seed<
 }
 
 /// Extracts the Ed25519 public key from a signing secret key.
+#[must_use]
 pub fn secret_key_to_public_key<
     PublicKeyOut: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
     SigningSecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -182,6 +216,7 @@ impl<
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Generates a random signing keypair.
+    #[must_use]
     pub fn generate() -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
@@ -195,6 +230,7 @@ impl<
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
     /// a new keypair. The consumed key is wiped, even if its type does not
     /// wipe itself on drop.
+    #[must_use]
     pub fn from_secret_key(mut secret_key: SecretKey) -> Self {
         let mut seed = Zeroizing::new([0u8; 32]);
         seed.copy_from_slice(&secret_key.as_slice()[..32]);
@@ -205,6 +241,7 @@ impl<
 
     /// Derives a signing keypair from `seed`, returning
     /// a new keypair.
+    #[must_use]
     pub fn from_seed<Seed: ByteArray<CRYPTO_SIGN_SEEDBYTES>>(seed: &Seed) -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
@@ -228,28 +265,17 @@ impl<
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Extracts the Ed25519 seed from this keypair's secret key.
+    #[must_use]
     pub fn to_seed<SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>>(&self) -> SeedOut {
         secret_key_to_seed(&self.secret_key)
     }
 
     /// Extracts the Ed25519 public key embedded in this keypair's secret key.
+    #[must_use]
     pub fn to_public_key<PublicKeyOut: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(
         &self,
     ) -> PublicKeyOut {
         secret_key_to_public_key(&self.secret_key)
-    }
-}
-
-impl
-    SigningKeyPair<
-        StackByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
-        StackByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
-    >
-{
-    /// Randomly generates a new signing keypair, using default types
-    /// (stack-allocated byte arrays). Provided for convenience.
-    pub fn generate_with_defaults() -> Self {
-        Self::generate()
     }
 }
 
@@ -308,11 +334,21 @@ pub mod protected {
     //! .expect("message lock failed");
     //!
     //! // Sign the message, using default types (stack-allocated byte array, Vec<u8>)
-    //! let signed_message: LockedSignedMessage = keypair.sign(message).expect("signing failed");
+    //! let signed_message: LockedSignedMessage = keypair.sign(message);
     //!
     //! // Verify the message signature
     //! signed_message
     //!     .verify(&keypair.public_key)
+    //!     .expect("verification failed");
+    //!
+    //! // A keypair in locked, read-only memory signs the same way.
+    //! let readonly_keypair = LockedROSigningKeyPair::generate_readonly_locked_keypair()
+    //!     .expect("keypair generate failed");
+    //! let message = Message::from_slice_into_locked(b"By the pricking of my thumbs")
+    //!     .expect("message lock failed");
+    //! let signed_message: LockedSignedMessage = readonly_keypair.sign(message);
+    //! signed_message
+    //!     .verify(&readonly_keypair.public_key)
     //!     .expect("verification failed");
     //! ```
     use super::*;
@@ -337,6 +373,9 @@ pub mod protected {
     /// Heap-allocated, page-aligned public/secret keypair for message signing,
     /// for use with protected memory.
     pub type LockedSigningKeyPair = SigningKeyPair<Locked<PublicKey>, Locked<SecretKey>>;
+    /// Heap-allocated, page-aligned public/secret keypair for message signing,
+    /// in locked, read-only memory, for use with protected memory.
+    pub type LockedROSigningKeyPair = SigningKeyPair<LockedRO<PublicKey>, LockedRO<SecretKey>>;
     /// Heap-allocated, page-aligned signed message, for use with protected
     /// memory.
     pub type LockedSignedMessage = SignedMessage<Locked<Signature>, Locked<Message>>;
@@ -431,91 +470,89 @@ impl<
     /// Signs `message` using this keypair, consuming the message, and returning
     /// a new [`SignedMessage`]. The type of `message` should match that of the
     /// target signed message.
-    ///
-    /// # Errors
-    ///
-    /// The fixed-size signature and secret-key types satisfy the current
-    /// implementation's requirements, so this function does not return an
-    /// error for valid type implementations. The [`Result`] is retained for
-    /// compatibility with the underlying signing API.
+    #[must_use]
     pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>(
         &self,
         message: Message,
-    ) -> Result<SignedMessage<Signature, Message>, Error> {
+    ) -> SignedMessage<Signature, Message> {
         let mut signature = Signature::new_byte_array();
-        crypto_sign_detached(
+        crypto_sign_ed25519_detached(
             signature.as_mut_array(),
             message.as_slice(),
             self.secret_key.as_array(),
-        )?;
+        );
 
-        Ok(SignedMessage::<Signature, Message> { signature, message })
+        SignedMessage::<Signature, Message> { signature, message }
     }
 
-    /// Signs `message`, putting the result into a [`Vec`]. Convenience wrapper
-    /// for [`SigningKeyPair::sign`].
-    ///
-    /// # Errors
-    ///
-    /// The default fixed-size types satisfy the current implementation's
-    /// requirements, so this function does not return an error in normal use.
-    /// The [`Result`] is retained for API compatibility.
+    /// Signs a copy of `message`, returning a [`VecSignedMessage`].
+    /// Convenience wrapper for [`SigningKeyPair::sign`].
     #[cfg(feature = "alloc")]
-    pub fn sign_with_defaults<Message: Bytes>(
-        &self,
-        message: Message,
-    ) -> Result<SignedMessage<StackByteArray<CRYPTO_SIGN_BYTES>, Vec<u8>>, Error> {
+    #[must_use]
+    pub fn sign_to_vecbox<Message: Bytes + ?Sized>(&self, message: &Message) -> VecSignedMessage {
         self.sign(Vec::from(message.as_slice()))
     }
 }
 
-/// Multi-part (incremental)  interface for [`SigningKeyPair`].
-pub struct IncrementalSigner {
+/// Multi-part Ed25519ph (prehashed Ed25519, RFC 8032) signer and verifier.
+///
+/// This is libsodium's `crypto_sign_init`/`crypto_sign_update`/
+/// `crypto_sign_final_create`/`crypto_sign_final_verify` interface: the message
+/// is fed in parts, hashed with SHA-512, and the digest is signed. Ed25519ph is
+/// a different signature scheme from Ed25519, not an incremental way to compute
+/// the same signature: signatures from [`Ed25519phSigner::finalize`] do not
+/// verify with plain Ed25519 verification ([`SignedMessage::verify`],
+/// [`crypto_sign_verify_detached`]),
+/// and Ed25519 signatures from [`SigningKeyPair::sign`] do not verify with
+/// [`Ed25519phSigner::verify`]. Use it only when both sides agree on
+/// Ed25519ph.
+pub struct Ed25519phSigner {
     state: SignerState,
 }
 
-impl IncrementalSigner {
-    /// Returns a new incremental signer instance.
+impl Ed25519phSigner {
+    /// Returns a new Ed25519ph signer with an empty message.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state: crypto_sign_init(),
         }
     }
 
-    /// Updates the state for this incremental signer with `message`.
-    pub fn update<Message: Bytes>(&mut self, message: &Message) {
+    /// Appends `message` to the message being signed or verified.
+    pub fn update<Message: Bytes + ?Sized>(&mut self, message: &Message) {
         crypto_sign_update(&mut self.state, message.as_slice())
     }
 
-    /// Finalizes this incremental signer, returning the signature upon
-    /// success.
-    ///
-    /// # Errors
-    ///
-    /// The fixed-size signature and secret-key types satisfy the current
-    /// implementation's requirements, so this function does not return an
-    /// error for valid type implementations. The [`Result`] is retained for
-    /// compatibility with the underlying signing API.
+    /// Finalizes this signer with `secret_key`, returning the Ed25519ph
+    /// signature of the accumulated message.
+    #[must_use]
     pub fn finalize<
         Signature: NewByteArray<CRYPTO_SIGN_BYTES>,
         SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
     >(
         self,
         secret_key: &SecretKey,
-    ) -> Result<Signature, Error> {
+    ) -> Signature {
         let mut signature = Signature::new_byte_array();
 
-        crypto_sign_final_create(self.state, signature.as_mut_array(), secret_key.as_array())?;
+        crypto_sign_ed25519ph_final_create(
+            self.state.state,
+            signature.as_mut_array(),
+            secret_key.as_array(),
+        );
 
-        Ok(signature)
+        signature
     }
 
-    /// Verifies `signature` as a valid signature for this signer.
+    /// Verifies that `signature` is a valid Ed25519ph signature of the
+    /// accumulated message for `public_key`.
     ///
     /// # Errors
     ///
-    /// Returns an error if `signature` is not valid for the accumulated
-    /// message and `public_key`.
+    /// Returns an error if `signature` is not a valid Ed25519ph signature for
+    /// the accumulated message and `public_key`, including when it is a plain
+    /// Ed25519 signature of that message.
     pub fn verify<
         Signature: ByteArray<CRYPTO_SIGN_BYTES>,
         PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
@@ -530,7 +567,7 @@ impl IncrementalSigner {
     }
 }
 
-impl Default for IncrementalSigner {
+impl Default for Ed25519phSigner {
     fn default() -> Self {
         Self::new()
     }
@@ -587,6 +624,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 {
     /// Returns a new signed message from `signature` and `message`, consuming
     /// each.
+    #[must_use]
     pub fn from_parts(signature: Signature, message: Message) -> Self {
         Self { signature, message }
     }
@@ -603,17 +641,20 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 
     /// Copies `self` into a new [`Vec`]
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
 
     /// Moves the signature and message out of this instance, returning them
     /// as a tuple.
+    #[must_use]
     pub fn into_parts(self) -> (Signature, Message) {
         (self.signature, self.message)
     }
 
     /// Copies `self` into the target. Can be used with protected memory.
+    #[must_use]
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         concat_bytes(self.signature.as_array(), self.message.as_slice())
     }
@@ -645,7 +686,7 @@ mod tests {
 
     #[test]
     fn signing_keypair_debug_redacts_keys_and_secret_key_reconstructs_keypair() {
-        let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+        let keypair = StackSigningKeyPair::generate();
         let debug = format!("{keypair:?}");
         let reconstructed = SigningKeyPair::from_secret_key(keypair.secret_key.clone());
 
@@ -658,10 +699,10 @@ mod tests {
 
     #[test]
     fn test_message_signing() {
-        let keypair = SigningKeyPair::generate_with_defaults();
+        let keypair = StackSigningKeyPair::generate();
         let message = b"hello my frens";
 
-        let signed_message = keypair.sign_with_defaults(message).expect("signing failed");
+        let signed_message = keypair.sign_to_vecbox(message);
 
         signed_message
             .verify(&keypair.public_key)
@@ -669,9 +710,55 @@ mod tests {
     }
 
     #[test]
+    fn test_is_valid_public_key() {
+        use crate::edwards25519::test_vectors::{IDENTITY, NONCANONICAL_IDENTITY};
+
+        let keypair = StackSigningKeyPair::generate();
+        assert!(
+            is_valid_public_key(&keypair.public_key),
+            "generated Ed25519 key should pass validation"
+        );
+        let (valid_pk, _) = crate::classic::crypto_sign::crypto_sign_keypair();
+        assert!(
+            is_valid_public_key(&valid_pk),
+            "Ed25519 key from crypto_sign_keypair should pass validation"
+        );
+
+        let mut negative_basepoint =
+            curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
+        negative_basepoint[31] |= 0x80;
+        assert!(
+            is_valid_public_key(&negative_basepoint),
+            "the Ed25519 x-coordinate sign bit should be accepted"
+        );
+
+        assert!(
+            !is_valid_public_key(&PublicKey::default()),
+            "zero key should be invalid"
+        );
+
+        assert!(
+            !is_valid_public_key(&IDENTITY),
+            "identity element should be invalid"
+        );
+
+        assert!(
+            !is_valid_public_key(&NONCANONICAL_IDENTITY),
+            "noncanonical identity encoding should be invalid"
+        );
+
+        let mut mixed_order = [0x99; CRYPTO_SIGN_PUBLICKEYBYTES];
+        mixed_order[0] = 0x95;
+        assert!(
+            !is_valid_public_key(&mixed_order),
+            "mixed-order Ed25519 key should fail the prime-subgroup policy"
+        );
+    }
+
+    #[test]
     fn test_secret_key_extraction() {
         let seed = Seed::generate();
-        let keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+        let keypair = StackSigningKeyPair::from_seed(&seed);
 
         let extracted_seed: Seed = keypair.to_seed();
         let extracted_public_key: PublicKey = keypair.to_public_key();
@@ -751,9 +838,7 @@ mod tests {
             let message = hex::decode(message).expect("hex");
             let expected: Signature = array(signature);
 
-            let signed = keypair
-                .sign_with_defaults(message.as_slice())
-                .expect("signing failed");
+            let signed = keypair.sign_to_vecbox(message.as_slice());
             assert_eq!(signed.signature, expected);
             assert_eq!(signed.message, message);
             signed.verify(&keypair.public_key).expect("verify failed");
@@ -773,8 +858,7 @@ mod tests {
             rebuilt.verify(&keypair.public_key).expect("verify failed");
 
             // `sign` with an explicit message type agrees with the Vec wrapper.
-            let signed_array: SignedMessage<Signature, Vec<u8>> =
-                keypair.sign(message.clone()).expect("signing failed");
+            let signed_array: SignedMessage<Signature, Vec<u8>> = keypair.sign(message.clone());
             assert_eq!(signed_array, signed);
 
             // The secret key embeds the public key.
@@ -800,16 +884,14 @@ mod tests {
             &[&message[..1], &message[1..2], &message[2..]],
         ];
         for parts in splits {
-            let mut signer = IncrementalSigner::new();
+            let mut signer = Ed25519phSigner::new();
             for part in parts {
                 signer.update(part);
             }
-            let actual: Signature = signer
-                .finalize(&keypair.secret_key)
-                .expect("signing failed");
+            let actual: Signature = signer.finalize(&keypair.secret_key);
             assert_eq!(actual, expected, "split {parts:?}");
 
-            let mut verifier = IncrementalSigner::default();
+            let mut verifier = Ed25519phSigner::default();
             for part in parts {
                 verifier.update(part);
             }
@@ -820,11 +902,9 @@ mod tests {
 
         // Ed25519ph and pure Ed25519 signatures are distinct and not
         // interchangeable.
-        let pure = keypair
-            .sign_with_defaults(message.as_slice())
-            .expect("signing failed");
+        let pure = keypair.sign_to_vecbox(message.as_slice());
         assert_ne!(pure.signature, expected);
-        let mut verifier = IncrementalSigner::new();
+        let mut verifier = Ed25519phSigner::new();
         verifier.update(&message);
         assert!(matches!(
             verifier.verify(&pure.signature, &keypair.public_key),
@@ -842,9 +922,7 @@ mod tests {
         let keypair = rfc_keypair(seed, public_key);
         let other = rfc_keypair(RFC8032_ED25519[1].0, RFC8032_ED25519[1].1);
         let message = hex::decode(message).expect("hex");
-        let signed = keypair
-            .sign_with_defaults(message.as_slice())
-            .expect("signing failed");
+        let signed = keypair.sign_to_vecbox(message.as_slice());
 
         assert!(matches!(
             signed.verify(&other.public_key),
@@ -876,16 +954,14 @@ mod tests {
         // Incremental verification rejects a signature over a different split
         // message, and a wrong key.
         let ph: Signature = {
-            let mut signer = IncrementalSigner::new();
+            let mut signer = Ed25519phSigner::new();
             signer.update(&message);
-            signer
-                .finalize(&keypair.secret_key)
-                .expect("signing failed")
+            signer.finalize(&keypair.secret_key)
         };
-        let mut verifier = IncrementalSigner::new();
-        verifier.update(&&message[..1]);
+        let mut verifier = Ed25519phSigner::new();
+        verifier.update(&message[..1]);
         assert!(verifier.verify(&ph, &keypair.public_key).is_err());
-        let mut verifier = IncrementalSigner::new();
+        let mut verifier = Ed25519phSigner::new();
         verifier.update(&message);
         assert!(matches!(
             verifier.verify(&ph, &other.public_key),
@@ -918,15 +994,13 @@ mod tests {
     fn from_slices_accepts_exact_lengths_and_reports_the_short_side() {
         let (seed, public_key, message, signature) = RFC8032_ED25519[0];
         let keypair = rfc_keypair(seed, public_key);
-        let rebuilt = SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+        let rebuilt = StackSigningKeyPair::from_slices(
             keypair.public_key.as_slice(),
             keypair.secret_key.as_slice(),
         )
         .expect("from_slices failed");
         assert_eq!(rebuilt, keypair);
-        let signed = rebuilt
-            .sign_with_defaults(hex::decode(message).expect("hex").as_slice())
-            .expect("signing failed");
+        let signed = rebuilt.sign_to_vecbox(hex::decode(message).expect("hex").as_slice());
         assert_eq!(signed.signature, array::<CRYPTO_SIGN_BYTES>(signature));
 
         for len in [
@@ -935,7 +1009,7 @@ mod tests {
             CRYPTO_SIGN_PUBLICKEYBYTES + 1,
         ] {
             assert!(matches!(
-                SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+                StackSigningKeyPair::from_slices(
                     &vec![0u8; len],
                     keypair.secret_key.as_slice(),
                 ),
@@ -952,7 +1026,7 @@ mod tests {
             CRYPTO_SIGN_SECRETKEYBYTES + 1,
         ] {
             assert!(matches!(
-                SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+                StackSigningKeyPair::from_slices(
                     keypair.public_key.as_slice(),
                     &vec![0u8; len],
                 ),
@@ -977,9 +1051,7 @@ mod tests {
         let decoded: SigningKeyPair<PublicKey, SecretKey> =
             serde_json::from_str(&json).expect("deserialize keypair");
         assert_eq!(decoded, keypair);
-        let signed = decoded
-            .sign_with_defaults(message.as_slice())
-            .expect("signing failed");
+        let signed = decoded.sign_to_vecbox(message.as_slice());
         assert_eq!(signed.signature, expected);
 
         let json = serde_json::to_string(&signed).expect("serialize signed message");
@@ -1008,8 +1080,7 @@ mod tests {
         fn incremental_signer_matches_libsodium_ed25519ph_for_split_updates() {
             let mut rng = XorShift64::new(0x6564_3235_3531_3970);
             for round in 0..8 {
-                let keypair =
-                    SigningKeyPair::<PublicKey, SecretKey>::from_seed(&rng.next_bytes32());
+                let keypair = StackSigningKeyPair::from_seed(&rng.next_bytes32());
                 let message: Vec<u8> = (0..(round * 97) % 1023)
                     .map(|_| rng.next_u64() as u8)
                     .collect();
@@ -1020,13 +1091,11 @@ mod tests {
                     &message[2 * split..],
                 ];
 
-                let mut signer = IncrementalSigner::new();
+                let mut signer = Ed25519phSigner::new();
                 for part in parts {
                     signer.update(&part);
                 }
-                let signature: Signature = signer
-                    .finalize(&keypair.secret_key)
-                    .expect("signing failed");
+                let signature: Signature = signer.finalize(&keypair.secret_key);
                 assert_eq!(
                     signature.as_array(),
                     &sodium::sign_ed25519ph(&parts, &keypair.secret_key)
@@ -1037,7 +1106,7 @@ mod tests {
                     &keypair.public_key
                 ));
 
-                let mut verifier = IncrementalSigner::new();
+                let mut verifier = Ed25519phSigner::new();
                 verifier.update(&message);
                 verifier
                     .verify(&signature, &keypair.public_key)
@@ -1057,9 +1126,7 @@ mod tests {
             let mut rng = XorShift64::new(0x7369_676e_6564_2121);
             for len in [0, 1, 63, 64, 65, 1023] {
                 let message: Vec<u8> = (0..len).map(|_| rng.next_u64() as u8).collect();
-                let signed = keypair
-                    .sign_with_defaults(message.as_slice())
-                    .expect("signing failed");
+                let signed = keypair.sign_to_vecbox(message.as_slice());
                 let so_signature = sodium::sign_ed25519_detached(&message, &so_sk);
                 assert_eq!(signed.signature.as_slice(), so_signature.as_slice());
                 assert!(sodium::sign_ed25519_verify_detached(

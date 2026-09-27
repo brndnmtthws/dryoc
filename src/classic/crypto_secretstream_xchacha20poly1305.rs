@@ -150,6 +150,7 @@ impl Eq for State {}
 
 impl State {
     /// Returns a new stream state with an empty key and nonce.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -223,7 +224,7 @@ fn secretstream_init_mac(
     // Blocks 0 and 1 come out of one keystream run.
     let mut block0 = WideZeroizing::new([0u8; 64]);
     cipher.apply_keystream_with_head(&mut block0, block);
-    let mut mac_key = crate::poly1305::Key::new();
+    let mut mac_key = crate::poly1305::Key::default();
     mac_key.copy_from_slice(&block0[..mac_key.len()]);
     let mut mac = Poly1305::new(&mac_key);
     mac_key.zeroize();
@@ -551,7 +552,7 @@ mod tests {
                 &mut ciphertext,
                 message,
                 None,
-                Tag::MESSAGE.bits(),
+                Tag::Message.bits(),
             )
             .expect_err("ciphertext must be exactly the message plus overhead");
             assert!(
@@ -575,7 +576,7 @@ mod tests {
             &mut ciphertext,
             message,
             None,
-            Tag::MESSAGE.bits(),
+            Tag::Message.bits(),
         )
         .expect("state must remain usable");
 
@@ -635,7 +636,7 @@ mod tests {
         .expect("state must remain usable");
         assert_eq!(
             (output.as_slice(), tag),
-            (&message[..], Tag::MESSAGE.bits())
+            (&message[..], Tag::Message.bits())
         );
     }
 
@@ -654,7 +655,7 @@ mod tests {
             &mut ciphertext,
             plaintext,
             Some(b"associated data"),
-            Tag::FINAL.bits(),
+            Tag::Final.bits(),
         )
         .expect("push failed");
 
@@ -690,7 +691,7 @@ mod tests {
         )
         .expect("state must remain usable after authentication failure");
         assert_eq!(output, plaintext);
-        assert_eq!(tag, Tag::FINAL.bits());
+        assert_eq!(tag, Tag::Final.bits());
     }
 
     #[test]
@@ -767,7 +768,7 @@ mod tests {
             &mut ciphertext,
             message,
             Some(&large_aad),
-            Tag::MESSAGE.bits(),
+            Tag::Message.bits(),
         )
         .expect("push failed");
 
@@ -787,7 +788,7 @@ mod tests {
         .expect("pull failed");
 
         assert_eq!(message.as_slice(), decrypted.as_slice());
-        assert_eq!(tag, Tag::MESSAGE.bits());
+        assert_eq!(tag, Tag::Message.bits());
 
         // Test with wrong AAD should fail
         let mut wrong_aad = large_aad.clone();
@@ -834,7 +835,7 @@ mod tests {
             &mut ciphertext,
             message,
             Some(small_aad),
-            Tag::MESSAGE.bits(),
+            Tag::Message.bits(),
         )
         .expect("push failed");
 
@@ -854,7 +855,7 @@ mod tests {
         .expect("pull failed");
 
         assert_eq!(message.as_slice(), decrypted.as_slice());
-        assert_eq!(tag, Tag::MESSAGE.bits());
+        assert_eq!(tag, Tag::Message.bits());
 
         // Test with wrong AAD should fail
         let wrong_aad = b"xyz"; // Different 3 byte AAD
@@ -1188,7 +1189,7 @@ mod tests {
             let mut output =
                 vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
             let aad = b"";
-            let tag = Tag::MESSAGE.bits();
+            let tag = Tag::Message.bits();
             crypto_secretstream_xchacha20poly1305_push(
                 &mut push_state,
                 &mut output,
@@ -1298,7 +1299,7 @@ mod tests {
             )
             .expect("pull failed");
 
-            assert_eq!(Tag::MESSAGE, Tag::from_bits(tag).expect("tag"));
+            assert_eq!(Tag::Message, Tag::try_from(pull_result_tag).expect("tag"));
             assert_eq!(
                 general_purpose::STANDARD.encode(&pull_result_message),
                 general_purpose::STANDARD.encode(message)
@@ -1427,7 +1428,7 @@ mod tests {
             for i in 0..100 {
                 let message = format!("hello {}", i);
                 let aad = format!("aad {}", i);
-                let tag = if i % 7 == 0 { Tag::REKEY } else { Tag::MESSAGE };
+                let tag = if i % 7 == 0 { Tag::Rekey } else { Tag::Message };
 
                 let mut output =
                     vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
@@ -1473,7 +1474,7 @@ mod tests {
                 )
                 .expect("pull failed");
 
-                assert_eq!(tag, Tag::from_bits(pull_result_tag).expect("tag"));
+                assert_eq!(tag, Tag::try_from(pull_result_tag).expect("tag"));
                 assert_eq!(
                     general_purpose::STANDARD.encode(&pull_result_message),
                     general_purpose::STANDARD.encode(&message)
@@ -1599,7 +1600,7 @@ mod tests {
                     vec![0u8; message.len() + CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_ABYTES];
                 let mut clen_p: c_ulonglong = 0;
 
-                let tag = if i % 7 == 0 { Tag::REKEY } else { Tag::MESSAGE };
+                let tag = if i % 7 == 0 { Tag::Rekey } else { Tag::Message };
 
                 unsafe {
                     let ret = so_crypto_secretstream_xchacha20poly1305_push(

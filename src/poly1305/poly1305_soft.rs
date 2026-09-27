@@ -437,7 +437,7 @@ mod tests {
     #[test]
     fn test_vector_1() {
         // from https://tools.ietf.org/html/rfc7539#appendix-A.3
-        let key = Key::new();
+        let key = Key::default();
         let text = [0u8; 64];
 
         let mut mac = Poly1305::new(&key);

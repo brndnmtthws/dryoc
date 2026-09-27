@@ -28,10 +28,10 @@ use crate::constants::{CRYPTO_HASH_SHA3256_BYTES, CRYPTO_HASH_SHA3512_BYTES};
 use crate::keccak::{DOMAIN_SHA3, RATE_256, RATE_512, ROUNDS_FULL, Sponge};
 use crate::types::*;
 
-/// Type alias for SHA3-256 digest, provided for convenience.
-pub type Sha3256Digest = StackByteArray<CRYPTO_HASH_SHA3256_BYTES>;
-/// Type alias for SHA3-512 digest, provided for convenience.
-pub type Sha3512Digest = StackByteArray<CRYPTO_HASH_SHA3512_BYTES>;
+/// Type alias for a SHA3-256 digest.
+pub type Digest256 = StackByteArray<CRYPTO_HASH_SHA3256_BYTES>;
+/// Type alias for a SHA3-512 digest.
+pub type Digest512 = StackByteArray<CRYPTO_HASH_SHA3512_BYTES>;
 
 /// Defines a SHA-3 hasher over the shared Keccak [`Sponge`].
 ///
@@ -55,6 +55,7 @@ macro_rules! sha3_hasher {
 
         impl $name {
             #[doc = concat!("Returns a new ", $algo, " hasher instance.")]
+            #[must_use]
             pub fn new() -> Self {
                 Self {
                     sponge: Sponge::new(),
@@ -66,7 +67,7 @@ macro_rules! sha3_hasher {
                 $algo,
                 " digest for `input`, copying\nresult into `output`."
             )]
-            pub fn compute_into_bytes<Input: Bytes + ?Sized, Output: MutByteArray<$digest_bytes>>(
+            pub fn compute_into_bytes<Output: MutByteArray<$digest_bytes>, Input: Bytes + ?Sized>(
                 output: &mut Output,
                 input: &Input,
             ) {
@@ -80,7 +81,8 @@ macro_rules! sha3_hasher {
                 $algo,
                 " digest for `input`."
             )]
-            pub fn compute<Input: Bytes + ?Sized, Output: NewByteArray<$digest_bytes>>(
+            #[must_use]
+            pub fn compute<Output: NewByteArray<$digest_bytes>, Input: Bytes + ?Sized>(
                 input: &Input,
             ) -> Output {
                 let mut hasher = Self::new();
@@ -96,8 +98,9 @@ macro_rules! sha3_hasher {
                 "::compute`], returning a [`Vec`]. Provided for\nconvenience."
             )]
             #[cfg(feature = "alloc")]
+            #[must_use]
             pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
-                Self::compute::<_, StackByteArray<$digest_bytes>>(input).to_vec()
+                Self::compute::<StackByteArray<$digest_bytes>, _>(input).to_vec()
             }
 
             #[doc = concat!("Updates ", $algo, " hash state with `input`.")]
@@ -106,6 +109,7 @@ macro_rules! sha3_hasher {
             }
 
             /// Consumes hasher and return final computed hash.
+            #[must_use]
             pub fn finalize<Output: NewByteArray<$digest_bytes>>(mut self) -> Output {
                 let mut hash = Output::new_byte_array();
                 self.finalize_in_place(hash.as_mut_array());
@@ -133,8 +137,9 @@ macro_rules! sha3_hasher {
 
             /// Consumes hasher and returns final computed hash as a [`Vec`].
             #[cfg(feature = "alloc")]
+            #[must_use]
             pub fn finalize_to_vec(mut self) -> Vec<u8> {
-                let mut hash = StackByteArray::<$digest_bytes>::new();
+                let mut hash = StackByteArray::<$digest_bytes>::default();
                 self.finalize_in_place(hash.as_mut_array());
                 hash.to_vec()
             }
@@ -328,7 +333,7 @@ mod tests {
         for (message, expected) in sha3_256() {
             let len = message.len();
             assert_eq!(Sha3256::compute_to_vec(&message), expected, "len {len}");
-            let mut digest = Sha3256Digest::default();
+            let mut digest = Digest256::default();
             Sha3256::compute_into_bytes(&mut digest, &message);
             assert_eq!(digest.as_slice(), expected, "len {len}");
 
@@ -345,7 +350,7 @@ mod tests {
         for (message, expected) in sha3_512() {
             let len = message.len();
             assert_eq!(Sha3512::compute_to_vec(&message), expected, "len {len}");
-            let mut digest = Sha3512Digest::default();
+            let mut digest = Digest512::default();
             Sha3512::compute_into_bytes(&mut digest, &message);
             assert_eq!(digest.as_slice(), expected, "len {len}");
 

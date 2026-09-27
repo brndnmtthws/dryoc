@@ -165,9 +165,7 @@ fn test_structured_public_errors() {
         } if actual == CRYPTO_BOX_SECRETKEYBYTES - 1
     ));
 
-    type StackSigningKeyPair =
-        dryoc::sign::SigningKeyPair<dryoc::sign::PublicKey, dryoc::sign::SecretKey>;
-    let signing_public_key_error = StackSigningKeyPair::from_slices(
+    let signing_public_key_error = dryoc::sign::StackSigningKeyPair::from_slices(
         &[0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES - 1],
         &[0u8; dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES],
     )
@@ -181,7 +179,7 @@ fn test_structured_public_errors() {
         } if actual == dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES - 1
     ));
 
-    let signing_secret_key_error = StackSigningKeyPair::from_slices(
+    let signing_secret_key_error = dryoc::sign::StackSigningKeyPair::from_slices(
         &[0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES],
         &[0u8; dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES - 1],
     )
@@ -231,9 +229,7 @@ fn test_sha3_public_api() {
         crypto_hash_sha3256_init, crypto_hash_sha3256_update, crypto_hash_sha3512,
         crypto_hash_sha3512_final, crypto_hash_sha3512_init, crypto_hash_sha3512_update,
     };
-    use dryoc::sha3::{
-        Sha3256, Sha3256Digest as RustSha3256Digest, Sha3512, Sha3512Digest as RustSha3512Digest,
-    };
+    use dryoc::sha3::{Digest256, Digest512, Sha3256, Sha3512};
     use dryoc::types::Bytes;
 
     let message = b"public API message";
@@ -247,11 +243,11 @@ fn test_sha3_public_api() {
     crypto_hash_sha3256_final(classic_state256, &mut classic_streaming256);
     assert_eq!(classic_one_shot256, classic_streaming256);
 
-    let rust_one_shot256: RustSha3256Digest = Sha3256::compute(message);
+    let rust_one_shot256: Digest256 = Sha3256::compute(message);
     let mut rust_state256 = Sha3256::new();
     rust_state256.update(b"public API ");
     rust_state256.update(b"message");
-    let rust_streaming256: RustSha3256Digest = rust_state256.finalize();
+    let rust_streaming256: Digest256 = rust_state256.finalize();
     assert_eq!(rust_one_shot256, rust_streaming256);
     assert_eq!(classic_one_shot256.as_slice(), rust_one_shot256.as_slice());
 
@@ -264,11 +260,11 @@ fn test_sha3_public_api() {
     crypto_hash_sha3512_final(classic_state512, &mut classic_streaming512);
     assert_eq!(classic_one_shot512, classic_streaming512);
 
-    let rust_one_shot512: RustSha3512Digest = Sha3512::compute(message);
+    let rust_one_shot512: Digest512 = Sha3512::compute(message);
     let mut rust_state512 = Sha3512::new();
     rust_state512.update(b"public API ");
     rust_state512.update(b"message");
-    let rust_streaming512: RustSha3512Digest = rust_state512.finalize();
+    let rust_streaming512: Digest512 = rust_state512.finalize();
     assert_eq!(rust_one_shot512, rust_streaming512);
     assert_eq!(classic_one_shot512.as_slice(), rust_one_shot512.as_slice());
 }
@@ -716,38 +712,38 @@ fn test_rustaceous_hmac_and_hkdf_public_api() {
     let message = b"public API message";
 
     let key256 = HmacSha256Key::generate();
-    let mac256: HmacSha256Mac = HmacSha256::compute(key256.clone(), message);
-    HmacSha256::compute_and_verify(&mac256, key256, message).expect("verify failed");
+    let mac256: HmacSha256Mac = HmacSha256::compute(&key256, message);
+    HmacSha256::compute_and_verify(&mac256, &key256, message).expect("verify failed");
 
     let key512 = HmacSha512Key::generate();
-    let mut auth512 = HmacSha512::new(key512.clone());
+    let mut auth512 = HmacSha512::new(&key512);
     auth512.update(b"public API ");
     auth512.update(b"message");
     let mac512 = auth512.finalize_to_vec();
-    let mut verify512 = HmacSha512::new(key512);
+    let mut verify512 = HmacSha512::new(&key512);
     verify512.update(b"public API ");
     verify512.update(b"message");
     let mac512 = HmacSha512Mac::try_from(mac512.as_slice()).expect("MAC length");
     verify512.verify(&mac512).expect("verify failed");
 
     let key512256 = HmacSha512256Key::generate();
-    let mac512256: HmacSha512256Mac = HmacSha512256::compute(key512256.clone(), message);
-    HmacSha512256::compute_and_verify(&mac512256, key512256, b"invalid")
+    let mac512256: HmacSha512256Mac = HmacSha512256::compute(&key512256, message);
+    HmacSha512256::compute_and_verify(&mac512256, &key512256, b"invalid")
         .expect_err("verify should fail");
 
     let hkdf256 = HkdfSha256::extract(Some(b"salt"), b"input keying material");
     let okm256: HkdfSha256Prk = hkdf256.expand(b"context").expect("expand failed");
     assert_eq!(okm256.len(), 32);
     let okm256 = hkdf256
-        .expand_to_vec(42, b"context")
+        .expand_to_vec(b"context", 42)
         .expect("expand failed");
     assert_eq!(okm256.len(), 42);
 
     let okm512 = HkdfSha512::extract_and_expand_to_vec(
-        96,
         Some(b"salt"),
         b"input keying material",
         b"context",
+        96,
     )
     .expect("expand failed");
     assert_eq!(okm512.len(), 96);
@@ -807,25 +803,23 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
 
     let key_bytes = [7u8; 32];
     let key = HmacSha256Key::from_slice_into_readonly_locked(&key_bytes).expect("key failed");
-    let verify_key =
-        HmacSha256Key::from_slice_into_readonly_locked(&key_bytes).expect("key failed");
     let input =
         HmacHeapBytes::from_slice_into_readonly_locked(b"protected message").expect("input failed");
-    let mac: HmacLocked<HmacSha256Mac> = HmacSha256::compute(key, &input);
-    HmacSha256::compute_and_verify(&mac, verify_key, &input).expect("verify failed");
+    let mac: HmacLocked<HmacSha256Mac> = HmacSha256::compute(&key, &input);
+    HmacSha256::compute_and_verify(&mac, &key, &input).expect("verify failed");
 
     let ikm = HkdfHeapBytes::from_slice_into_readonly_locked(b"input keying material")
         .expect("ikm failed");
     let hkdf: LockedHkdfSha512 =
-        HkdfSha512Expander::<HkdfLocked<HkdfSha512Prk>>::extract(None::<&[u8]>, &ikm);
+        HkdfSha512Expander::<HkdfLocked<HkdfSha512Prk>>::extract(None, &ikm);
     let output: HkdfLocked<HkdfHeapBytes> =
-        hkdf.expand_to_bytes(64, b"context").expect("expand failed");
+        hkdf.expand_to_bytes(b"context", 64).expect("expand failed");
     assert_eq!(output.len(), 64);
 
     let prk = HkdfSha512Prk::generate_readonly_locked().expect("prk failed");
     let hkdf = HkdfSha512Expander::from_prk(prk);
     let output: HkdfLocked<HkdfHeapBytes> =
-        hkdf.expand_to_bytes(32, b"context").expect("expand failed");
+        hkdf.expand_to_bytes(b"context", 32).expect("expand failed");
     assert_eq!(output.len(), 32);
 }
 
@@ -834,11 +828,8 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
 fn test_protected_generation_api() {
     use dryoc::dryocbox::protected::{LockedKeyPair, LockedROKeyPair, Nonce as BoxNonce};
     use dryoc::dryocstream::protected::Key as StreamKey;
-    use dryoc::protected::{LockedRO, NewLocked};
-    use dryoc::sign::SigningKeyPair;
-    use dryoc::sign::protected::{
-        LockedSigningKeyPair, PublicKey as SignPublicKey, SecretKey as SignSecretKey,
-    };
+    use dryoc::protected::NewLocked;
+    use dryoc::sign::protected::{LockedROSigningKeyPair, LockedSigningKeyPair};
     use dryoc::types::Bytes;
 
     let key = StreamKey::generate_locked().expect("key failed");
@@ -867,8 +858,8 @@ fn test_protected_generation_api() {
         locked_signing_keypair.public_key.len(),
         dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
     );
-    let readonly_signing_keypair: SigningKeyPair<LockedRO<SignPublicKey>, LockedRO<SignSecretKey>> =
-        SigningKeyPair::generate_readonly_locked_keypair().expect("readonly signing keypair");
+    let readonly_signing_keypair = LockedROSigningKeyPair::generate_readonly_locked_keypair()
+        .expect("readonly signing keypair");
     assert_eq!(
         readonly_signing_keypair.secret_key.len(),
         dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
@@ -971,9 +962,10 @@ fn test_stack_byte_array_serde_json_roundtrip_requires_exact_length() {
 #[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"hey";
 
@@ -1017,12 +1009,14 @@ fn test_dryocbox() {
 #[test]
 fn test_dryocsecretbox() {
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::generate();
     let nonce = Nonce::generate();
     let message = b"hey";
 
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
 
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
@@ -1035,6 +1029,7 @@ fn test_dryocsecretbox() {
 #[test]
 fn test_dryocaead() {
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::generate();
@@ -1099,6 +1094,7 @@ fn test_dryocaead_chacha20poly1305_ietf() {
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
     };
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::from([0x42; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES]);
@@ -1145,6 +1141,7 @@ fn test_dryocaead_chacha20poly1305_ietf() {
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::from([0x42; 12]);
@@ -1161,6 +1158,7 @@ fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf_wincode() {
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::from([0x42; 12]);
@@ -1176,9 +1174,10 @@ fn test_dryocaead_chacha20poly1305_ietf_wincode() {
 #[test]
 fn test_dryocbox_serde_json() {
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"hey friend";
 
@@ -1209,12 +1208,14 @@ fn test_dryocbox_serde_json() {
 #[test]
 fn test_dryocsecretbox_serde_json() {
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::generate();
     let nonce = Nonce::generate();
     let message = b"hey buddy bro";
 
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
 
     let json = serde_json::to_string(&dryocsecretbox).expect("doesn't serialize");
 
@@ -1231,6 +1232,7 @@ fn test_dryocsecretbox_serde_json() {
 #[test]
 fn test_dryocaead_serde_json() {
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::generate();
@@ -1268,9 +1270,10 @@ fn wincode_vec(bytes: &[u8]) -> Vec<u8> {
 fn test_dryocbox_wincode_wire_format() {
     use dryoc::classic::crypto_box::crypto_box_detached;
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
-    let sender_keypair = KeyPair::from_seed(&[1u8; 32]);
-    let recipient_keypair = KeyPair::from_seed(&[2u8; 32]);
+    let sender_keypair = StackKeyPair::from_seed(&[1u8; 32]);
+    let recipient_keypair = StackKeyPair::from_seed(&[2u8; 32]);
     let nonce = Nonce::from([3u8; 24]);
     let message = b"hey friend";
 
@@ -1337,6 +1340,7 @@ fn test_dryocbox_wincode_wire_format() {
 fn test_dryocaead_wincode_wire_format() {
     use dryoc::classic::crypto_aead_xchacha20poly1305_ietf::crypto_aead_xchacha20poly1305_ietf_encrypt_detached;
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::from([4u8; 32]);
     let nonce = Nonce::from([5u8; 24]);
@@ -1433,8 +1437,8 @@ fn test_dryocbox_wincode_known_answers() {
         "afffc3f7c542a18069183ea67898e2dc9b",
     );
 
-    let sender_keypair = KeyPair::from_seed(&[1u8; 32]);
-    let recipient_keypair = KeyPair::from_seed(&[2u8; 32]);
+    let sender_keypair = StackKeyPair::from_seed(&[1u8; 32]);
+    let recipient_keypair = StackKeyPair::from_seed(&[2u8; 32]);
     let nonce = Nonce::from([3u8; 24]);
 
     let regular = hex::decode(REGULAR).expect("hex");
@@ -1478,7 +1482,8 @@ fn test_dryocsecretbox_wincode_known_answer() {
     let nonce = Nonce::from([7u8; 24]);
     let expected = hex::decode(SECRETBOX).expect("hex");
 
-    let secretbox: VecBox = DryocSecretBox::encrypt(b"hey buddy bro", &nonce, &key);
+    let secretbox: VecBox =
+        DryocSecretBox::encrypt(b"hey buddy bro", &nonce, &key).expect("encrypt");
     assert_eq!(wincode::serialize(&secretbox).expect("serialize"), expected);
     let decoded: VecBox = wincode_reencode(&expected);
     let decrypted: Vec<u8> = decoded.decrypt(&nonce, &key).expect("decrypt");
@@ -1580,9 +1585,10 @@ fn test_dryocaead_envelope_wincode_known_answers() {
 #[test]
 fn test_dryocbox_wincode() {
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"hey friend";
 
@@ -1612,6 +1618,7 @@ fn test_dryocbox_wincode() {
 #[test]
 fn test_dryocaead_wincode() {
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::generate();
@@ -1639,7 +1646,7 @@ fn test_dryocaead_wincode() {
 fn test_dryocbox_sealed_wincode() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let message = b"hey sealed friend";
 
     let dryocbox: VecBox =
@@ -1658,6 +1665,7 @@ fn test_dryocbox_sealed_wincode() {
 fn test_dryocsecretbox_wincode_wire_format() {
     use dryoc::classic::crypto_secretbox::crypto_secretbox_detached;
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::from([6u8; 32]);
     let nonce = Nonce::from([7u8; 24]);
@@ -1675,7 +1683,8 @@ fn test_dryocsecretbox_wincode_wire_format() {
     .expect("classic encrypt");
 
     // Tag, then the length-prefixed ciphertext.
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
     let encoded = wincode::serialize(&dryocsecretbox).expect("doesn't serialize");
 
     let mut expected = mac.to_vec();
@@ -1695,12 +1704,14 @@ fn test_dryocsecretbox_wincode_wire_format() {
 #[test]
 fn test_dryocsecretbox_wincode() {
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::generate();
     let nonce = Nonce::generate();
     let message = b"hey buddy bro";
 
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
 
     let encoded = wincode::serialize(&dryocsecretbox).expect("doesn't serialize");
     let dryocsecretbox: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
@@ -1730,7 +1741,7 @@ fn test_dryocsecretbox_protected_to_bytes_from_parts() {
             .expect("message failed");
 
     let dryocsecretbox: protected::LockedBox =
-        DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(&message, &nonce, &secret_key).expect("encrypt failed");
 
     // `to_bytes` writes `tag || ciphertext`, the same layout `VecBox::to_vec`
     // produces for the unprotected form.
@@ -1827,7 +1838,7 @@ fn test_streams() {
         &mut c1,
         message1,
         None,
-        Tag::MESSAGE.bits(),
+        Tag::Message.bits(),
     )
     .expect("Encrypt failed");
     // Encrypt a series of messages
@@ -1836,7 +1847,7 @@ fn test_streams() {
         &mut c2,
         message2,
         None,
-        Tag::MESSAGE.bits(),
+        Tag::Message.bits(),
     )
     .expect("Encrypt failed");
     // Encrypt a series of messages
@@ -1845,7 +1856,7 @@ fn test_streams() {
         &mut c3,
         message3,
         None,
-        Tag::FINAL.bits(),
+        Tag::Final.bits(),
     )
     .expect("Encrypt failed");
 
@@ -1872,15 +1883,16 @@ fn test_streams() {
     assert_eq!(message2, m2.as_slice());
     assert_eq!(message3, m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE.bits());
-    assert_eq!(tag2, Tag::MESSAGE.bits());
-    assert_eq!(tag3, Tag::FINAL.bits());
+    assert_eq!(tag1, Tag::Message.bits());
+    assert_eq!(tag2, Tag::Message.bits());
+    assert_eq!(tag3, Tag::Final.bits());
 }
 
 #[cfg(feature = "alloc")]
 #[test]
 fn test_streams_rustaceous() {
     use dryoc::dryocstream::*;
+    use dryoc::types::*;
     let message1 = b"Arbitrary data to encrypt";
     let message2 = b"split into";
     let message3 = b"three messages";
@@ -1889,13 +1901,13 @@ fn test_streams_rustaceous() {
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: Vec<u8> = push_stream
-        .push(message1, None, Tag::MESSAGE)
+        .push(message1, None, Tag::Message)
         .expect("Encrypt failed");
     let c2: Vec<u8> = push_stream
-        .push(message2, None, Tag::MESSAGE)
+        .push(message2, None, Tag::Message)
         .expect("Encrypt failed");
     let c3: Vec<u8> = push_stream
-        .push(message3, None, Tag::FINAL)
+        .push(message3, None, Tag::Final)
         .expect("Encrypt failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
@@ -1908,9 +1920,9 @@ fn test_streams_rustaceous() {
     assert_eq!(message2, m2.as_slice());
     assert_eq!(message3, m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE);
-    assert_eq!(tag2, Tag::MESSAGE);
-    assert_eq!(tag3, Tag::FINAL);
+    assert_eq!(tag1, Tag::Message);
+    assert_eq!(tag2, Tag::Message);
+    assert_eq!(tag3, Tag::Final);
 }
 
 #[cfg(all(feature = "serde", feature = "alloc"))]
@@ -1918,7 +1930,7 @@ fn test_streams_rustaceous() {
 fn test_dryocbox_serde_known_good() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::from_slices(
+    let sender_keypair = StackKeyPair::from_slices(
         &[
             19, 102, 68, 158, 243, 5, 191, 249, 31, 150, 224, 99, 131, 223, 250, 86, 183, 59, 12,
             207, 166, 197, 248, 213, 150, 17, 186, 94, 179, 184, 168, 31,
@@ -1929,7 +1941,7 @@ fn test_dryocbox_serde_known_good() {
         ],
     )
     .expect("sender keypair failed");
-    let recipient_keypair = KeyPair::from_slices(
+    let recipient_keypair = StackKeyPair::from_slices(
         &[
             203, 213, 109, 27, 115, 197, 227, 35, 161, 27, 73, 179, 181, 104, 237, 253, 207, 206,
             186, 108, 254, 67, 246, 221, 47, 60, 68, 37, 148, 169, 242, 109,
@@ -1992,7 +2004,7 @@ fn test_dryocsecretbox_protected() {
             .expect("message failed");
 
     let dryocsecretbox: protected::LockedBox =
-        DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(&message, &nonce, &secret_key).expect("encrypt failed");
 
     let decrypted: LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)
@@ -2067,13 +2079,13 @@ fn test_streams_protected() {
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: LockedBytes = push_stream
-        .push(&message1, None, Tag::MESSAGE)
+        .push(&message1, None, Tag::Message)
         .expect("Encrypt failed");
     let c2: LockedBytes = push_stream
-        .push(&message2, None, Tag::MESSAGE)
+        .push(&message2, None, Tag::Message)
         .expect("Encrypt failed");
     let c3: LockedBytes = push_stream
-        .push(&message3, None, Tag::FINAL)
+        .push(&message3, None, Tag::Final)
         .expect("Encrypt failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
@@ -2086,9 +2098,9 @@ fn test_streams_protected() {
     assert_eq!(message2.as_slice(), m2.as_slice());
     assert_eq!(message3.as_slice(), m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE);
-    assert_eq!(tag2, Tag::MESSAGE);
-    assert_eq!(tag3, Tag::FINAL);
+    assert_eq!(tag1, Tag::Message);
+    assert_eq!(tag2, Tag::Message);
+    assert_eq!(tag3, Tag::Final);
 }
 
 #[cfg(feature = "alloc")]
@@ -2096,7 +2108,7 @@ fn test_streams_protected() {
 fn test_dryocbox_seal() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let message = b"juicybox";
 
     let dryocbox =

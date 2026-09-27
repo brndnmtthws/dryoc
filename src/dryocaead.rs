@@ -30,6 +30,7 @@
 //! # #[cfg(feature = "alloc")]
 //! # {
 //! use dryoc::dryocaead::*;
+//! use dryoc::types::*;
 //!
 //! let key = Key::generate();
 //! let nonce = Nonce::generate();
@@ -54,6 +55,7 @@
 //! # #[cfg(feature = "alloc")]
 //! # {
 //! use dryoc::dryocaead::*;
+//! use dryoc::types::*;
 //!
 //! let key = Key::generate();
 //! let message = b"Arbitrary data to encrypt";
@@ -86,7 +88,7 @@ use crate::constants::{
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
 };
 use crate::error::{Error, ErrorContext};
-pub use crate::types::*;
+use crate::types::*;
 use crate::utils::{ct_eq_bytes, split_suffix};
 
 mod sealed {
@@ -129,50 +131,72 @@ impl sealed::Sealed for ChaCha20Poly1305Ietf {
 }
 impl AeadAlgorithm for ChaCha20Poly1305Ietf {}
 
-/// Stack-allocated secret key for XChaCha20-Poly1305-IETF AEAD.
-pub type Key = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
-/// Stack-allocated public nonce for XChaCha20-Poly1305-IETF AEAD.
-pub type Nonce = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
-/// Stack-allocated authentication tag for XChaCha20-Poly1305-IETF AEAD.
-pub type Mac = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
+pub use xchacha20poly1305_ietf::*;
 
-/// XChaCha20-Poly1305-IETF AEAD box.
-pub type DryocAead<Mac, Data> = AeadBox<XChaCha20Poly1305Ietf, Mac, Data>;
-/// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
-pub type DryocAeadEnvelope<Nonce, Mac, Data> =
-    AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>;
-/// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD box.
-#[cfg(feature = "alloc")]
-pub type VecBox = DryocAead<Mac, Vec<u8>>;
-/// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD envelope.
-#[cfg(feature = "alloc")]
-pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
-
-/// Algorithm-specific aliases for XChaCha20-Poly1305-IETF.
+/// XChaCha20-Poly1305-IETF Rustaceous AEAD API, the default algorithm.
+///
+/// Everything in this module is re-exported from
+/// [`dryocaead`](crate::dryocaead), so `dryoc::dryocaead::Key` and
+/// `dryoc::dryocaead::xchacha20poly1305_ietf::Key` name the same type.
 pub mod xchacha20poly1305_ietf {
+    #[cfg(feature = "alloc")]
+    use alloc::vec::Vec;
+
+    pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, XChaCha20Poly1305Ietf};
+    use crate::constants::{
+        CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
+        CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
+    };
+    use crate::types::*;
+
+    /// Stack-allocated secret key for XChaCha20-Poly1305-IETF AEAD.
+    pub type Key = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
+    /// Stack-allocated public nonce for XChaCha20-Poly1305-IETF AEAD.
+    pub type Nonce = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
+    /// Stack-allocated authentication tag for XChaCha20-Poly1305-IETF AEAD.
+    pub type Mac = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
+
+    /// XChaCha20-Poly1305-IETF AEAD box.
+    pub type DryocAead<Mac, Data> = AeadBox<XChaCha20Poly1305Ietf, Mac, Data>;
+    /// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
+    pub type DryocAeadEnvelope<Nonce, Mac, Data> =
+        AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>;
+    /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD box.
+    #[cfg(feature = "alloc")]
+    pub type VecBox = DryocAead<Mac, Vec<u8>>;
+    /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD envelope.
+    #[cfg(feature = "alloc")]
+    pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
+
     #[cfg(any(
         all(feature = "protected", any(unix, windows)),
         all(doc, not(doctest), feature = "std")
     ))]
-    pub use super::protected;
-    pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, XChaCha20Poly1305Ietf};
+    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
+    pub mod protected {
+        //! # Protected memory type aliases for [`AeadBox`] and [`AeadEnvelope`]
+        //!
+        //! This mod provides protected-memory type aliases for the
+        //! XChaCha20-Poly1305-IETF Rustaceous AEAD API.
+        use super::*;
+        pub use crate::protected::*;
 
-    /// Stack-allocated secret key.
-    pub type Key = super::Key;
-    /// Stack-allocated public nonce.
-    pub type Nonce = super::Nonce;
-    /// Stack-allocated authentication tag.
-    pub type Mac = super::Mac;
-    /// XChaCha20-Poly1305-IETF AEAD box.
-    pub type DryocAead<Mac, Data> = super::DryocAead<Mac, Data>;
-    /// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
-    pub type DryocAeadEnvelope<Nonce, Mac, Data> = super::DryocAeadEnvelope<Nonce, Mac, Data>;
-    /// [`Vec`](alloc::vec::Vec)-based XChaCha20-Poly1305-IETF AEAD box.
-    #[cfg(feature = "alloc")]
-    pub type VecBox = super::VecBox;
-    /// [`Vec`](alloc::vec::Vec)-based XChaCha20-Poly1305-IETF AEAD envelope.
-    #[cfg(feature = "alloc")]
-    pub type VecEnvelope = super::VecEnvelope;
+        /// Heap-allocated, page-aligned secret key for XChaCha20-Poly1305-IETF.
+        pub type Key = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
+        /// Heap-allocated, page-aligned public nonce for
+        /// XChaCha20-Poly1305-IETF.
+        pub type Nonce = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
+        /// Heap-allocated, page-aligned authentication tag for
+        /// XChaCha20-Poly1305-IETF.
+        pub type Mac = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
+
+        /// Locked AEAD box, provided as a type alias for convenience.
+        pub type LockedBox = AeadBox<XChaCha20Poly1305Ietf, Locked<Mac>, LockedBytes>;
+        /// Locked AEAD envelope with stored nonce, provided as a type alias for
+        /// convenience.
+        pub type LockedEnvelope =
+            AeadEnvelope<XChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
+    }
 }
 
 /// ChaCha20-Poly1305-IETF Rustaceous AEAD API.
@@ -190,6 +214,7 @@ pub mod xchacha20poly1305_ietf {
 /// # #[cfg(feature = "alloc")]
 /// # {
 /// use dryoc::dryocaead::chacha20poly1305_ietf::*;
+/// use dryoc::types::*;
 ///
 /// let key = Key::generate();
 /// // This 96-bit nonce must be unique for every message encrypted with `key`.
@@ -217,7 +242,7 @@ pub mod chacha20poly1305_ietf {
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
     };
-    pub use crate::types::*;
+    use crate::types::*;
 
     /// Stack-allocated secret key.
     pub type Key = StackByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>;
@@ -259,35 +284,6 @@ pub mod chacha20poly1305_ietf {
         pub type LockedEnvelope =
             AeadEnvelope<ChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
     }
-}
-
-#[cfg(any(
-    all(feature = "protected", any(unix, windows)),
-    all(doc, not(doctest), feature = "std")
-))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
-pub mod protected {
-    //! # Protected memory type aliases for [`AeadBox`] and [`AeadEnvelope`]
-    //!
-    //! This mod provides protected-memory type aliases for the
-    //! XChaCha20-Poly1305-IETF Rustaceous AEAD API.
-    use super::*;
-    pub use crate::protected::*;
-
-    /// Heap-allocated, page-aligned secret key for XChaCha20-Poly1305-IETF.
-    pub type Key = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
-    /// Heap-allocated, page-aligned public nonce for XChaCha20-Poly1305-IETF.
-    pub type Nonce = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
-    /// Heap-allocated, page-aligned authentication tag for
-    /// XChaCha20-Poly1305-IETF.
-    pub type Mac = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
-
-    /// Locked AEAD box, provided as a type alias for convenience.
-    pub type LockedBox = AeadBox<XChaCha20Poly1305Ietf, Locked<Mac>, LockedBytes>;
-    /// Locked AEAD envelope with stored nonce, provided as a type alias for
-    /// convenience.
-    pub type LockedEnvelope =
-        AeadEnvelope<XChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
 }
 
 #[derive(Clone, Debug)]
@@ -545,10 +541,14 @@ macro_rules! impl_aead_algorithm {
             ///
             /// Returns an error if the message exceeds the construction's maximum
             /// length.
-            pub fn encrypt_to_vecbox<Message: Bytes + ?Sized, SecretKey: ByteArray<$keybytes>>(
+            pub fn encrypt_to_vecbox<
+                Message: Bytes + ?Sized,
+                Nonce: ByteArray<$npubbytes>,
+                SecretKey: ByteArray<$keybytes>,
+            >(
                 message: &Message,
                 associated_data: Option<&[u8]>,
-                nonce: &StackByteArray<$npubbytes>,
+                nonce: &Nonce,
                 key: &SecretKey,
             ) -> Result<Self, Error> {
                 Self::encrypt(message, associated_data, nonce, key)
@@ -561,16 +561,17 @@ macro_rules! impl_aead_algorithm {
             /// Returns an error if the ciphertext exceeds the construction's maximum
             /// length or authentication fails because the key, nonce, associated data,
             /// ciphertext, or tag does not match.
-            pub fn decrypt_to_vec<SecretKey: ByteArray<$keybytes>>(
+            pub fn decrypt_to_vec<Nonce: ByteArray<$npubbytes>, SecretKey: ByteArray<$keybytes>>(
                 &self,
                 associated_data: Option<&[u8]>,
-                nonce: &StackByteArray<$npubbytes>,
+                nonce: &Nonce,
                 key: &SecretKey,
             ) -> Result<Vec<u8>, Error> {
                 self.decrypt(associated_data, nonce, key)
             }
 
             /// Consumes this box and returns it as `ciphertext || tag`.
+            #[must_use]
             pub fn into_vec(mut self) -> Vec<u8> {
                 self.data.resize(self.data.len() + $abytes, 0);
                 let tag_offset = self.data.len() - $abytes;
@@ -599,6 +600,7 @@ macro_rules! impl_aead_algorithm {
             }
 
             /// Consumes this envelope and returns it as `nonce || ciphertext || tag`.
+            #[must_use]
             pub fn into_vec(self) -> Vec<u8> {
                 let mut output = self.nonce.to_vec();
                 output.extend_from_slice(self.data.as_slice());
@@ -734,6 +736,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Zeroize, Mac: Zeroize, Data: Zeroize> Zero
 
 impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
     /// Returns a new AEAD box from `tag` and ciphertext `data`.
+    #[must_use]
     pub fn from_parts(tag: Mac, data: Data) -> Self {
         Self {
             algorithm: PhantomData,
@@ -753,6 +756,7 @@ impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
     }
 
     /// Moves the tag and ciphertext out of this instance.
+    #[must_use]
     pub fn into_parts(self) -> (Mac, Data) {
         (self.tag, self.data)
     }
@@ -761,6 +765,7 @@ impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
 impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, Data> {
     /// Copies `self` into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -771,6 +776,7 @@ impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, 
     /// # Panics
     ///
     /// Panics if the tag is shorter than the algorithm's tag size.
+    #[must_use]
     pub fn to_bytes<Output: NewBytes + ResizableBytes>(&self) -> Output {
         concat_bytes(
             self.data.as_slice(),
@@ -781,6 +787,7 @@ impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, 
 
 impl<Algorithm: AeadAlgorithm, Nonce, Mac, Data> AeadEnvelope<Algorithm, Nonce, Mac, Data> {
     /// Returns a new AEAD envelope from `nonce`, `tag`, and ciphertext `data`.
+    #[must_use]
     pub fn from_parts(nonce: Nonce, tag: Mac, data: Data) -> Self {
         Self {
             algorithm: PhantomData,
@@ -806,6 +813,7 @@ impl<Algorithm: AeadAlgorithm, Nonce, Mac, Data> AeadEnvelope<Algorithm, Nonce, 
     }
 
     /// Moves the nonce, tag, and ciphertext out of this instance.
+    #[must_use]
     pub fn into_parts(self) -> (Nonce, Mac, Data) {
         (self.nonce, self.tag, self.data)
     }
@@ -816,6 +824,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
 {
     /// Copies `self` into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -827,6 +836,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
     /// # Panics
     ///
     /// Panics if the nonce or tag is shorter than the algorithm's size.
+    #[must_use]
     pub fn to_bytes<Output: NewBytes + ResizableBytes>(&self) -> Output {
         let nonce = &self.nonce.as_slice()[..Algorithm::NPUBBYTES];
         let tag = &self.tag.as_slice()[..Algorithm::ABYTES];

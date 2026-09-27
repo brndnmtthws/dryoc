@@ -162,7 +162,7 @@ macro_rules! hkdf_class {
                 ) -> PyResult<Bound<'py, PyBytes>> {
                     let info = info.as_ref().map(Buf::as_slice).unwrap_or_default();
                     let output = <$inner>::from_prk(self.key.clone())
-                        .expand_to_vec(length, info)
+                        .expand_to_vec(info, length)
                         .map(Zeroizing::new)
                         .or_raise()?;
                     Ok(secret_bytes(py, output))
@@ -185,7 +185,7 @@ macro_rules! hkdf_class {
         ) -> PyResult<Bound<'py, PyBytes>> {
             let salt = salt.as_ref().map(Buf::as_slice);
             let info = info.as_ref().map(Buf::as_slice).unwrap_or_default();
-            let output = <$inner>::extract_and_expand_to_vec(length, salt, ikm.as_slice(), info)
+            let output = <$inner>::extract_and_expand_to_vec(salt, ikm.as_slice(), info, length)
                 .map(Zeroizing::new)
                 .or_raise()?;
             Ok(secret_bytes(py, output))

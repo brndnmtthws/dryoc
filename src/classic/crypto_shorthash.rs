@@ -40,6 +40,7 @@ pub type Hash = [u8; CRYPTO_SHORTHASH_BYTES];
 pub type Key = [u8; CRYPTO_SHORTHASH_KEYBYTES];
 
 /// Generates a random key for short input hashing.
+#[must_use]
 pub fn crypto_shorthash_keygen() -> Key {
     let mut key = Key::default();
     copy_randombytes(&mut key);

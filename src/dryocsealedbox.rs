@@ -59,7 +59,7 @@
 //! # {
 //! use dryoc::dryocsealedbox::*;
 //!
-//! let recipient_keypair = KeyPair::generate_with_defaults();
+//! let recipient_keypair = StackKeyPair::generate();
 //! let message = b"Now is the winter of our discontent.";
 //!
 //! let sealed = DryocSealedBox::seal_to_vecbox(message, &recipient_keypair.public_key)
@@ -103,7 +103,7 @@ use crate::error::{Error, ErrorContext};
 pub use crate::kem::xwing::{KeyPair, PublicKey, SecretKey, StackKeyPair};
 use crate::mlkem::Arith;
 use crate::rng::copy_randombytes;
-pub use crate::types::*;
+use crate::types::*;
 
 /// Stack-allocated X-Wing ciphertext that carries the box's key (HPKE's
 /// `enc`).
@@ -360,6 +360,7 @@ impl<
 > DryocSealedBox<EncapsulatedKey, Mac, Data>
 {
     /// Returns a new box from its parts, consuming each.
+    #[must_use]
     pub fn from_parts(enc: EncapsulatedKey, tag: Mac, data: Data) -> Self {
         Self { enc, tag, data }
     }
@@ -381,17 +382,20 @@ impl<
 
     /// Moves the X-Wing ciphertext, tag and encrypted message out of this
     /// box.
+    #[must_use]
     pub fn into_parts(self) -> (EncapsulatedKey, Mac, Data) {
         (self.enc, self.tag, self.data)
     }
 
     /// Copies the box's wire format into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
 
     /// Copies the box's wire format into new `Bytes`.
+    #[must_use]
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         let mut bytes = Bytes::new_bytes();
         bytes.resize(SEALBYTES + self.data.len(), 0);
@@ -413,9 +417,9 @@ impl<
     /// this key pair or was modified, or an error if the X-Wing ciphertext
     /// carries a low-order X25519 point.
     pub fn open<
+        Output: ResizableBytes + NewBytes + Zeroize,
         RecipientPublicKey: ByteArray<CRYPTO_KEM_XWING_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_KEM_XWING_SECRETKEYBYTES> + Zeroize,
-        Output: ResizableBytes + NewBytes + Zeroize,
     >(
         &self,
         recipient_keypair: &KeyPair<RecipientPublicKey, RecipientSecretKey>,
@@ -449,9 +453,12 @@ impl DryocSealedBox<EncapsulatedKey, Mac, Vec<u8>> {
     /// # Errors
     ///
     /// Returns the same errors as [`DryocSealedBox::seal`].
-    pub fn seal_to_vecbox<Message: Bytes + ?Sized>(
+    pub fn seal_to_vecbox<
+        Message: Bytes + ?Sized,
+        RecipientPublicKey: ByteArray<CRYPTO_KEM_XWING_PUBLICKEYBYTES>,
+    >(
         message: &Message,
-        recipient_public_key: &PublicKey,
+        recipient_public_key: &RecipientPublicKey,
     ) -> Result<Self, Error> {
         Self::seal(message, recipient_public_key)
     }

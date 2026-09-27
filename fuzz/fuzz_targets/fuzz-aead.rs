@@ -480,7 +480,8 @@ fuzz_target!(|data: &[u8]| {
 
     let secret_key = dryoc::dryocsecretbox::Key::from(key);
     let secret_nonce = dryoc::dryocsecretbox::Nonce::from(nonce);
-    let secretbox = SecretVecBox::encrypt_to_vecbox(&message, &secret_nonce, &secret_key);
+    let secretbox = SecretVecBox::encrypt_to_vecbox(&message, &secret_nonce, &secret_key)
+        .expect("secretbox vecbox encrypt");
     assert_eq!(secretbox.to_vec(), expected_box);
     assert_eq!(
         secretbox

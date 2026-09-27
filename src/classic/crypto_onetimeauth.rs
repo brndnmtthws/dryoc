@@ -134,6 +134,7 @@ pub struct OnetimeauthState {
 /// be used once.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_keygen`.
+#[must_use]
 pub fn crypto_onetimeauth_keygen() -> Key {
     Key::generate()
 }
@@ -146,6 +147,7 @@ pub fn crypto_onetimeauth_keygen() -> Key {
 /// [`crypto_onetimeauth_final`]. The key should only be used once.
 ///
 /// Equivalent to libsodium's `crypto_onetimeauth_init`.
+#[must_use]
 pub fn crypto_onetimeauth_init(key: &[u8; CRYPTO_ONETIMEAUTH_KEYBYTES]) -> OnetimeauthState {
     OnetimeauthState {
         state: crypto_onetimeauth_poly1305_init(key),

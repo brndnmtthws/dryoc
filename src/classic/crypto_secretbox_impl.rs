@@ -34,7 +34,7 @@ fn seal_sequential(
     nonce: &Nonce,
     key: &Key,
 ) {
-    let mut mac_key = Poly1305Key::new();
+    let mut mac_key = Poly1305Key::default();
     {
         let mut cipher = XSalsa20::new(key, nonce);
         let mut head = [0u8; 64];
@@ -94,7 +94,7 @@ fn seal_stitched(output: &mut [u8], input: Option<&[u8]>, mac: &mut Mac, nonce: 
             }
         }
     }
-    let mut mac_key = Poly1305Key::new();
+    let mut mac_key = Poly1305Key::default();
     mac_key.copy_from_slice(&head[..MAC_KEY_BYTES]);
     zeroize_bytes(&mut head);
     let mut computed_mac = Poly1305::new(&mac_key);
@@ -121,7 +121,7 @@ fn open(
     debug_assert!(input.is_none_or(|input| input.len() == output.len()));
 
     let mut cipher = XSalsa20::new(key, nonce);
-    let mut mac_key = Poly1305Key::new();
+    let mut mac_key = Poly1305Key::default();
     cipher.apply_keystream(&mut mac_key);
 
     // The MAC state drops (and wipes itself) at the end of this block,
