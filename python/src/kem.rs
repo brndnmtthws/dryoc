@@ -70,6 +70,7 @@ macro_rules! kem_classes {
             #[classattr]
             const __hash__: Option<Py<PyAny>> = None;
 
+            /// Wraps existing secret key bytes.
             #[new]
             fn py_new(key: Buf<'_>) -> PyResult<Self> {
                 Ok(Self {
