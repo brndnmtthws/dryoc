@@ -45,9 +45,12 @@
 //! let nonce = Nonce::generate();
 //! let message = b"Hello, post-quantum world!";
 //!
-//! let box_ = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &key).expect("encryption failed");
-//! let decrypted = box_.decrypt_to_vec(&nonce, &key).expect("authentication failed");
-//! assert_eq!(message, &decrypted[..]);
+//! #[cfg(feature = "alloc")]
+//! {
+//!     let box_ = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &key).expect("encryption failed");
+//!     let decrypted = box_.decrypt_to_vec(&nonce, &key).expect("authentication failed");
+//!     assert_eq!(message, &decrypted[..]);
+//! }
 //! ```
 //!
 //! ## Feature & API Overview
