@@ -261,5 +261,5 @@ rather than at every call site. The WebAssembly `simd128` backends (ChaCha20,
 XSalsa20 and the ML-KEM polynomial arithmetic) use unsafe 16-byte vector loads
 and stores, and `simd128` builds store the portable Argon2 round outputs with
 volatile writes that keep LLVM from vectorizing them.
-The [rustdoc unsafe code summary](https://docs.rs/dryoc/latest/dryoc/#unsafe-code)
+The [rustdoc unsafe code inventory](https://docs.rs/dryoc/latest/dryoc/unsafe_code/index.html)
 lists every non-test use of unsafe code in this crate.
