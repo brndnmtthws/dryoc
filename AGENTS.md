@@ -245,13 +245,15 @@ annotated tag, which starts `publish.yml`.
   `unsafe impl`, `unsafe extern`, or `unsafe fn`; explain the concrete pointer,
   aliasing, initialization, layout, or OS-call invariant that makes it valid.
 - When adding, removing, or materially changing non-test `unsafe`, update the
-  unsafe code inventory in `src/lib.rs` and `README.md`.
+  unsafe code inventory in `src/unsafe_code.rs` and `README.md`.
 - Test-only `unsafe` should stay confined to compatibility checks or platform
   probes, and it does not need to be listed in the unsafe inventory.
 
 ## Module Map
 
 - `src/lib.rs`: crate-level docs, feature gates, and public module exports.
+- `src/unsafe_code.rs`: doc-only module holding the non-test unsafe code
+  inventory (its own rustdoc page, kept off the crate root).
 - `src/types.rs`: fixed-size byte-array traits and helper types.
 - `src/rng.rs`: random byte generation.
 - `src/protected.rs`: protected memory allocation, locking, guard pages, and
