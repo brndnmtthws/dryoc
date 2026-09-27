@@ -4,18 +4,18 @@
 
 # dryoc: Don't Roll Your Own Crypto™<sup>[^1]</sup>
 
-**dryoc** is a high-performance, pure-Rust cryptography library. It delivers exceptional speed — up to **4x faster** than libsodium — alongside modern post-quantum cryptography (ML-KEM-768, X-Wing hybrid, HPKE), protected memory, and `#![no_std]` support.
+**dryoc** is a pure-Rust cryptography library. It is faster than libsodium on common workloads (up to **4x**, see [benchmarks](BENCHMARKS.md)), with post-quantum cryptography (ML-KEM-768, X-Wing hybrid, HPKE), protected memory, and `#![no_std]` support.
 
 ![Granny says no](dryoc.png)
 
 ## Why dryoc?
 
-* **BLAZING FAST:** Pure Rust kernels with runtime CPU feature detection (AVX-512, AVX2, NEON, SVE2) optimized to outperform native C implementations.
-* **POST-QUANTUM READY:** Modern post-quantum key encapsulation (ML-KEM-768), X-Wing hybrid (ML-KEM + X25519), and RFC 9180 HPKE sealed boxes.
-* **TYPE-SAFE RUSTACEOUS API:** Strong, fixed-size Rust types for keys, nonces, and ciphertexts prevent compile-time and runtime length/type errors.
-* **CLASSIC LIBSODIUM INTEROP:** Drop-in compatibility surface (`crypto_*`) matching libsodium wire formats and functions for seamless integration or migration.
-* **HARDENED & FLEXIBLE:** Protected memory allocation (Unix/Windows), memory zeroization, `#![no_std]` / `alloc` compatibility, and Serde support.
-* **PYTHON & WASM SUPPORT:** First-class Python 3.11+ bindings (`pip install dryoc`, with free-threaded CPython support) and WebAssembly (`wasm32-unknown-unknown`) support with optional SIMD.
+* **Fast:** Pure Rust kernels with runtime CPU feature detection (AVX-512, AVX2, NEON, SVE2) that outperform libsodium's C implementations on common workloads.
+* **Post-quantum ready:** ML-KEM-768 key encapsulation, X-Wing hybrid (ML-KEM + X25519), and RFC 9180 HPKE sealed boxes.
+* **Type-safe API:** Fixed-size Rust types for keys, nonces, and ciphertexts that catch length and type errors at compile time.
+* **Libsodium compatible:** `crypto_*` API matching libsodium wire formats and functions for integration or migration.
+* **Hardened and flexible:** Protected memory on Unix and Windows, memory zeroization, `#![no_std]` / `alloc` support, and Serde implementations.
+* **Python and Wasm support:** Python 3.11+ bindings (`pip install dryoc`, including free-threaded CPython support) and WebAssembly (`wasm32-unknown-unknown`) with optional SIMD.
 
 ---
 
@@ -66,11 +66,11 @@ Measured in single-threaded benchmark runs (`-Ctarget-cpu=native`, same process 
 
 ## Post-Quantum & Modern Features
 
-`dryoc` goes beyond classic NaCl/libsodium algorithms with state-of-the-art primitives:
+`dryoc` goes beyond classic NaCl/libsodium algorithms with these additional primitives:
 
-* **ML-KEM-768 & X-Wing Hybrid:** NIST FIPS 203 post-quantum key encapsulation mechanism and the X-Wing post-quantum hybrid scheme (ML-KEM-768 + X25519).
-* **HPKE Sealed Boxes:** RFC 9180 Hybrid Public Key Encryption using X-Wing, HKDF-SHA256, and ChaCha20-Poly1305.
-* **SHA-3 & XOF:** SHA3-256/512 and SHAKE/TurboSHAKE extendable-output functions based on Keccak.
+* **ML-KEM-768 and X-Wing hybrid:** NIST FIPS 203 post-quantum key encapsulation mechanism and the X-Wing post-quantum hybrid scheme (ML-KEM-768 + X25519).
+* **HPKE sealed boxes:** RFC 9180 Hybrid Public Key Encryption using X-Wing, HKDF-SHA256, and ChaCha20-Poly1305.
+* **SHA-3 and XOF:** SHA3-256/512 and SHAKE/TurboSHAKE extendable-output functions based on Keccak.
 
 ---
 
@@ -101,9 +101,9 @@ Enable `features = ["alloc"]` on embedded/custom targets with a heap allocator.
 
 ## Platform Support & WebAssembly
 
-* **x86_64 & AArch64:** Hand-optimized SIMD and assembly kernels with automatic runtime CPU dispatch.
+* **x86_64 & AArch64:** SIMD and assembly kernels with automatic runtime CPU dispatch.
 * **WebAssembly (`wasm32-unknown-unknown`):** Supported out of the box. Compile with `RUSTFLAGS=-Ctarget-feature=+simd128` to enable WebAssembly SIMD kernels.
-* **Python Bindings:** High-performance Pythonic bindings available on PyPI via `pip install dryoc` (see [python/README.md](python/README.md)).
+* **Python bindings:** Available on PyPI via `pip install dryoc` (see [python/README.md](python/README.md)).
 
 ---
 
