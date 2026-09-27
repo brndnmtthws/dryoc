@@ -206,17 +206,6 @@ impl<
     }
 }
 
-impl Kdf<Key, Context> {
-    /// Randomly generates a new pair of main key and context.
-    #[must_use]
-    pub fn generate_with_defaults() -> Self {
-        Self {
-            main_key: Key::generate(),
-            context: Context::generate(),
-        }
-    }
-}
-
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;

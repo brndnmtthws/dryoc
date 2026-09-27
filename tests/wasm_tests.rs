@@ -16,14 +16,14 @@ use dryoc::classic::crypto_xof::{
 };
 use dryoc::constants::{CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES, CRYPTO_KEM_XWING_CIPHERTEXTBYTES};
 use dryoc::dryocaead::{Key as AeadKey, Nonce as AeadNonce, VecBox as AeadVecBox};
-use dryoc::dryocbox::{DryocBox, KeyPair, NewByteArray, Nonce};
+use dryoc::dryocbox::{DryocBox, NewByteArray, Nonce, StackKeyPair};
 use dryoc::dryocsecretbox::{DryocSecretBox, Key};
 use dryoc::dryocstream::{DryocStream, Header, Key as StreamKey, Tag};
 use dryoc::generichash::GenericHash;
 use dryoc::hkdf::HkdfSha256;
 use dryoc::hmac::{HmacSha256, HmacSha256Key, HmacSha512, HmacSha512Key};
 use dryoc::kdf::StackKdf;
-use dryoc::kx::{KeyPair as KxKeyPair, StackSession};
+use dryoc::kx::{StackKeyPair as KxKeyPair, StackSession};
 use dryoc::onetimeauth::OnetimeAuth;
 use dryoc::precalc::PrecalcSecretKey;
 #[cfg(feature = "base64")]
@@ -114,8 +114,8 @@ fn rfc4231_key<const N: usize>() -> [u8; N] {
 
 #[wasm_bindgen_test]
 fn dryocbox_roundtrip() {
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"wasm dryocbox";
 
@@ -140,8 +140,8 @@ fn dryocbox_roundtrip() {
 
 #[wasm_bindgen_test]
 fn dryocbox_precalc_roundtrip() {
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"wasm dryocbox precalc";
     let shared_key =

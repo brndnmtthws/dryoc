@@ -148,8 +148,6 @@ pub mod protected {
 
 /// HKDF algorithm variant used by [`Hkdf`].
 pub trait HkdfVariant<const PRK_LENGTH: usize> {
-    /// Default stack-allocated PRK type for this variant.
-    type Prk: NewByteArray<PRK_LENGTH> + Zeroize + ZeroizeOnDrop;
     /// Minimum output length accepted by this variant.
     const OUTPUT_BYTES_MIN: usize;
     /// Maximum output length accepted by this variant.
@@ -186,18 +184,8 @@ pub trait HkdfVariant<const PRK_LENGTH: usize> {
 }
 
 macro_rules! impl_hkdf_variant {
-    (
-        $variant:ty,
-        $prk_len:expr,
-        $prk:ty,
-        $bytes_min:expr,
-        $bytes_max:expr,
-        $extract:path,
-        $expand:path
-    ) => {
+    ($variant:ty, $prk_len:expr, $bytes_min:expr, $bytes_max:expr, $extract:path, $expand:path) => {
         impl HkdfVariant<$prk_len> for $variant {
-            type Prk = $prk;
-
             const OUTPUT_BYTES_MAX: usize = $bytes_max;
             const OUTPUT_BYTES_MIN: usize = $bytes_min;
 
@@ -219,7 +207,6 @@ macro_rules! impl_hkdf_variant {
 impl_hkdf_variant!(
     HkdfSha256Variant,
     CRYPTO_KDF_HKDF_SHA256_KEYBYTES,
-    HkdfSha256Prk,
     CRYPTO_KDF_HKDF_SHA256_BYTES_MIN,
     CRYPTO_KDF_HKDF_SHA256_BYTES_MAX,
     crypto_kdf_hkdf_sha256_extract,
@@ -229,7 +216,6 @@ impl_hkdf_variant!(
 impl_hkdf_variant!(
     HkdfSha512Variant,
     CRYPTO_KDF_HKDF_SHA512_KEYBYTES,
-    HkdfSha512Prk,
     CRYPTO_KDF_HKDF_SHA512_BYTES_MIN,
     CRYPTO_KDF_HKDF_SHA512_BYTES_MAX,
     crypto_kdf_hkdf_sha512_extract,
@@ -410,17 +396,6 @@ where
     }
 }
 
-impl<Variant, const PRK_LENGTH: usize> Hkdf<Variant, Variant::Prk, PRK_LENGTH>
-where
-    Variant: HkdfVariant<PRK_LENGTH>,
-{
-    /// Randomly generates a new PRK using the default stack-allocated type.
-    #[must_use]
-    pub fn generate_with_defaults() -> Self {
-        Self::generate()
-    }
-}
-
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
@@ -489,9 +464,8 @@ mod tests {
     fn assert_case<Variant, const PRK_LENGTH: usize>(case: &Case)
     where
         Variant: HkdfVariant<PRK_LENGTH>,
-        Variant::Prk: Clone + PartialEq + core::fmt::Debug,
     {
-        type H<V, const P: usize> = Hkdf<V, <V as HkdfVariant<P>>::Prk, P>;
+        type H<V, const P: usize> = Hkdf<V, StackByteArray<P>, P>;
 
         let salt = case.salt.as_deref();
         let hkdf = H::<Variant, PRK_LENGTH>::extract(salt, case.ikm.as_slice());
@@ -690,7 +664,7 @@ mod tests {
         where
             Variant: HkdfVariant<PRK_LENGTH>,
         {
-            Hkdf::<Variant, Variant::Prk, PRK_LENGTH>::extract_and_expand_to_vec(
+            Hkdf::<Variant, StackByteArray<PRK_LENGTH>, PRK_LENGTH>::extract_and_expand_to_vec(
                 case.okm.len(),
                 case.salt.as_deref(),
                 case.ikm.as_slice(),

@@ -14,10 +14,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::classic::crypto_box::crypto_box_seed_keypair_inplace;
 use crate::constants::{
     CRYPTO_BOX_BEFORENMBYTES, CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES,
-    CRYPTO_BOX_SEEDBYTES, CRYPTO_KX_SESSIONKEYBYTES,
+    CRYPTO_BOX_SEEDBYTES,
 };
 use crate::error::Error;
-use crate::kx;
 use crate::precalc::PrecalcSecretKey;
 use crate::types::*;
 use crate::utils::ct_eq_bytes;
@@ -114,15 +113,6 @@ impl<
     }
 }
 
-impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>> {
-    /// Randomly generates a new keypair, using default types
-    /// (stack-allocated byte arrays). Provided for convenience.
-    #[must_use]
-    pub fn generate_with_defaults() -> Self {
-        Self::generate()
-    }
-}
-
 impl<
     'a,
     PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
@@ -157,106 +147,56 @@ impl<
     }
 }
 
+/// Checks if the given public key is valid according to X25519 rules.
+///
+/// For X25519 ([`crypto_box`](`crate::classic::crypto_box`),
+/// [`DryocBox`](`crate::dryocbox::DryocBox`)), this performs a trial scalar
+/// multiplication and rejects public keys that produce an all-zero shared
+/// secret, including low-order inputs rejected by libsodium. As required by
+/// RFC 7748, the high bit of the encoded public key is ignored.
+///
+/// Use [`crate::sign::is_valid_public_key`] for Ed25519 signing keys.
+///
+/// ## Validating Protected Keys
+///
+/// You can validate keys stored in protected memory directly, as the
+/// validation functions operate on references.
+///
+/// ```
+/// # #![cfg_attr(not(all(feature = "protected", any(unix, windows))), ignore)]
+/// # #[cfg(all(feature = "protected", any(unix, windows)))]
+/// # {
+/// use dryoc::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
+/// use dryoc::keypair::protected::{HeapByteArray, LockedRO};
+/// use dryoc::keypair::{KeyPair, is_valid_public_key};
+///
+/// // Generate a keypair stored in locked, read-only memory
+/// let protected_kp: KeyPair<
+///     LockedRO<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>,
+///     LockedRO<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
+/// > = KeyPair::generate_readonly_locked_keypair().expect("Failed to generate locked keypair");
+///
+/// // Validate the X25519 public key.
+/// assert!(
+///     is_valid_public_key(&protected_kp.public_key),
+///     "Protected X25519 key should be valid"
+/// );
+/// # }
+/// ```
+#[must_use]
+pub fn is_valid_public_key<PK: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(key: &PK) -> bool {
+    let scalar = [0u8; CRYPTO_BOX_SECRETKEYBYTES];
+    let mut shared_secret = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
+
+    crate::classic::crypto_core::crypto_scalarmult(&mut shared_secret, &scalar, key.as_array())
+        .is_ok()
+}
+
 impl<
     PublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
 > KeyPair<PublicKey, SecretKey>
 {
-    /// Checks if the given public key is valid according to X25519 rules.
-    ///
-    /// For X25519 ([`crypto_box`](`crate::classic::crypto_box`),
-    /// [`DryocBox`](`crate::dryocbox::DryocBox`)), this performs a trial scalar
-    /// multiplication and rejects public keys that produce an all-zero shared
-    /// secret, including low-order inputs rejected by libsodium. As required by
-    /// RFC 7748, the high bit of the encoded public key is ignored.
-    ///
-    /// ## Validating Protected Keys
-    ///
-    /// You can validate keys stored in protected memory directly, as the
-    /// validation functions operate on references.
-    ///
-    /// ```
-    /// # #![cfg_attr(not(all(feature = "protected", any(unix, windows))), ignore)]
-    /// # #[cfg(all(feature = "protected", any(unix, windows)))]
-    /// # {
-    /// use dryoc::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
-    /// use dryoc::keypair::protected::{HeapByteArray, LockedRO};
-    /// use dryoc::keypair::{KeyPair, PublicKey, SecretKey};
-    ///
-    /// // Generate a keypair stored in locked, read-only memory
-    /// let protected_kp: KeyPair<
-    ///     LockedRO<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>,
-    ///     LockedRO<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
-    /// > = KeyPair::generate_readonly_locked_keypair().expect("Failed to generate locked keypair");
-    ///
-    /// // Validate the X25519 public key.
-    /// let is_x25519_valid = KeyPair::<
-    ///     LockedRO<HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>,
-    ///     LockedRO<HeapByteArray<CRYPTO_BOX_SECRETKEYBYTES>>,
-    /// >::is_valid_public_key(&protected_kp.public_key);
-    ///
-    /// assert!(is_x25519_valid, "Protected X25519 key should be valid");
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn is_valid_public_key<PK: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(key: &PK) -> bool {
-        let scalar = [0u8; CRYPTO_BOX_SECRETKEYBYTES];
-        let mut shared_secret = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
-
-        crate::classic::crypto_core::crypto_scalarmult(&mut shared_secret, &scalar, key.as_array())
-            .is_ok()
-    }
-
-    /// Checks if the given key is a valid prime-order Ed25519 public key.
-    ///
-    /// The canonical compressed encoding is required. The high bit, which
-    /// encodes the sign of the x-coordinate, may legitimately be set.
-    ///
-    /// This is a strict prime-subgroup policy, not a generic Ed25519 signature
-    /// validity predicate. Use it when an application or point-arithmetic
-    /// protocol requires canonical, nonidentity, prime-order keys. Verify
-    /// signatures with
-    /// [`crypto_sign_verify_detached`](crate::classic::crypto_sign::crypto_sign_verify_detached)
-    /// instead; some signature profiles intentionally define different
-    /// point-acceptance rules.
-    /// `is_valid_public_key` should be used for X25519 keys used in crypto_box.
-    #[must_use]
-    pub fn is_valid_ed25519_key<PK: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(key: &PK) -> bool {
-        crate::classic::crypto_core::crypto_core_ed25519_is_valid_point(key.as_array())
-    }
-
-    /// Creates new client session keys using this keypair and
-    /// `server_public_key`, assuming this keypair is for the client.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `server_public_key` is unacceptable, including a
-    /// low-order point that would produce an all-zero shared secret.
-    pub fn kx_new_client_session<
-        SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop,
-    >(
-        &self,
-        server_public_key: &PublicKey,
-    ) -> Result<kx::Session<SessionKey>, Error> {
-        kx::Session::new_client(self, server_public_key)
-    }
-
-    /// Creates new server session keys using this keypair and
-    /// `client_public_key`, assuming this keypair is for the server.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `client_public_key` is unacceptable, including a
-    /// low-order point that would produce an all-zero shared secret.
-    pub fn kx_new_server_session<
-        SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop,
-    >(
-        &self,
-        client_public_key: &PublicKey,
-    ) -> Result<kx::Session<SessionKey>, Error> {
-        kx::Session::new_server(self, client_public_key)
-    }
-
     /// Computes a stack-allocated shared secret key using a secret key from
     /// this keypair and `third_party_public_key`.
     ///
@@ -267,9 +207,9 @@ impl<
     /// Returns an error if `third_party_public_key` is an unacceptable
     /// low-order point.
     #[inline]
-    pub fn precalculate(
+    pub fn precalculate<OtherPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(
         &self,
-        third_party_public_key: &PublicKey,
+        third_party_public_key: &OtherPublicKey,
     ) -> Result<PrecalcSecretKey<StackByteArray<CRYPTO_BOX_BEFORENMBYTES>>, Error> {
         PrecalcSecretKey::precalculate(third_party_public_key, &self.secret_key)
     }
@@ -419,7 +359,6 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kx::Session;
 
     #[test]
     fn keypair_debug_redacts_keys() {
@@ -444,7 +383,7 @@ mod tests {
     }
 
     /// `crypto_box_seed_keypair` outputs from libsodium for the all-`0x01` and
-    /// all-`0x02` seeds, and the `crypto_kx_client_session_keys` they derive.
+    /// all-`0x02` seeds.
     const SEED_KEYPAIRS: [([u8; CRYPTO_BOX_SEEDBYTES], &str, &str); 2] = [
         (
             [1u8; CRYPTO_BOX_SEEDBYTES],
@@ -457,8 +396,6 @@ mod tests {
             "aa3c626bc9c38c8c201878ebb1d5b0b50ac40e8986c78793db1d4ef369fca1ce",
         ),
     ];
-    const CLIENT_RX: &str = "4081524abf55a75021ebd5e98e08552fb2bd26315c40e563b74e64abff1be442";
-    const CLIENT_TX: &str = "2f9c2f944f504caf772db17affc91e3ba8886a806ba53ab37881d15c042f3410";
 
     /// RFC 7748 section 6.1 / NaCl `tests/box.c` keys and their
     /// `crypto_box_beforenm` shared key.
@@ -491,9 +428,7 @@ mod tests {
                 KeyPair::from_secret_key(keypair.secret_key.clone()),
                 keypair
             );
-            assert!(KeyPair::<PublicKey, SecretKey>::is_valid_public_key(
-                &keypair.public_key
-            ));
+            assert!(is_valid_public_key(&keypair.public_key));
         }
         assert_ne!(
             StackKeyPair::from_seed(&SEED_KEYPAIRS[0].0),
@@ -505,7 +440,7 @@ mod tests {
     fn generated_public_key_is_the_base_point_multiple_of_the_secret_key() {
         use crate::classic::crypto_core::crypto_scalarmult_base;
 
-        let keypair = KeyPair::generate_with_defaults();
+        let keypair = StackKeyPair::generate();
         let mut public_key = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
         crypto_scalarmult_base(&mut public_key, keypair.secret_key.as_array());
         assert_eq!(keypair.public_key.as_array(), &public_key);
@@ -604,41 +539,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn kx_sessions_equal_session_constructors_and_libsodium_known_answers() {
-        let client: StackKeyPair = KeyPair::from_seed(&SEED_KEYPAIRS[0].0);
-        let server: StackKeyPair = KeyPair::from_seed(&SEED_KEYPAIRS[1].0);
-        let client_rx = hex::decode(CLIENT_RX).expect("hex");
-        let client_tx = hex::decode(CLIENT_TX).expect("hex");
-
-        let client_session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = client
-            .kx_new_client_session(&server.public_key)
-            .expect("client session");
-        assert_eq!(client_session.rx_as_slice(), client_rx.as_slice());
-        assert_eq!(client_session.tx_as_slice(), client_tx.as_slice());
-        let expected =
-            Session::new_client_with_defaults(&client, &server.public_key).expect("client");
-        assert_eq!(client_session.rx_as_array(), expected.rx_as_array());
-        assert_eq!(client_session.tx_as_array(), expected.tx_as_array());
-
-        let server_session: Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>> = server
-            .kx_new_server_session(&client.public_key)
-            .expect("server session");
-        assert_eq!(server_session.rx_as_slice(), client_tx.as_slice());
-        assert_eq!(server_session.tx_as_slice(), client_rx.as_slice());
-        let expected =
-            Session::new_server_with_defaults(&server, &client.public_key).expect("server");
-        assert_eq!(server_session.rx_as_array(), expected.rx_as_array());
-        assert_eq!(server_session.tx_as_array(), expected.tx_as_array());
-
-        let low_order: Result<Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>>, Error> =
-            client.kx_new_client_session(&PublicKey::default());
-        assert!(low_order.is_err());
-        let low_order: Result<Session<StackByteArray<CRYPTO_KX_SESSIONKEYBYTES>>, Error> =
-            server.kx_new_server_session(&PublicKey::default());
-        assert!(low_order.is_err());
-    }
-
     #[cfg(all(feature = "serde", feature = "alloc"))]
     #[test]
     fn serde_round_trip_keeps_the_keypair_usable_for_boxes() {
@@ -688,7 +588,7 @@ mod tests {
         ];
         let valid_pk = PublicKey::from(valid_pk_bytes);
         assert!(
-            KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&valid_pk),
+            is_valid_public_key(&valid_pk),
             "Known valid key failed validation"
         );
 
@@ -699,80 +599,28 @@ mod tests {
         high_bit_bytes[31] = 0x80;
         let high_bit = PublicKey::from(high_bit_bytes);
         assert!(
-            KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&high_bit),
+            is_valid_public_key(&high_bit),
             "RFC 7748 high-bit encoding should be accepted"
         );
 
         // Invalid: Zero point
         let zero_bytes = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
         let zero_pk = PublicKey::from(zero_bytes);
-        assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&zero_pk),
-            "Zero key should be invalid"
-        );
+        assert!(!is_valid_public_key(&zero_pk), "Zero key should be invalid");
 
         let mut identity_bytes = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
         identity_bytes[0] = 1;
         let identity = PublicKey::from(identity_bytes);
         assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&identity),
+            !is_valid_public_key(&identity),
             "Low-order key should be invalid"
         );
 
         // Generated key should be valid
-        let kp = KeyPair::generate_with_defaults();
+        let kp = StackKeyPair::generate();
         assert!(
-            KeyPair::<PublicKey, SecretKey>::is_valid_public_key(&kp.public_key),
+            is_valid_public_key(&kp.public_key),
             "Generated key failed validation"
-        );
-    }
-
-    #[test]
-    fn test_is_valid_ed25519_key() {
-        let (valid_pk, _) = crate::classic::crypto_sign::crypto_sign_keypair();
-        assert!(
-            KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&valid_pk),
-            "Ed25519 key from crypto_sign_keypair should pass validation"
-        );
-
-        let mut negative_basepoint =
-            curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
-        negative_basepoint[31] |= 0x80;
-        assert!(
-            KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&negative_basepoint),
-            "the Ed25519 x-coordinate sign bit should be accepted"
-        );
-
-        let zero_bytes = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
-        let zero_pk = PublicKey::from(zero_bytes);
-        assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&zero_pk),
-            "zero key should be invalid"
-        );
-
-        let identity_bytes = [
-            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ];
-        let identity_pk = PublicKey::from(identity_bytes);
-        assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&identity_pk),
-            "identity element should be invalid"
-        );
-
-        let mut noncanonical_identity = [0xff; CRYPTO_BOX_PUBLICKEYBYTES];
-        noncanonical_identity[0] = 0xee;
-        noncanonical_identity[31] = 0x7f;
-        assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&noncanonical_identity),
-            "noncanonical identity encoding should be invalid"
-        );
-
-        let mut mixed_order = [0x99; CRYPTO_BOX_PUBLICKEYBYTES];
-        mixed_order[0] = 0x95;
-        assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&mixed_order),
-            "mixed-order Ed25519 key should fail the prime-subgroup policy"
         );
     }
 

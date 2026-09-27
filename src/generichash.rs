@@ -10,11 +10,10 @@
 //! ```
 //! use base64::Engine as _;
 //! use base64::engine::general_purpose;
-//! use dryoc::generichash::{GenericHash, Key};
+//! use dryoc::generichash::{DefaultGenericHash, Key};
 //!
 //! // The key type must be specified because `None` does not identify it.
-//! let hash =
-//!     GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
+//! let hash = DefaultGenericHash::hash_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 //!
 //! assert_eq!(
 //!     general_purpose::STANDARD.encode(&hash),
@@ -27,10 +26,10 @@
 //! ```
 //! use base64::Engine as _;
 //! use base64::engine::general_purpose;
-//! use dryoc::generichash::{GenericHash, Key};
+//! use dryoc::generichash::{DefaultGenericHash, Key};
 //!
 //! // The key type must be specified because `None` does not identify it.
-//! let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new failed");
+//! let mut hasher = DefaultGenericHash::new::<Key>(None).expect("new failed");
 //! hasher.update(b"hello");
 //! let hash = hasher.finalize_to_vec().expect("finalize failed");
 //!
@@ -107,6 +106,11 @@ pub mod protected {
 pub struct GenericHash<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> {
     state: GenericHashState,
 }
+
+/// [`GenericHash`] with libsodium's recommended key length
+/// ([`CRYPTO_GENERICHASH_KEYBYTES`]) and output length
+/// ([`CRYPTO_GENERICHASH_BYTES`]).
+pub type DefaultGenericHash = GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES>;
 
 impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH, OUTPUT_LENGTH> {
     /// Returns a new incremental hasher with an optional secret `key`.
@@ -208,62 +212,6 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     }
 }
 
-impl GenericHash<CRYPTO_GENERICHASH_KEYBYTES, CRYPTO_GENERICHASH_BYTES> {
-    /// Returns an instance of [`GenericHash`] with the default output and key
-    /// length parameters.
-    ///
-    /// # Errors
-    ///
-    /// The default lengths are valid, so this method does not return an error
-    /// for valid [`ByteArray`] implementations. Its return type matches the
-    /// generic initialization interface.
-    pub fn new_with_defaults<Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>>(
-        key: Option<&Key>,
-    ) -> Result<Self, Error> {
-        Ok(Self {
-            state: crypto_generichash_init(key.map(|k| k.as_slice()), CRYPTO_GENERICHASH_BYTES)?,
-        })
-    }
-
-    /// Hashes `input` using `key`, with the default length parameters. Provided
-    /// for convenience.
-    ///
-    /// # Errors
-    ///
-    /// The default lengths are valid, so this method does not return an error
-    /// for valid [`ByteArray`] implementations. Its return type matches the
-    /// generic hashing interface.
-    pub fn hash_with_defaults<
-        Input: Bytes + ?Sized,
-        Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>,
-        Output: NewByteArray<CRYPTO_GENERICHASH_BYTES>,
-    >(
-        input: &Input,
-        key: Option<&Key>,
-    ) -> Result<Output, Error> {
-        Self::hash(input, key)
-    }
-
-    /// Hashes `input` using `key`, with the default length parameters,
-    /// returning a [`Vec`]. Provided for convenience.
-    ///
-    /// # Errors
-    ///
-    /// The default lengths are valid, so this method does not return an error
-    /// for valid [`ByteArray`] implementations. Its return type matches the
-    /// generic hashing interface.
-    #[cfg(feature = "alloc")]
-    pub fn hash_with_defaults_to_vec<
-        Input: Bytes + ?Sized,
-        Key: ByteArray<CRYPTO_GENERICHASH_KEYBYTES>,
-    >(
-        input: &Input,
-        key: Option<&Key>,
-    ) -> Result<Vec<u8>, Error> {
-        Ok(Self::hash::<_, _, Hash>(input, key)?.to_vec())
-    }
-}
-
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
@@ -273,7 +221,7 @@ mod tests {
         use base64::Engine as _;
         use base64::engine::general_purpose;
 
-        let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new hash failed");
+        let mut hasher = DefaultGenericHash::new::<Key>(None).expect("new hash failed");
         hasher.update(b"hello");
 
         let output: Hash = hasher.finalize().expect("finalize failed");
@@ -283,7 +231,7 @@ mod tests {
             "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
         );
 
-        let mut hasher = GenericHash::new_with_defaults::<Key>(None).expect("new hash failed");
+        let mut hasher = DefaultGenericHash::new::<Key>(None).expect("new hash failed");
         hasher.update(b"hello");
 
         let output = hasher.finalize_to_vec().expect("finalize failed");
@@ -308,7 +256,7 @@ mod tests {
         );
 
         let output: Hash =
-            GenericHash::hash_with_defaults::<_, Key, _>(b"hello", None).expect("hash failed");
+            DefaultGenericHash::hash::<_, Key, _>(b"hello", None).expect("hash failed");
 
         assert_eq!(
             general_purpose::STANDARD.encode(&output),
@@ -316,7 +264,7 @@ mod tests {
         );
 
         let output =
-            GenericHash::hash_with_defaults_to_vec::<_, Key>(b"hello", None).expect("hash failed");
+            DefaultGenericHash::hash_to_vec::<_, Key>(b"hello", None).expect("hash failed");
 
         assert_eq!(
             general_purpose::STANDARD.encode(output),
@@ -333,7 +281,7 @@ mod tests {
                 let expected: Hash =
                     GenericHash::hash(message.as_slice(), key).expect("hash failed");
 
-                let mut hasher = GenericHash::new_with_defaults(key).expect("new hash failed");
+                let mut hasher = DefaultGenericHash::new(key).expect("new hash failed");
                 hasher.update(&message[..split]);
                 let mut copy = hasher.clone();
                 hasher.update(&message[split..]);
@@ -347,7 +295,7 @@ mod tests {
         }
 
         // Diverging suffixes must not affect each other.
-        let mut hasher = GenericHash::new_with_defaults(Some(&key)).expect("new hash failed");
+        let mut hasher = DefaultGenericHash::new(Some(&key)).expect("new hash failed");
         hasher.update(b"shared prefix ");
         let mut copy = hasher.clone();
         hasher.update(b"one");
@@ -367,8 +315,7 @@ mod tests {
         use base64::Engine as _;
         use base64::engine::general_purpose;
 
-        let output =
-            GenericHash::hash_with_defaults_to_vec::<_, Key>(&[], None).expect("hash failed");
+        let output = DefaultGenericHash::hash_to_vec::<_, Key>(&[], None).expect("hash failed");
 
         assert_eq!(
             general_purpose::STANDARD.encode(output),
@@ -493,7 +440,7 @@ mod tests {
         let empty_key: Hash =
             GenericHash::<0, 32>::hash(FOX, Some(&sequential_key::<0>())).expect("empty key");
         let default_unkeyed: Hash =
-            GenericHash::hash_with_defaults::<_, Key, _>(FOX, None).expect("unkeyed");
+            DefaultGenericHash::hash::<_, Key, _>(FOX, None).expect("unkeyed");
         assert_eq!(empty_key, default_unkeyed);
 
         assert!(matches!(
@@ -557,15 +504,14 @@ mod tests {
         let stack: Hash = GenericHash::hash(FOX, Some(&key)).expect("hash");
         assert_eq!(stack.as_slice(), hash.as_slice());
 
-        let mut hasher = GenericHash::new_with_defaults(Some(&locked_key)).expect("new");
+        let mut hasher = DefaultGenericHash::new(Some(&locked_key)).expect("new");
         hasher.update(&input);
         let hash: Locked<protected::Hash> = hasher.finalize().expect("finalize");
         assert_eq!(hash.as_slice(), expected.as_slice());
 
         let unkeyed: Locked<protected::Hash> =
-            GenericHash::hash_with_defaults::<_, protected::Key, _>(&input, None).expect("hash");
-        let stack_unkeyed: Hash =
-            GenericHash::hash_with_defaults::<_, Key, _>(FOX, None).expect("hash");
+            DefaultGenericHash::hash::<_, protected::Key, _>(&input, None).expect("hash");
+        let stack_unkeyed: Hash = DefaultGenericHash::hash::<_, Key, _>(FOX, None).expect("hash");
         assert_eq!(unkeyed.as_slice(), stack_unkeyed.as_slice());
         assert_ne!(unkeyed.as_slice(), expected.as_slice());
     }
@@ -612,12 +558,12 @@ mod tests {
             let input: Vec<u8> = (0..len).map(|i| (i * 7 % 251) as u8).collect();
             let expected = sodium_hash(&input, Some(key.as_slice()), CRYPTO_GENERICHASH_BYTES);
             assert_eq!(
-                GenericHash::hash_with_defaults_to_vec(&input, Some(&key)).expect("hash"),
+                DefaultGenericHash::hash_to_vec(&input, Some(&key)).expect("hash"),
                 expected
             );
             let expected = sodium_hash(&input, None, CRYPTO_GENERICHASH_BYTES);
             assert_eq!(
-                GenericHash::hash_with_defaults_to_vec::<_, Key>(&input, None).expect("hash"),
+                DefaultGenericHash::hash_to_vec::<_, Key>(&input, None).expect("hash"),
                 expected
             );
         }

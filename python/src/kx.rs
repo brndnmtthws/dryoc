@@ -76,7 +76,7 @@ pub fn client_session_keys(
     client: &Bound<'_, KeyPair>,
     server_public_key: &Bound<'_, PublicKey>,
 ) -> PyResult<SessionKeys> {
-    StackSession::new_client_with_defaults(&client.get().pair, &server_public_key.get().key)
+    StackSession::new_client(&client.get().pair, &server_public_key.get().key)
         .map(SessionKeys::from)
         .or_raise()
 }
@@ -91,7 +91,7 @@ pub fn server_session_keys(
     server: &Bound<'_, KeyPair>,
     client_public_key: &Bound<'_, PublicKey>,
 ) -> PyResult<SessionKeys> {
-    StackSession::new_server_with_defaults(&server.get().pair, &client_public_key.get().key)
+    StackSession::new_server(&server.get().pair, &client_public_key.get().key)
         .map(SessionKeys::from)
         .or_raise()
 }
