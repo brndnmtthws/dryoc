@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "dryoc"
 dynamic = ["version"]
-description = "Don't Roll Your Own Crypto: Pythonic bindings to the dryoc pure-Rust, libsodium-compatible cryptography library"
+description = "Don't Roll Your Own Crypto: fast, type-safe, pure-Rust cryptography with post-quantum support"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
