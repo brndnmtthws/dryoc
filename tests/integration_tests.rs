@@ -1396,6 +1396,191 @@ fn test_dryocaead_wincode_wire_format() {
     assert!(wincode::deserialize::<VecEnvelope>(&expected[..expected.len() - 1]).is_err());
 }
 
+/// Decodes `bytes` as `T` and encodes it again, checking that the round trip
+/// reproduces `bytes` exactly and that every truncation is rejected.
+#[cfg(feature = "wincode_0_6")]
+fn wincode_reencode<T>(bytes: &[u8]) -> T
+where
+    T: wincode::SchemaWrite<wincode::config::DefaultConfig, Src = T>
+        + for<'de> wincode::SchemaRead<'de, wincode::config::DefaultConfig, Dst = T>,
+{
+    let decoded: T = wincode::deserialize(bytes).expect("known answer deserializes");
+    assert_eq!(wincode::serialize(&decoded).expect("serialize"), bytes);
+    for len in 0..bytes.len() {
+        assert!(
+            wincode::deserialize::<T>(&bytes[..len]).is_err(),
+            "{len}-byte prefix accepted"
+        );
+    }
+    decoded
+}
+
+/// Exact wincode bytes of `dryocbox::VecBox`: `Option<[u8; 32]>` ephemeral
+/// public key (`0x00`, or `0x01` and the key), the 16-byte tag, then the
+/// length-prefixed ciphertext. The regular box is recomputed from fixed keys;
+/// the sealed box (random ephemeral key) is a fixed encoding that must open.
+#[cfg(feature = "wincode_0_6")]
+#[test]
+fn test_dryocbox_wincode_known_answers() {
+    use dryoc::dryocbox::*;
+
+    const REGULAR: &str = concat!(
+        "00",
+        "4cb7767185832e49c1f302caaaf40be1",
+        "0a00000000000000",
+        "7c1dea851f073a8702c1",
+    );
+    const SEALED: &str = concat!(
+        "01",
+        "1de1a90e4a42d98fff81f00846f8b0da7185040c3e02e6e13795c9ea9cf96f30",
+        "17c47283e90ec0dc98060dbb48b5f8a2",
+        "1100000000000000",
+        "afffc3f7c542a18069183ea67898e2dc9b",
+    );
+
+    let sender_keypair = KeyPair::from_seed(&[1u8; 32]);
+    let recipient_keypair = KeyPair::from_seed(&[2u8; 32]);
+    let nonce = Nonce::from([3u8; 24]);
+
+    let regular = hex::decode(REGULAR).expect("hex");
+    let dryocbox: VecBox = DryocBox::encrypt(
+        b"hey friend",
+        &nonce,
+        &recipient_keypair.public_key,
+        &sender_keypair.secret_key,
+    )
+    .expect("encrypt");
+    assert_eq!(wincode::serialize(&dryocbox).expect("serialize"), regular);
+    let decoded: VecBox = wincode_reencode(&regular);
+    let decrypted: Vec<u8> = decoded
+        .decrypt(
+            &nonce,
+            &sender_keypair.public_key,
+            &recipient_keypair.secret_key,
+        )
+        .expect("decrypt");
+    assert_eq!(decrypted, b"hey friend");
+
+    let sealed: VecBox = wincode_reencode(&hex::decode(SEALED).expect("hex"));
+    let opened: Vec<u8> = sealed.open(&recipient_keypair).expect("open");
+    assert_eq!(opened, b"hey sealed friend");
+}
+
+/// Exact wincode bytes of `dryocsecretbox::VecBox`: the 16-byte tag, then
+/// the length-prefixed ciphertext.
+#[cfg(feature = "wincode_0_6")]
+#[test]
+fn test_dryocsecretbox_wincode_known_answer() {
+    use dryoc::dryocsecretbox::*;
+
+    const SECRETBOX: &str = concat!(
+        "f33bf03069d27663499752b1c5191348",
+        "0d00000000000000",
+        "0f231e37040474029393c86109",
+    );
+
+    let key = Key::from([6u8; 32]);
+    let nonce = Nonce::from([7u8; 24]);
+    let expected = hex::decode(SECRETBOX).expect("hex");
+
+    let secretbox: VecBox = DryocSecretBox::encrypt(b"hey buddy bro", &nonce, &key);
+    assert_eq!(wincode::serialize(&secretbox).expect("serialize"), expected);
+    let decoded: VecBox = wincode_reencode(&expected);
+    let decrypted: Vec<u8> = decoded.decrypt(&nonce, &key).expect("decrypt");
+    assert_eq!(decrypted, b"hey buddy bro");
+}
+
+/// Exact wincode bytes of the `dryocaead` boxes of both algorithms: the
+/// length-prefixed ciphertext, then the 16-byte tag.
+#[cfg(feature = "wincode_0_6")]
+#[test]
+fn test_dryocaead_box_wincode_known_answers() {
+    const XCHACHA: &str = concat!(
+        "1800000000000000",
+        "fc666611a5f84242ece93d85a6e429e7eb0b07568c983984",
+        "8c840f3645eb79e079099158da074d09",
+    );
+    const CHACHA: &str = concat!(
+        "0700000000000000",
+        "3b60f55b073e0e",
+        "b087debd1194b1495f3218432bc2482a",
+    );
+
+    {
+        use dryoc::dryocaead::*;
+        let (key, nonce) = (Key::from([4u8; 32]), Nonce::from([5u8; 24]));
+        let expected = hex::decode(XCHACHA).expect("hex");
+        let aead_box =
+            VecBox::encrypt_to_vecbox(b"hey authenticated friend", Some(b"metadata"), &nonce, &key)
+                .expect("encrypt");
+        assert_eq!(wincode::serialize(&aead_box).expect("serialize"), expected);
+        let decoded: VecBox = wincode_reencode(&expected);
+        assert_eq!(
+            decoded
+                .decrypt_to_vec(Some(b"metadata"), &nonce, &key)
+                .expect("decrypt"),
+            b"hey authenticated friend"
+        );
+    }
+    {
+        use dryoc::dryocaead::chacha20poly1305_ietf::*;
+        let (key, nonce) = (Key::from([8u8; 32]), Nonce::from([9u8; 12]));
+        let expected = hex::decode(CHACHA).expect("hex");
+        let aead_box = VecBox::encrypt_to_vecbox(b"message", Some(b"metadata"), &nonce, &key)
+            .expect("encrypt");
+        assert_eq!(wincode::serialize(&aead_box).expect("serialize"), expected);
+        let decoded: VecBox = wincode_reencode(&expected);
+        assert_eq!(
+            decoded
+                .decrypt_to_vec(Some(b"metadata"), &nonce, &key)
+                .expect("decrypt"),
+            b"message"
+        );
+    }
+}
+
+/// Exact wincode bytes of the `dryocaead` envelopes of both algorithms: the
+/// nonce (24 or 12 bytes), the length-prefixed ciphertext, then the 16-byte
+/// tag. Fixed encodings (the XChaCha20 one has a random nonce) that must
+/// open under their keys.
+#[cfg(feature = "wincode_0_6")]
+#[test]
+fn test_dryocaead_envelope_wincode_known_answers() {
+    const XCHACHA: &str = concat!(
+        "8da45e0f9e0a8cad7347c7caf7bb75910bbaa6f1632e19bb",
+        "1800000000000000",
+        "b37b19ffc62801ae843b37f192f0ef24405ee2c73e0e3f3c",
+        "c43d1f143d81ae810db2ee93ab641521",
+    );
+    const CHACHA: &str = concat!(
+        "090909090909090909090909",
+        "0700000000000000",
+        "3b60f55b073e0e",
+        "b087debd1194b1495f3218432bc2482a",
+    );
+
+    {
+        use dryoc::dryocaead::*;
+        let envelope: VecEnvelope = wincode_reencode(&hex::decode(XCHACHA).expect("hex"));
+        assert_eq!(
+            envelope
+                .open_to_vec(Some(b"metadata"), &Key::from([4u8; 32]))
+                .expect("open"),
+            b"hey authenticated friend"
+        );
+    }
+    {
+        use dryoc::dryocaead::chacha20poly1305_ietf::*;
+        let envelope: VecEnvelope = wincode_reencode(&hex::decode(CHACHA).expect("hex"));
+        assert_eq!(
+            envelope
+                .open_to_vec(Some(b"metadata"), &Key::from([8u8; 32]))
+                .expect("open"),
+            b"message"
+        );
+    }
+}
+
 #[cfg(feature = "wincode_0_6")]
 #[test]
 fn test_dryocbox_wincode() {
