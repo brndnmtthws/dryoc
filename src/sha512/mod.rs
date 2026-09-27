@@ -5,11 +5,14 @@
 //! ## Example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::sha512::Sha512;
 //!
 //! let mut state = Sha512::new();
 //! state.update(b"bytes");
 //! let hash = state.finalize_to_vec();
+//! # }
 //! ```
 use crate::constants::CRYPTO_HASH_SHA512_BYTES;
 use crate::sha2_impl::sha2_hasher;

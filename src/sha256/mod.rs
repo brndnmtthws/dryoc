@@ -11,6 +11,8 @@
 //! ## Example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::sha256::Sha256;
 //!
 //! let mut state = Sha256::new();
@@ -18,6 +20,7 @@
 //! state.update(b"and all the men and women merely players.");
 //! let hash = state.finalize_to_vec();
 //! assert_eq!(hash.len(), 32);
+//! # }
 //! ```
 use crate::constants::CRYPTO_HASH_SHA256_BYTES;
 use crate::sha2_impl::sha2_hasher;

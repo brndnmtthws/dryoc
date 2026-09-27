@@ -25,6 +25,8 @@
 //! # Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocstream::*;
 //! let message1 = b"Arbitrary data to encrypt";
 //! let message2 = b"split into";
@@ -62,6 +64,7 @@
 //! assert_eq!(tag1, Tag::MESSAGE);
 //! assert_eq!(tag2, Tag::MESSAGE);
 //! assert_eq!(tag3, Tag::FINAL);
+//! # }
 //! ```
 //!
 //! ## Additional resources

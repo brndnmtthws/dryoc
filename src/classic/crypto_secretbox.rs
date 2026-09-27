@@ -10,6 +10,8 @@
 //! ## Classic API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::classic::crypto_secretbox::{
 //!     Key, Nonce, crypto_secretbox_easy, crypto_secretbox_keygen, crypto_secretbox_open_easy,
 //! };
@@ -32,6 +34,7 @@
 //! crypto_secretbox_open_easy(&mut decrypted, &ciphertext, &nonce, &key).expect("decrypt failed");
 //!
 //! assert_eq!(decrypted, message.as_bytes());
+//! # }
 //! ```
 
 use crate::classic::crypto_secretbox_impl::*;

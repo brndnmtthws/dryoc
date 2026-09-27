@@ -27,6 +27,8 @@
 //! ## Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocsecretbox::*;
 //!
 //! // Generate a random secret key and nonce
@@ -47,6 +49,7 @@
 //!     .expect("unable to decrypt");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 //!
 //! ## Additional resources

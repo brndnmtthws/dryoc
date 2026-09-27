@@ -34,6 +34,8 @@
 //! ## Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocbox::*;
 //!
 //! // In a real exchange, each party keeps its secret key private and shares
@@ -70,11 +72,14 @@
 //!     .expect("unable to decrypt");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 //!
 //! ## Sealed box example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocbox::*;
 //!
 //! let recipient_keypair = KeyPair::generate();
@@ -88,6 +93,7 @@
 //!     .expect("unable to open");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 //!
 //! ## Additional resources
