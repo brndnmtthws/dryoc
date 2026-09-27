@@ -6,7 +6,7 @@ use dryoc::constants::{
     CRYPTO_SIGN_SEEDBYTES,
 };
 use dryoc::sign::{
-    IncrementalSigner, PublicKey, SecretKey, Seed, Signature, SigningKeyPair, VecSignedMessage,
+    Ed25519phSigner, PublicKey, SecretKey, Seed, Signature, SigningKeyPair, VecSignedMessage,
 };
 use dryoc::types::NewByteArray;
 use pyo3::prelude::*;
@@ -182,7 +182,7 @@ impl SigningKey {
 /// signature; afterwards it raises `DryocError`.
 #[pyclass(frozen, name = "Ed25519ph", module = "dryoc.sign")]
 pub struct Ed25519ph {
-    state: Locked<Option<IncrementalSigner>>,
+    state: Locked<Option<Ed25519phSigner>>,
 }
 
 fn used() -> PyErr {
@@ -190,7 +190,7 @@ fn used() -> PyErr {
 }
 
 impl Ed25519ph {
-    fn take(&self, py: Python<'_>) -> PyResult<IncrementalSigner> {
+    fn take(&self, py: Python<'_>) -> PyResult<Ed25519phSigner> {
         self.state.lock(py)?.take().ok_or_else(used)
     }
 
@@ -209,7 +209,7 @@ impl Ed25519ph {
     #[pyo3(signature = (data = None))]
     fn py_new(py: Python<'_>, data: Option<Buf<'_>>) -> PyResult<Self> {
         let signer = Self {
-            state: Locked::new(Some(IncrementalSigner::new())),
+            state: Locked::new(Some(Ed25519phSigner::new())),
         };
         if let Some(data) = data {
             signer.absorb(py, data.as_slice())?;

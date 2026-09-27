@@ -6,9 +6,10 @@
 //! encrypt the message.
 //!
 //! [`SigningKeyPair::sign`] signs a complete message with Ed25519. Use
-//! [`IncrementalSigner`] when the message is too large to keep in memory or
-//! arrives in parts. The incremental API uses Ed25519ph, so its signatures
-//! cannot be verified by the single-part Ed25519 API, or vice versa.
+//! [`Ed25519phSigner`] when the message is too large to keep in memory or
+//! arrives in parts. It implements Ed25519ph (prehashed Ed25519, RFC 8032),
+//! which is a different signature scheme: its signatures cannot be verified by
+//! the single-part Ed25519 API, or vice versa.
 //!
 //! The verifier must obtain the signer's public key through a trusted channel.
 //! A signature only proves control of the matching secret key; it does not
@@ -56,7 +57,7 @@
 //! assert_eq!(extracted_public_key, keypair.public_key);
 //! ```
 //!
-//! ## Incremental (multi-part) interface
+//! ## Ed25519ph (multi-part) interface
 //!
 //! ```
 //! use dryoc::sign::*;
@@ -64,13 +65,23 @@
 //! // Generate a random keypair, using default types
 //! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
 //!
-//! // Initialize the incremental signer interface
-//! let mut signer = IncrementalSigner::new();
+//! // Initialize the Ed25519ph signer
+//! let mut signer = Ed25519phSigner::new();
 //! signer.update(b"This above all: to thine ownself be true.");
 //! signer.update(b"And it must follow, as the night the day,");
 //! signer.update(b"Thou canst not then be false to any man.");
 //!
 //! let signature: Signature = signer.finalize(&keypair.secret_key);
+//!
+//! // Ed25519ph signatures are verified with an `Ed25519phSigner` fed the same
+//! // message, not with `SignedMessage::verify`
+//! let mut verifier = Ed25519phSigner::new();
+//! verifier.update(b"This above all: to thine ownself be true.");
+//! verifier.update(b"And it must follow, as the night the day,");
+//! verifier.update(b"Thou canst not then be false to any man.");
+//! verifier
+//!     .verify(&signature, &keypair.public_key)
+//!     .expect("verification failed");
 //! ```
 //!
 //! ## Additional resources
@@ -453,26 +464,37 @@ impl<
     }
 }
 
-/// Multi-part (incremental)  interface for [`SigningKeyPair`].
-pub struct IncrementalSigner {
+/// Multi-part Ed25519ph (prehashed Ed25519, RFC 8032) signer and verifier.
+///
+/// This is libsodium's `crypto_sign_init`/`crypto_sign_update`/
+/// `crypto_sign_final_create`/`crypto_sign_final_verify` interface: the message
+/// is fed in parts, hashed with SHA-512, and the digest is signed. Ed25519ph is
+/// a different signature scheme from Ed25519, not an incremental way to compute
+/// the same signature: signatures from [`Ed25519phSigner::finalize`] do not
+/// verify with plain Ed25519 verification ([`SignedMessage::verify`],
+/// [`crypto_sign_verify_detached`]),
+/// and Ed25519 signatures from [`SigningKeyPair::sign`] do not verify with
+/// [`Ed25519phSigner::verify`]. Use it only when both sides agree on
+/// Ed25519ph.
+pub struct Ed25519phSigner {
     state: SignerState,
 }
 
-impl IncrementalSigner {
-    /// Returns a new incremental signer instance.
+impl Ed25519phSigner {
+    /// Returns a new Ed25519ph signer with an empty message.
     pub fn new() -> Self {
         Self {
             state: crypto_sign_init(),
         }
     }
 
-    /// Updates the state for this incremental signer with `message`.
+    /// Appends `message` to the message being signed or verified.
     pub fn update<Message: Bytes + ?Sized>(&mut self, message: &Message) {
         crypto_sign_update(&mut self.state, message.as_slice())
     }
 
-    /// Finalizes this incremental signer with `secret_key`, returning the
-    /// signature.
+    /// Finalizes this signer with `secret_key`, returning the Ed25519ph
+    /// signature of the accumulated message.
     pub fn finalize<
         Signature: NewByteArray<CRYPTO_SIGN_BYTES>,
         SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -491,12 +513,14 @@ impl IncrementalSigner {
         signature
     }
 
-    /// Verifies `signature` as a valid signature for this signer.
+    /// Verifies that `signature` is a valid Ed25519ph signature of the
+    /// accumulated message for `public_key`.
     ///
     /// # Errors
     ///
-    /// Returns an error if `signature` is not valid for the accumulated
-    /// message and `public_key`.
+    /// Returns an error if `signature` is not a valid Ed25519ph signature for
+    /// the accumulated message and `public_key`, including when it is a plain
+    /// Ed25519 signature of that message.
     pub fn verify<
         Signature: ByteArray<CRYPTO_SIGN_BYTES>,
         PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
@@ -511,7 +535,7 @@ impl IncrementalSigner {
     }
 }
 
-impl Default for IncrementalSigner {
+impl Default for Ed25519phSigner {
     fn default() -> Self {
         Self::new()
     }
@@ -778,14 +802,14 @@ mod tests {
             &[&message[..1], &message[1..2], &message[2..]],
         ];
         for parts in splits {
-            let mut signer = IncrementalSigner::new();
+            let mut signer = Ed25519phSigner::new();
             for part in parts {
                 signer.update(part);
             }
             let actual: Signature = signer.finalize(&keypair.secret_key);
             assert_eq!(actual, expected, "split {parts:?}");
 
-            let mut verifier = IncrementalSigner::default();
+            let mut verifier = Ed25519phSigner::default();
             for part in parts {
                 verifier.update(part);
             }
@@ -798,7 +822,7 @@ mod tests {
         // interchangeable.
         let pure = keypair.sign_with_defaults(message.as_slice());
         assert_ne!(pure.signature, expected);
-        let mut verifier = IncrementalSigner::new();
+        let mut verifier = Ed25519phSigner::new();
         verifier.update(&message);
         assert!(matches!(
             verifier.verify(&pure.signature, &keypair.public_key),
@@ -848,14 +872,14 @@ mod tests {
         // Incremental verification rejects a signature over a different split
         // message, and a wrong key.
         let ph: Signature = {
-            let mut signer = IncrementalSigner::new();
+            let mut signer = Ed25519phSigner::new();
             signer.update(&message);
             signer.finalize(&keypair.secret_key)
         };
-        let mut verifier = IncrementalSigner::new();
+        let mut verifier = Ed25519phSigner::new();
         verifier.update(&message[..1]);
         assert!(verifier.verify(&ph, &keypair.public_key).is_err());
-        let mut verifier = IncrementalSigner::new();
+        let mut verifier = Ed25519phSigner::new();
         verifier.update(&message);
         assert!(matches!(
             verifier.verify(&ph, &other.public_key),
@@ -986,7 +1010,7 @@ mod tests {
                     &message[2 * split..],
                 ];
 
-                let mut signer = IncrementalSigner::new();
+                let mut signer = Ed25519phSigner::new();
                 for part in parts {
                     signer.update(&part);
                 }
@@ -1001,7 +1025,7 @@ mod tests {
                     &keypair.public_key
                 ));
 
-                let mut verifier = IncrementalSigner::new();
+                let mut verifier = Ed25519phSigner::new();
                 verifier.update(&message);
                 verifier
                     .verify(&signature, &keypair.public_key)

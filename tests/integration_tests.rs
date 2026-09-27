@@ -1649,7 +1649,7 @@ fn test_streams() {
         &mut c1,
         message1,
         None,
-        Tag::MESSAGE.bits(),
+        Tag::Message.bits(),
     )
     .expect("Encrypt failed");
     // Encrypt a series of messages
@@ -1658,7 +1658,7 @@ fn test_streams() {
         &mut c2,
         message2,
         None,
-        Tag::MESSAGE.bits(),
+        Tag::Message.bits(),
     )
     .expect("Encrypt failed");
     // Encrypt a series of messages
@@ -1667,7 +1667,7 @@ fn test_streams() {
         &mut c3,
         message3,
         None,
-        Tag::FINAL.bits(),
+        Tag::Final.bits(),
     )
     .expect("Encrypt failed");
 
@@ -1694,9 +1694,9 @@ fn test_streams() {
     assert_eq!(message2, m2.as_slice());
     assert_eq!(message3, m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE.bits());
-    assert_eq!(tag2, Tag::MESSAGE.bits());
-    assert_eq!(tag3, Tag::FINAL.bits());
+    assert_eq!(tag1, Tag::Message.bits());
+    assert_eq!(tag2, Tag::Message.bits());
+    assert_eq!(tag3, Tag::Final.bits());
 }
 
 #[cfg(feature = "alloc")]
@@ -1711,13 +1711,13 @@ fn test_streams_rustaceous() {
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: Vec<u8> = push_stream
-        .push(message1, None, Tag::MESSAGE)
+        .push(message1, None, Tag::Message)
         .expect("Encrypt failed");
     let c2: Vec<u8> = push_stream
-        .push(message2, None, Tag::MESSAGE)
+        .push(message2, None, Tag::Message)
         .expect("Encrypt failed");
     let c3: Vec<u8> = push_stream
-        .push(message3, None, Tag::FINAL)
+        .push(message3, None, Tag::Final)
         .expect("Encrypt failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
@@ -1730,9 +1730,9 @@ fn test_streams_rustaceous() {
     assert_eq!(message2, m2.as_slice());
     assert_eq!(message3, m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE);
-    assert_eq!(tag2, Tag::MESSAGE);
-    assert_eq!(tag3, Tag::FINAL);
+    assert_eq!(tag1, Tag::Message);
+    assert_eq!(tag2, Tag::Message);
+    assert_eq!(tag3, Tag::Final);
 }
 
 #[cfg(all(feature = "serde", feature = "alloc"))]
@@ -1889,13 +1889,13 @@ fn test_streams_protected() {
 
     let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
     let c1: LockedBytes = push_stream
-        .push(&message1, None, Tag::MESSAGE)
+        .push(&message1, None, Tag::Message)
         .expect("Encrypt failed");
     let c2: LockedBytes = push_stream
-        .push(&message2, None, Tag::MESSAGE)
+        .push(&message2, None, Tag::Message)
         .expect("Encrypt failed");
     let c3: LockedBytes = push_stream
-        .push(&message3, None, Tag::FINAL)
+        .push(&message3, None, Tag::Final)
         .expect("Encrypt failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
@@ -1908,9 +1908,9 @@ fn test_streams_protected() {
     assert_eq!(message2.as_slice(), m2.as_slice());
     assert_eq!(message3.as_slice(), m3.as_slice());
 
-    assert_eq!(tag1, Tag::MESSAGE);
-    assert_eq!(tag2, Tag::MESSAGE);
-    assert_eq!(tag3, Tag::FINAL);
+    assert_eq!(tag1, Tag::Message);
+    assert_eq!(tag2, Tag::Message);
+    assert_eq!(tag3, Tag::Final);
 }
 
 #[cfg(feature = "alloc")]
