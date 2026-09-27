@@ -577,8 +577,6 @@ blake2b_longhash!();
 
 #[cfg(test)]
 mod tests {
-    use crate::test_prelude::*;
-
     #[cfg(feature = "nightly")]
     extern crate test;
 
