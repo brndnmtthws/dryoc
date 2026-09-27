@@ -242,10 +242,118 @@ pub(crate) fn hmac_keygen<const KEY_BYTES: usize>() -> [u8; KEY_BYTES] {
     key
 }
 
-/// An independent HMAC for the tests of the `crypto_auth_hmacsha*` modules.
+/// An independent HMAC, the RFC 4231 vectors and the shared tests of the
+/// `crypto_auth_hmacsha*` modules and the Rustaceous HMAC types.
 #[cfg(test)]
 pub(crate) mod test_util {
     use sha2::Digest;
+
+    use crate::test_prelude::*;
+
+    /// One RFC 4231 section 4 test case: the key, the data and the full
+    /// HMAC-SHA-256 and HMAC-SHA-512 tags as hex. HMAC-SHA-512-256 is the
+    /// 32-byte truncation of the HMAC-SHA-512 tag.
+    pub(crate) struct Rfc4231Case {
+        pub(crate) key: &'static [u8],
+        pub(crate) data: &'static [u8],
+        sha256: &'static str,
+        sha512: &'static str,
+    }
+
+    impl Rfc4231Case {
+        pub(crate) fn sha256(&self) -> Vec<u8> {
+            hex::decode(self.sha256).expect("hex")
+        }
+
+        pub(crate) fn sha512(&self) -> Vec<u8> {
+            hex::decode(self.sha512).expect("hex")
+        }
+
+        pub(crate) fn sha512256(&self) -> Vec<u8> {
+            hex::decode(&self.sha512[..64]).expect("hex")
+        }
+    }
+
+    pub(crate) const RFC4231_CASE_1: Rfc4231Case = Rfc4231Case {
+        key: &[0x0b; 20],
+        data: b"Hi There",
+        sha256: "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7",
+        sha512: concat!(
+            "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde",
+            "daa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
+        ),
+    };
+
+    /// A key shorter than the tag.
+    pub(crate) const RFC4231_CASE_2: Rfc4231Case = Rfc4231Case {
+        key: b"Jefe",
+        data: b"what do ya want for nothing?",
+        sha256: "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+        sha512: concat!(
+            "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea250554",
+            "9758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737",
+        ),
+    };
+
+    /// Combined key and data longer than 64 bytes.
+    pub(crate) const RFC4231_CASE_3: Rfc4231Case = Rfc4231Case {
+        key: &[0xaa; 20],
+        data: &[0xdd; 50],
+        sha256: "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe",
+        sha512: concat!(
+            "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39",
+            "bf3e848279a722c806b485a47e67c807b946a337bee8942674278859e13292fb",
+        ),
+    };
+
+    /// Combined key and data longer than 64 bytes, with a 25-byte key.
+    pub(crate) const RFC4231_CASE_4: Rfc4231Case = Rfc4231Case {
+        key: &[
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+            0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+        ],
+        data: &[0xcd; 50],
+        sha256: "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b",
+        sha512: concat!(
+            "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3db",
+            "a91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd",
+        ),
+    };
+
+    /// A 131-byte key, longer than both block sizes, so it is hashed first.
+    pub(crate) const RFC4231_CASE_6: Rfc4231Case = Rfc4231Case {
+        key: &[0xaa; 131],
+        data: b"Test Using Larger Than Block-Size Key - Hash Key First",
+        sha256: "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54",
+        sha512: concat!(
+            "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f352",
+            "6b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598",
+        ),
+    };
+
+    /// A 131-byte key and data longer than a block.
+    pub(crate) const RFC4231_CASE_7: Rfc4231Case = Rfc4231Case {
+        key: &[0xaa; 131],
+        data:
+            b"This is a test using a larger than block-size key and a larger than block-size data. \
+                The key needs to be hashed before being used by the HMAC algorithm.",
+        sha256: "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2",
+        sha512: concat!(
+            "e37b6a775dc87dbaa4dfa9f96e5e3ffddebd71f8867289865df5a32d20cdc944",
+            "b6022cac3c4982b10d5eeb55c3e4de15134676fb6de0446065c97440fa8c6a58",
+        ),
+    };
+
+    /// The cases whose keys (at most 25 bytes) zero-pad to the fixed 32-byte
+    /// keys of the one-shot and Rustaceous APIs, which HMAC defines to give
+    /// the same tag. Used by the `alloc`-gated Rustaceous HMAC tests.
+    #[cfg(feature = "alloc")]
+    pub(crate) const RFC4231_PADDABLE_KEYS: [&Rfc4231Case; 4] = [
+        &RFC4231_CASE_1,
+        &RFC4231_CASE_2,
+        &RFC4231_CASE_3,
+        &RFC4231_CASE_4,
+    ];
 
     /// RFC 2104 HMAC over the RustCrypto hash `D`, spelled out so it shares
     /// nothing with the crate's implementation: a key longer than the
@@ -286,4 +394,129 @@ pub(crate) mod test_util {
             .try_into()
             .expect("tag no longer than the digest")
     }
+
+    /// Generates the tests one `crypto_auth_hmacsha*` module shares with the
+    /// others, over that module's Classic functions:
+    ///
+    /// - one `#[test]` per listed RFC 4231 case, through the incremental API;
+    /// - `keybytes_test`: the one-shot function agrees with the incremental API
+    ///   for a `KEYBYTES` key;
+    /// - `test_libsodium_compatibility` (native): libsodium's one-shot tag
+    ///   matches the one-shot, verify and incremental paths;
+    /// - `test_key_and_message_block_boundaries`: empty and block-boundary keys
+    ///   and messages (including the key-hashing transition at B+1), fed in
+    ///   `chunk`-byte pieces with empty updates between them, against
+    ///   [`reference_hmac`] and, natively, libsodium's variable-key incremental
+    ///   API.
+    macro_rules! hmac_classic_tests {
+        (
+            hash: $hash:ty,
+            block: $block:expr,
+            bytes: $bytes:expr,
+            keybytes: $keybytes:expr,
+            tag: $tag:ident,
+            chunk: $chunk:expr,
+            one_shot: $one_shot:ident,
+            verify: $verify:ident,
+            keygen: $keygen:ident,
+            init: $init:ident,
+            update: $update:ident,
+            finalize: $final:ident,
+            sodium_one_shot: $sodium_one_shot:ident,
+            sodium_state: $sodium_state:ident,
+            keybytes_test: $keybytes_test:ident($keybytes_message:expr),
+            rfc4231: { $($case_test:ident => $case:ident),+ $(,)? } $(,)?
+        ) => {
+            fn compute_hmac(key: &[u8], message: &[u8]) -> [u8; $bytes] {
+                let mut mac = [0u8; $bytes];
+                let mut state = $init(key);
+                $update(&mut state, message);
+                $final(state, &mut mac);
+                mac
+            }
+
+            $(
+                #[test]
+                fn $case_test() {
+                    let case = &$crate::classic::crypto_auth_hmac_impl::test_util::$case;
+                    let expected = case.$tag();
+                    assert_eq!(compute_hmac(case.key, case.data).as_slice(), expected.as_slice());
+                }
+            )+
+
+            #[test]
+            fn $keybytes_test() {
+                let key = [0x0bu8; $keybytes];
+                let message: &[u8] = $keybytes_message;
+                let mut one_shot = [0u8; $bytes];
+                $one_shot(&mut one_shot, message, &key);
+                assert_eq!(one_shot, compute_hmac(&key, message));
+            }
+
+            #[cfg(dryoc_native_tests)]
+            #[test]
+            fn test_libsodium_compatibility() {
+                let key = $keygen();
+                let message = b"message to authenticate";
+                let so_mac = $crate::native_test_util::$sodium_one_shot(message, &key);
+
+                let mut mac = [0u8; $bytes];
+                $one_shot(&mut mac, message, &key);
+                assert_eq!(mac.as_slice(), so_mac.as_slice());
+                $verify(&mac, message, &key).expect("verify failed");
+
+                let mut state = $init(&key);
+                $update(&mut state, b"message ");
+                $update(&mut state, b"to authenticate");
+                let mut state_mac = [0u8; $bytes];
+                $final(state, &mut state_mac);
+                assert_eq!(state_mac.as_slice(), so_mac.as_slice());
+            }
+
+            #[test]
+            fn test_key_and_message_block_boundaries() {
+                use $crate::test_prelude::Vec;
+
+                const BLOCK: usize = $block;
+                for key_len in [0usize, BLOCK - 1, BLOCK, BLOCK + 1] {
+                    let key: Vec<u8> = (0..key_len as u32).map(|i| (i * 37 % 251) as u8).collect();
+                    for message_len in [0usize, BLOCK - 1, BLOCK, BLOCK + 1] {
+                        let message: Vec<u8> = (0..message_len as u32)
+                            .map(|i| (i * 31 % 251) as u8)
+                            .collect();
+                        let expected =
+                            $crate::classic::crypto_auth_hmac_impl::test_util::reference_hmac::<
+                                $hash,
+                                BLOCK,
+                                { $bytes },
+                            >(&key, &message);
+                        let mut state = $init(&key);
+                        $update(&mut state, b"");
+                        for chunk in message.chunks($chunk) {
+                            $update(&mut state, chunk);
+                            $update(&mut state, b"");
+                        }
+                        let mut actual = [0u8; $bytes];
+                        $final(state, &mut actual);
+                        assert_eq!(actual, expected, "key {key_len}, message {message_len}");
+                        #[cfg(dryoc_native_tests)]
+                        {
+                            let mut sodium = $crate::native_test_util::$sodium_state::new(&key);
+                            sodium.update(&[]);
+                            for chunk in message.chunks($chunk) {
+                                sodium.update(chunk);
+                            }
+                            assert_eq!(
+                                actual,
+                                sodium.finalize(),
+                                "libsodium, key {key_len}, message {message_len}"
+                            );
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    pub(crate) use hmac_classic_tests;
 }

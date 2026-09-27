@@ -214,27 +214,10 @@ impl Auth {
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
-
-    /// RFC 4231 cases 1-3 for HMAC-SHA-512, truncated to the 32 bytes
-    /// `crypto_auth` (HMAC-SHA-512-256) emits. Keys shorter than 32 bytes are
-    /// zero-padded, which HMAC defines to yield the same tag.
-    const CASES: [(&[u8], &[u8], &str); 3] = [
-        (
-            &[0x0b; 20],
-            b"Hi There",
-            "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde",
-        ),
-        (
-            b"Jefe",
-            b"what do ya want for nothing?",
-            "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea250554",
-        ),
-        (
-            &[0xaa; 20],
-            &[0xdd; 50],
-            "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39",
-        ),
-    ];
+    // RFC 4231 cases 1-4 for HMAC-SHA-512, truncated to the 32 bytes
+    // `crypto_auth` (HMAC-SHA-512-256) emits. Keys shorter than 32 bytes are
+    // zero-padded, which HMAC defines to yield the same tag.
+    use crate::classic::crypto_auth_hmac_impl::test_util::RFC4231_PADDABLE_KEYS as CASES;
 
     fn padded_key(key: &[u8]) -> Key {
         let mut padded = Key::default();
@@ -244,9 +227,8 @@ mod tests {
 
     #[test]
     fn rfc4231_vectors_through_single_and_multi_part_interfaces() {
-        for (key, message, expected) in CASES {
-            let key = padded_key(key);
-            let expected = hex::decode(expected).expect("hex");
+        for case in CASES {
+            let (key, message, expected) = (padded_key(case.key), case.data, case.sha512256());
 
             assert_eq!(Auth::compute_to_vec(key.clone(), &message), expected);
             let fixed: Mac = Auth::compute(key.clone(), &message);
@@ -296,8 +278,8 @@ mod tests {
 
     #[test]
     fn rustaceous_and_classic_macs_verify_each_other() {
-        for (key, message, _) in CASES {
-            let key = padded_key(key);
+        for case in CASES {
+            let (key, message) = (padded_key(case.key), case.data);
             let mac = Auth::compute_to_vec(key.clone(), &message);
             crypto_auth_verify(
                 mac.as_slice().try_into().expect("MAC length"),
@@ -320,8 +302,8 @@ mod tests {
     fn locked_key_and_input_produce_the_same_mac() {
         use crate::auth::protected::*;
 
-        for (key, message, expected) in CASES {
-            let expected = hex::decode(expected).expect("hex");
+        for case in CASES {
+            let (key, message, expected) = (case.key, case.data, case.sha512256());
             let lock_key = || {
                 protected::Key::from_slice_into_readonly_locked(padded_key(key).as_slice())
                     .expect("lock key")
@@ -342,8 +324,8 @@ mod tests {
     fn rfc4231_keys_match_libsodium() {
         use crate::native_test_util::auth_hmacsha512256;
 
-        for (key, message, _) in CASES {
-            let key = padded_key(key);
+        for case in CASES {
+            let (key, message) = (padded_key(case.key), case.data);
             let so_tag = auth_hmacsha512256(message, key.as_slice());
             assert_eq!(Auth::compute_to_vec(key.clone(), &message), so_tag);
             Auth::compute_and_verify(&so_tag, key, &message).expect("verify sodium tag");
