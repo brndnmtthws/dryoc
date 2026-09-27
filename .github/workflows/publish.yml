@@ -176,8 +176,14 @@ jobs:
           enable-cache: false
       - name: Check package metadata
         run: uvx twine check --strict dist/*
+      # auditwheel vendors libgcc_s (the unwinder of Rust's dynamically linked
+      # musl cdylibs) into dryoc.libs/, which holds no Python modules. Pin the
+      # musllinux top level to exactly those two entries instead of W009/W010.
       - name: Check wheel contents
-        run: uvx check-wheel-contents dist/*.whl
+        run: |
+          shopt -s extglob
+          uvx check-wheel-contents dist/!(*musllinux*).whl
+          uvx check-wheel-contents --toplevel dryoc,dryoc.libs --ignore W010 dist/*musllinux*.whl
 
   pypi-publish:
     name: Publish Python package to PyPI
