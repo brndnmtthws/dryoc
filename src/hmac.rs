@@ -55,6 +55,8 @@
 //! # Generic HMAC variants
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::constants::{CRYPTO_AUTH_HMACSHA256_BYTES, CRYPTO_AUTH_HMACSHA256_KEYBYTES};
 //! use dryoc::hmac::{Hmac, HmacSha256, HmacSha256Key, HmacSha256Variant, HmacVariant};
 //! use dryoc::types::*;
@@ -78,6 +80,7 @@
 //! >(&key, message);
 //! let concrete_mac = HmacSha256::compute_to_vec(&key, message);
 //! assert_eq!(generic_mac, concrete_mac);
+//! # }
 //! ```
 
 #[cfg(feature = "alloc")]

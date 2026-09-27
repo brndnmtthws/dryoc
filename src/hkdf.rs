@@ -17,6 +17,8 @@
 //! # Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::hkdf::{HkdfSha256, HkdfSha256Prk};
 //!
 //! let hkdf: HkdfSha256 =
@@ -25,11 +27,14 @@
 //!     .expand_to_vec(b"session key", 42)
 //!     .expect("expand failed");
 //! assert_eq!(output.len(), 42);
+//! # }
 //! ```
 //!
 //! # One-shot extract and expand
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::hkdf::HkdfSha512;
 //!
 //! let output = HkdfSha512::extract_and_expand_to_vec(
@@ -40,6 +45,7 @@
 //! )
 //! .expect("expand failed");
 //! assert_eq!(output.len(), 64);
+//! # }
 //! ```
 //!
 //! # Reusing an extracted PRK

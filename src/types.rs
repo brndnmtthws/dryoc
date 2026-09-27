@@ -54,8 +54,8 @@ impl<const LENGTH: usize> Eq for StackByteArray<LENGTH> {}
 /// length other than `LENGTH`.
 ///
 /// Slices and vectors are not fixed-length byte arrays:
-///
-/// ```compile_fail,E0277
+#[cfg_attr(feature = "alloc", doc = "```compile_fail,E0277")]
+#[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
 /// use dryoc::dryocsecretbox::{DryocSecretBox, Nonce};
 /// use dryoc::types::*;
 ///
@@ -64,7 +64,8 @@ impl<const LENGTH: usize> Eq for StackByteArray<LENGTH> {}
 /// DryocSecretBox::encrypt_to_vecbox(b"hello", &nonce, &key);
 /// ```
 ///
-/// ```compile_fail,E0277
+#[cfg_attr(feature = "alloc", doc = "```compile_fail,E0277")]
+#[cfg_attr(not(feature = "alloc"), doc = "```ignore")]
 /// use dryoc::dryocsecretbox::{DryocSecretBox, Nonce};
 /// use dryoc::types::*;
 ///

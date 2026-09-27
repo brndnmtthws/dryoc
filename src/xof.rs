@@ -22,6 +22,8 @@
 //! ## Example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::xof::TurboShake128;
 //!
 //! let mut xof = TurboShake128::new();
@@ -34,6 +36,7 @@
 //! // One-shot output of any length.
 //! let digest = dryoc::xof::Shake256::compute_to_vec(b"hello", 64);
 //! assert_eq!(digest.len(), 64);
+//! # }
 //! ```
 
 #[cfg(feature = "alloc")]

@@ -282,6 +282,14 @@ jobs:
       - run: mbx test --doc --all-features
         env:
           RUSTDOCFLAGS: -D warnings
+      # The feature-matrix jobs run nextest, which skips doctests: check the
+      # examples also build and pass without `std`, gated on what they need.
+      - run: mbx test --doc --no-default-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: mbx test --doc --no-default-features --features alloc
+        env:
+          RUSTDOCFLAGS: -D warnings
       - run: mbx doc --features nightly,wincode_0_6 --no-deps
         env:
           RUSTDOCFLAGS: -D warnings

@@ -8,6 +8,8 @@
 //! # Rustaceous API example, single-part interface
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use base64::Engine as _;
 //! use base64::engine::general_purpose;
 //! use dryoc::generichash::{DefaultGenericHash, Key};
@@ -19,11 +21,14 @@
 //!     general_purpose::STANDARD.encode(&hash),
 //!     "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
 //! );
+//! # }
 //! ```
 //!
 //! # Rustaceous API example, incremental interface
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use base64::Engine as _;
 //! use base64::engine::general_purpose;
 //! use dryoc::generichash::{DefaultGenericHash, Key};
@@ -37,6 +42,7 @@
 //!     general_purpose::STANDARD.encode(&hash),
 //!     "Mk3PAn3UowqTLEQfNlol6GsXPe+kuOWJSCU0cbgbcs8="
 //! );
+//! # }
 //! ```
 
 #[cfg(feature = "alloc")]

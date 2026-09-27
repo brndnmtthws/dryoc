@@ -165,7 +165,6 @@ impl<
 /// validation functions operate on references.
 ///
 /// ```
-/// # #![cfg_attr(not(all(feature = "protected", any(unix, windows))), ignore)]
 /// # #[cfg(all(feature = "protected", any(unix, windows)))]
 /// # {
 /// use dryoc::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};

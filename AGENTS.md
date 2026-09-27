@@ -289,6 +289,9 @@ annotated tag, which starts `publish.yml`.
   arithmetic backends (`Arith`); `test-vectors/` holds the ML-KEM and X-Wing
   known answers. X-Wing is in `src/classic/crypto_kem_xwing.rs`; `src/kem.rs`
   is the Rustaceous API for both.
+- `src/wincode_schema.rs`: the `impl_wincode_schema!` macro behind the
+  `wincode_0_6` schemas of every Rustaceous `Vec` box; each box lists its
+  wire fields in order.
 - `src/sha2_impl.rs`: the `sha2_hasher!` macro that generates the SHA-256 and
   SHA-512 hasher types; each `sha*/mod.rs` supplies its IV and `compress`.
 - `src/classic/crypto_*_impl.rs`: shared bodies behind pairs of classic

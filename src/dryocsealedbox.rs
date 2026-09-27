@@ -55,6 +55,8 @@
 //! ## Example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocsealedbox::*;
 //!
 //! let recipient_keypair = StackKeyPair::generate();
@@ -71,6 +73,7 @@
 //!     .open_to_vec(&recipient_keypair)
 //!     .expect("unable to open");
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 
 #[cfg(feature = "alloc")]

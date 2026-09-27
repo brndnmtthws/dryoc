@@ -27,6 +27,8 @@
 //! ## Rustaceous API example, single-part
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
@@ -40,6 +42,7 @@
 //! signed_message
 //!     .verify(&keypair.public_key)
 //!     .expect("verification failed");
+//! # }
 //! ```
 //!
 //! ## Extracting key material

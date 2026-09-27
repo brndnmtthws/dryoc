@@ -11,12 +11,15 @@
 //! ## Example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::sha3::Sha3256;
 //!
 //! let mut state = Sha3256::new();
 //! state.update(b"The web of our life is of a mingled yarn.");
 //! let hash = state.finalize_to_vec();
 //! assert_eq!(hash.len(), 32);
+//! # }
 //! ```
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;

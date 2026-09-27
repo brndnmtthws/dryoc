@@ -34,6 +34,8 @@
 //! ## Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocbox::*;
 //! use dryoc::types::*;
 //!
@@ -71,11 +73,14 @@
 //!     .expect("unable to decrypt");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 //!
 //! ## Sealed box example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocbox::*;
 //!
 //! let recipient_keypair = StackKeyPair::generate();
@@ -89,6 +94,7 @@
 //!     .expect("unable to open");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 //!
 //! ## Additional resources
@@ -222,60 +228,14 @@ pub struct DryocBox<
 pub type VecBox = DryocBox<PublicKey, Mac, Vec<u8>>;
 
 #[cfg(feature = "wincode_0_6")]
-// SAFETY: The implementation writes exactly the fields used to reconstruct
-// `VecBox` below, using `wincode` schema implementations for each initialized
-// field and preserving their order.
-unsafe impl<C: wincode::config::Config> wincode::SchemaWrite<C> for VecBox {
-    type Src = Self;
-
-    fn size_of(src: &Self::Src) -> wincode::WriteResult<usize> {
-        Ok(
-            <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaWrite<C>>::size_of(
-                &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
-            )? + <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaWrite<C>>::size_of(
-                src.tag.as_array(),
-            )? + <Vec<u8> as wincode::SchemaWrite<C>>::size_of(&src.data)?,
-        )
-    }
-
-    fn write(mut writer: impl wincode::io::Writer, src: &Self::Src) -> wincode::WriteResult<()> {
-        <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaWrite<C>>::write(
-            writer.by_ref(),
-            &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
-        )?;
-        <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaWrite<C>>::write(
-            writer.by_ref(),
-            src.tag.as_array(),
-        )?;
-        <Vec<u8> as wincode::SchemaWrite<C>>::write(writer, &src.data)
-    }
-}
-
-#[cfg(feature = "wincode_0_6")]
-// SAFETY: The implementation fully initializes `dst` with a valid `VecBox`
-// after successfully reading each field in the same order as `SchemaWrite`.
-unsafe impl<'de, C: wincode::config::Config> wincode::SchemaRead<'de, C> for VecBox {
-    type Dst = Self;
-
-    fn read(
-        mut reader: impl wincode::io::Reader<'de>,
-        dst: &mut core::mem::MaybeUninit<Self::Dst>,
-    ) -> wincode::ReadResult<()> {
-        let ephemeral_pk = <Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> as wincode::SchemaRead<
-            'de,
-            C,
-        >>::get(reader.by_ref())?
-        .map(Into::into);
-        let tag = <[u8; CRYPTO_BOX_MACBYTES] as wincode::SchemaRead<'de, C>>::get(reader.by_ref())?;
-        let data = <Vec<u8> as wincode::SchemaRead<'de, C>>::get(reader)?;
-        dst.write(Self {
-            ephemeral_pk,
-            tag: tag.into(),
-            data,
-        });
-        Ok(())
-    }
-}
+impl_wincode_schema!(VecBox {
+    ephemeral_pk: Option<[u8; CRYPTO_BOX_PUBLICKEYBYTES]> = (
+        src => &src.ephemeral_pk.as_ref().map(|epk| *epk.as_array()),
+        epk => epk.map(Into::into)
+    ),
+    tag: [u8; CRYPTO_BOX_MACBYTES] = (src => src.tag.as_array(), tag => tag.into()),
+    data: Vec<u8> = (src => &src.data, data => data),
+});
 
 impl<
     EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
