@@ -227,9 +227,7 @@ fn test_sha3_public_api() {
         crypto_hash_sha3256_init, crypto_hash_sha3256_update, crypto_hash_sha3512,
         crypto_hash_sha3512_final, crypto_hash_sha3512_init, crypto_hash_sha3512_update,
     };
-    use dryoc::sha3::{
-        Sha3256, Sha3256Digest as RustSha3256Digest, Sha3512, Sha3512Digest as RustSha3512Digest,
-    };
+    use dryoc::sha3::{Digest256, Digest512, Sha3256, Sha3512};
     use dryoc::types::Bytes;
 
     let message = b"public API message";
@@ -243,11 +241,11 @@ fn test_sha3_public_api() {
     crypto_hash_sha3256_final(classic_state256, &mut classic_streaming256);
     assert_eq!(classic_one_shot256, classic_streaming256);
 
-    let rust_one_shot256: RustSha3256Digest = Sha3256::compute(message);
+    let rust_one_shot256: Digest256 = Sha3256::compute(message);
     let mut rust_state256 = Sha3256::new();
     rust_state256.update(b"public API ");
     rust_state256.update(b"message");
-    let rust_streaming256: RustSha3256Digest = rust_state256.finalize();
+    let rust_streaming256: Digest256 = rust_state256.finalize();
     assert_eq!(rust_one_shot256, rust_streaming256);
     assert_eq!(classic_one_shot256.as_slice(), rust_one_shot256.as_slice());
 
@@ -260,11 +258,11 @@ fn test_sha3_public_api() {
     crypto_hash_sha3512_final(classic_state512, &mut classic_streaming512);
     assert_eq!(classic_one_shot512, classic_streaming512);
 
-    let rust_one_shot512: RustSha3512Digest = Sha3512::compute(message);
+    let rust_one_shot512: Digest512 = Sha3512::compute(message);
     let mut rust_state512 = Sha3512::new();
     rust_state512.update(b"public API ");
     rust_state512.update(b"message");
-    let rust_streaming512: RustSha3512Digest = rust_state512.finalize();
+    let rust_streaming512: Digest512 = rust_state512.finalize();
     assert_eq!(rust_one_shot512, rust_streaming512);
     assert_eq!(classic_one_shot512.as_slice(), rust_one_shot512.as_slice());
 }

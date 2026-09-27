@@ -71,11 +71,13 @@ pub fn crypto_auth_hmacsha256_verify(mac: &Mac, input: &[u8], key: &Key) -> Resu
 }
 
 /// Generates a random key for HMAC-SHA-256.
+#[must_use]
 pub fn crypto_auth_hmacsha256_keygen() -> Key {
     hmac_keygen()
 }
 
 /// Initializes the incremental interface for HMAC-SHA-256.
+#[must_use]
 pub fn crypto_auth_hmacsha256_init(key: &[u8]) -> HmacSha256State {
     HmacSha256State(hmac_init::<Sha256, 64, CRYPTO_AUTH_HMACSHA256_BYTES>(key))
 }

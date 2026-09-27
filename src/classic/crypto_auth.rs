@@ -85,6 +85,7 @@ pub struct AuthState {
 /// [`crypto_auth_init`] and [`crypto_auth`].
 ///
 /// Equivalent to libsodium's `crypto_auth_keygen`.
+#[must_use]
 pub fn crypto_auth_keygen() -> Key {
     crypto_auth_hmacsha512256_keygen()
 }
@@ -95,6 +96,7 @@ pub fn crypto_auth_keygen() -> Key {
 /// authentication, using `key`. Returns a state struct which is required for
 /// subsequent calls to [`crypto_auth_update`] and
 /// [`crypto_auth_final`].
+#[must_use]
 pub fn crypto_auth_init(key: &Key) -> AuthState {
     AuthState {
         state: crypto_auth_hmacsha512256_init(key),

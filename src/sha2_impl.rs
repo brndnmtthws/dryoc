@@ -51,6 +51,7 @@ macro_rules! sha2_hasher {
 
         impl $name {
             #[doc = concat!("Returns a new ", $algo, " hasher instance.")]
+            #[must_use]
             pub fn new() -> Self {
                 Self {
                     state: $iv,
@@ -123,6 +124,7 @@ macro_rules! sha2_hasher {
             }
 
             #[doc = concat!("One-time interface to compute ", $algo, " digest for `input`.")]
+            #[must_use]
             pub fn compute<
                 Input: $crate::types::Bytes + ?Sized,
                 Output: $crate::types::NewByteArray<$digest_bytes>,
@@ -139,6 +141,7 @@ macro_rules! sha2_hasher {
                 "convenience."
             )]
             #[cfg(feature = "alloc")]
+            #[must_use]
             pub fn compute_to_vec<Input: $crate::types::Bytes + ?Sized>(input: &Input) -> alloc::vec::Vec<u8> {
                 Self::compute::<_, $crate::types::StackByteArray<$digest_bytes>>(input).to_vec()
             }
@@ -169,6 +172,7 @@ macro_rules! sha2_hasher {
             }
 
             /// Consumes hasher and return final computed hash.
+            #[must_use]
             pub fn finalize<Output: $crate::types::NewByteArray<$digest_bytes>>(mut self) -> Output {
                 // In place, so `self` is not copied into another frame and
                 // its own storage is what drops (wipes).
@@ -211,8 +215,9 @@ macro_rules! sha2_hasher {
             /// Consumes hasher and returns final computed hash as a
             /// [`Vec`](alloc::vec::Vec).
             #[cfg(feature = "alloc")]
+            #[must_use]
             pub fn finalize_to_vec(mut self) -> alloc::vec::Vec<u8> {
-                let mut hash = $crate::types::StackByteArray::<$digest_bytes>::new();
+                let mut hash = $crate::types::StackByteArray::<$digest_bytes>::default();
                 self.finalize_in_place(hash.as_mut_array());
                 hash.to_vec()
             }

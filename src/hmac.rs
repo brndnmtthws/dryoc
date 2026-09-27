@@ -301,6 +301,7 @@ where
 {
     /// Computes and returns the message authentication code for `input` using
     /// `key`.
+    #[must_use]
     pub fn compute<
         Key: ByteArray<KEY_LENGTH>,
         Input: Bytes + ?Sized,
@@ -316,6 +317,7 @@ where
 
     /// Convenience wrapper around [`Self::compute`] that returns a [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn compute_to_vec<Key: ByteArray<KEY_LENGTH>, Input: Bytes + ?Sized>(
         key: &Key,
         input: &Input,
@@ -342,6 +344,7 @@ where
     }
 
     /// Returns a new incremental authenticator for `key`.
+    #[must_use]
     pub fn new<Key: ByteArray<KEY_LENGTH>>(key: &Key) -> Self {
         Self {
             state: Variant::init(key.as_array()),
@@ -355,6 +358,7 @@ where
     }
 
     /// Finalizes this authenticator, returning the message authentication code.
+    #[must_use]
     pub fn finalize<Output: NewByteArray<MAC_LENGTH>>(self) -> Output {
         let mut output = Output::new_byte_array();
         Variant::finalize(self.state, output.as_mut_array());
@@ -364,6 +368,7 @@ where
     /// Finalizes this authenticator, returning the message authentication code
     /// as a [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize::<StackByteArray<MAC_LENGTH>>().to_vec()
     }

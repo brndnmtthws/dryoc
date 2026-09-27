@@ -23,7 +23,7 @@ const PAD0: [u8; 16] = [0u8; 16];
 /// Takes the Poly1305 key from block 0 of `cipher`, which must be positioned
 /// at block 0; the returned cipher is positioned at block 1 for the message.
 pub(crate) fn poly1305_key(mut cipher: ChaCha20) -> (ChaCha20, Poly1305Key) {
-    let mut mac_key = Poly1305Key::new();
+    let mut mac_key = Poly1305Key::default();
     cipher.apply_keystream(&mut mac_key);
     (cipher, mac_key)
 }
@@ -53,7 +53,7 @@ fn encrypt_with_poly1305_key_into(
         Some(message) => cipher.apply_keystream_b2b_with_head(&mut block0, message, ciphertext),
         None => cipher.apply_keystream_with_head(&mut block0, ciphertext),
     }
-    let mut mac_key = Poly1305Key::new();
+    let mut mac_key = Poly1305Key::default();
     mac_key.copy_from_slice(&block0[..CRYPTO_ONETIMEAUTH_POLY1305_KEYBYTES]);
     zeroize_bytes(&mut block0);
     mac_key
@@ -209,6 +209,7 @@ macro_rules! impl_chacha20poly1305_aead {
         }
 
         $(#[$keygen_meta])*
+        #[must_use]
         pub fn $keygen() -> $key {
             <$key>::generate()
         }

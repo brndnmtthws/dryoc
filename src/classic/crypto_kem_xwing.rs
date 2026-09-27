@@ -176,6 +176,7 @@ pub fn crypto_kem_xwing_seed_keypair_inplace(
 /// seed itself.
 ///
 /// Compatible with libsodium's `crypto_kem_xwing_seed_keypair`.
+#[must_use]
 pub fn crypto_kem_xwing_seed_keypair(seed: &Seed) -> (PublicKey, SecretKey) {
     let mut public_key = [0u8; CRYPTO_KEM_XWING_PUBLICKEYBYTES];
     let mut secret_key = [0u8; CRYPTO_KEM_XWING_SECRETKEYBYTES];
@@ -193,6 +194,7 @@ pub fn crypto_kem_xwing_keypair_inplace(public_key: &mut PublicKey, secret_key: 
 /// Returns a randomly generated key pair.
 ///
 /// Compatible with libsodium's `crypto_kem_xwing_keypair`.
+#[must_use]
 pub fn crypto_kem_xwing_keypair() -> (PublicKey, SecretKey) {
     let mut public_key = [0u8; CRYPTO_KEM_XWING_PUBLICKEYBYTES];
     let mut secret_key = [0u8; CRYPTO_KEM_XWING_SECRETKEYBYTES];

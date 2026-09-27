@@ -61,6 +61,7 @@ macro_rules! crypto_xof {
         }
 
         #[doc = concat!("Initializes ", $algo, " with the standard domain.")]
+        #[must_use]
         pub fn $init() -> $state {
             $state {
                 core: XofCore::new(),

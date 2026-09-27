@@ -117,6 +117,7 @@ pub struct Auth {
 
 impl Auth {
     /// Computes the message authentication code for `input` using `key`.
+    #[must_use]
     pub fn compute<
         Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
         Input: Bytes + ?Sized,
@@ -134,6 +135,7 @@ impl Auth {
     ///
     /// This is a convenience wrapper around [`Auth::compute`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn compute_to_vec<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>, Input: Bytes + ?Sized>(
         key: &Key,
         input: &Input,
@@ -160,6 +162,7 @@ impl Auth {
     }
 
     /// Returns a new incremental authenticator for `key`.
+    #[must_use]
     pub fn new<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>>(key: &Key) -> Self {
         Self {
             state: crypto_auth_init(key.as_array()),
@@ -173,6 +176,7 @@ impl Auth {
 
     /// Finalizes this secret-key authenticator, returning the message
     /// authentication code.
+    #[must_use]
     pub fn finalize<Output: NewByteArray<CRYPTO_AUTH_BYTES>>(self) -> Output {
         let mut output = Output::new_byte_array();
         crypto_auth_final(self.state, output.as_mut_array());
@@ -183,6 +187,7 @@ impl Auth {
     /// authentication code as a [`Vec`]. Convenience wrapper around
     /// [`Auth::finalize`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize::<Mac>().to_vec()
     }

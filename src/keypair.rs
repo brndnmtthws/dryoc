@@ -66,6 +66,7 @@ impl<
 > KeyPair<PublicKey, SecretKey>
 {
     /// Generates a random keypair.
+    #[must_use]
     pub fn generate() -> Self {
         use crate::classic::crypto_box::crypto_box_keypair_inplace;
 
@@ -81,6 +82,7 @@ impl<
 
     /// Derives the public key for `secret_key` and returns the complete
     /// keypair, consuming the secret key.
+    #[must_use]
     pub fn from_secret_key(secret_key: SecretKey) -> Self {
         use crate::classic::crypto_core::crypto_scalarmult_base;
 
@@ -94,6 +96,7 @@ impl<
     }
 
     /// Deterministically derives a keypair from `seed`.
+    #[must_use]
     pub fn from_seed<Seed: ByteArray<CRYPTO_BOX_SEEDBYTES>>(seed: &Seed) -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
@@ -114,6 +117,7 @@ impl<
 impl KeyPair<StackByteArray<CRYPTO_BOX_PUBLICKEYBYTES>, StackByteArray<CRYPTO_BOX_SECRETKEYBYTES>> {
     /// Randomly generates a new keypair, using default types
     /// (stack-allocated byte arrays). Provided for convenience.
+    #[must_use]
     pub fn generate_with_defaults() -> Self {
         Self::generate()
     }
@@ -194,6 +198,7 @@ impl<
     /// assert!(is_x25519_valid, "Protected X25519 key should be valid");
     /// # }
     /// ```
+    #[must_use]
     pub fn is_valid_public_key<PK: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(key: &PK) -> bool {
         let scalar = [0u8; CRYPTO_BOX_SECRETKEYBYTES];
         let mut shared_secret = [0u8; CRYPTO_BOX_PUBLICKEYBYTES];
@@ -215,6 +220,7 @@ impl<
     /// instead; some signature profiles intentionally define different
     /// point-acceptance rules.
     /// `is_valid_public_key` should be used for X25519 keys used in crypto_box.
+    #[must_use]
     pub fn is_valid_ed25519_key<PK: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>>(key: &PK) -> bool {
         crate::classic::crypto_core::crypto_core_ed25519_is_valid_point(key.as_array())
     }

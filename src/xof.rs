@@ -112,6 +112,7 @@ macro_rules! xof {
 
         impl $name {
             #[doc = concat!("Returns a new ", $algo, " instance with the standard domain.")]
+            #[must_use]
             pub fn new() -> Self {
                 Self {
                     core: XofCore::new(),
@@ -137,6 +138,7 @@ macro_rules! xof {
             }
 
             /// Finishes absorbing and returns a reader for the output stream.
+            #[must_use]
             pub fn finalize(self) -> $reader {
                 $reader { core: self.core }
             }
@@ -157,6 +159,7 @@ macro_rules! xof {
                 "Computes `len` bytes of ", $algo, " of `input` with the standard domain."
             )]
             #[cfg(feature = "alloc")]
+            #[must_use]
             pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input, len: usize) -> Vec<u8> {
                 let mut output = vec![0u8; len];
                 Self::compute_into_bytes(&mut output, input);
@@ -184,6 +187,7 @@ macro_rules! xof {
 
             /// Returns the next `len` bytes of the output stream.
             #[cfg(feature = "alloc")]
+            #[must_use]
             pub fn squeeze_to_vec(&mut self, len: usize) -> Vec<u8> {
                 let mut output = vec![0u8; len];
                 self.squeeze(&mut output);

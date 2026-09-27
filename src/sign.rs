@@ -130,6 +130,7 @@ pub type Signature = StackByteArray<CRYPTO_SIGN_BYTES>;
 pub type Message = Vec<u8>;
 
 /// Extracts the Ed25519 seed from a signing secret key.
+#[must_use]
 pub fn secret_key_to_seed<
     SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>,
     SigningSecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -142,6 +143,7 @@ pub fn secret_key_to_seed<
 }
 
 /// Extracts the Ed25519 public key from a signing secret key.
+#[must_use]
 pub fn secret_key_to_public_key<
     PublicKeyOut: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
     SigningSecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -190,6 +192,7 @@ impl<
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Generates a random signing keypair.
+    #[must_use]
     pub fn generate() -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
@@ -203,6 +206,7 @@ impl<
     /// Derives a signing keypair from `secret_key`, and consumes it, returning
     /// a new keypair. The consumed key is wiped, even if its type does not
     /// wipe itself on drop.
+    #[must_use]
     pub fn from_secret_key(mut secret_key: SecretKey) -> Self {
         let mut seed = Zeroizing::new([0u8; 32]);
         seed.copy_from_slice(&secret_key.as_slice()[..32]);
@@ -213,6 +217,7 @@ impl<
 
     /// Derives a signing keypair from `seed`, returning
     /// a new keypair.
+    #[must_use]
     pub fn from_seed<Seed: ByteArray<CRYPTO_SIGN_SEEDBYTES>>(seed: &Seed) -> Self {
         let mut public_key = PublicKey::new_byte_array();
         let mut secret_key = SecretKey::new_byte_array();
@@ -236,11 +241,13 @@ impl<
 > SigningKeyPair<PublicKey, SecretKey>
 {
     /// Extracts the Ed25519 seed from this keypair's secret key.
+    #[must_use]
     pub fn to_seed<SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>>(&self) -> SeedOut {
         secret_key_to_seed(&self.secret_key)
     }
 
     /// Extracts the Ed25519 public key embedded in this keypair's secret key.
+    #[must_use]
     pub fn to_public_key<PublicKeyOut: NewByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(
         &self,
     ) -> PublicKeyOut {
@@ -256,6 +263,7 @@ impl
 {
     /// Randomly generates a new signing keypair, using default types
     /// (stack-allocated byte arrays). Provided for convenience.
+    #[must_use]
     pub fn generate_with_defaults() -> Self {
         Self::generate()
     }
@@ -439,6 +447,7 @@ impl<
     /// Signs `message` using this keypair, consuming the message, and returning
     /// a new [`SignedMessage`]. The type of `message` should match that of the
     /// target signed message.
+    #[must_use]
     pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>(
         &self,
         message: Message,
@@ -456,6 +465,7 @@ impl<
     /// Signs `message`, putting the result into a [`Vec`]. Convenience wrapper
     /// for [`SigningKeyPair::sign`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn sign_with_defaults<Message: Bytes>(
         &self,
         message: Message,
@@ -482,6 +492,7 @@ pub struct Ed25519phSigner {
 
 impl Ed25519phSigner {
     /// Returns a new Ed25519ph signer with an empty message.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             state: crypto_sign_init(),
@@ -495,6 +506,7 @@ impl Ed25519phSigner {
 
     /// Finalizes this signer with `secret_key`, returning the Ed25519ph
     /// signature of the accumulated message.
+    #[must_use]
     pub fn finalize<
         Signature: NewByteArray<CRYPTO_SIGN_BYTES>,
         SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
@@ -592,6 +604,7 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 {
     /// Returns a new signed message from `signature` and `message`, consuming
     /// each.
+    #[must_use]
     pub fn from_parts(signature: Signature, message: Message) -> Self {
         Self { signature, message }
     }
@@ -608,17 +621,20 @@ impl<Signature: ByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize
 
     /// Copies `self` into a new [`Vec`]
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
 
     /// Moves the signature and message out of this instance, returning them
     /// as a tuple.
+    #[must_use]
     pub fn into_parts(self) -> (Signature, Message) {
         (self.signature, self.message)
     }
 
     /// Copies `self` into the target. Can be used with protected memory.
+    #[must_use]
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         concat_bytes(self.signature.as_array(), self.message.as_slice())
     }

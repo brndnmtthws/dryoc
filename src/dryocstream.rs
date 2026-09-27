@@ -87,7 +87,7 @@ use crate::classic::crypto_secretstream_xchacha20poly1305::{
 };
 use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES,
-    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES, CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES,
+    CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES,
 };
 use crate::error::Error;
 pub use crate::types::*;
@@ -108,8 +108,6 @@ impl Mode for Pull {}
 
 /// Stack-allocated secret for authenticated secret streams.
 pub type Key = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
-/// Stack-allocated nonce for authenticated secret streams.
-pub type Nonce = StackByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
 /// Stack-allocated header data for authenticated secret streams.
 pub type Header = StackByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
 
@@ -175,9 +173,6 @@ pub mod protected {
     /// Heap-allocated, page-aligned secret key for authenticated secret
     /// streams, for use with protected memory.
     pub type Key = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>;
-    /// Heap-allocated, page-aligned nonce for authenticated secret
-    /// streams, for use with protected memory.
-    pub type Nonce = HeapByteArray<CRYPTO_STREAM_CHACHA20_IETF_NONCEBYTES>;
     /// Heap-allocated, page-aligned header for authenticated secret
     /// streams, for use with protected memory.
     pub type Header = HeapByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>;
@@ -212,6 +207,7 @@ impl<M> DryocStream<M> {
 
 impl DryocStream<Push> {
     /// Returns a new push stream, initialized from `key`.
+    #[must_use]
     pub fn init_push<
         Key: ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>,
         Header: NewByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>,
@@ -283,6 +279,7 @@ impl DryocStream<Push> {
 
 impl DryocStream<Pull> {
     /// Returns a new pull stream, initialized from `key` and `header`.
+    #[must_use]
     pub fn init_pull<
         Key: ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>,
         Header: ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>,
