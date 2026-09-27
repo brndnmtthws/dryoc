@@ -245,7 +245,8 @@ annotated tag, which starts `publish.yml`.
   `unsafe impl`, `unsafe extern`, or `unsafe fn`; explain the concrete pointer,
   aliasing, initialization, layout, or OS-call invariant that makes it valid.
 - When adding, removing, or materially changing non-test `unsafe`, update the
-  unsafe code inventory in `src/unsafe_code.rs` and `README.md`.
+  unsafe code inventory in `src/unsafe_code.rs` (the README footnote only
+  links to it).
 - Test-only `unsafe` should stay confined to compatibility checks or platform
   probes, and it does not need to be listed in the unsafe inventory.
 
