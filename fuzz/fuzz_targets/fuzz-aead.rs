@@ -472,7 +472,7 @@ fuzz_target!(|data: &[u8]| {
     crypto_secretbox_open_easy(&mut opened, &boxed, &nonce, &key).expect("secretbox open");
     assert_eq!(opened, message);
     let mut opened = vec![0u8; message.len()];
-    crypto_secretbox_open_detached(&mut opened, &mac, &detached, &nonce, &key)
+    crypto_secretbox_open_detached(&mut opened, &detached, &mac, &nonce, &key)
         .expect("secretbox open detached");
     assert_eq!(opened, message);
     crypto_secretbox_open_easy_inplace(&mut inplace, &nonce, &key).expect("secretbox open inplace");
@@ -510,7 +510,7 @@ fuzz_target!(|data: &[u8]| {
     assert!(output.iter().all(|&b| b == 0xa5));
     let (bad_mac, bad_ct) = bad.split_at(CRYPTO_SECRETBOX_MACBYTES);
     let bad_mac: &[u8; CRYPTO_SECRETBOX_MACBYTES] = bad_mac.try_into().unwrap();
-    assert!(crypto_secretbox_open_detached(&mut output, bad_mac, bad_ct, &nonce, &key).is_err());
+    assert!(crypto_secretbox_open_detached(&mut output, bad_ct, bad_mac, &nonce, &key).is_err());
     assert!(output.iter().all(|&b| b == 0xa5));
     let mut bad_inplace = bad.clone();
     assert!(crypto_secretbox_open_easy_inplace(&mut bad_inplace, &nonce, &key).is_err());

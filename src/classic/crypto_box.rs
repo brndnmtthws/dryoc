@@ -93,7 +93,7 @@ pub fn crypto_box_seed_keypair(seed: &[u8; CRYPTO_BOX_SEEDBYTES]) -> (PublicKey,
     crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed)
 }
 
-/// Computes a shared secret for the given `public_key` and `private_key`.
+/// Computes a shared secret for the given `public_key` and `secret_key`.
 /// Resulting shared secret can be used with the precalculation interface.
 ///
 /// Compatible with libsodium's `crypto_box_beforenm`.
@@ -379,12 +379,12 @@ pub fn crypto_box_easy_inplace(
 /// `ciphertext`, or authentication fails.
 pub fn crypto_box_open_detached_afternm(
     message: &mut [u8],
-    mac: &Mac,
     ciphertext: &[u8],
+    mac: &Mac,
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
-    crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
+    crypto_secretbox_open_detached(message, ciphertext, mac, nonce, key)
 }
 
 /// In-place variant of [`crypto_box_open_detached_afternm`].
@@ -427,56 +427,60 @@ pub fn crypto_box_open_easy_afternm(
     let (mac, ciphertext) = ciphertext
         .split_first_chunk::<CRYPTO_BOX_MACBYTES>()
         .expect("validated ciphertext length");
-    crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, key)
+    crypto_box_open_detached_afternm(message, ciphertext, mac, nonce, key)
 }
 
-/// Detached variant of [`crypto_box_open_easy`].
+/// Detached variant of [`crypto_box_open_easy`]: decrypts `ciphertext` with
+/// the sender's public key `sender_public_key`, the recipient's secret key
+/// `recipient_secret_key`, `nonce`, and the detached `mac`.
 ///
 /// Compatible with libsodium's `crypto_box_open_detached`.
 ///
 /// # Errors
 ///
-/// Returns an error if `ciphertext` is too long, `recipient_public_key` is
+/// Returns an error if `ciphertext` is too long, `sender_public_key` is
 /// unacceptable, `message` is shorter than `ciphertext`, or authentication
 /// fails.
 pub fn crypto_box_open_detached(
     message: &mut [u8],
-    mac: &Mac,
     ciphertext: &[u8],
+    mac: &Mac,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
+    sender_public_key: &PublicKey,
+    recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     let mut key = Zeroizing::new(Key::default());
     crypto_box_curve25519xsalsa20poly1305_beforenm_into(
         &mut key,
-        recipient_public_key,
-        sender_secret_key,
+        sender_public_key,
+        recipient_secret_key,
     )?;
 
-    crypto_box_open_detached_afternm(message, mac, ciphertext, nonce, &key)?;
+    crypto_box_open_detached_afternm(message, ciphertext, mac, nonce, &key)?;
 
     Ok(())
 }
 
-/// In-place variant of [`crypto_box_open_detached`].
+/// In-place variant of [`crypto_box_open_detached`]: decrypts `data` with the
+/// sender's public key `sender_public_key` and the recipient's secret key
+/// `recipient_secret_key`.
 ///
 /// # Errors
 ///
-/// Returns an error if `recipient_public_key` is unacceptable or
-/// authentication fails.
+/// Returns an error if `sender_public_key` is unacceptable or authentication
+/// fails.
 pub fn crypto_box_open_detached_inplace(
     data: &mut [u8],
     mac: &Mac,
     nonce: &Nonce,
-    recipient_public_key: &PublicKey,
-    sender_secret_key: &SecretKey,
+    sender_public_key: &PublicKey,
+    recipient_secret_key: &SecretKey,
 ) -> Result<(), Error> {
     let mut key = Zeroizing::new(Key::default());
     crypto_box_curve25519xsalsa20poly1305_beforenm_into(
         &mut key,
-        recipient_public_key,
-        sender_secret_key,
+        sender_public_key,
+        recipient_secret_key,
     )?;
 
     crypto_box_open_detached_afternm_inplace(data, mac, nonce, &key)?;
@@ -514,8 +518,8 @@ pub fn crypto_box_open_easy(
 
     crypto_box_open_detached(
         message,
-        mac,
         ciphertext,
+        mac,
         nonce,
         sender_public_key,
         recipient_secret_key,
@@ -564,11 +568,11 @@ pub fn crypto_box_seal_open(
     )
 }
 
-/// Decrypts a sealed box in-place.
+/// Decrypts a box in-place.
 ///
-/// Decrypts `ciphertext` with recipient's secret key `recipient_secret_key` and
-/// sender's public key `sender_public_key` with `nonce` in-place in `data`,
-/// without allocating additional memory for the message.
+/// Decrypts `data` (`mac || ciphertext`) with recipient's secret key
+/// `recipient_secret_key` and sender's public key `sender_public_key` with
+/// `nonce` in-place, without allocating additional memory for the message.
 ///
 /// The caller of this function is responsible for allocating `data` such that
 /// there's enough capacity for the message plus the additional
@@ -866,8 +870,8 @@ mod tests {
         assert!(matches!(
             crypto_box_open_detached(
                 &mut output,
-                &bad_mac,
                 &ciphertext,
+                &bad_mac,
                 &nonce,
                 &sender_pk,
                 &recipient_sk
@@ -876,15 +880,15 @@ mod tests {
         ));
         assert_eq!(output, sentinel);
         assert!(matches!(
-            crypto_box_open_detached_afternm(&mut output, &bad_mac, &ciphertext, &nonce, &key),
+            crypto_box_open_detached_afternm(&mut output, &ciphertext, &bad_mac, &nonce, &key),
             Err(Error::AuthenticationFailed)
         ));
         assert_eq!(output, sentinel);
         assert!(matches!(
             crypto_box_open_detached(
                 &mut output,
-                &mac,
                 &ciphertext,
+                &mac,
                 &nonce,
                 &low_order,
                 &recipient_sk
@@ -896,8 +900,8 @@ mod tests {
         assert!(matches!(
             crypto_box_open_detached(
                 &mut short_output,
-                &mac,
                 &ciphertext,
+                &mac,
                 &nonce,
                 &sender_pk,
                 &recipient_sk
@@ -930,8 +934,8 @@ mod tests {
 
         crypto_box_open_detached(
             &mut output,
-            &mac,
             &ciphertext,
+            &mac,
             &nonce,
             &sender_pk,
             &recipient_sk,
@@ -1075,8 +1079,8 @@ mod tests {
                 let mut opened = vec![0xa5; len];
                 crypto_box_open_detached(
                     &mut opened,
-                    &sodium_mac,
                     &sodium_ciphertext,
+                    &sodium_mac,
                     &nonce,
                     &sender_pk,
                     &recipient_sk,
@@ -1086,8 +1090,8 @@ mod tests {
                 opened.fill(0xa5);
                 crypto_box_open_detached_afternm(
                     &mut opened,
-                    &sodium_mac,
                     &sodium_ciphertext,
+                    &sodium_mac,
                     &nonce,
                     &recipient_key,
                 )

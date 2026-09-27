@@ -321,8 +321,8 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 
         crypto_secretbox_open_detached(
             message.as_mut_slice(),
-            self.tag.as_array(),
             self.data.as_slice(),
+            self.tag.as_array(),
             nonce.as_array(),
             secret_key.as_array(),
         )?;
