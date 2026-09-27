@@ -285,6 +285,7 @@ macro_rules! secret_key_class {
             #[classattr]
             const __hash__: Option<pyo3::Py<pyo3::PyAny>> = None;
 
+            /// Creates the key from its raw bytes.
             #[new]
             fn py_new(key: crate::util::Buf<'_>) -> pyo3::PyResult<Self> {
                 Ok(Self {
@@ -355,6 +356,7 @@ macro_rules! public_key_class {
             #[classattr]
             const $size: usize = $len;
 
+            /// Creates the key from its raw bytes.
             #[new]
             fn py_new(key: crate::util::Buf<'_>) -> pyo3::PyResult<Self> {
                 Ok(Self {
