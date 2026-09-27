@@ -640,9 +640,9 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// length is outside the supported range, or if the underlying Argon2
     /// operation fails.
     pub fn derive_keypair<
-        Password: Bytes + Zeroize + ?Sized,
         PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
+        Password: Bytes + Zeroize + ?Sized,
     >(
         password: &Password,
         salt: Salt,

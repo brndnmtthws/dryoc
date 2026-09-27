@@ -331,9 +331,9 @@ impl<
     /// Returns an error if the message is too long or the output storage does
     /// not resize to the message length.
     pub fn precalc_encrypt<
-        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         message: &Message,
         nonce: &Nonce,
@@ -531,10 +531,10 @@ impl<
     /// or authentication fails. Authentication fails for a wrong key, nonce,
     /// tag, or ciphertext.
     pub fn decrypt<
+        Output: ResizableBytes + NewBytes,
         Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         SenderPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
-        Output: ResizableBytes + NewBytes,
     >(
         &self,
         nonce: &Nonce,
@@ -567,9 +567,9 @@ impl<
     /// the wrong length, or authentication fails because the precomputed key,
     /// nonce, tag, or ciphertext does not match.
     pub fn precalc_decrypt<
-        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
-        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         Output: ResizableBytes + NewBytes,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+        PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         &self,
         nonce: &Nonce,
@@ -601,9 +601,9 @@ impl<
     /// Authentication fails for the wrong recipient key pair or modified box
     /// data.
     pub fn open<
+        Output: ResizableBytes + NewBytes + Zeroize,
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
-        Output: ResizableBytes + NewBytes + Zeroize,
     >(
         &self,
         recipient_keypair: &crate::keypair::KeyPair<RecipientPublicKey, RecipientSecretKey>,
@@ -667,12 +667,14 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// an unacceptable low-order key.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
-        SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        SenderSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
     >(
         message: &Message,
         nonce: &Nonce,
-        recipient_public_key: &PublicKey,
-        sender_secret_key: &SecretKey,
+        recipient_public_key: &RecipientPublicKey,
+        sender_secret_key: &SenderSecretKey,
     ) -> Result<Self, Error> {
         Self::encrypt(message, nonce, recipient_public_key, sender_secret_key)
     }
@@ -686,6 +688,7 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// hold the ciphertext.
     pub fn precalc_encrypt_to_vecbox<
         Message: Bytes + ?Sized,
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         message: &Message,
@@ -708,9 +711,12 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     ///
     /// Panics if the operating system's random number generator fails while
     /// creating the ephemeral keypair.
-    pub fn seal_to_vecbox<Message: Bytes + ?Sized>(
+    pub fn seal_to_vecbox<
+        Message: Bytes + ?Sized,
+        RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+    >(
         message: &Message,
-        recipient_public_key: &PublicKey,
+        recipient_public_key: &RecipientPublicKey,
     ) -> Result<Self, Error> {
         Self::seal(message, recipient_public_key)
     }
@@ -723,11 +729,15 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Returns an error if the ciphertext is too long, `sender_public_key` is
     /// an unacceptable low-order key, or authentication fails because a key,
     /// nonce, tag, or ciphertext is wrong.
-    pub fn decrypt_to_vec<SecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>>(
+    pub fn decrypt_to_vec<
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
+        SenderPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES>,
+        RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES>,
+    >(
         &self,
         nonce: &Nonce,
-        sender_public_key: &PublicKey,
-        recipient_secret_key: &SecretKey,
+        sender_public_key: &SenderPublicKey,
+        recipient_secret_key: &RecipientSecretKey,
     ) -> Result<Vec<u8>, Error> {
         self.decrypt(nonce, sender_public_key, recipient_secret_key)
     }
@@ -741,6 +751,7 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// Returns an error if the ciphertext is too long or authentication fails
     /// because the precomputed key, nonce, tag, or ciphertext does not match.
     pub fn precalc_decrypt_to_vec<
+        Nonce: ByteArray<CRYPTO_BOX_NONCEBYTES>,
         PrecalcSecretKey: ByteArray<CRYPTO_BOX_BEFORENMBYTES> + Zeroize,
     >(
         &self,
@@ -807,7 +818,7 @@ mod tests {
         let recipient_keypair = StackKeyPair::generate();
 
         let error = box_without_ephemeral_key
-            .open::<_, _, Vec<u8>>(&recipient_keypair)
+            .open::<Vec<u8>, _, _>(&recipient_keypair)
             .expect_err("a regular box cannot be opened as a sealed box");
         assert!(matches!(
             error,
@@ -1428,7 +1439,7 @@ mod tests {
                 let invalid_key_copy_1 = invalid_key.clone();
                 let invalid_key_copy_2 = invalid_key.clone();
 
-                DryocBox::decrypt::<Nonce, PublicKey, SecretKey, Vec<u8>>(
+                DryocBox::decrypt::<Vec<u8>, Nonce, PublicKey, SecretKey>(
                     &dryocbox,
                     &nonce,
                     &invalid_key_copy_1.public_key,

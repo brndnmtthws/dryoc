@@ -414,9 +414,9 @@ impl<
     /// this key pair or was modified, or an error if the X-Wing ciphertext
     /// carries a low-order X25519 point.
     pub fn open<
+        Output: ResizableBytes + NewBytes + Zeroize,
         RecipientPublicKey: ByteArray<CRYPTO_KEM_XWING_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_KEM_XWING_SECRETKEYBYTES> + Zeroize,
-        Output: ResizableBytes + NewBytes + Zeroize,
     >(
         &self,
         recipient_keypair: &KeyPair<RecipientPublicKey, RecipientSecretKey>,
@@ -450,9 +450,12 @@ impl DryocSealedBox<EncapsulatedKey, Mac, Vec<u8>> {
     /// # Errors
     ///
     /// Returns the same errors as [`DryocSealedBox::seal`].
-    pub fn seal_to_vecbox<Message: Bytes + ?Sized>(
+    pub fn seal_to_vecbox<
+        Message: Bytes + ?Sized,
+        RecipientPublicKey: ByteArray<CRYPTO_KEM_XWING_PUBLICKEYBYTES>,
+    >(
         message: &Message,
-        recipient_public_key: &PublicKey,
+        recipient_public_key: &RecipientPublicKey,
     ) -> Result<Self, Error> {
         Self::seal(message, recipient_public_key)
     }

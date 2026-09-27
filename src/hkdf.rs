@@ -22,7 +22,7 @@
 //! let hkdf: HkdfSha256 =
 //!     HkdfSha256::extract(Some(b"Act IV salt"), b"Now is the winter of our discontent");
 //! let output: Vec<u8> = hkdf
-//!     .expand_to_vec(42, b"session key")
+//!     .expand_to_vec(b"session key", 42)
 //!     .expect("expand failed");
 //! assert_eq!(output.len(), 42);
 //! ```
@@ -33,10 +33,10 @@
 //! use dryoc::hkdf::HkdfSha512;
 //!
 //! let output = HkdfSha512::extract_and_expand_to_vec(
-//!     64,
 //!     Some(b"optional deployment salt"),
 //!     b"Our remedies oft in ourselves do lie",
 //!     b"application secret",
+//!     64,
 //! )
 //! .expect("expand failed");
 //! assert_eq!(output.len(), 64);
@@ -128,8 +128,8 @@ pub mod protected {
     //!
     //! let ikm = HeapBytes::from_slice_into_readonly_locked(b"Truth will come to light.")
     //!     .expect("ikm failed");
-    //! let hkdf: LockedHkdfSha512 = HkdfSha512Expander::extract(None::<&[u8]>, &ikm);
-    //! let output: Locked<HeapBytes> = hkdf.expand_to_bytes(64, b"context").expect("expand failed");
+    //! let hkdf: LockedHkdfSha512 = HkdfSha512Expander::extract(None, &ikm);
+    //! let output: Locked<HeapBytes> = hkdf.expand_to_bytes(b"context", 64).expect("expand failed");
     //! assert_eq!(output.len(), 64);
     //! ```
     use super::*;
@@ -238,16 +238,9 @@ where
 
     /// Extracts a PRK from input keying material and optional salt.
     #[must_use]
-    pub fn extract<Salt: Bytes + ?Sized, Ikm: Bytes + ?Sized>(
-        salt: Option<&Salt>,
-        ikm: &Ikm,
-    ) -> Self {
+    pub fn extract<Ikm: Bytes + ?Sized>(salt: Option<&[u8]>, ikm: &Ikm) -> Self {
         let mut prk = Prk::new_byte_array();
-        Variant::extract(
-            prk.as_mut_array(),
-            salt.map(|s| s.as_slice()),
-            ikm.as_slice(),
-        );
+        Variant::extract(prk.as_mut_array(), salt, ikm.as_slice());
         Self {
             prk,
             _variant: PhantomData,
@@ -262,56 +255,51 @@ where
     /// the selected HKDF variant.
     pub fn extract_and_expand<
         const OUTPUT_LENGTH: usize,
-        Salt: Bytes + ?Sized,
+        Output: NewByteArray<OUTPUT_LENGTH>,
         Ikm: Bytes + ?Sized,
         Context: Bytes + ?Sized,
-        Output: NewByteArray<OUTPUT_LENGTH>,
     >(
-        salt: Option<&Salt>,
+        salt: Option<&[u8]>,
         ikm: &Ikm,
         context: &Context,
     ) -> Result<Output, Error> {
         Self::extract(salt, ikm).expand(context)
     }
 
-    /// One-shot HKDF extract-and-expand into a [`Vec`].
+    /// One-shot HKDF extract-and-expand into a [`Vec`] of `output_len` bytes.
     ///
     /// # Errors
     ///
     /// Returns an error if `output_len` is outside the range supported by the
     /// selected HKDF variant.
     #[cfg(feature = "alloc")]
-    pub fn extract_and_expand_to_vec<
-        Salt: Bytes + ?Sized,
-        Ikm: Bytes + ?Sized,
-        Context: Bytes + ?Sized,
-    >(
-        output_len: usize,
-        salt: Option<&Salt>,
+    pub fn extract_and_expand_to_vec<Ikm: Bytes + ?Sized, Context: Bytes + ?Sized>(
+        salt: Option<&[u8]>,
         ikm: &Ikm,
         context: &Context,
+        output_len: usize,
     ) -> Result<Vec<u8>, Error> {
-        Self::extract(salt, ikm).expand_to_vec(output_len, context)
+        Self::extract(salt, ikm).expand_to_vec(context, output_len)
     }
 
-    /// One-shot HKDF extract-and-expand into a runtime-sized byte container.
+    /// One-shot HKDF extract-and-expand into a runtime-sized byte container
+    /// of `output_len` bytes, such as protected memory.
     ///
     /// # Errors
     ///
     /// Returns an error if `output_len` is outside the range supported by the
     /// selected HKDF variant.
     pub fn extract_and_expand_to_bytes<
-        Salt: Bytes + ?Sized,
+        Output: NewBytes + ResizableBytes,
         Ikm: Bytes + ?Sized,
         Context: Bytes + ?Sized,
-        Output: NewBytes + ResizableBytes,
     >(
-        output_len: usize,
-        salt: Option<&Salt>,
+        salt: Option<&[u8]>,
         ikm: &Ikm,
         context: &Context,
+        output_len: usize,
     ) -> Result<Output, Error> {
-        Self::extract(salt, ikm).expand_to_bytes(output_len, context)
+        Self::extract(salt, ikm).expand_to_bytes(context, output_len)
     }
 }
 
@@ -341,7 +329,7 @@ where
     ///
     /// Returns an error if `OUTPUT_LENGTH` is outside the range supported by
     /// the selected HKDF variant.
-    pub fn expand<const OUTPUT_LENGTH: usize, Context: Bytes + ?Sized, Output>(
+    pub fn expand<const OUTPUT_LENGTH: usize, Output, Context: Bytes + ?Sized>(
         &self,
         context: &Context,
     ) -> Result<Output, Error>
@@ -367,22 +355,23 @@ where
     #[cfg(feature = "alloc")]
     pub fn expand_to_vec<Context: Bytes + ?Sized>(
         &self,
-        output_len: usize,
         context: &Context,
+        output_len: usize,
     ) -> Result<Vec<u8>, Error> {
-        self.expand_to_bytes(output_len, context)
+        self.expand_to_bytes(context, output_len)
     }
 
-    /// Expands this PRK into a runtime-sized byte container.
+    /// Expands this PRK into a runtime-sized byte container of `output_len`
+    /// bytes, such as protected memory.
     ///
     /// # Errors
     ///
     /// Returns an error if `output_len` is outside the range supported by the
     /// selected HKDF variant.
-    pub fn expand_to_bytes<Context: Bytes + ?Sized, Output: NewBytes + ResizableBytes>(
+    pub fn expand_to_bytes<Output: NewBytes + ResizableBytes, Context: Bytes + ?Sized>(
         &self,
-        output_len: usize,
         context: &Context,
+        output_len: usize,
     ) -> Result<Output, Error> {
         Variant::validate_output_len(output_len)?;
         let mut output = Output::new_bytes();
@@ -473,23 +462,23 @@ mod tests {
 
         let okm_len = case.okm.len();
         assert_eq!(
-            hkdf.expand_to_vec(okm_len, case.info.as_slice())
+            hkdf.expand_to_vec(case.info.as_slice(), okm_len)
                 .expect("expand"),
             case.okm
         );
         let fixed: StackByteArray<42> = hkdf.expand(case.info.as_slice()).expect("expand");
         assert_eq!(fixed.as_slice(), case.okm.as_slice());
         let bytes: Vec<u8> = hkdf
-            .expand_to_bytes(okm_len, case.info.as_slice())
+            .expand_to_bytes(case.info.as_slice(), okm_len)
             .expect("expand");
         assert_eq!(bytes, case.okm);
 
         assert_eq!(
             H::<Variant, PRK_LENGTH>::extract_and_expand_to_vec(
-                okm_len,
                 salt,
                 case.ikm.as_slice(),
-                case.info.as_slice()
+                case.info.as_slice(),
+                okm_len
             )
             .expect("expand"),
             case.okm
@@ -502,10 +491,10 @@ mod tests {
         .expect("expand");
         assert_eq!(fixed.as_slice(), case.okm.as_slice());
         let bytes: Vec<u8> = H::<Variant, PRK_LENGTH>::extract_and_expand_to_bytes(
-            okm_len,
             salt,
             case.ikm.as_slice(),
             case.info.as_slice(),
+            okm_len,
         )
         .expect("expand");
         assert_eq!(bytes, case.okm);
@@ -515,7 +504,7 @@ mod tests {
         assert_eq!(prk.as_slice(), case.prk.as_slice());
         assert_eq!(
             H::<Variant, PRK_LENGTH>::from_prk(prk)
-                .expand_to_vec(okm_len, case.info.as_slice())
+                .expand_to_vec(case.info.as_slice(), okm_len)
                 .expect("expand"),
             case.okm
         );
@@ -533,14 +522,14 @@ mod tests {
 
         // Shorter outputs are prefixes; a different context is a different key.
         let short = H::<Variant, PRK_LENGTH>::extract(salt, case.ikm.as_slice())
-            .expand_to_vec(okm_len - 1, case.info.as_slice())
+            .expand_to_vec(case.info.as_slice(), okm_len - 1)
             .expect("expand");
         assert_eq!(short, &case.okm[..okm_len - 1]);
         let mut other_info = case.info.clone();
         other_info.push(0);
         assert_ne!(
             H::<Variant, PRK_LENGTH>::extract(salt, case.ikm.as_slice())
-                .expand_to_vec(okm_len, other_info.as_slice())
+                .expand_to_vec(other_info.as_slice(), okm_len)
                 .expect("expand"),
             case.okm
         );
@@ -563,7 +552,7 @@ mod tests {
         let case = &sha256_cases()[0];
         let hkdf = HkdfSha256::extract(case.salt.as_deref(), case.ikm.as_slice());
         assert!(
-            hkdf.expand_to_vec(CRYPTO_KDF_HKDF_SHA256_BYTES_MIN, case.info.as_slice())
+            hkdf.expand_to_vec(case.info.as_slice(), CRYPTO_KDF_HKDF_SHA256_BYTES_MIN)
                 .expect("min length")
                 .is_empty()
         );
@@ -571,7 +560,7 @@ mod tests {
         assert!(empty.is_empty());
 
         let max = hkdf
-            .expand_to_vec(CRYPTO_KDF_HKDF_SHA256_BYTES_MAX, case.info.as_slice())
+            .expand_to_vec(case.info.as_slice(), CRYPTO_KDF_HKDF_SHA256_BYTES_MAX)
             .expect("max length");
         assert_eq!(max.len(), CRYPTO_KDF_HKDF_SHA256_BYTES_MAX);
         assert_eq!(&max[..case.okm.len()], case.okm.as_slice());
@@ -582,7 +571,7 @@ mod tests {
 
         for length in [CRYPTO_KDF_HKDF_SHA256_BYTES_MAX + 1, usize::MAX] {
             assert!(matches!(
-                hkdf.expand_to_vec(length, case.info.as_slice()),
+                hkdf.expand_to_vec(case.info.as_slice(), length),
                 Err(Error::InvalidLength {
                     context: crate::ErrorContext::Output,
                     actual,
@@ -605,14 +594,14 @@ mod tests {
         let hkdf512 = HkdfSha512::extract(case.salt.as_deref(), case.ikm.as_slice());
         assert_eq!(
             hkdf512
-                .expand_to_vec(CRYPTO_KDF_HKDF_SHA512_BYTES_MAX, case.info.as_slice())
+                .expand_to_vec(case.info.as_slice(), CRYPTO_KDF_HKDF_SHA512_BYTES_MAX)
                 .expect("max length")
                 .len(),
             CRYPTO_KDF_HKDF_SHA512_BYTES_MAX
         );
         assert!(
             hkdf512
-                .expand_to_vec(CRYPTO_KDF_HKDF_SHA512_BYTES_MAX + 1, case.info.as_slice())
+                .expand_to_vec(case.info.as_slice(), CRYPTO_KDF_HKDF_SHA512_BYTES_MAX + 1)
                 .is_err()
         );
     }
@@ -643,14 +632,14 @@ mod tests {
                 crypto_kdf_hkdf_sha256_expand(&mut classic, &info, &prk256).expect("expand");
                 assert_eq!(
                     hkdf256
-                        .expand_to_vec(length, info.as_slice())
+                        .expand_to_vec(info.as_slice(), length)
                         .expect("expand"),
                     classic
                 );
                 crypto_kdf_hkdf_sha512_expand(&mut classic, &info, &prk512).expect("expand");
                 assert_eq!(
                     hkdf512
-                        .expand_to_vec(length, info.as_slice())
+                        .expand_to_vec(info.as_slice(), length)
                         .expect("expand"),
                     classic
                 );
@@ -665,10 +654,10 @@ mod tests {
             Variant: HkdfVariant<PRK_LENGTH>,
         {
             Hkdf::<Variant, StackByteArray<PRK_LENGTH>, PRK_LENGTH>::extract_and_expand_to_vec(
-                case.okm.len(),
                 case.salt.as_deref(),
                 case.ikm.as_slice(),
                 case.info.as_slice(),
+                case.okm.len(),
             )
             .expect("expand failed")
         }
@@ -700,7 +689,7 @@ mod tests {
         let decoded: HkdfSha256 = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(
             decoded
-                .expand_to_vec(case.okm.len(), case.info.as_slice())
+                .expand_to_vec(case.info.as_slice(), case.okm.len())
                 .expect("expand"),
             case.okm
         );
@@ -723,10 +712,11 @@ mod tests {
             .salt
             .as_ref()
             .map(|salt| HeapBytes::from_slice_into_readonly_locked(salt).expect("lock salt"));
-        let hkdf: LockedHkdfSha256 = HkdfSha256Expander::extract(salt.as_ref(), &ikm);
+        let hkdf: LockedHkdfSha256 =
+            HkdfSha256Expander::extract(salt.as_ref().map(|salt| salt.as_slice()), &ikm);
         assert_eq!(hkdf.prk.as_slice(), case.prk.as_slice());
         let okm: Locked<HeapBytes> = hkdf
-            .expand_to_bytes(case.okm.len(), case.info.as_slice())
+            .expand_to_bytes(case.info.as_slice(), case.okm.len())
             .expect("expand");
         assert_eq!(okm.as_slice(), case.okm.as_slice());
         let fixed: Locked<HeapByteArray<42>> = hkdf.expand(case.info.as_slice()).expect("expand");
@@ -736,7 +726,7 @@ mod tests {
         let ikm = HeapBytes::from_slice_into_readonly_locked(&case.ikm).expect("lock ikm");
         let hkdf: LockedHkdfSha512 = HkdfSha512Expander::extract(case.salt.as_deref(), &ikm);
         assert_eq!(
-            hkdf.expand_to_vec(case.okm.len(), case.info.as_slice())
+            hkdf.expand_to_vec(case.info.as_slice(), case.okm.len())
                 .expect("expand"),
             case.okm
         );

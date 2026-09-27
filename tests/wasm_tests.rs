@@ -82,7 +82,7 @@ fn hpke_labeled_extract(salt: &[u8], label: &[u8], ikm: &[u8]) -> HkdfSha256 {
 fn hpke_labeled_expand(prk: &HkdfSha256, label: &[u8], info: &[u8], len: usize) -> Vec<u8> {
     let len_bytes = u16::try_from(len).expect("short output").to_be_bytes();
     let labeled_info = [&len_bytes[..], b"HPKE-v1", HPKE_SUITE_ID, label, info].concat();
-    prk.expand_to_vec(len, &labeled_info)
+    prk.expand_to_vec(&labeled_info, len)
         .expect("expand failed")
 }
 
@@ -446,7 +446,7 @@ fn hkdf_rfc_5869_known_answer() {
     let info = unhex("f0f1f2f3f4f5f6f7f8f9");
 
     let hkdf = HkdfSha256::extract(Some(&salt), &ikm);
-    let okm = hkdf.expand_to_vec(42, &info).expect("expand failed");
+    let okm = hkdf.expand_to_vec(&info, 42).expect("expand failed");
     assert_eq!(
         okm,
         unhex(concat!(
@@ -463,7 +463,7 @@ fn hkdf_rfc_5869_known_answer() {
     );
     assert_eq!(
         HkdfSha256::from_prk(prk)
-            .expand_to_vec(42, &info)
+            .expand_to_vec(&info, 42)
             .expect("expand failed"),
         okm
     );

@@ -182,9 +182,9 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     /// );
     /// ```
     pub fn hash<
+        Output: NewByteArray<OUTPUT_LENGTH>,
         Input: Bytes + ?Sized,
         Key: ByteArray<KEY_LENGTH>,
-        Output: NewByteArray<OUTPUT_LENGTH>,
     >(
         input: &Input,
         key: Option<&Key>,
@@ -208,7 +208,7 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
         input: &Input,
         key: Option<&Key>,
     ) -> Result<Vec<u8>, Error> {
-        Ok(Self::hash::<_, _, StackByteArray<OUTPUT_LENGTH>>(input, key)?.to_vec())
+        Ok(Self::hash::<StackByteArray<OUTPUT_LENGTH>, _, _>(input, key)?.to_vec())
     }
 }
 
@@ -256,7 +256,7 @@ mod tests {
         );
 
         let output: Hash =
-            DefaultGenericHash::hash::<_, Key, _>(b"hello", None).expect("hash failed");
+            DefaultGenericHash::hash::<_, _, Key>(b"hello", None).expect("hash failed");
 
         assert_eq!(
             general_purpose::STANDARD.encode(&output),
@@ -440,7 +440,7 @@ mod tests {
         let empty_key: Hash =
             GenericHash::<0, 32>::hash(FOX, Some(&sequential_key::<0>())).expect("empty key");
         let default_unkeyed: Hash =
-            DefaultGenericHash::hash::<_, Key, _>(FOX, None).expect("unkeyed");
+            DefaultGenericHash::hash::<_, _, Key>(FOX, None).expect("unkeyed");
         assert_eq!(empty_key, default_unkeyed);
 
         assert!(matches!(
@@ -454,8 +454,8 @@ mod tests {
         let too_long: Result<StackByteArray<{ CRYPTO_GENERICHASH_BYTES_MAX + 1 }>, Error> =
             GenericHash::<CRYPTO_GENERICHASH_KEYBYTES, { CRYPTO_GENERICHASH_BYTES_MAX + 1 }>::hash::<
                 _,
-                Key,
                 _,
+                Key,
             >(FOX, None);
         assert!(matches!(
             too_long,
@@ -510,8 +510,8 @@ mod tests {
         assert_eq!(hash.as_slice(), expected.as_slice());
 
         let unkeyed: Locked<protected::Hash> =
-            DefaultGenericHash::hash::<_, protected::Key, _>(&input, None).expect("hash");
-        let stack_unkeyed: Hash = DefaultGenericHash::hash::<_, Key, _>(FOX, None).expect("hash");
+            DefaultGenericHash::hash::<_, _, protected::Key>(&input, None).expect("hash");
+        let stack_unkeyed: Hash = DefaultGenericHash::hash::<_, _, Key>(FOX, None).expect("hash");
         assert_eq!(unkeyed.as_slice(), stack_unkeyed.as_slice());
         assert_ne!(unkeyed.as_slice(), expected.as_slice());
     }

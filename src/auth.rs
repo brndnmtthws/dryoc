@@ -119,9 +119,9 @@ impl Auth {
     /// Computes the message authentication code for `input` using `key`.
     #[must_use]
     pub fn compute<
+        Output: NewByteArray<CRYPTO_AUTH_BYTES>,
         Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
         Input: Bytes + ?Sized,
-        Output: NewByteArray<CRYPTO_AUTH_BYTES>,
     >(
         key: &Key,
         input: &Input,
@@ -140,7 +140,7 @@ impl Auth {
         key: &Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute::<_, _, Mac>(key, input).to_vec()
+        Self::compute::<Mac, _, _>(key, input).to_vec()
     }
 
     /// Verifies that `other_mac` authenticates `input` under `key`.

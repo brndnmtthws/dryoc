@@ -740,15 +740,15 @@ fn test_rustaceous_hmac_and_hkdf_public_api() {
     let okm256: HkdfSha256Prk = hkdf256.expand(b"context").expect("expand failed");
     assert_eq!(okm256.len(), 32);
     let okm256 = hkdf256
-        .expand_to_vec(42, b"context")
+        .expand_to_vec(b"context", 42)
         .expect("expand failed");
     assert_eq!(okm256.len(), 42);
 
     let okm512 = HkdfSha512::extract_and_expand_to_vec(
-        96,
         Some(b"salt"),
         b"input keying material",
         b"context",
+        96,
     )
     .expect("expand failed");
     assert_eq!(okm512.len(), 96);
@@ -816,15 +816,15 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
     let ikm = HkdfHeapBytes::from_slice_into_readonly_locked(b"input keying material")
         .expect("ikm failed");
     let hkdf: LockedHkdfSha512 =
-        HkdfSha512Expander::<HkdfLocked<HkdfSha512Prk>>::extract(None::<&[u8]>, &ikm);
+        HkdfSha512Expander::<HkdfLocked<HkdfSha512Prk>>::extract(None, &ikm);
     let output: HkdfLocked<HkdfHeapBytes> =
-        hkdf.expand_to_bytes(64, b"context").expect("expand failed");
+        hkdf.expand_to_bytes(b"context", 64).expect("expand failed");
     assert_eq!(output.len(), 64);
 
     let prk = HkdfSha512Prk::generate_readonly_locked().expect("prk failed");
     let hkdf = HkdfSha512Expander::from_prk(prk);
     let output: HkdfLocked<HkdfHeapBytes> =
-        hkdf.expand_to_bytes(32, b"context").expect("expand failed");
+        hkdf.expand_to_bytes(b"context", 32).expect("expand failed");
     assert_eq!(output.len(), 32);
 }
 

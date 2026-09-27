@@ -303,9 +303,9 @@ where
     /// `key`.
     #[must_use]
     pub fn compute<
+        Output: NewByteArray<MAC_LENGTH>,
         Key: ByteArray<KEY_LENGTH>,
         Input: Bytes + ?Sized,
-        Output: NewByteArray<MAC_LENGTH>,
     >(
         key: &Key,
         input: &Input,
@@ -322,7 +322,7 @@ where
         key: &Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute::<_, _, StackByteArray<MAC_LENGTH>>(key, input).to_vec()
+        Self::compute::<StackByteArray<MAC_LENGTH>, _, _>(key, input).to_vec()
     }
 
     /// Verifies `other_mac` against `input` using `key`.

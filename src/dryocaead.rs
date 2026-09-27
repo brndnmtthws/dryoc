@@ -622,10 +622,14 @@ macro_rules! impl_aead_algorithm {
             ///
             /// Returns an error if the message exceeds the construction's maximum
             /// length.
-            pub fn encrypt_to_vecbox<Message: Bytes + ?Sized, SecretKey: ByteArray<$keybytes>>(
+            pub fn encrypt_to_vecbox<
+                Message: Bytes + ?Sized,
+                Nonce: ByteArray<$npubbytes>,
+                SecretKey: ByteArray<$keybytes>,
+            >(
                 message: &Message,
                 associated_data: Option<&[u8]>,
-                nonce: &StackByteArray<$npubbytes>,
+                nonce: &Nonce,
                 key: &SecretKey,
             ) -> Result<Self, Error> {
                 Self::encrypt(message, associated_data, nonce, key)
@@ -638,10 +642,10 @@ macro_rules! impl_aead_algorithm {
             /// Returns an error if the ciphertext exceeds the construction's maximum
             /// length or authentication fails because the key, nonce, associated data,
             /// ciphertext, or tag does not match.
-            pub fn decrypt_to_vec<SecretKey: ByteArray<$keybytes>>(
+            pub fn decrypt_to_vec<Nonce: ByteArray<$npubbytes>, SecretKey: ByteArray<$keybytes>>(
                 &self,
                 associated_data: Option<&[u8]>,
-                nonce: &StackByteArray<$npubbytes>,
+                nonce: &Nonce,
                 key: &SecretKey,
             ) -> Result<Vec<u8>, Error> {
                 self.decrypt(associated_data, nonce, key)
