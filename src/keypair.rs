@@ -722,6 +722,8 @@ mod tests {
 
     #[test]
     fn test_is_valid_ed25519_key() {
+        use crate::edwards25519::test_vectors::{IDENTITY, NONCANONICAL_IDENTITY};
+
         let (valid_pk, _) = crate::classic::crypto_sign::crypto_sign_keypair();
         assert!(
             KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&valid_pk),
@@ -743,21 +745,14 @@ mod tests {
             "zero key should be invalid"
         );
 
-        let identity_bytes = [
-            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0,
-        ];
-        let identity_pk = PublicKey::from(identity_bytes);
+        let identity_pk = PublicKey::from(IDENTITY);
         assert!(
             !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&identity_pk),
             "identity element should be invalid"
         );
 
-        let mut noncanonical_identity = [0xff; CRYPTO_BOX_PUBLICKEYBYTES];
-        noncanonical_identity[0] = 0xee;
-        noncanonical_identity[31] = 0x7f;
         assert!(
-            !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&noncanonical_identity),
+            !KeyPair::<PublicKey, SecretKey>::is_valid_ed25519_key(&NONCANONICAL_IDENTITY),
             "noncanonical identity encoding should be invalid"
         );
 

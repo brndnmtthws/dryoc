@@ -661,14 +661,10 @@ mod tests {
 
     use super::*;
     use crate::test_prelude::*;
-
+    use crate::utils::test_util::hex;
     const LENS: [usize; 15] = [
         0, 1, 63, 64, 65, 255, 256, 257, 511, 512, 513, 1023, 1024, 4096, 65536,
     ];
-
-    fn hex(s: &str) -> Vec<u8> {
-        hex::decode(s).unwrap()
-    }
 
     /// RFC 8439 section 2.3.2: the block function test vector.
     #[test]

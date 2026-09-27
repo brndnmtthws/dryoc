@@ -468,10 +468,11 @@ mod tests {
     }
 }
 
-/// Helpers shared by the curve, field, and byte-container unit tests.
+/// Helpers shared by the unit tests.
 #[cfg(test)]
 pub(crate) mod test_util {
     use crate::error::{Error, ErrorContext, LengthConstraint};
+    use crate::test_prelude::*;
 
     /// Bounds Miri runs and disables filesystem-backed failure persistence.
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -507,9 +508,14 @@ pub(crate) mod test_util {
         }
     }
 
-    /// Decodes a 64-character hex string into 32 bytes.
-    pub(crate) fn hex32(s: &str) -> [u8; 32] {
-        hex::decode(s).expect("hex").try_into().expect("32 bytes")
+    /// Decodes a hexadecimal string into bytes, ignoring embedded ASCII spaces.
+    pub(crate) fn hex(s: &str) -> Vec<u8> {
+        hex::decode(s.replace(' ', "")).expect("hex")
+    }
+
+    /// Decodes a hexadecimal string into an exact-length byte array.
+    pub(crate) fn hex_array<const N: usize>(s: &str) -> [u8; N] {
+        hex(s).try_into().expect("hex array length")
     }
 
     /// Deterministic xorshift64 generator for reproducible random test inputs.

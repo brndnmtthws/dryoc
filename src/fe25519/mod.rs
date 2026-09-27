@@ -432,7 +432,7 @@ mod tests {
 
     use super::*;
     use crate::test_prelude::*;
-    use crate::utils::test_util::{XorShift64, hex32 as hex};
+    use crate::utils::test_util::{XorShift64, hex_array as hex};
 
     /// The field prime `2^255 - 19`.
     pub(super) fn prime() -> BigUint {

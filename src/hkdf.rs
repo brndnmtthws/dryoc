@@ -425,6 +425,7 @@ where
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use crate::utils::test_util::hex as decode;
 
     /// RFC 5869 appendix A: `(salt, ikm, info, PRK, OKM)`.
     struct Case {
@@ -433,10 +434,6 @@ mod tests {
         info: Vec<u8>,
         prk: Vec<u8>,
         okm: Vec<u8>,
-    }
-
-    fn decode(hex: &str) -> Vec<u8> {
-        hex::decode(hex).expect("hex")
     }
 
     /// A.1 (basic) and A.3 (no salt, no info) for SHA-256.

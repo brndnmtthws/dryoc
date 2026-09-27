@@ -80,10 +80,7 @@ mod tests {
 
     use super::*;
     use crate::test_prelude::*;
-
-    fn hex(s: &str) -> Vec<u8> {
-        hex::decode(s).expect("hex failed")
-    }
+    use crate::utils::test_util::hex;
 
     /// FIPS 180-2 test vectors, including the 56-byte message whose padding
     /// needs a second block.

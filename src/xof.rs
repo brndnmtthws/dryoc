@@ -227,6 +227,7 @@ xof! {
 pub(crate) mod test_vectors {
     pub(crate) use crate::keccak::{RATE_128, RATE_256};
     use crate::test_prelude::*;
+    use crate::utils::test_util::hex;
 
     /// One known answer: `output` is the first `output.len()` bytes, or,
     /// when `skip` is nonzero, the bytes after skipping `skip` bytes.
@@ -235,10 +236,6 @@ pub(crate) mod test_vectors {
         pub(crate) domain: u8,
         pub(crate) skip: usize,
         pub(crate) output: Vec<u8>,
-    }
-
-    fn hex(s: &str) -> Vec<u8> {
-        hex::decode(s.replace(' ', "")).expect("hex failed")
     }
 
     fn pattern(len: usize) -> Vec<u8> {

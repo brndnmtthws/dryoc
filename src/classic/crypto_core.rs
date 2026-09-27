@@ -306,6 +306,9 @@ mod tests {
 
     use super::*;
     use crate::classic::crypto_sign::crypto_sign_keypair;
+    use crate::edwards25519::test_vectors::{
+        IDENTITY, NONCANONICAL_IDENTITY, mixed_order_point, torsion_point,
+    };
     use crate::scalarmult_curve25519::test_vectors::low_order_u_encodings;
     use crate::test_prelude::*;
 
@@ -321,32 +324,21 @@ mod tests {
             "the high bit is a valid x-coordinate sign bit"
         );
 
-        let identity = {
-            let mut point = [0u8; CRYPTO_CORE_ED25519_BYTES];
-            point[0] = 1;
-            point
-        };
-        assert!(!crypto_core_ed25519_is_valid_point(&identity));
+        assert!(!crypto_core_ed25519_is_valid_point(&IDENTITY));
 
-        let noncanonical_identity = {
-            let mut point = [0xff; CRYPTO_CORE_ED25519_BYTES];
-            point[0] = 0xee;
-            point[31] = 0x7f;
-            point
-        };
         assert!(
-            decompress_canonical_ed25519_point(&noncanonical_identity).is_none(),
+            decompress_canonical_ed25519_point(&NONCANONICAL_IDENTITY).is_none(),
             "p + 1 must not be accepted as an alternate encoding of the identity"
         );
-        assert!(!crypto_core_ed25519_is_valid_point(&noncanonical_identity));
+        assert!(!crypto_core_ed25519_is_valid_point(&NONCANONICAL_IDENTITY));
 
-        let torsion = curve25519_dalek::constants::EIGHT_TORSION[1];
+        let torsion = torsion_point();
         assert!(torsion.is_small_order());
         assert!(!crypto_core_ed25519_is_valid_point(
             &torsion.compress().to_bytes()
         ));
 
-        let mixed_order = curve25519_dalek::constants::ED25519_BASEPOINT_POINT + torsion;
+        let mixed_order = mixed_order_point();
         assert!(!mixed_order.is_small_order());
         assert!(!mixed_order.is_torsion_free());
         assert!(!crypto_core_ed25519_is_valid_point(
@@ -585,27 +577,14 @@ mod tests {
             let basepoint = curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
             let mut negative_basepoint = basepoint;
             negative_basepoint[31] |= 0x80;
-            let identity = {
-                let mut point = [0u8; CRYPTO_CORE_ED25519_BYTES];
-                point[0] = 1;
-                point
-            };
-            let noncanonical_identity = {
-                let mut point = [0xff; CRYPTO_CORE_ED25519_BYTES];
-                point[0] = 0xee;
-                point[31] = 0x7f;
-                point
-            };
-            let torsion = curve25519_dalek::constants::EIGHT_TORSION[1];
-            let mixed_order = (curve25519_dalek::constants::ED25519_BASEPOINT_POINT + torsion)
-                .compress()
-                .to_bytes();
+            let torsion = torsion_point();
+            let mixed_order = mixed_order_point().compress().to_bytes();
 
             for point in [
                 basepoint,
                 negative_basepoint,
-                identity,
-                noncanonical_identity,
+                IDENTITY,
+                NONCANONICAL_IDENTITY,
                 torsion.compress().to_bytes(),
                 mixed_order,
                 [0u8; CRYPTO_CORE_ED25519_BYTES],
