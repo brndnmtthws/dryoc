@@ -100,7 +100,7 @@ use crate::error::{Error, ErrorContext};
 pub use crate::kem::xwing::{KeyPair, PublicKey, SecretKey, StackKeyPair};
 use crate::mlkem::Arith;
 use crate::rng::copy_randombytes;
-pub use crate::types::*;
+use crate::types::*;
 
 /// Stack-allocated X-Wing ciphertext that carries the box's key (HPKE's
 /// `enc`).

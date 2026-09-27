@@ -9,10 +9,10 @@ use crate::constants::{
     CRYPTO_BOX_SEEDBYTES, CRYPTO_CORE_HSALSA20_INPUTBYTES, CRYPTO_HASH_SHA512_BYTES,
     CRYPTO_SCALARMULT_BYTES,
 };
-use crate::dryocstream::ByteArray;
 use crate::error::Error;
 use crate::rng::copy_randombytes;
 use crate::scalarmult_curve25519::*;
+use crate::types::ByteArray;
 
 /// Computes the precomputed box key into `key`, which the caller owns (and
 /// wipes), so the key is never copied through this function's frame or a

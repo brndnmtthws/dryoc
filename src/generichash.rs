@@ -48,7 +48,7 @@ use crate::classic::crypto_generichash::{
 };
 use crate::constants::{CRYPTO_GENERICHASH_BYTES, CRYPTO_GENERICHASH_KEYBYTES};
 use crate::error::Error;
-pub use crate::types::*;
+use crate::types::*;
 
 /// Stack-allocated hash output of the recommended output length.
 pub type Hash = StackByteArray<CRYPTO_GENERICHASH_BYTES>;

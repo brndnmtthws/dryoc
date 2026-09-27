@@ -28,6 +28,7 @@
 //!
 //! ```
 //! use dryoc::dryocaead::*;
+//! use dryoc::types::*;
 //!
 //! let key = Key::generate();
 //! let nonce = Nonce::generate();
@@ -49,6 +50,7 @@
 //!
 //! ```
 //! use dryoc::dryocaead::*;
+//! use dryoc::types::*;
 //!
 //! let key = Key::generate();
 //! let message = b"Arbitrary data to encrypt";
@@ -80,7 +82,7 @@ use crate::constants::{
     CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
 };
 use crate::error::{Error, ErrorContext};
-pub use crate::types::*;
+use crate::types::*;
 use crate::utils::{ct_eq_bytes, split_suffix};
 
 mod sealed {
@@ -123,50 +125,72 @@ impl sealed::Sealed for ChaCha20Poly1305Ietf {
 }
 impl AeadAlgorithm for ChaCha20Poly1305Ietf {}
 
-/// Stack-allocated secret key for XChaCha20-Poly1305-IETF AEAD.
-pub type Key = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
-/// Stack-allocated public nonce for XChaCha20-Poly1305-IETF AEAD.
-pub type Nonce = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
-/// Stack-allocated authentication tag for XChaCha20-Poly1305-IETF AEAD.
-pub type Mac = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
+pub use xchacha20poly1305_ietf::*;
 
-/// XChaCha20-Poly1305-IETF AEAD box.
-pub type DryocAead<Mac, Data> = AeadBox<XChaCha20Poly1305Ietf, Mac, Data>;
-/// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
-pub type DryocAeadEnvelope<Nonce, Mac, Data> =
-    AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>;
-/// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD box.
-#[cfg(feature = "alloc")]
-pub type VecBox = DryocAead<Mac, Vec<u8>>;
-/// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD envelope.
-#[cfg(feature = "alloc")]
-pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
-
-/// Algorithm-specific aliases for XChaCha20-Poly1305-IETF.
+/// XChaCha20-Poly1305-IETF Rustaceous AEAD API, the default algorithm.
+///
+/// Everything in this module is re-exported from
+/// [`dryocaead`](crate::dryocaead), so `dryoc::dryocaead::Key` and
+/// `dryoc::dryocaead::xchacha20poly1305_ietf::Key` name the same type.
 pub mod xchacha20poly1305_ietf {
+    #[cfg(feature = "alloc")]
+    use alloc::vec::Vec;
+
+    pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, XChaCha20Poly1305Ietf};
+    use crate::constants::{
+        CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
+        CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES,
+    };
+    use crate::types::*;
+
+    /// Stack-allocated secret key for XChaCha20-Poly1305-IETF AEAD.
+    pub type Key = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
+    /// Stack-allocated public nonce for XChaCha20-Poly1305-IETF AEAD.
+    pub type Nonce = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
+    /// Stack-allocated authentication tag for XChaCha20-Poly1305-IETF AEAD.
+    pub type Mac = StackByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
+
+    /// XChaCha20-Poly1305-IETF AEAD box.
+    pub type DryocAead<Mac, Data> = AeadBox<XChaCha20Poly1305Ietf, Mac, Data>;
+    /// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
+    pub type DryocAeadEnvelope<Nonce, Mac, Data> =
+        AeadEnvelope<XChaCha20Poly1305Ietf, Nonce, Mac, Data>;
+    /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD box.
+    #[cfg(feature = "alloc")]
+    pub type VecBox = DryocAead<Mac, Vec<u8>>;
+    /// [`Vec`]-based XChaCha20-Poly1305-IETF AEAD envelope.
+    #[cfg(feature = "alloc")]
+    pub type VecEnvelope = DryocAeadEnvelope<Nonce, Mac, Vec<u8>>;
+
     #[cfg(any(
         all(feature = "protected", any(unix, windows)),
         all(doc, not(doctest), feature = "std")
     ))]
-    pub use super::protected;
-    pub use super::{AeadAlgorithm, AeadBox, AeadEnvelope, XChaCha20Poly1305Ietf};
+    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
+    pub mod protected {
+        //! # Protected memory type aliases for [`AeadBox`] and [`AeadEnvelope`]
+        //!
+        //! This mod provides protected-memory type aliases for the
+        //! XChaCha20-Poly1305-IETF Rustaceous AEAD API.
+        use super::*;
+        pub use crate::protected::*;
 
-    /// Stack-allocated secret key.
-    pub type Key = super::Key;
-    /// Stack-allocated public nonce.
-    pub type Nonce = super::Nonce;
-    /// Stack-allocated authentication tag.
-    pub type Mac = super::Mac;
-    /// XChaCha20-Poly1305-IETF AEAD box.
-    pub type DryocAead<Mac, Data> = super::DryocAead<Mac, Data>;
-    /// XChaCha20-Poly1305-IETF AEAD envelope with stored nonce.
-    pub type DryocAeadEnvelope<Nonce, Mac, Data> = super::DryocAeadEnvelope<Nonce, Mac, Data>;
-    /// [`Vec`](alloc::vec::Vec)-based XChaCha20-Poly1305-IETF AEAD box.
-    #[cfg(feature = "alloc")]
-    pub type VecBox = super::VecBox;
-    /// [`Vec`](alloc::vec::Vec)-based XChaCha20-Poly1305-IETF AEAD envelope.
-    #[cfg(feature = "alloc")]
-    pub type VecEnvelope = super::VecEnvelope;
+        /// Heap-allocated, page-aligned secret key for XChaCha20-Poly1305-IETF.
+        pub type Key = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
+        /// Heap-allocated, page-aligned public nonce for
+        /// XChaCha20-Poly1305-IETF.
+        pub type Nonce = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
+        /// Heap-allocated, page-aligned authentication tag for
+        /// XChaCha20-Poly1305-IETF.
+        pub type Mac = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
+
+        /// Locked AEAD box, provided as a type alias for convenience.
+        pub type LockedBox = AeadBox<XChaCha20Poly1305Ietf, Locked<Mac>, LockedBytes>;
+        /// Locked AEAD envelope with stored nonce, provided as a type alias for
+        /// convenience.
+        pub type LockedEnvelope =
+            AeadEnvelope<XChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
+    }
 }
 
 /// ChaCha20-Poly1305-IETF Rustaceous AEAD API.
@@ -182,6 +206,7 @@ pub mod xchacha20poly1305_ietf {
 ///
 /// ```
 /// use dryoc::dryocaead::chacha20poly1305_ietf::*;
+/// use dryoc::types::*;
 ///
 /// let key = Key::generate();
 /// // This 96-bit nonce must be unique for every message encrypted with `key`.
@@ -208,7 +233,7 @@ pub mod chacha20poly1305_ietf {
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES,
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
     };
-    pub use crate::types::*;
+    use crate::types::*;
 
     /// Stack-allocated secret key.
     pub type Key = StackByteArray<CRYPTO_AEAD_CHACHA20POLY1305_IETF_KEYBYTES>;
@@ -250,35 +275,6 @@ pub mod chacha20poly1305_ietf {
         pub type LockedEnvelope =
             AeadEnvelope<ChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
     }
-}
-
-#[cfg(any(
-    all(feature = "protected", any(unix, windows)),
-    all(doc, not(doctest), feature = "std")
-))]
-#[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
-pub mod protected {
-    //! # Protected memory type aliases for [`AeadBox`] and [`AeadEnvelope`]
-    //!
-    //! This mod provides protected-memory type aliases for the
-    //! XChaCha20-Poly1305-IETF Rustaceous AEAD API.
-    use super::*;
-    pub use crate::protected::*;
-
-    /// Heap-allocated, page-aligned secret key for XChaCha20-Poly1305-IETF.
-    pub type Key = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES>;
-    /// Heap-allocated, page-aligned public nonce for XChaCha20-Poly1305-IETF.
-    pub type Nonce = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES>;
-    /// Heap-allocated, page-aligned authentication tag for
-    /// XChaCha20-Poly1305-IETF.
-    pub type Mac = HeapByteArray<CRYPTO_AEAD_XCHACHA20POLY1305_IETF_ABYTES>;
-
-    /// Locked AEAD box, provided as a type alias for convenience.
-    pub type LockedBox = AeadBox<XChaCha20Poly1305Ietf, Locked<Mac>, LockedBytes>;
-    /// Locked AEAD envelope with stored nonce, provided as a type alias for
-    /// convenience.
-    pub type LockedEnvelope =
-        AeadEnvelope<XChaCha20Poly1305Ietf, Locked<Nonce>, Locked<Mac>, LockedBytes>;
 }
 
 #[derive(Clone, Debug)]

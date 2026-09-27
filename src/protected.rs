@@ -229,20 +229,58 @@ mod int {
     }
 }
 
-#[doc(hidden)] // Edit this PR to remove doc(hidden) or add a doc comment.
-pub mod traits {
-    pub trait ProtectMode {}
-    pub struct ReadOnly {}
-    pub struct ReadWrite {}
-    pub struct NoAccess {}
+mod sealed {
+    /// Keeps [`ProtectMode`](super::traits::ProtectMode) and
+    /// [`LockMode`](super::traits::LockMode) closed to the marker types in
+    /// [`traits`](super::traits).
+    pub trait Sealed {}
+}
 
+/// Type-level states of a [`Protected`] region.
+///
+/// [`Protected<A, PM, LM>`](Protected) tracks its page protection (`PM`, a
+/// [`ProtectMode`](traits::ProtectMode)) and whether its pages are locked
+/// (`LM`, a [`LockMode`](traits::LockMode)) in its type, so each state only
+/// exposes the operations valid for it. The aliases [`Locked`], [`LockedRO`],
+/// [`Unlocked`], [`UnlockedRO`] and [`NoAccess`] name the usual combinations.
+///
+/// Both traits are sealed: the marker types in this module are their only
+/// implementations.
+pub mod traits {
+    use super::sealed::Sealed;
+
+    /// Page protection of a [`Protected`](super::Protected) region:
+    /// [`ReadOnly`], [`ReadWrite`] or [`NoAccess`].
+    ///
+    /// This trait is sealed and cannot be implemented outside dryoc.
+    pub trait ProtectMode: Sealed {}
+    /// Pages are readable but not writable.
+    pub struct ReadOnly;
+    /// Pages are readable and writable.
+    pub struct ReadWrite;
+    /// Pages can be neither read nor written.
+    pub struct NoAccess;
+
+    impl Sealed for ReadOnly {}
+    impl Sealed for ReadWrite {}
+    impl Sealed for NoAccess {}
     impl ProtectMode for ReadOnly {}
     impl ProtectMode for ReadWrite {}
     impl ProtectMode for NoAccess {}
 
-    pub trait LockMode {}
-    pub struct Locked {}
-    pub struct Unlocked {}
+    /// Whether the pages of a [`Protected`](super::Protected) region are
+    /// locked into memory: [`Locked`] or [`Unlocked`].
+    ///
+    /// This trait is sealed and cannot be implemented outside dryoc.
+    pub trait LockMode: Sealed {}
+    /// Pages are locked into memory with `mlock()` (UNIX) or `VirtualLock()`
+    /// (Windows).
+    pub struct Locked;
+    /// Pages are not locked into memory.
+    pub struct Unlocked;
+
+    impl Sealed for Locked {}
+    impl Sealed for Unlocked {}
     impl LockMode for Locked {}
     impl LockMode for Unlocked {}
 }
@@ -399,7 +437,7 @@ pub struct Protected<A: Zeroize + Bytes, PM: traits::ProtectMode, LM: traits::Lo
 }
 
 /// Short-hand type aliases for protected types.
-pub mod ptypes {
+mod ptypes {
     /// Locked, read-write, page-aligned memory region type alias
     pub type Locked<T> = super::Protected<T, super::traits::ReadWrite, super::traits::Locked>;
     /// Locked, read-only, page-aligned memory region type alias

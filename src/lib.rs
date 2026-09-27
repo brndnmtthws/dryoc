@@ -117,6 +117,21 @@
 //! provides type aliases for its common key, nonce, and output types. The
 //! Classic API instead uses fixed-size byte arrays and byte slices.
 //!
+//! The byte-array traits behind those aliases, such as
+//! [`NewByteArray::generate`](types::NewByteArray::generate) and
+//! [`Bytes::as_slice`](types::Bytes::as_slice), live in [`types`]. Algorithm
+//! modules do not re-export them, so import them next to the module:
+//!
+//! ```
+//! use dryoc::dryocsecretbox::*;
+//! use dryoc::types::*;
+//!
+//! let key = Key::generate();
+//! ```
+//!
+//! Each `protected` module re-exports [`protected`], which
+//! includes the traits.
+//!
 //! | Feature | Rustaceous API | Classic API | Reference |
 //! |-|-|-|-|
 //! | Public-key authenticated boxes | [`DryocBox`](dryocbox) | [`crypto_box`](classic::crypto_box) | [Link](https://doc.libsodium.org/public-key_cryptography/authenticated_encryption) |

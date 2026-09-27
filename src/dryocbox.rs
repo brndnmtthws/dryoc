@@ -35,6 +35,7 @@
 //!
 //! ```
 //! use dryoc::dryocbox::*;
+//! use dryoc::types::*;
 //!
 //! // In a real exchange, each party keeps its secret key private and shares
 //! // only its public key.
@@ -111,7 +112,7 @@ use crate::constants::{
     CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SEALBYTES, CRYPTO_BOX_SECRETKEYBYTES,
 };
 use crate::error::*;
-pub use crate::types::*;
+use crate::types::*;
 use crate::utils::{ct_eq_bytes, split_prefix};
 
 /// Stack-allocated public key for authenticated public-key boxes.

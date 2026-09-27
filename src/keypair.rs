@@ -3,7 +3,9 @@
 //! Provides an implementation for handling public/private keypairs based on
 //! libsodium's crypto_box, which uses X25519.
 //!
-//! Refer to the [protected] mod for details on usage with protected memory.
+//! With the `protected` feature, [`KeyPair`] also provides locked-memory
+//! constructors such as [`KeyPair::generate_locked_keypair`]; the key types
+//! come from [`protected`](crate::protected).
 
 use core::fmt;
 
@@ -167,8 +169,8 @@ impl<
 /// # #[cfg(all(feature = "protected", any(unix, windows)))]
 /// # {
 /// use dryoc::constants::{CRYPTO_BOX_PUBLICKEYBYTES, CRYPTO_BOX_SECRETKEYBYTES};
-/// use dryoc::keypair::protected::{HeapByteArray, LockedRO};
 /// use dryoc::keypair::{KeyPair, is_valid_public_key};
+/// use dryoc::protected::{HeapByteArray, LockedRO};
 ///
 /// // Generate a keypair stored in locked, read-only memory
 /// let protected_kp: KeyPair<
@@ -220,11 +222,11 @@ impl<
     all(doc, not(doctest), feature = "std")
 ))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
-pub mod protected {
-    //! # Protected memory for [`KeyPair`]
+mod protected {
+    //! Locked-memory constructors and methods for [`KeyPair`].
     use super::*;
     use crate::classic::crypto_box::crypto_box_keypair_inplace;
-    pub use crate::protected::*;
+    use crate::protected::*;
 
     impl
         KeyPair<
@@ -512,7 +514,7 @@ mod tests {
     #[cfg(all(feature = "protected", any(unix, windows)))]
     #[test]
     fn locked_precalculate_matches_nacl_shared_key() {
-        use crate::keypair::protected::*;
+        use crate::protected::*;
 
         let alice = keypair_from_hex(ALICE_PK, ALICE_SK);
         let bob = keypair_from_hex(BOB_PK, BOB_SK);

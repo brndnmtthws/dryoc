@@ -26,6 +26,7 @@
 //!
 //! ```
 //! use dryoc::dryocstream::*;
+//! use dryoc::types::*;
 //! let message1 = b"Arbitrary data to encrypt";
 //! let message2 = b"split into";
 //! let message3 = b"three messages";
@@ -90,19 +91,27 @@ use crate::constants::{
     CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES,
 };
 use crate::error::Error;
-pub use crate::types::*;
+use crate::types::*;
 
 mod tag;
 pub use tag::Tag;
 
-/// Stream mode marker trait.
-pub trait Mode {}
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Stream mode marker trait: [`Push`] or [`Pull`].
+///
+/// This trait is sealed and cannot be implemented outside dryoc.
+pub trait Mode: sealed::Sealed {}
 
 /// Indicates a push stream
 pub struct Push;
 /// Indicates a pull stream
 pub struct Pull;
 
+impl sealed::Sealed for Push {}
+impl sealed::Sealed for Pull {}
 impl Mode for Push {}
 impl Mode for Pull {}
 

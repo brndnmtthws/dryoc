@@ -129,7 +129,7 @@ pub mod protected {
     //! assert_eq!(client_tx.as_slice(), server_rx.as_slice());
     //! ```
     use super::*;
-    pub use crate::keypair::protected::*;
+    pub use crate::protected::*;
 
     /// Heap-allocated, page-aligned session key type alias for use with
     /// protected memory

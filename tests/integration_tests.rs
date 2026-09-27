@@ -967,6 +967,7 @@ fn test_stack_byte_array_serde_json_roundtrip_requires_exact_length() {
 #[test]
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
     let sender_keypair = StackKeyPair::generate();
     let recipient_keypair = StackKeyPair::generate();
@@ -1013,6 +1014,7 @@ fn test_dryocbox() {
 #[test]
 fn test_dryocsecretbox() {
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::generate();
     let nonce = Nonce::generate();
@@ -1032,6 +1034,7 @@ fn test_dryocsecretbox() {
 #[test]
 fn test_dryocaead() {
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::generate();
@@ -1096,6 +1099,7 @@ fn test_dryocaead_chacha20poly1305_ietf() {
         CRYPTO_AEAD_CHACHA20POLY1305_IETF_ABYTES, CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES,
     };
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::from([0x42; CRYPTO_AEAD_CHACHA20POLY1305_IETF_NPUBBYTES]);
@@ -1142,6 +1146,7 @@ fn test_dryocaead_chacha20poly1305_ietf() {
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::from([0x42; 12]);
@@ -1158,6 +1163,7 @@ fn test_dryocaead_chacha20poly1305_ietf_serde_json() {
 #[test]
 fn test_dryocaead_chacha20poly1305_ietf_wincode() {
     use dryoc::dryocaead::chacha20poly1305_ietf::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::from([0x42; 12]);
@@ -1173,6 +1179,7 @@ fn test_dryocaead_chacha20poly1305_ietf_wincode() {
 #[test]
 fn test_dryocbox_serde_json() {
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
     let sender_keypair = StackKeyPair::generate();
     let recipient_keypair = StackKeyPair::generate();
@@ -1206,6 +1213,7 @@ fn test_dryocbox_serde_json() {
 #[test]
 fn test_dryocsecretbox_serde_json() {
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::generate();
     let nonce = Nonce::generate();
@@ -1229,6 +1237,7 @@ fn test_dryocsecretbox_serde_json() {
 #[test]
 fn test_dryocaead_serde_json() {
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::generate();
@@ -1266,6 +1275,7 @@ fn wincode_vec(bytes: &[u8]) -> Vec<u8> {
 fn test_dryocbox_wincode_wire_format() {
     use dryoc::classic::crypto_box::crypto_box_detached;
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
     let sender_keypair = StackKeyPair::from_seed(&[1u8; 32]);
     let recipient_keypair = StackKeyPair::from_seed(&[2u8; 32]);
@@ -1335,6 +1345,7 @@ fn test_dryocbox_wincode_wire_format() {
 fn test_dryocaead_wincode_wire_format() {
     use dryoc::classic::crypto_aead_xchacha20poly1305_ietf::crypto_aead_xchacha20poly1305_ietf_encrypt_detached;
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::from([4u8; 32]);
     let nonce = Nonce::from([5u8; 24]);
@@ -1393,6 +1404,7 @@ fn test_dryocaead_wincode_wire_format() {
 #[test]
 fn test_dryocbox_wincode() {
     use dryoc::dryocbox::*;
+    use dryoc::types::*;
 
     let sender_keypair = StackKeyPair::generate();
     let recipient_keypair = StackKeyPair::generate();
@@ -1425,6 +1437,7 @@ fn test_dryocbox_wincode() {
 #[test]
 fn test_dryocaead_wincode() {
     use dryoc::dryocaead::*;
+    use dryoc::types::*;
 
     let key = Key::generate();
     let nonce = Nonce::generate();
@@ -1471,6 +1484,7 @@ fn test_dryocbox_sealed_wincode() {
 fn test_dryocsecretbox_wincode_wire_format() {
     use dryoc::classic::crypto_secretbox::crypto_secretbox_detached;
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::from([6u8; 32]);
     let nonce = Nonce::from([7u8; 24]);
@@ -1509,6 +1523,7 @@ fn test_dryocsecretbox_wincode_wire_format() {
 #[test]
 fn test_dryocsecretbox_wincode() {
     use dryoc::dryocsecretbox::*;
+    use dryoc::types::*;
 
     let secret_key = Key::generate();
     let nonce = Nonce::generate();
@@ -1696,6 +1711,7 @@ fn test_streams() {
 #[test]
 fn test_streams_rustaceous() {
     use dryoc::dryocstream::*;
+    use dryoc::types::*;
     let message1 = b"Arbitrary data to encrypt";
     let message2 = b"split into";
     let message3 = b"three messages";
