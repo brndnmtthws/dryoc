@@ -250,12 +250,15 @@ jobs:
             manylinux: 2_28
             ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
           # Alpine and other musl distributions cannot load manylinux wheels.
+          # maturin-action's default musllinux image (rust-musl-cross) has no
+          # /opt/python interpreters, so both musl builds use the pypa images.
           - name: musllinux x86_64
             slug: musllinux-x86_64
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
             manylinux: musllinux_1_2
             ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+            container: quay.io/pypa/musllinux_1_2_x86_64:latest
             musl: true
           - name: musllinux aarch64
             slug: musllinux-aarch64
@@ -263,6 +266,7 @@ jobs:
             target: aarch64-unknown-linux-musl
             manylinux: musllinux_1_2
             ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+            container: quay.io/pypa/musllinux_1_2_aarch64:latest
             musl: true
           - name: macOS arm64
             slug: macos-arm64
@@ -286,6 +290,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release --locked --out dist
           working-directory: python
       # The latest-Python test runs first: "3" matches any installed 3.x, so
@@ -309,6 +314,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release --locked --out dist -i "${{ matrix.ft_interpreter || steps.ft-python.outputs.python-path }}"
           working-directory: python
       - name: Test free-threaded wheel
