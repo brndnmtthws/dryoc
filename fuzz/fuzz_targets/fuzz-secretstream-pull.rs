@@ -192,9 +192,7 @@ fuzz_target!(|data: &[u8]| {
         if let Some((bad_ct, bad_aad)) = corrupt(step, &ciphertext) {
             assert_rejected(&pull_state, &bad_ct, bad_aad.as_deref());
             // The valid pull below proves the stream did not advance here.
-            let bad_ct: &[u8] = &bad_ct;
-            let bad_aad = bad_aad.as_deref();
-            assert!(stream.pull_to_vec(&bad_ct, bad_aad.as_ref()).is_err());
+            assert!(stream.pull_to_vec(&bad_ct, bad_aad.as_deref()).is_err());
         }
         assert_rejected(&push_state, &ciphertext, aad);
 
@@ -215,10 +213,7 @@ fuzz_target!(|data: &[u8]| {
         assert!(push_state == pull_state, "push and pull states diverged");
 
         // Rustaceous pull sees the same message and tag.
-        let ciphertext_ref: &[u8] = &ciphertext;
-        let (pulled, pulled_tag) = stream
-            .pull_to_vec(&ciphertext_ref, aad.as_ref())
-            .expect("stream pull");
+        let (pulled, pulled_tag) = stream.pull_to_vec(&ciphertext, aad).expect("stream pull");
         assert_eq!(pulled, step.message);
         assert_eq!(pulled_tag.bits(), step.tag);
 

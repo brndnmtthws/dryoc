@@ -139,7 +139,8 @@ pub fn crypto_sign_detached(
     message: &[u8],
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    crypto_sign_ed25519_detached(signature, message, secret_key)
+    crypto_sign_ed25519_detached(signature, message, secret_key);
+    Ok(())
 }
 
 /// Verifies that `signature` is a valid signature for `message` using the given
@@ -162,7 +163,7 @@ pub fn crypto_sign_verify_detached(
 
 /// State for incremental signing interface.
 pub struct SignerState {
-    state: Ed25519SignerState,
+    pub(crate) state: Ed25519SignerState,
 }
 
 /// Initializes the incremental signing interface.
@@ -190,7 +191,8 @@ pub fn crypto_sign_final_create(
     signature: &mut Signature,
     secret_key: &SecretKey,
 ) -> Result<(), Error> {
-    crypto_sign_ed25519ph_final_create(state.state, signature, secret_key)
+    crypto_sign_ed25519ph_final_create(state.state, signature, secret_key);
+    Ok(())
 }
 
 /// Verifies the computed signature for `state` and `public_key` matches

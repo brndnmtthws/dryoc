@@ -93,7 +93,7 @@ macro_rules! mac_class {
                 let key: StackByteArray<{ $key_bytes }> = fixed(key.as_slice(), "key")?;
                 let mac = Self {
                     state: Locked::new(MacState {
-                        running: Some(<$inner>::new(key)),
+                        running: Some(<$inner>::new(&key)),
                         tag: None,
                     }),
                 };

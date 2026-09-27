@@ -151,11 +151,8 @@ impl SigningKey {
     ) -> PyResult<Bound<'py, PyBytes>> {
         let message = message.as_slice();
         let signed = maybe_detach(py, message.len(), || {
-            self.pair
-                .sign::<Signature, _>(message.to_vec())
-                .map(|signed| signed.to_vec())
-        })
-        .or_raise()?;
+            self.pair.sign::<Signature, _>(message.to_vec()).to_vec()
+        });
         Ok(PyBytes::new(py, &signed))
     }
 
@@ -231,10 +228,7 @@ impl Ed25519ph {
         py: Python<'py>,
         signing_key: &Bound<'py, SigningKey>,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let signature: Signature = self
-            .take(py)?
-            .finalize(&signing_key.get().pair.secret_key)
-            .or_raise()?;
+        let signature: Signature = self.take(py)?.finalize(&signing_key.get().pair.secret_key);
         Ok(PyBytes::new(py, signature.as_ref()))
     }
 

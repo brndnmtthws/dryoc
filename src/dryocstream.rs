@@ -242,10 +242,10 @@ impl DryocStream<Push> {
     /// Returns an error if `tag` contains unknown bits, the message exceeds the
     /// stream's maximum message length, or the output storage does not resize
     /// to exactly the required ciphertext length.
-    pub fn push<Input: Bytes, Output: NewBytes + ResizableBytes>(
+    pub fn push<Input: Bytes + ?Sized, Output: NewBytes + ResizableBytes>(
         &mut self,
         message: &Input,
-        associated_data: Option<&Input>,
+        associated_data: Option<&[u8]>,
         tag: Tag,
     ) -> Result<Output, Error> {
         Tag::try_from(tag.bits())?;
@@ -259,7 +259,7 @@ impl DryocStream<Push> {
             &mut self.state,
             ciphertext.as_mut_slice(),
             message.as_slice(),
-            associated_data.map(|aad| aad.as_slice()),
+            associated_data,
             tag.bits(),
         )?;
         Ok(ciphertext)
@@ -273,10 +273,10 @@ impl DryocStream<Push> {
     /// Returns an error if `tag` contains unknown bits or the message exceeds
     /// the stream's maximum message length.
     #[cfg(feature = "alloc")]
-    pub fn push_to_vec<Input: Bytes>(
+    pub fn push_to_vec<Input: Bytes + ?Sized>(
         &mut self,
         message: &Input,
-        associated_data: Option<&Input>,
+        associated_data: Option<&[u8]>,
         tag: Tag,
     ) -> Result<Vec<u8>, Error> {
         self.push(message, associated_data, tag)
@@ -315,14 +315,14 @@ impl DryocStream<Pull> {
     /// data, modified ciphertext, or messages processed out of order.
     /// Authenticated tag values containing unknown bits are also rejected
     /// without advancing the stream.
-    pub fn pull<Input: Bytes, Output: MutBytes + Default + ResizableBytes>(
+    pub fn pull<Input: Bytes + ?Sized, Output: NewBytes + ResizableBytes>(
         &mut self,
         ciphertext: &Input,
-        associated_data: Option<&Input>,
+        associated_data: Option<&[u8]>,
     ) -> Result<(Output, Tag), Error> {
         let message_len = message_len_from_ciphertext_len(ciphertext.as_slice().len())?;
 
-        let mut message = Output::default();
+        let mut message = Output::new_bytes();
         message.resize(message_len, 0);
         let mut tag = 0u8;
         let mut next_state = self.state.clone();
@@ -331,7 +331,7 @@ impl DryocStream<Pull> {
             message.as_mut_slice(),
             &mut tag,
             ciphertext.as_slice(),
-            associated_data.map(|aad| aad.as_slice()),
+            associated_data,
         )?;
 
         let tag = match Tag::try_from(tag) {
@@ -356,10 +356,10 @@ impl DryocStream<Pull> {
     /// position, or ciphertext does not match. Authenticated tag values
     /// containing unknown bits are also rejected without advancing the stream.
     #[cfg(feature = "alloc")]
-    pub fn pull_to_vec<Input: Bytes>(
+    pub fn pull_to_vec<Input: Bytes + ?Sized>(
         &mut self,
         ciphertext: &Input,
-        associated_data: Option<&Input>,
+        associated_data: Option<&[u8]>,
     ) -> Result<(Vec<u8>, Tag), Error> {
         self.pull(ciphertext, associated_data)
     }
@@ -479,26 +479,25 @@ mod validation_tests {
         let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
         let aad: &[u8] = b"stream aad";
         let c1 = push_stream
-            .push_to_vec(&&b"first"[..], Some(&aad), Tag::MESSAGE)
+            .push_to_vec(b"first", Some(aad), Tag::MESSAGE)
             .expect("push failed");
         let c2 = push_stream
-            .push_to_vec(&&b"second"[..], Some(&aad), Tag::PUSH)
+            .push_to_vec(b"second", Some(aad), Tag::PUSH)
             .expect("push failed");
         let c3 = push_stream
-            .push_to_vec(&&b"third"[..], Some(&aad), Tag::FINAL)
+            .push_to_vec(b"third", Some(aad), Tag::FINAL)
             .expect("push failed");
-        let aad = aad.to_vec();
 
         let mut pull_stream = DryocStream::init_pull(&key, &header);
         let initial_state = pull_stream.state.clone();
 
         // Skipping ahead is rejected and does not consume the position.
         assert!(matches!(
-            pull_stream.pull_to_vec(&c2, Some(&aad)),
+            pull_stream.pull_to_vec(&c2, Some(aad)),
             Err(Error::AuthenticationFailed)
         ));
         assert!(matches!(
-            pull_stream.pull_to_vec(&c3, Some(&aad)),
+            pull_stream.pull_to_vec(&c3, Some(aad)),
             Err(Error::AuthenticationFailed)
         ));
         // Mismatched associated data is rejected the same way.
@@ -508,18 +507,18 @@ mod validation_tests {
         ));
         assert!(pull_stream.state == initial_state);
 
-        let (m1, t1) = pull_stream.pull_to_vec(&c1, Some(&aad)).expect("pull c1");
+        let (m1, t1) = pull_stream.pull_to_vec(&c1, Some(aad)).expect("pull c1");
         assert_eq!((m1.as_slice(), t1), (&b"first"[..], Tag::MESSAGE));
 
         // Replaying the consumed message and skipping c2 both fail.
         let after_c1 = pull_stream.state.clone();
-        assert!(pull_stream.pull_to_vec(&c1, Some(&aad)).is_err());
-        assert!(pull_stream.pull_to_vec(&c3, Some(&aad)).is_err());
+        assert!(pull_stream.pull_to_vec(&c1, Some(aad)).is_err());
+        assert!(pull_stream.pull_to_vec(&c3, Some(aad)).is_err());
         assert!(pull_stream.state == after_c1);
 
-        let (m2, t2) = pull_stream.pull_to_vec(&c2, Some(&aad)).expect("pull c2");
+        let (m2, t2) = pull_stream.pull_to_vec(&c2, Some(aad)).expect("pull c2");
         assert_eq!((m2.as_slice(), t2), (&b"second"[..], Tag::PUSH));
-        let (m3, t3) = pull_stream.pull_to_vec(&c3, Some(&aad)).expect("pull c3");
+        let (m3, t3) = pull_stream.pull_to_vec(&c3, Some(aad)).expect("pull c3");
         assert_eq!((m3.as_slice(), t3), (&b"third"[..], Tag::FINAL));
     }
 
@@ -578,14 +577,14 @@ mod tests {
         let aad: &[u8] = b"associated";
         let (mut push_stream, header): (_, Header) = DryocStream::init_push(&key);
         let c1 = push_stream
-            .push_to_vec(&&b"before rekey"[..], Some(&aad), Tag::MESSAGE)
+            .push_to_vec(b"before rekey", Some(aad), Tag::MESSAGE)
             .expect("push failed");
         push_stream.rekey();
         let c2 = push_stream
-            .push_to_vec(&&b"after rekey"[..], Some(&aad), Tag::PUSH)
+            .push_to_vec(b"after rekey", Some(aad), Tag::PUSH)
             .expect("push failed");
         let c3 = push_stream
-            .push_to_vec(&&b"final"[..], Some(&aad), Tag::FINAL)
+            .push_to_vec(b"final", Some(aad), Tag::FINAL)
             .expect("push failed");
 
         let so_header = header.as_slice();

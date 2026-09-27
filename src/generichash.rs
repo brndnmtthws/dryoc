@@ -200,7 +200,7 @@ impl<const KEY_LENGTH: usize, const OUTPUT_LENGTH: usize> GenericHash<KEY_LENGTH
     ///
     /// Returns an error under the same conditions as [`GenericHash::hash`].
     #[cfg(feature = "alloc")]
-    pub fn hash_to_vec<Input: Bytes, Key: ByteArray<KEY_LENGTH>>(
+    pub fn hash_to_vec<Input: Bytes + ?Sized, Key: ByteArray<KEY_LENGTH>>(
         input: &Input,
         key: Option<&Key>,
     ) -> Result<Vec<u8>, Error> {

@@ -436,7 +436,8 @@ mod tests {
         let nonce = Nonce::from([7u8; crate::constants::CRYPTO_SECRETBOX_NONCEBYTES]);
         let (server_rx, server_tx) = server_session.into_parts();
         let (decoded_rx, decoded_tx) = decoded.into_parts();
-        let from_server = DryocSecretBox::encrypt_to_vecbox(b"server says", &nonce, &server_tx);
+        let from_server = DryocSecretBox::encrypt_to_vecbox(b"server says", &nonce, &server_tx)
+            .expect("encrypt failed");
         assert_eq!(
             VecBox::from_bytes(&from_server.to_vec())
                 .expect("parse")
@@ -444,7 +445,8 @@ mod tests {
                 .expect("decrypt"),
             b"server says"
         );
-        let from_client = DryocSecretBox::encrypt_to_vecbox(b"client says", &nonce, &decoded_tx);
+        let from_client = DryocSecretBox::encrypt_to_vecbox(b"client says", &nonce, &decoded_tx)
+            .expect("encrypt failed");
         assert_eq!(
             from_client
                 .decrypt_to_vec(&nonce, &server_rx)

@@ -168,7 +168,7 @@ fn dryocsecretbox_roundtrip() {
     let message = b"wasm dryocsecretbox";
 
     let dryocsecretbox: dryoc::dryocsecretbox::VecBox =
-        DryocSecretBox::encrypt(message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
         .expect("unable to decrypt");
@@ -282,7 +282,7 @@ fn sign_rfc_8032_known_answer() {
         SigningKeyPair::from_seed(&seed);
     assert_eq!(keypair.public_key.as_slice(), &expected_public_key);
 
-    let signed: VecSignedMessage = keypair.sign(Vec::new()).expect("sign failed");
+    let signed: VecSignedMessage = keypair.sign(Vec::new());
     signed.verify(&keypair.public_key).expect("verify failed");
     assert_eq!(signed.to_vec(), expected_signature);
 
@@ -373,15 +373,15 @@ fn auth_rfc_4231_known_answer() {
     let expected = unhex("87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cde");
     let key = dryoc::auth::Key::from(rfc4231_key::<32>());
 
-    assert_eq!(Auth::compute_to_vec(key.clone(), b"Hi There"), expected);
+    assert_eq!(Auth::compute_to_vec(&key, b"Hi There"), expected);
 
-    let mut auth = Auth::new(key.clone());
+    let mut auth = Auth::new(&key);
     auth.update(b"Hi ");
     auth.update(b"There");
     auth.verify(&dryoc::auth::Mac::try_from(expected.as_slice()).expect("mac"))
         .expect("verify failed");
 
-    let mut auth = Auth::new(key);
+    let mut auth = Auth::new(&key);
     auth.update(b"Hi there");
     assert!(
         auth.verify(&dryoc::auth::Mac::try_from(expected.as_slice()).expect("mac"))
@@ -403,11 +403,11 @@ fn onetimeauth_rfc_7539_known_answer() {
     ];
 
     assert_eq!(
-        OnetimeAuth::compute_to_vec(key.clone(), b"Cryptographic Forum Research Group"),
+        OnetimeAuth::compute_to_vec(&key, b"Cryptographic Forum Research Group"),
         expected
     );
 
-    let mut auth = OnetimeAuth::new(key);
+    let mut auth = OnetimeAuth::new(&key);
     auth.update(b"Cryptographic Forum ");
     auth.update(b"Research Group");
     auth.verify(&dryoc::onetimeauth::Mac::from(expected))
@@ -417,13 +417,13 @@ fn onetimeauth_rfc_7539_known_answer() {
 #[wasm_bindgen_test]
 fn hmac_rfc_4231_known_answer() {
     // RFC 4231 test case 1.
-    let sha256 = HmacSha256::compute_to_vec(HmacSha256Key::from(rfc4231_key::<32>()), b"Hi There");
+    let sha256 = HmacSha256::compute_to_vec(&HmacSha256Key::from(rfc4231_key::<32>()), b"Hi There");
     assert_eq!(
         sha256,
         unhex("b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
     );
 
-    let sha512 = HmacSha512::compute_to_vec(HmacSha512Key::from(rfc4231_key::<32>()), b"Hi There");
+    let sha512 = HmacSha512::compute_to_vec(&HmacSha512Key::from(rfc4231_key::<32>()), b"Hi There");
     assert_eq!(
         sha512,
         unhex(concat!(
@@ -432,7 +432,7 @@ fn hmac_rfc_4231_known_answer() {
         ))
     );
 
-    let mut incremental = HmacSha256::new(HmacSha256Key::from(rfc4231_key::<32>()));
+    let mut incremental = HmacSha256::new(&HmacSha256Key::from(rfc4231_key::<32>()));
     incremental.update(b"Hi ");
     incremental.update(b"There");
     assert_eq!(incremental.finalize_to_vec(), sha256);

@@ -35,7 +35,8 @@
 //! let message = b"A message to encrypt";
 //!
 //! // Encrypt the message into a vector-backed box.
-//! let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key);
+//! let dryocsecretbox =
+//!     DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key).expect("encrypt failed");
 //!
 //! // Serialize the box in libsodium's wire format, then read it back.
 //! let sodium_box = dryocsecretbox.to_vec();
@@ -107,7 +108,8 @@ pub mod protected {
     //!         .expect("message failed");
     //!
     //! // Encrypt the message, placing the result into locked memory
-    //! let dryocsecretbox: LockedBox = DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+    //! let dryocsecretbox: LockedBox =
+    //!     DryocSecretBox::encrypt(&message, &nonce, &secret_key).expect("encrypt failed");
     //!
     //! // Decrypt the message, placing the result into locked memory
     //! let decrypted: LockedBytes = dryocsecretbox
@@ -204,12 +206,18 @@ impl<
     /// Encrypts a message using `secret_key` and returns a new
     /// [`DryocSecretBox`] with ciphertext and tag.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidLength`] with [`ErrorContext::Message`] if
+    /// `message` is longer than
+    /// [`CRYPTO_SECRETBOX_MESSAGEBYTES_MAX`](crate::constants::CRYPTO_SECRETBOX_MESSAGEBYTES_MAX),
+    /// or with [`ErrorContext::Ciphertext`] if `Data`'s
+    /// [`ResizableBytes::resize`] leaves it shorter than `message` (storage
+    /// that cannot grow to the message length).
+    ///
     /// # Panics
     ///
-    /// Panics if allocation or resizing panics, the message exceeds
-    /// [`CRYPTO_SECRETBOX_MESSAGEBYTES_MAX`](crate::constants::CRYPTO_SECRETBOX_MESSAGEBYTES_MAX),
-    /// or a custom `Data` implementation leaves its buffer shorter than the
-    /// message.
+    /// Panics if allocation or resizing panics.
     pub fn encrypt<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -218,7 +226,7 @@ impl<
         message: &Message,
         nonce: &Nonce,
         secret_key: &SecretKey,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         use crate::classic::crypto_secretbox::crypto_secretbox_detached;
 
         let mut new = Self {
@@ -233,10 +241,9 @@ impl<
             message.as_slice(),
             nonce.as_array(),
             secret_key.as_array(),
-        )
-        .expect("allocated ciphertext length matches message length");
+        )?;
 
-        new
+        Ok(new)
     }
 }
 
@@ -340,6 +347,13 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 impl DryocSecretBox<Mac, Vec<u8>> {
     /// Encrypts a message using `secret_key` and returns a new
     /// [`DryocSecretBox`] with ciphertext and tag.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidLength`] with [`ErrorContext::Message`] if
+    /// `message` is longer than
+    /// [`CRYPTO_SECRETBOX_MESSAGEBYTES_MAX`](crate::constants::CRYPTO_SECRETBOX_MESSAGEBYTES_MAX).
+    /// The [`Vec`] storage always resizes, so this is the only error.
     pub fn encrypt_to_vecbox<
         Message: Bytes + ?Sized,
         Nonce: ByteArray<CRYPTO_SECRETBOX_NONCEBYTES>,
@@ -348,7 +362,7 @@ impl DryocSecretBox<Mac, Vec<u8>> {
         message: &Message,
         nonce: &Nonce,
         secret_key: &SecretKey,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         Self::encrypt(message, nonce, secret_key)
     }
 
@@ -391,6 +405,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use crate::LengthConstraint;
     use crate::test_prelude::*;
 
     /// NaCl `tests/secretbox.c` vector: `firstkey`, `nonce`, the 131-byte
@@ -425,7 +440,8 @@ mod tests {
     fn nacl_vector_encrypts_to_known_bytes_and_parses_back() {
         let (key, nonce, message, boxed) = nacl_vector();
 
-        let dryocsecretbox = DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &key);
+        let dryocsecretbox =
+            DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &key).expect("encrypt failed");
         assert_eq!(dryocsecretbox.to_vec(), boxed);
         assert_eq!(dryocsecretbox.clone().into_vec(), boxed);
         assert_eq!(
@@ -520,7 +536,7 @@ mod tests {
     #[test]
     fn empty_message_produces_a_bare_tag_that_authenticates() {
         let (key, nonce, _, _) = nacl_vector();
-        let empty = DryocSecretBox::encrypt_to_vecbox(&[], &nonce, &key);
+        let empty = DryocSecretBox::encrypt_to_vecbox(&[], &nonce, &key).expect("encrypt failed");
         let bytes = empty.to_vec();
         assert_eq!(bytes.len(), CRYPTO_SECRETBOX_MACBYTES);
 
@@ -534,6 +550,67 @@ mod tests {
         let mut wrong_key = key.clone();
         wrong_key[0] ^= 1;
         assert!(parsed.decrypt_to_vec(&nonce, &wrong_key).is_err());
+    }
+
+    /// Output storage whose `resize` never changes its length, like a
+    /// fixed-capacity buffer supplied through the generic `Data` parameter.
+    #[derive(Zeroize)]
+    struct FixedData([u8; 4]);
+
+    impl Bytes for FixedData {
+        fn as_slice(&self) -> &[u8] {
+            &self.0
+        }
+
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        fn is_empty(&self) -> bool {
+            self.0.is_empty()
+        }
+    }
+
+    impl MutBytes for FixedData {
+        fn as_mut_slice(&mut self) -> &mut [u8] {
+            &mut self.0
+        }
+
+        fn copy_from_slice(&mut self, other: &[u8]) {
+            self.0.copy_from_slice(other)
+        }
+    }
+
+    impl NewBytes for FixedData {
+        fn new_bytes() -> Self {
+            Self([0; 4])
+        }
+    }
+
+    impl ResizableBytes for FixedData {
+        fn resize(&mut self, _new_len: usize, _value: u8) {}
+    }
+
+    #[test]
+    fn encrypt_returns_an_error_when_storage_does_not_grow() {
+        let (key, nonce, message, _) = nacl_vector();
+
+        assert!(matches!(
+            DryocSecretBox::<Mac, FixedData>::encrypt(&message[..5], &nonce, &key),
+            Err(Error::InvalidLength {
+                context: ErrorContext::Ciphertext,
+                actual: 4,
+                constraint: LengthConstraint::AtLeast(5),
+            })
+        ));
+
+        // A message that fits the fixed storage encrypts as with `Vec`.
+        let fits = DryocSecretBox::<Mac, FixedData>::encrypt(&message[..4], &nonce, &key)
+            .expect("encrypt failed");
+        let expected =
+            DryocSecretBox::encrypt_to_vecbox(&message[..4], &nonce, &key).expect("encrypt failed");
+        assert_eq!(fits.tag, expected.tag);
+        assert_eq!(fits.data.as_slice(), expected.data.as_slice());
     }
 
     #[cfg(all(feature = "protected", any(unix, windows)))]
@@ -550,7 +627,8 @@ mod tests {
             HeapBytes::from_slice_into_readonly_locked(&message).expect("lock message");
 
         let locked: protected::LockedBox =
-            DryocSecretBox::encrypt(&locked_message, &locked_nonce, &locked_key);
+            DryocSecretBox::encrypt(&locked_message, &locked_nonce, &locked_key)
+                .expect("encrypt failed");
         assert_eq!(locked.to_vec(), boxed);
 
         let decrypted: LockedBytes = locked
@@ -637,7 +715,8 @@ mod tests {
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ").into_bytes();
                 let message_copy = message.clone();
-                let dryocsecretbox: VecBox = DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+                let dryocsecretbox: VecBox =
+                    DryocSecretBox::encrypt(&message, &nonce, &secret_key).expect("encrypt failed");
 
                 let ciphertext = dryocsecretbox.clone().into_vec();
                 assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
@@ -679,7 +758,8 @@ mod tests {
                 let message = words.join(" :D ").into_bytes();
                 let message_copy = message.clone();
                 let dryocsecretbox =
-                    DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &secret_key);
+                    DryocSecretBox::encrypt_to_vecbox(&message, &nonce, &secret_key)
+                        .expect("encrypt failed");
 
                 let ciphertext = dryocsecretbox.clone().into_vec();
                 assert_eq!(&ciphertext, &dryocsecretbox.to_vec());
@@ -720,7 +800,8 @@ mod tests {
                 let message = words.join(" :D ");
                 let message_copy = message.clone();
                 let dryocsecretbox: protected::LockedBox =
-                    DryocSecretBox::encrypt(message.as_bytes(), &nonce, &secret_key);
+                    DryocSecretBox::encrypt(message.as_bytes(), &nonce, &secret_key)
+                        .expect("encrypt failed");
 
                 let ciphertext = dryocsecretbox.to_vec();
 

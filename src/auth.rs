@@ -21,12 +21,11 @@
 //! // Generate a random key
 //! let key = Key::generate();
 //!
-//! // Compute the MAC in one shot. This API takes ownership of the key, so clone
-//! // it when the same key is also needed for verification.
-//! let mac: Mac = Auth::compute(key.clone(), b"Data to authenticate");
+//! // Compute the MAC in one shot
+//! let mac: Mac = Auth::compute(&key, b"Data to authenticate");
 //!
 //! // Verify the MAC
-//! Auth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+//! Auth::compute_and_verify(&mac, &key, b"Data to authenticate").expect("verify failed");
 //! ```
 //!
 //! # Rustaceous API example, incremental interface
@@ -39,19 +38,19 @@
 //! let key = Key::generate();
 //!
 //! // Initialize the MAC
-//! let mut mac = Auth::new(key.clone());
+//! let mut mac = Auth::new(&key);
 //! mac.update(b"Multi-part");
 //! mac.update(b"data");
 //! let mac: Mac = mac.finalize();
 //!
 //! // Verify the MAC
-//! let mut verify_mac = Auth::new(key.clone());
+//! let mut verify_mac = Auth::new(&key);
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"data");
 //! verify_mac.verify(&mac).expect("verify failed");
 //!
 //! // Check that invalid data fails
-//! let mut verify_mac = Auth::new(key);
+//! let mut verify_mac = Auth::new(&key);
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"bad data");
 //! verify_mac
@@ -96,8 +95,8 @@ pub mod protected {
     //! let key = Key::generate_readonly_locked().expect("generate failed");
     //! let input =
     //!     HeapBytes::from_slice_into_readonly_locked(b"super secret input").expect("input failed");
-    //! // Compute the message authentication code. This takes ownership of the key.
-    //! let mac: Locked<Mac> = Auth::compute(key, &input);
+    //! // Compute the message authentication code
+    //! let mac: Locked<Mac> = Auth::compute(&key, &input);
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -118,15 +117,12 @@ pub struct Auth {
 
 impl Auth {
     /// Computes the message authentication code for `input` using `key`.
-    ///
-    /// This function takes ownership of `key`, but HMAC keys may be reused for
-    /// multiple messages. Clone the key first when it is needed again.
     pub fn compute<
         Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
-        Input: Bytes,
+        Input: Bytes + ?Sized,
         Output: NewByteArray<CRYPTO_AUTH_BYTES>,
     >(
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Output {
         let mut output = Output::new_byte_array();
@@ -138,8 +134,8 @@ impl Auth {
     ///
     /// This is a convenience wrapper around [`Auth::compute`].
     #[cfg(feature = "alloc")]
-    pub fn compute_to_vec<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>, Input: Bytes>(
-        key: Key,
+    pub fn compute_to_vec<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>, Input: Bytes + ?Sized>(
+        key: &Key,
         input: &Input,
     ) -> Vec<u8> {
         Self::compute::<_, _, Mac>(key, input).to_vec()
@@ -154,27 +150,24 @@ impl Auth {
     pub fn compute_and_verify<
         OtherMac: ByteArray<CRYPTO_AUTH_BYTES>,
         Key: ByteArray<CRYPTO_AUTH_KEYBYTES>,
-        Input: Bytes,
+        Input: Bytes + ?Sized,
     >(
         other_mac: &OtherMac,
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Result<(), Error> {
         crypto_auth_verify(other_mac.as_array(), input.as_slice(), key.as_array())
     }
 
     /// Returns a new incremental authenticator for `key`.
-    ///
-    /// This function takes ownership of `key`, but HMAC keys may be reused for
-    /// multiple messages. Clone the key first when it is needed again.
-    pub fn new<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>>(key: Key) -> Self {
+    pub fn new<Key: ByteArray<CRYPTO_AUTH_KEYBYTES>>(key: &Key) -> Self {
         Self {
             state: crypto_auth_init(key.as_array()),
         }
     }
 
     /// Updates the secret-key authenticator at `self` with `input`.
-    pub fn update<Input: Bytes>(&mut self, input: &Input) {
+    pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
         crypto_auth_update(&mut self.state, input.as_slice())
     }
 
@@ -230,19 +223,19 @@ mod tests {
         for case in CASES {
             let (key, message, expected) = (padded_key(case.key), case.data, case.sha512256());
 
-            assert_eq!(Auth::compute_to_vec(key.clone(), &message), expected);
-            let fixed: Mac = Auth::compute(key.clone(), &message);
+            assert_eq!(Auth::compute_to_vec(&key, &message), expected);
+            let fixed: Mac = Auth::compute(&key, &message);
             assert_eq!(fixed.as_slice(), expected.as_slice());
-            Auth::compute_and_verify(&fixed, key.clone(), &message).expect("verify failed");
+            Auth::compute_and_verify(&fixed, &key, &message).expect("verify failed");
 
             let split = message.len() / 2;
-            let mut auth = Auth::new(key.clone());
-            auth.update(&&message[..split]);
-            auth.update(&&[][..]);
-            auth.update(&&message[split..]);
+            let mut auth = Auth::new(&key);
+            auth.update(&message[..split]);
+            auth.update(&[][..]);
+            auth.update(&message[split..]);
             assert_eq!(auth.finalize_to_vec(), expected);
 
-            let mut verifier = Auth::new(key.clone());
+            let mut verifier = Auth::new(&key);
             verifier.update(&message);
             verifier.verify(&fixed).expect("incremental verify failed");
 
@@ -250,10 +243,10 @@ mod tests {
                 let mut flipped = fixed.clone();
                 flipped[index] ^= 1;
                 assert!(matches!(
-                    Auth::compute_and_verify(&flipped, key.clone(), &message),
+                    Auth::compute_and_verify(&flipped, &key, &message),
                     Err(Error::AuthenticationFailed)
                 ));
-                let mut verifier = Auth::new(key.clone());
+                let mut verifier = Auth::new(&key);
                 verifier.update(&message);
                 assert!(matches!(
                     verifier.verify(&flipped),
@@ -264,11 +257,11 @@ mod tests {
             let mut wrong_key = key.clone();
             wrong_key[CRYPTO_AUTH_KEYBYTES - 1] ^= 1;
             assert!(matches!(
-                Auth::compute_and_verify(&fixed, wrong_key, &message),
+                Auth::compute_and_verify(&fixed, &wrong_key, &message),
                 Err(Error::AuthenticationFailed)
             ));
-            let mut verifier = Auth::new(key);
-            verifier.update(&&message[..message.len() - 1]);
+            let mut verifier = Auth::new(&key);
+            verifier.update(&message[..message.len() - 1]);
             assert!(matches!(
                 verifier.verify(&fixed),
                 Err(Error::AuthenticationFailed)
@@ -280,7 +273,7 @@ mod tests {
     fn rustaceous_and_classic_macs_verify_each_other() {
         for case in CASES {
             let (key, message) = (padded_key(case.key), case.data);
-            let mac = Auth::compute_to_vec(key.clone(), &message);
+            let mac = Auth::compute_to_vec(&key, &message);
             crypto_auth_verify(
                 mac.as_slice().try_into().expect("MAC length"),
                 message,
@@ -290,8 +283,8 @@ mod tests {
 
             let mut classic = [0u8; CRYPTO_AUTH_BYTES];
             crypto_auth(&mut classic, message, key.as_array());
-            Auth::compute_and_verify(&classic, key.clone(), &message).expect("rustaceous verify");
-            let mut verifier = Auth::new(key);
+            Auth::compute_and_verify(&classic, &key, &message).expect("rustaceous verify");
+            let mut verifier = Auth::new(&key);
             verifier.update(&message);
             verifier.verify(&classic).expect("incremental verify");
         }
@@ -304,16 +297,14 @@ mod tests {
 
         for case in CASES {
             let (key, message, expected) = (case.key, case.data, case.sha512256());
-            let lock_key = || {
-                protected::Key::from_slice_into_readonly_locked(padded_key(key).as_slice())
-                    .expect("lock key")
-            };
+            let key = protected::Key::from_slice_into_readonly_locked(padded_key(key).as_slice())
+                .expect("lock key");
             let input = HeapBytes::from_slice_into_readonly_locked(message).expect("lock input");
 
-            let mac: Locked<protected::Mac> = Auth::compute(lock_key(), &input);
+            let mac: Locked<protected::Mac> = Auth::compute(&key, &input);
             assert_eq!(mac.as_slice(), expected.as_slice());
-            Auth::compute_and_verify(&mac, lock_key(), &input).expect("verify failed");
-            let mut verifier = Auth::new(lock_key());
+            Auth::compute_and_verify(&mac, &key, &input).expect("verify failed");
+            let mut verifier = Auth::new(&key);
             verifier.update(&input);
             verifier.verify(&mac).expect("incremental verify failed");
         }
@@ -327,8 +318,8 @@ mod tests {
         for case in CASES {
             let (key, message) = (padded_key(case.key), case.data);
             let so_tag = auth_hmacsha512256(message, key.as_slice());
-            assert_eq!(Auth::compute_to_vec(key.clone(), &message), so_tag);
-            Auth::compute_and_verify(&so_tag, key, &message).expect("verify sodium tag");
+            assert_eq!(Auth::compute_to_vec(&key, &message), so_tag);
+            Auth::compute_and_verify(&so_tag, &key, &message).expect("verify sodium tag");
         }
     }
 }

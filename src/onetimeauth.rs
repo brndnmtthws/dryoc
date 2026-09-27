@@ -21,11 +21,11 @@
 //! // Generate a random key
 //! let key = Key::generate();
 //!
-//! // Compute the MAC. Keep a copy only to verify this same message.
-//! let mac: Mac = OnetimeAuth::compute(key.clone(), b"Data to authenticate");
+//! // Compute the MAC. Use the key only for this message.
+//! let mac: Mac = OnetimeAuth::compute(&key, b"Data to authenticate");
 //!
 //! // Verify the MAC
-//! OnetimeAuth::compute_and_verify(&mac, key, b"Data to authenticate").expect("verify failed");
+//! OnetimeAuth::compute_and_verify(&mac, &key, b"Data to authenticate").expect("verify failed");
 //! ```
 //!
 //! # Rustaceous API example, incremental interface
@@ -37,14 +37,14 @@
 //! // Generate a random key
 //! let key = Key::generate();
 //!
-//! // Initialize the MAC. Keep a copy only to verify this same message.
-//! let mut mac = OnetimeAuth::new(key.clone());
+//! // Initialize the MAC. Use the key only for this message.
+//! let mut mac = OnetimeAuth::new(&key);
 //! mac.update(b"Multi-part");
 //! mac.update(b"data");
 //! let mac: Mac = mac.finalize();
 //!
 //! // Verify the MAC for the same message
-//! let mut verify_mac = OnetimeAuth::new(key.clone());
+//! let mut verify_mac = OnetimeAuth::new(&key);
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"data");
 //! verify_mac.verify(&mac).expect("verify failed");
@@ -52,7 +52,7 @@
 //! // Check that a modified MAC fails for the same message
 //! let mut modified_mac = mac.clone();
 //! modified_mac[0] ^= 1;
-//! let mut verify_mac = OnetimeAuth::new(key);
+//! let mut verify_mac = OnetimeAuth::new(&key);
 //! verify_mac.update(b"Multi-part");
 //! verify_mac.update(b"data");
 //! verify_mac
@@ -97,8 +97,8 @@ pub mod protected {
     //! let key = Key::generate_readonly_locked().expect("generate failed");
     //! let input =
     //!     HeapBytes::from_slice_into_readonly_locked(b"super secret input").expect("input failed");
-    //! // Compute the message authentication code, consuming the key.
-    //! let mac: Locked<Mac> = OnetimeAuth::compute(key, &input);
+    //! // Compute the message authentication code
+    //! let mac: Locked<Mac> = OnetimeAuth::compute(&key, &input);
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -124,10 +124,10 @@ impl OnetimeAuth {
     /// retained to verify the authentication code for this same message.
     pub fn compute<
         Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>,
-        Input: Bytes,
+        Input: Bytes + ?Sized,
         Output: NewByteArray<CRYPTO_ONETIMEAUTH_BYTES>,
     >(
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Output {
         let mut output = Output::new_byte_array();
@@ -139,8 +139,8 @@ impl OnetimeAuth {
     ///
     /// This is a convenience wrapper around [`OnetimeAuth::compute`].
     #[cfg(feature = "alloc")]
-    pub fn compute_to_vec<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>, Input: Bytes>(
-        key: Key,
+    pub fn compute_to_vec<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>, Input: Bytes + ?Sized>(
+        key: &Key,
         input: &Input,
     ) -> Vec<u8> {
         Self::compute::<_, _, Mac>(key, input).to_vec()
@@ -155,10 +155,10 @@ impl OnetimeAuth {
     pub fn compute_and_verify<
         OtherMac: ByteArray<CRYPTO_ONETIMEAUTH_BYTES>,
         Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>,
-        Input: Bytes,
+        Input: Bytes + ?Sized,
     >(
         other_mac: &OtherMac,
-        key: Key,
+        key: &Key,
         input: &Input,
     ) -> Result<(), Error> {
         crypto_onetimeauth_verify(other_mac.as_array(), input.as_slice(), key.as_array())
@@ -168,14 +168,14 @@ impl OnetimeAuth {
     ///
     /// The key must not be used to authenticate any other message. It may be
     /// retained to verify the authentication code for this same message.
-    pub fn new<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>>(key: Key) -> Self {
+    pub fn new<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>>(key: &Key) -> Self {
         Self {
             state: crypto_onetimeauth_init(key.as_array()),
         }
     }
 
     /// Updates the one-time authenticator at `self` with `input`.
-    pub fn update<Input: Bytes>(&mut self, input: &Input) {
+    pub fn update<Input: Bytes + ?Sized>(&mut self, input: &Input) {
         crypto_onetimeauth_update(&mut self.state, input.as_slice())
     }
 
@@ -232,10 +232,10 @@ mod tests {
     fn rfc8439_vector_through_single_and_multi_part_interfaces() {
         let (key, expected) = vector();
 
-        assert_eq!(OnetimeAuth::compute_to_vec(key.clone(), &MESSAGE), expected);
-        let fixed: Mac = OnetimeAuth::compute(key.clone(), &MESSAGE);
+        assert_eq!(OnetimeAuth::compute_to_vec(&key, &MESSAGE), expected);
+        let fixed: Mac = OnetimeAuth::compute(&key, &MESSAGE);
         assert_eq!(fixed.as_slice(), expected.as_slice());
-        OnetimeAuth::compute_and_verify(&fixed, key.clone(), &MESSAGE).expect("verify failed");
+        OnetimeAuth::compute_and_verify(&fixed, &key, &MESSAGE).expect("verify failed");
 
         // Splits at and around the 16-byte Poly1305 block boundary, plus empty
         // chunks, must all reproduce the one-shot tag.
@@ -252,13 +252,13 @@ mod tests {
                 &[][..],
             ],
         ] {
-            let mut auth = OnetimeAuth::new(key.clone());
+            let mut auth = OnetimeAuth::new(&key);
             for part in &parts {
                 auth.update(part);
             }
             assert_eq!(auth.finalize_to_vec(), expected);
 
-            let mut verifier = OnetimeAuth::new(key.clone());
+            let mut verifier = OnetimeAuth::new(&key);
             for part in &parts {
                 verifier.update(part);
             }
@@ -269,10 +269,10 @@ mod tests {
             let mut flipped = fixed.clone();
             flipped[index] ^= 1;
             assert!(matches!(
-                OnetimeAuth::compute_and_verify(&flipped, key.clone(), &MESSAGE),
+                OnetimeAuth::compute_and_verify(&flipped, &key, &MESSAGE),
                 Err(Error::AuthenticationFailed)
             ));
-            let mut verifier = OnetimeAuth::new(key.clone());
+            let mut verifier = OnetimeAuth::new(&key);
             verifier.update(&MESSAGE);
             assert!(matches!(
                 verifier.verify(&flipped),
@@ -283,11 +283,11 @@ mod tests {
         let mut wrong_key = key.clone();
         wrong_key[CRYPTO_ONETIMEAUTH_KEYBYTES - 1] ^= 1;
         assert!(matches!(
-            OnetimeAuth::compute_and_verify(&fixed, wrong_key, &MESSAGE),
+            OnetimeAuth::compute_and_verify(&fixed, &wrong_key, &MESSAGE),
             Err(Error::AuthenticationFailed)
         ));
-        let mut verifier = OnetimeAuth::new(key);
-        verifier.update(&&MESSAGE[..MESSAGE.len() - 1]);
+        let mut verifier = OnetimeAuth::new(&key);
+        verifier.update(&MESSAGE[..MESSAGE.len() - 1]);
         assert!(matches!(
             verifier.verify(&fixed),
             Err(Error::AuthenticationFailed)
@@ -299,7 +299,7 @@ mod tests {
         let (key, _) = vector();
         for len in [0, 1, 15, 16, 17, 31, 32, MESSAGE.len()] {
             let message = &MESSAGE[..len];
-            let mac = OnetimeAuth::compute_to_vec(key.clone(), &message);
+            let mac = OnetimeAuth::compute_to_vec(&key, &message);
             crypto_onetimeauth_verify(
                 mac.as_slice().try_into().expect("MAC length"),
                 message,
@@ -309,9 +309,8 @@ mod tests {
 
             let mut classic = [0u8; CRYPTO_ONETIMEAUTH_BYTES];
             crypto_onetimeauth(&mut classic, message, key.as_array());
-            OnetimeAuth::compute_and_verify(&classic, key.clone(), &message)
-                .expect("rustaceous verify");
-            let mut verifier = OnetimeAuth::new(key.clone());
+            OnetimeAuth::compute_and_verify(&classic, &key, &message).expect("rustaceous verify");
+            let mut verifier = OnetimeAuth::new(&key);
             verifier.update(&message);
             verifier.verify(&classic).expect("incremental verify");
         }
@@ -323,14 +322,14 @@ mod tests {
         use crate::onetimeauth::protected::*;
 
         let (key, expected) = vector();
-        let lock_key =
-            || protected::Key::from_slice_into_readonly_locked(key.as_slice()).expect("lock key");
+        let key =
+            protected::Key::from_slice_into_readonly_locked(key.as_slice()).expect("lock key");
         let input = HeapBytes::from_slice_into_readonly_locked(MESSAGE).expect("lock input");
 
-        let mac: Locked<protected::Mac> = OnetimeAuth::compute(lock_key(), &input);
+        let mac: Locked<protected::Mac> = OnetimeAuth::compute(&key, &input);
         assert_eq!(mac.as_slice(), expected.as_slice());
-        OnetimeAuth::compute_and_verify(&mac, lock_key(), &input).expect("verify failed");
-        let mut verifier = OnetimeAuth::new(lock_key());
+        OnetimeAuth::compute_and_verify(&mac, &key, &input).expect("verify failed");
+        let mut verifier = OnetimeAuth::new(&key);
         verifier.update(&input);
         verifier.verify(&mac).expect("incremental verify failed");
     }
@@ -343,6 +342,6 @@ mod tests {
         let (key, expected) = vector();
         let so_tag = onetimeauth_poly1305(MESSAGE, key.as_slice());
         assert_eq!(so_tag.as_slice(), expected.as_slice());
-        OnetimeAuth::compute_and_verify(&so_tag, key, &MESSAGE).expect("verify sodium tag");
+        OnetimeAuth::compute_and_verify(&so_tag, &key, &MESSAGE).expect("verify sodium tag");
     }
 }

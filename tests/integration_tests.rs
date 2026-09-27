@@ -721,23 +721,23 @@ fn test_rustaceous_hmac_and_hkdf_public_api() {
     let message = b"public API message";
 
     let key256 = HmacSha256Key::generate();
-    let mac256: HmacSha256Mac = HmacSha256::compute(key256.clone(), message);
-    HmacSha256::compute_and_verify(&mac256, key256, message).expect("verify failed");
+    let mac256: HmacSha256Mac = HmacSha256::compute(&key256, message);
+    HmacSha256::compute_and_verify(&mac256, &key256, message).expect("verify failed");
 
     let key512 = HmacSha512Key::generate();
-    let mut auth512 = HmacSha512::new(key512.clone());
+    let mut auth512 = HmacSha512::new(&key512);
     auth512.update(b"public API ");
     auth512.update(b"message");
     let mac512 = auth512.finalize_to_vec();
-    let mut verify512 = HmacSha512::new(key512);
+    let mut verify512 = HmacSha512::new(&key512);
     verify512.update(b"public API ");
     verify512.update(b"message");
     let mac512 = HmacSha512Mac::try_from(mac512.as_slice()).expect("MAC length");
     verify512.verify(&mac512).expect("verify failed");
 
     let key512256 = HmacSha512256Key::generate();
-    let mac512256: HmacSha512256Mac = HmacSha512256::compute(key512256.clone(), message);
-    HmacSha512256::compute_and_verify(&mac512256, key512256, b"invalid")
+    let mac512256: HmacSha512256Mac = HmacSha512256::compute(&key512256, message);
+    HmacSha512256::compute_and_verify(&mac512256, &key512256, b"invalid")
         .expect_err("verify should fail");
 
     let hkdf256 = HkdfSha256::extract(Some(b"salt"), b"input keying material");
@@ -812,12 +812,10 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
 
     let key_bytes = [7u8; 32];
     let key = HmacSha256Key::from_slice_into_readonly_locked(&key_bytes).expect("key failed");
-    let verify_key =
-        HmacSha256Key::from_slice_into_readonly_locked(&key_bytes).expect("key failed");
     let input =
         HmacHeapBytes::from_slice_into_readonly_locked(b"protected message").expect("input failed");
-    let mac: HmacLocked<HmacSha256Mac> = HmacSha256::compute(key, &input);
-    HmacSha256::compute_and_verify(&mac, verify_key, &input).expect("verify failed");
+    let mac: HmacLocked<HmacSha256Mac> = HmacSha256::compute(&key, &input);
+    HmacSha256::compute_and_verify(&mac, &key, &input).expect("verify failed");
 
     let ikm = HkdfHeapBytes::from_slice_into_readonly_locked(b"input keying material")
         .expect("ikm failed");
@@ -1027,7 +1025,8 @@ fn test_dryocsecretbox() {
     let nonce = Nonce::generate();
     let message = b"hey";
 
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
 
     let decrypted: Vec<u8> = dryocsecretbox
         .decrypt(&nonce, &secret_key)
@@ -1219,7 +1218,8 @@ fn test_dryocsecretbox_serde_json() {
     let nonce = Nonce::generate();
     let message = b"hey buddy bro";
 
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
 
     let json = serde_json::to_string(&dryocsecretbox).expect("doesn't serialize");
 
@@ -1495,7 +1495,8 @@ fn test_dryocsecretbox_wincode_wire_format() {
     .expect("classic encrypt");
 
     // Tag, then the length-prefixed ciphertext.
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
     let encoded = wincode::serialize(&dryocsecretbox).expect("doesn't serialize");
 
     let mut expected = mac.to_vec();
@@ -1520,7 +1521,8 @@ fn test_dryocsecretbox_wincode() {
     let nonce = Nonce::generate();
     let message = b"hey buddy bro";
 
-    let dryocsecretbox: VecBox = DryocSecretBox::encrypt(message, &nonce, &secret_key);
+    let dryocsecretbox: VecBox =
+        DryocSecretBox::encrypt(message, &nonce, &secret_key).expect("encrypt failed");
 
     let encoded = wincode::serialize(&dryocsecretbox).expect("doesn't serialize");
     let dryocsecretbox: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
@@ -1550,7 +1552,7 @@ fn test_dryocsecretbox_protected_to_bytes_from_parts() {
             .expect("message failed");
 
     let dryocsecretbox: protected::LockedBox =
-        DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(&message, &nonce, &secret_key).expect("encrypt failed");
 
     // `to_bytes` writes `tag || ciphertext`, the same layout `VecBox::to_vec`
     // produces for the unprotected form.
@@ -1812,7 +1814,7 @@ fn test_dryocsecretbox_protected() {
             .expect("message failed");
 
     let dryocsecretbox: protected::LockedBox =
-        DryocSecretBox::encrypt(&message, &nonce, &secret_key);
+        DryocSecretBox::encrypt(&message, &nonce, &secret_key).expect("encrypt failed");
 
     let decrypted: LockedBytes = dryocsecretbox
         .decrypt(&nonce, &secret_key)

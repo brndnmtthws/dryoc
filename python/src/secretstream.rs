@@ -157,10 +157,8 @@ impl Encryptor {
         let stream = state.stream()?;
         let message = message.as_slice();
         let aad = opt_slice(&associated_data);
-        let ciphertext = maybe_detach(py, message.len(), || {
-            stream.push_to_vec(&message, aad.as_ref(), tag)
-        })
-        .or_raise()?;
+        let ciphertext =
+            maybe_detach(py, message.len(), || stream.push_to_vec(message, aad, tag)).or_raise()?;
         if tag == Tag::FINAL {
             state.finished = true;
         }
@@ -265,7 +263,7 @@ impl Decryptor {
         let aad = opt_slice(&associated_data);
         let (message, tag) = maybe_detach(py, ciphertext.len(), || {
             stream
-                .pull_to_vec(&ciphertext, aad.as_ref())
+                .pull_to_vec(ciphertext, aad)
                 .map(|(message, tag)| (Zeroizing::new(message), tag))
         })
         .or_raise()?;

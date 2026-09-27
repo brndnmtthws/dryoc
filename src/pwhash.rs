@@ -375,7 +375,10 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// Returns an error if a work limit, memory limit, hash length, or password
     /// length is outside the supported range, or if the
     /// underlying Argon2 operation fails.
-    pub fn hash<Password: Bytes>(password: &Password, config: Config) -> Result<Self, Error> {
+    pub fn hash<Password: Bytes + ?Sized>(
+        password: &Password,
+        config: Config,
+    ) -> Result<Self, Error> {
         validate_direct_config(
             &config,
             config.hash_length,
@@ -408,7 +411,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// # Errors
     ///
     /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_interactive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+    pub fn hash_interactive<Password: Bytes + ?Sized>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::interactive())
     }
 
@@ -419,7 +422,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// # Errors
     ///
     /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_moderate<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+    pub fn hash_moderate<Password: Bytes + ?Sized>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::moderate())
     }
 
@@ -430,7 +433,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
     /// # Errors
     ///
     /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_sensitive<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+    pub fn hash_sensitive<Password: Bytes + ?Sized>(password: &Password) -> Result<Self, Error> {
         Self::hash(password, Config::sensitive())
     }
 }
@@ -447,7 +450,7 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Ha
     /// Returns an error if a work limit, memory limit, hash length, salt
     /// length, or password length is outside the supported range, or if the
     /// underlying Argon2 operation fails.
-    pub fn hash_with_salt<Password: Bytes>(
+    pub fn hash_with_salt<Password: Bytes + ?Sized>(
         password: &Password,
         salt: Salt,
         config: Config,
@@ -612,7 +615,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     ///
     /// Returns an error if the password does not match, if the stored salt or
     /// configuration is invalid, or if the underlying Argon2 operation fails.
-    pub fn verify<Password: Bytes>(&self, password: &Password) -> Result<(), Error> {
+    pub fn verify<Password: Bytes + ?Sized>(&self, password: &Password) -> Result<(), Error> {
         let (t_cost, m_cost) =
             crypto_pwhash::convert_costs_checked(self.config.opslimit, self.config.memlimit)?;
         crypto_pwhash::verify_pwhash_parts(
@@ -666,7 +669,7 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// length is outside the supported range, or if the underlying Argon2
     /// operation fails.
     pub fn derive_keypair<
-        Password: Bytes + Zeroize,
+        Password: Bytes + Zeroize + ?Sized,
         PublicKey: NewByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         SecretKey: NewByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
     >(
@@ -706,7 +709,9 @@ impl PwHash<Hash, Salt> {
     ///
     /// Returns an error if the password length is unsupported or the
     /// underlying Argon2 operation fails.
-    pub fn hash_with_defaults<Password: Bytes>(password: &Password) -> Result<Self, Error> {
+    pub fn hash_with_defaults<Password: Bytes + ?Sized>(
+        password: &Password,
+    ) -> Result<Self, Error> {
         Self::hash_interactive(password)
     }
 
