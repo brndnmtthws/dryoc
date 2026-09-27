@@ -83,11 +83,8 @@ macro_rules! kem_api {
         /// Stack-allocated key pair.
         pub type StackKeyPair = KeyPair<PublicKey, SecretKey>;
 
-        #[cfg_attr(
-            feature = "serde",
-            derive(Zeroize, ZeroizeOnDrop, Serialize, Deserialize, Clone)
-        )]
-        #[cfg_attr(not(feature = "serde"), derive(Zeroize, ZeroizeOnDrop, Clone))]
+        #[derive(Zeroize, ZeroizeOnDrop, Clone)]
+        #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
         #[doc = concat!("An ", $algo, " key pair.")]
         pub struct KeyPair<
             PublicKey: ByteArray<{ $pk_bytes }> + Zeroize,

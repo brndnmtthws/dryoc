@@ -134,11 +134,8 @@ pub type Salt = Vec<u8>;
 /// Hashes must contain at least [`CRYPTO_PWHASH_BYTES_MIN`] bytes.
 pub type Hash = Vec<u8>;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[derive(Zeroize, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Password hash configuration parameters.
 ///
 /// [`Config::interactive`] is the default and is suitable for online
@@ -291,8 +288,8 @@ fn argon2_into(
     )
 }
 
-#[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
+#[derive(Zeroize, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Password hash implementation based on Argon2, compatible with libsodium's
 /// `crypto_pwhash_*` functions.
 ///

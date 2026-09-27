@@ -51,8 +51,8 @@ pub type Key = StackByteArray<CRYPTO_KDF_KEYBYTES>;
 /// Stack-allocated context type alias for key derivation with [`Kdf`].
 pub type Context = StackByteArray<CRYPTO_KDF_CONTEXTBYTES>;
 
-#[cfg_attr(feature = "serde", derive(Zeroize, Clone, Serialize, Deserialize))]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone))]
+#[derive(Zeroize, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// Key derivation implementation based on Blake2b, compatible with libsodium's
 /// `crypto_kdf_*` functions.
 ///

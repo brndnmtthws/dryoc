@@ -86,11 +86,8 @@ pub type HkdfSha256 = Hkdf<HkdfSha256Variant, HkdfSha256Prk, CRYPTO_KDF_HKDF_SHA
 /// Stack-allocated HKDF-SHA-512 expander.
 pub type HkdfSha512 = Hkdf<HkdfSha512Variant, HkdfSha512Prk, CRYPTO_KDF_HKDF_SHA512_KEYBYTES>;
 
-#[cfg_attr(
-    feature = "serde",
-    derive(Zeroize, Clone, Debug, Serialize, Deserialize)
-)]
-#[cfg_attr(not(feature = "serde"), derive(Zeroize, Clone, Debug))]
+#[derive(Zeroize, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 /// HKDF expander for a specific [`HkdfVariant`].
 pub struct Hkdf<Variant, Prk, const PRK_LENGTH: usize>
 where
