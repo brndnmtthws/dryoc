@@ -22,10 +22,14 @@
 //! branches depend on the input length.
 //!
 //! Wiping: the key powers, multipliers, accumulators and products only flow
-//! through inlined helpers, so they live in the engine's registers or spill
-//! slots (the kernel uses no linear-memory stack frame), which are out of
-//! Rust's reach and not wiped; a wipe would only force them into linear
-//! memory. `h` is the caller's state, which the driver wipes.
+//! through inlined helpers, so they are not wiped: they live wherever the
+//! compiler puts them, which Rust cannot reliably wipe, and a wipe would only
+//! force them into linear memory. The kernel is inlined into the soft
+//! backend's `Poly1305::update`. At opt-level 3 it keeps them in the
+//! engine's registers and spill slots; that function's only linear-memory
+//! stack frame holds a copy of the buffered message block. At opt-level `s`
+//! and `z` the frame grows, and kernel values spilled to it stay there after
+//! the call returns. `h` is the caller's state, which the driver wipes.
 
 use core::arch::wasm32::{
     i32x4_add, i32x4_shl, i32x4_shuffle, i64x2_add, i64x2_shl, u32x4, u32x4_extract_lane,
