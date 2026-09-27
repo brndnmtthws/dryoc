@@ -187,3 +187,96 @@ impl<'a> Dest<'a> {
         }
     }
 }
+
+/// Reference checks shared by the ChaCha20 and Salsa20 kernel tests.
+#[cfg(test)]
+pub(crate) mod test_util {
+    #[cfg(any(
+        dryoc_stream_kernel,
+        all(feature = "simd_backend", feature = "nightly")
+    ))]
+    use crate::test_prelude::*;
+
+    /// A scalar block function: writes keystream block `counter` of `state`.
+    pub(crate) type BlockFn = fn(&[u32; 16], u64, &mut [u8; 64]);
+
+    /// XORs the keystream for blocks `counter..` (wrapping), computed one
+    /// block at a time with `block`, into `data`.
+    pub(crate) fn xor_scalar_blocks(
+        block: BlockFn,
+        state: &[u32; 16],
+        counter: u64,
+        data: &mut [u8],
+    ) {
+        let mut keystream = [0u8; 64];
+        for (i, chunk) in data.chunks_mut(64).enumerate() {
+            block(state, counter.wrapping_add(i as u64), &mut keystream);
+            for (byte, ks) in chunk.iter_mut().zip(keystream) {
+                *byte ^= ks;
+            }
+        }
+    }
+
+    /// Checks one kernel run against the scalar block function `block`, at
+    /// counters whose lanes straddle the 32-bit boundary (the carry into the
+    /// high counter word), in place and buffer to buffer, then clipped to
+    /// every whole block count with the next block's raw keystream delivered
+    /// through the zero-filled partial slot.
+    ///
+    /// `xor_chunk(counter, input, output, partial)` is the kernel's
+    /// `xor_chunk` over `state`, producing `blocks` blocks per run; `kernel`
+    /// names it in failure messages.
+    #[cfg(any(
+        dryoc_stream_kernel,
+        all(feature = "simd_backend", feature = "nightly")
+    ))]
+    pub(crate) fn check_kernel_chunk(
+        kernel: &dyn core::fmt::Debug,
+        blocks: usize,
+        state: &[u32; 16],
+        block: BlockFn,
+        xor_chunk: impl Fn(u64, Option<&[u8]>, &mut [u8], Option<&mut [u8; 64]>),
+    ) {
+        let counters = [
+            0u64,
+            1,
+            5,
+            u32::MAX as u64 - 3,
+            u32::MAX as u64 - 1,
+            u32::MAX as u64,
+            1 << 40,
+        ];
+        let chunk = blocks * 64;
+        let plaintext: Vec<u8> = (0..chunk as u32).map(|i| (i * 7 % 251) as u8).collect();
+        for counter in counters {
+            let mut expected = plaintext.clone();
+            xor_scalar_blocks(block, state, counter, &mut expected);
+
+            let mut in_place = plaintext.clone();
+            xor_chunk(counter, None, &mut in_place, None);
+            assert_eq!(in_place, expected, "{kernel:?} in place, counter {counter}");
+
+            let mut b2b = vec![0u8; chunk];
+            xor_chunk(counter, Some(&plaintext), &mut b2b, None);
+            assert_eq!(b2b, expected, "{kernel:?} b2b, counter {counter}");
+
+            for whole in 0..blocks {
+                let len = whole * 64;
+                let mut clipped = plaintext[..len].to_vec();
+                let mut partial = [0u8; 64];
+                xor_chunk(counter, None, &mut clipped, Some(&mut partial));
+                assert_eq!(
+                    clipped,
+                    expected[..len],
+                    "{kernel:?} clipped to {whole}, counter {counter}"
+                );
+                let mut keystream = [0u8; 64];
+                block(state, counter + whole as u64, &mut keystream);
+                assert_eq!(
+                    partial, keystream,
+                    "{kernel:?} partial after {whole}, counter {counter}"
+                );
+            }
+        }
+    }
+}

@@ -541,7 +541,6 @@ fn xor_chunk_avx512_with_block(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_prelude::*;
 
     /// The register-scheduled scalar double round equals the portable one
     /// for random states.
@@ -562,74 +561,30 @@ mod tests {
         }
     }
 
-    /// The fused AVX-512 run equals the AVX-512 run for its lanes (whole
-    /// blocks and partial slot) plus the scalar block for the unrelated
-    /// extra counter, in place and buffer to buffer, for full and short lane
-    /// sets and extra blocks before and after them.
+    /// The fused AVX-512 run equals the AVX-512 run for its lanes plus the
+    /// scalar block for the unrelated extra counter.
     #[test]
     fn test_avx512_with_block_matches_run_and_scalar_block() {
         let Some(avx512) = Avx512::new() else {
             return;
         };
-        let mut state = [0u32; 16];
-        for (i, word) in state.iter_mut().enumerate() {
-            *word = 0x0101_0101u32.wrapping_mul(i as u32 + 3);
-        }
-        let plaintext: Vec<u8> = (0..LANES512 * 64).map(|i| (i * 13 % 251) as u8).collect();
-        for counter in [1u64, 5, u64::from(u32::MAX) - 8, u64::from(u32::MAX) - 16] {
-            for whole in [LANES512, LANES512 - 1, 3, 0] {
-                for extra_counter in [counter - 1, counter + LANES512 as u64] {
-                    let len = whole * 64;
-                    let has_partial = whole < LANES512;
-                    let mut expected = plaintext[..len].to_vec();
-                    let mut expected_partial = [0u8; 64];
-                    let mut expected_extra = [0u8; 64];
-                    xor_chunk_avx512(
-                        avx512,
-                        &state,
-                        counter,
-                        None,
-                        &mut expected,
-                        has_partial.then_some(&mut expected_partial),
-                    );
-                    super::super::salsa20_soft::block(&state, extra_counter, &mut expected_extra);
-
-                    let mut in_place = plaintext[..len].to_vec();
-                    let mut partial = [0u8; 64];
-                    let mut extra = [0u8; 64];
-                    xor_chunk_avx512_with_block(
-                        avx512,
-                        &state,
-                        counter,
-                        None,
-                        &mut in_place,
-                        has_partial.then_some(&mut partial),
-                        extra_counter,
-                        &mut extra,
-                    );
-                    let what = format!("counter {counter}, whole {whole}, extra {extra_counter}");
-                    assert_eq!(in_place, expected, "in place, {what}");
-                    assert_eq!(partial, expected_partial, "partial, {what}");
-                    assert_eq!(extra, expected_extra, "extra, {what}");
-
-                    let mut b2b = vec![0u8; len];
-                    let mut extra = [0xa5u8; 64];
-                    xor_chunk_avx512_with_block(
-                        avx512,
-                        &state,
-                        counter,
-                        Some(&plaintext[..len]),
-                        &mut b2b,
-                        None,
-                        extra_counter,
-                        &mut extra,
-                    );
-                    assert_eq!(b2b, expected, "b2b, {what}");
-                    for (byte, ks) in extra.iter().zip(expected_extra) {
-                        assert_eq!(*byte, 0xa5 ^ ks, "extra XOR, {what}");
-                    }
-                }
-            }
-        }
+        crate::x86_64::test_util::check_avx512_with_block(
+            super::super::salsa20_soft::block,
+            |state, counter, input, output, partial| {
+                xor_chunk_avx512(avx512, state, counter, input, output, partial)
+            },
+            |state, counter, input, output, partial, extra_counter, extra| {
+                xor_chunk_avx512_with_block(
+                    avx512,
+                    state,
+                    counter,
+                    input,
+                    output,
+                    partial,
+                    extra_counter,
+                    extra,
+                )
+            },
+        );
     }
 }

@@ -589,13 +589,13 @@ mod tests {
     /// Keystream for blocks `start..` (wrapping) of `len` bytes computed one
     /// block at a time with the scalar block function only.
     fn scalar_keystream_from(state: &[u32; 16], start: u64, len: usize) -> Vec<u8> {
-        let mut keystream = Vec::with_capacity(len.next_multiple_of(64));
-        let mut block = [0u8; 64];
-        for i in 0..len.div_ceil(64) as u64 {
-            salsa20_soft::block(state, start.wrapping_add(i), &mut block);
-            keystream.extend_from_slice(&block);
-        }
-        keystream.truncate(len);
+        let mut keystream = vec![0u8; len];
+        crate::stream::test_util::xor_scalar_blocks(
+            salsa20_soft::block,
+            state,
+            start,
+            &mut keystream,
+        );
         keystream
     }
 
@@ -759,68 +759,20 @@ mod tests {
             }};
         }
 
-        /// One chunk of a kernel against the scalar block function, at
-        /// counters whose lanes straddle the 32-bit boundary (the carry into
-        /// word 9), in place and buffer to buffer, clipped to every whole
-        /// block count with the partial slot filled.
+        /// One chunk of a kernel against the scalar block function; the
+        /// counters straddling the 32-bit boundary check the carry into
+        /// word 9.
         fn check_kernel_chunk<K: Kernel>(kernel: K) {
             let cipher = XSalsa20::new(&[0x11u8; 32], &[0x22u8; 24]);
-            let counters = [
-                0u64,
-                1,
-                5,
-                u32::MAX as u64 - 3,
-                u32::MAX as u64 - 1,
-                u32::MAX as u64,
-                1 << 40,
-            ];
-            for counter in counters {
-                let plaintext: Vec<u8> = (0..kernel.chunk() as u32)
-                    .map(|i| (i * 7 % 251) as u8)
-                    .collect();
-                let mut expected = plaintext.clone();
-                let mut block = [0u8; 64];
-                for (i, chunk) in expected.as_chunks_mut::<64>().0.iter_mut().enumerate() {
-                    salsa20_soft::block(&cipher.state, counter + i as u64, &mut block);
-                    for (byte, ks) in chunk.iter_mut().zip(block) {
-                        *byte ^= ks;
-                    }
-                }
-
-                let mut in_place = plaintext.clone();
-                kernel.xor_chunk(&cipher.state, counter, None, &mut in_place, None);
-                assert_eq!(in_place, expected, "{kernel:?} in place, counter {counter}");
-
-                let mut b2b = vec![0u8; kernel.chunk()];
-                kernel.xor_chunk(&cipher.state, counter, Some(&plaintext), &mut b2b, None);
-                assert_eq!(b2b, expected, "{kernel:?} b2b, counter {counter}");
-
-                // Clipped to `blocks` whole blocks, with the next block's raw
-                // keystream delivered through the zero-filled partial slot.
-                for blocks in 0..kernel.blocks() {
-                    let len = blocks * 64;
-                    let mut clipped = plaintext[..len].to_vec();
-                    let mut partial = [0u8; 64];
-                    kernel.xor_chunk(
-                        &cipher.state,
-                        counter,
-                        None,
-                        &mut clipped,
-                        Some(&mut partial),
-                    );
-                    assert_eq!(
-                        clipped,
-                        expected[..len],
-                        "{kernel:?} clipped to {blocks}, counter {counter}"
-                    );
-                    let mut block = [0u8; 64];
-                    salsa20_soft::block(&cipher.state, counter + blocks as u64, &mut block);
-                    assert_eq!(
-                        partial, block,
-                        "{kernel:?} partial after {blocks}, counter {counter}"
-                    );
-                }
-            }
+            crate::stream::test_util::check_kernel_chunk(
+                &kernel,
+                kernel.blocks(),
+                &cipher.state,
+                salsa20_soft::block,
+                |counter, input, output, partial| {
+                    kernel.xor_chunk(&cipher.state, counter, input, output, partial)
+                },
+            );
         }
 
         #[test]
