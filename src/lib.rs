@@ -38,6 +38,8 @@
 //! ### Rustaceous Quick Start
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocsecretbox::*;
 //! use dryoc::types::*;
 //!
@@ -45,12 +47,10 @@
 //! let nonce = Nonce::generate();
 //! let message = b"Hello, post-quantum world!";
 //!
-//! #[cfg(feature = "alloc")]
-//! {
-//!     let box_ = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &key).expect("encryption failed");
-//!     let decrypted = box_.decrypt_to_vec(&nonce, &key).expect("authentication failed");
-//!     assert_eq!(message, &decrypted[..]);
-//! }
+//! let box_ = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &key).expect("encryption failed");
+//! let decrypted = box_.decrypt_to_vec(&nonce, &key).expect("authentication failed");
+//! assert_eq!(message, &decrypted[..]);
+//! # }
 //! ```
 //!
 //! ## Feature & API Overview
