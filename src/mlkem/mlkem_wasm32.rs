@@ -29,10 +29,14 @@
 //! coefficients.
 //!
 //! Wiping: the coefficient vectors only flow through inlined helpers, so
-//! they live in the engine's registers or spill slots (the kernels use no
-//! linear-memory stack frame), which are out of Rust's reach and not wiped;
-//! a wipe would only force them into linear memory. Results go straight into
-//! the caller's polynomials, which the KEM operations wipe.
+//! they are not wiped: they live wherever the compiler puts them, which Rust
+//! cannot reliably wipe, and a wipe would only force them into linear
+//! memory. At opt-level 3 the kernels have no linear-memory stack frame, so
+//! they stay in the engine's registers and spill slots. At opt-level `s` and
+//! `z` the NTT and inverse NTT get a linear-memory stack frame, and
+//! coefficient vectors spilled to it stay there after the transform returns.
+//! Results go straight into the caller's polynomials, which the KEM
+//! operations wipe.
 
 use core::arch::wasm32::{
     i16x8_add, i16x8_mul, i16x8_q15mulr_sat, i16x8_shr, i16x8_shuffle, i16x8_splat, i16x8_sub,

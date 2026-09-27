@@ -10,9 +10,12 @@
 //! instead of going to the `keccak` crate.
 //!
 //! Wiping: the 25 lane vectors and the rounds' temporaries only flow through
-//! inlined helpers, so they live in the engine's registers or spill slots
-//! (`permute2` uses no linear-memory stack frame), which are out of Rust's
-//! reach and not wiped; a wipe would only force them into linear memory. The
+//! inlined helpers, so they are not wiped: they live wherever the compiler
+//! puts them, which Rust cannot reliably wipe, and a wipe would only force
+//! them into linear memory. At opt-level 3 `permute2` has no linear-memory
+//! stack frame, so they stay in the engine's registers and spill slots. At
+//! opt-level `s` and `z` it gets a linear-memory stack frame, and lane
+//! vectors spilled to it stay there after the permutation returns. The
 //! states are read from and written back to the caller's arrays, which the
 //! sponge wipes; the spare state only ever holds the permuted zero state.
 

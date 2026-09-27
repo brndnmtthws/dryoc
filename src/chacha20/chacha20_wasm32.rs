@@ -10,10 +10,13 @@
 //! flow and memory access are independent of the key and nonce; the layout
 //! depends only on the public run length.
 //!
-//! Wiping: the lane sets and block inputs only flow through
-//! inlined helpers, so they live in the engine's registers or spill slots
-//! (the kernels use no linear-memory stack frame), which are out of Rust's
-//! reach and not wiped; a wipe would only force them into linear memory. The
+//! Wiping: the lane sets and block inputs only flow through inlined
+//! helpers, so they are not wiped: they live wherever the compiler puts
+//! them, which Rust cannot reliably wipe, and a wipe would only force them
+//! into linear memory. At opt-level 3 the kernels have no linear-memory
+//! stack frame, so they stay in the engine's registers and spill slots. At
+//! opt-level `s` and `z` the kernels get a linear-memory stack frame, and
+//! lane-set values spilled to it stay there after the kernel returns. The
 //! keystream goes straight into the caller's buffers, which the drivers
 //! wipe.
 
