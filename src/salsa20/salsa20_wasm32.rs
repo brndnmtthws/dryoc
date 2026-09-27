@@ -5,10 +5,14 @@
 //! be transposed once at the end, right before being XORed into the data.
 //! Control flow and memory access are independent of the key and nonce.
 //!
-//! Wiping: the lane sets only flow through inlined helpers, so they live in
-//! the engine's registers or spill slots, which are out of Rust's reach and
-//! not wiped; a wipe would only force them into linear memory. The keystream
-//! goes straight into the caller's buffers, which the drivers wipe.
+//! Wiping: the lane sets only flow through inlined helpers, so they are not
+//! wiped: they live wherever the compiler puts them, which Rust cannot
+//! reliably wipe, and a wipe would only force them into linear memory. At
+//! opt-level 3 the kernels have no linear-memory stack frame, so they stay
+//! in the engine's registers and spill slots. At opt-level `s` and `z` the
+//! kernels get a linear-memory stack frame, and lane-set values spilled to it
+//! stay there after the kernel returns. The keystream goes straight into the
+//! caller's buffers, which the drivers wipe.
 
 use core::arch::wasm32::{i32x4_add, u32x4_shl, u32x4_shr, v128, v128_or, v128_xor};
 
