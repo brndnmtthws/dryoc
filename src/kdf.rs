@@ -10,6 +10,8 @@
 //! # Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use base64::Engine as _;
 //! use base64::engine::general_purpose;
 //! use dryoc::kdf::*;
@@ -26,6 +28,7 @@
 //!     subkey_id,
 //!     general_purpose::STANDARD.encode(&subkey)
 //! );
+//! # }
 //! ```
 //!
 //! ## Additional resources

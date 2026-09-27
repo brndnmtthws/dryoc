@@ -27,6 +27,8 @@
 //! ## Rustaceous API example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocaead::*;
 //!
 //! let key = Key::generate();
@@ -43,11 +45,14 @@
 //!     .expect("decrypt failed");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 //!
 //! ## Generated nonce envelope example
 //!
 //! ```
+//! # #[cfg(feature = "alloc")]
+//! # {
 //! use dryoc::dryocaead::*;
 //!
 //! let key = Key::generate();
@@ -61,6 +66,7 @@
 //! let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
 //!
 //! assert_eq!(message, decrypted.as_slice());
+//! # }
 //! ```
 
 #[cfg(feature = "alloc")]
@@ -181,6 +187,8 @@ pub mod xchacha20poly1305_ietf {
 /// ## Rustaceous API example
 ///
 /// ```
+/// # #[cfg(feature = "alloc")]
+/// # {
 /// use dryoc::dryocaead::chacha20poly1305_ietf::*;
 ///
 /// let key = Key::generate();
@@ -198,6 +206,7 @@ pub mod xchacha20poly1305_ietf {
 ///     .expect("decrypt failed");
 ///
 /// assert_eq!(message, decrypted.as_slice());
+/// # }
 /// ```
 pub mod chacha20poly1305_ietf {
     #[cfg(feature = "alloc")]
