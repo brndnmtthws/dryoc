@@ -45,12 +45,30 @@ FRAME_BYTES = (8 * (SPILL_WORDS + 1) + 15) // 16 * 16
 
 RHO = [0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14]
 RC = [
-    0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000,
-    0x000000000000808B, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
-    0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
-    0x000000008000808B, 0x800000000000008B, 0x8000000000008089, 0x8000000000008003,
-    0x8000000000008002, 0x8000000000000080, 0x000000000000800A, 0x800000008000000A,
-    0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+    0x0000000000000001,
+    0x0000000000008082,
+    0x800000000000808A,
+    0x8000000080008000,
+    0x000000000000808B,
+    0x0000000080000001,
+    0x8000000080008081,
+    0x8000000000008009,
+    0x000000000000008A,
+    0x0000000000000088,
+    0x0000000080008009,
+    0x000000008000000A,
+    0x000000008000808B,
+    0x800000000000008B,
+    0x8000000000008089,
+    0x8000000000008003,
+    0x8000000000008002,
+    0x8000000000000080,
+    0x000000000000800A,
+    0x800000008000000A,
+    0x8000000080008081,
+    0x8000000000008080,
+    0x0000000080000001,
+    0x8000000080008008,
 ]
 
 
@@ -76,13 +94,15 @@ for _ in range(BODY_ROUNDS):
 
 def reference(state):
     a = list(state)
-    for rc in RC[24 - ROUNDS:]:
+    for rc in RC[24 - ROUNDS :]:
         c = [a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20] for x in range(5)]
         d = [c[(x - 1) % 5] ^ rol(c[(x + 1) % 5], 1) for x in range(5)]
         b = [0] * 25
         for i in range(25):
             b[pi_dest(i)] = rol(a[i] ^ d[i % 5], RHO[i])
-        a = [b[j] ^ (~b[j - j % 5 + (j + 1) % 5] & M & b[j - j % 5 + (j + 2) % 5]) for j in range(25)]
+        a = [
+            b[j] ^ (~b[j - j % 5 + (j + 1) % 5] & M & b[j - j % 5 + (j + 2) % 5]) for j in range(25)
+        ]
         a[0] ^= rc
     return a
 
@@ -413,16 +433,20 @@ def text(item):
     if k == "count":
         # The pass counter, decremented through register `r25` (free once
         # the lanes are back in `r0..r24`).
-        return (f"ldr {{r25}}, [sp, #{8 * SPILL_WORDS}]\\n"
-                f"subs {{r25}}, {{r25}}, #1\\n"
-                f"str {{r25}}, [sp, #{8 * SPILL_WORDS}]\\n"
-                "b.ne 2b")
+        return (
+            f"ldr {{r25}}, [sp, #{8 * SPILL_WORDS}]\\n"
+            f"subs {{r25}}, {{r25}}, #1\\n"
+            f"str {{r25}}, [sp, #{8 * SPILL_WORDS}]\\n"
+            "b.ne 2b"
+        )
     if k == "enter":
         # The frame, and the pass count through `r25` (free: the lanes start
         # in `r0..r24`).
-        return (f"sub sp, sp, #{FRAME_BYTES}\\n"
-                f"mov {{r25}}, #{ITERATIONS}\\n"
-                f"str {{r25}}, [sp, #{8 * SPILL_WORDS}]")
+        return (
+            f"sub sp, sp, #{FRAME_BYTES}\\n"
+            f"mov {{r25}}, #{ITERATIONS}\\n"
+            f"str {{r25}}, [sp, #{8 * SPILL_WORDS}]"
+        )
     if k == "leave":
         # Wipes the frame (the spilled words are state-derived), then
         # releases it.
@@ -477,7 +501,7 @@ def execute(program, a, b, c, table):
         elif k == "enter":
             reg[25] = spill[SPILL_WORDS] = ITERATIONS
         elif k == "leave":
-            spill = None
+            spill.clear()
         elif k == "count":
             spill[SPILL_WORDS] -= 1
             reg[25] = spill[SPILL_WORDS]
@@ -530,7 +554,9 @@ def rust(program, table):
     w(f"    // (advanced 8 bytes by each of its {len(table)} loads over the {ITERATIONS} passes,")
     w(f"    // exactly `RC`) and its own {FRAME_BYTES}-byte stack frame: it moves the stack")
     w("    // pointer down by that (keeping it 16-byte aligned), reads and writes")
-    w(f"    // only below the old stack pointer (offsets below {8 * (SPILL_WORDS + 1)} bytes), wipes the")
+    w(
+        f"    // only below the old stack pointer (offsets below {8 * (SPILL_WORDS + 1)} bytes), wipes the"
+    )
     w("    // frame and restores the stack pointer before it ends. The loop runs")
     w(f"    // exactly the {ITERATIONS} passes counted in the frame. Every register it writes")
     w("    // is an output operand (`v0..v31`, the `r*` state registers and `rc`).")
@@ -579,7 +605,7 @@ def main():
     table = []
     for r in range(ROUNDS):
         table += [RC[24 - ROUNDS + r], scalar_rc(r)]
-    rr = random.Random(0x6b656363616b33)
+    rr = random.Random(0x6B656363616B33)
     for _ in range(8):
         a, b, c = ([rr.getrandbits(64) for _ in range(25)] for _ in range(3))
         assert execute(program, a, b, c, table) == (reference(a), reference(b), reference(c))

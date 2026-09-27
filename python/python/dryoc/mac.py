@@ -22,8 +22,8 @@ from dryoc._dryoc import mac_hmac_sha512256 as hmac_sha512256
 from dryoc._dryoc import mac_HmacSha256 as HmacSha256
 from dryoc._dryoc import mac_HmacSha512 as HmacSha512
 from dryoc._dryoc import mac_HmacSha512256 as HmacSha512256
-from dryoc._dryoc import mac_poly1305 as poly1305
 from dryoc._dryoc import mac_Poly1305 as Poly1305
+from dryoc._dryoc import mac_poly1305 as poly1305
 
 __all__ = [
     "HmacSha256",

@@ -10,7 +10,7 @@ __all__ = ["KeyPair", "PublicKey", "SessionKeys", "client_session_keys", "server
 class SessionKeys:
     """A pair of session keys; unpacks as ``rx, tx``."""
 
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     @property
     def rx(self) -> bytes: ...
     @property

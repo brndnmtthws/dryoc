@@ -38,7 +38,7 @@ Issues = "https://github.com/brndnmtthws/dryoc/issues"
 Changelog = "https://github.com/brndnmtthws/dryoc/releases"
 
 [dependency-groups]
-test = ["pytest>=9.1", "pynacl>=1.6.2", "mypy>=2.3", "pyright>=1.1.414"]
+test = ["pytest>=9.1", "pynacl>=1.6.2", "pyright>=1.1.414", "ruff>=0.16.9", "ty>=0.0.84"]
 dev = [{ include-group = "test" }, "maturin>=1.15,<2"]
 
 [tool.maturin]
@@ -52,6 +52,9 @@ python-source = "python"
 testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers"]
 xfail_strict = true
+
+[tool.ty.terminal]
+error-on-warning = true
 
 [tool.uv]
 # `uv sync` and `uv run` rebuild the extension when these change (by default

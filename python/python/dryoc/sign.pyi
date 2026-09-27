@@ -25,7 +25,7 @@ class SigningKey:
     SIZE: ClassVar[int]
     SEED_SIZE: ClassVar[int]
     SIGNATURE_SIZE: ClassVar[int]
-    __hash__: ClassVar[None]  # type: ignore[assignment]
+    __hash__: ClassVar[None]
     def __new__(cls, secret_key: Buffer) -> Self: ...
     @classmethod
     def from_bytes(cls, secret_key: Buffer) -> Self: ...

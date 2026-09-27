@@ -5,24 +5,24 @@ Each test produces data with one library and consumes it with the other.
 
 import pytest
 
-nacl = pytest.importorskip(
+pytest.importorskip(
     "nacl",
     reason="PyNaCl (libsodium) is not installed or has no wheel for this platform; "
     "libsodium interoperability tests are skipped",
 )
 
-import nacl.bindings as sodium  # noqa: E402
-import nacl.encoding  # noqa: E402
-import nacl.hash  # noqa: E402
-import nacl.public  # noqa: E402
-import nacl.pwhash.argon2i  # noqa: E402
-import nacl.pwhash.argon2id  # noqa: E402
-import nacl.secret  # noqa: E402
-import nacl.signing  # noqa: E402
-import nacl.utils  # noqa: E402
+import nacl.bindings as sodium
+import nacl.encoding
+import nacl.hash
+import nacl.public
+import nacl.pwhash.argon2i
+import nacl.pwhash.argon2id
+import nacl.secret
+import nacl.signing
+import nacl.utils
 
-import dryoc  # noqa: E402
-from dryoc import aead, box, hash, kx, pwhash, secretbox, secretstream, sign  # noqa: E402
+import dryoc
+from dryoc import aead, box, hash, kx, pwhash, secretbox, secretstream, sign
 
 MESSAGES = [b"", b"x", b"The quick brown fox jumps over the lazy dog", bytes(range(256)) * 20]
 
@@ -49,8 +49,14 @@ def test_box(message: bytes) -> None:
 
     ours = box.Box(bob, alice_public).encrypt(message)
     bob_private = nacl.public.PrivateKey(bytes(bob.secret_key))
-    assert nacl.public.Box(alice, bob_private.public_key).decrypt(ours.ciphertext, ours.nonce) == message
-    assert nacl.public.Box(alice, bob_public).encrypt(message, ours.nonce).ciphertext == ours.ciphertext
+    assert (
+        nacl.public.Box(alice, bob_private.public_key).decrypt(ours.ciphertext, ours.nonce)
+        == message
+    )
+    assert (
+        nacl.public.Box(alice, bob_public).encrypt(message, ours.nonce).ciphertext
+        == ours.ciphertext
+    )
 
 
 def test_box_key_derivation_from_seed() -> None:
@@ -107,7 +113,9 @@ def test_aeads(message: bytes) -> None:
     assert x.encrypt(message, xnonce, associated_data=aad).ciphertext == theirs
     assert x.decrypt(theirs, xnonce, associated_data=aad) == message
     envelope = x.seal(message, associated_data=aad)
-    opened = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(envelope[24:], aad, envelope[:24], key)
+    opened = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+        envelope[24:], aad, envelope[:24], key
+    )
     assert opened == message
 
     c = aead.ChaCha20Poly1305(key)
@@ -133,14 +141,22 @@ def test_secretstream_libsodium_to_dryoc() -> None:
 
 def test_secretstream_dryoc_to_libsodium() -> None:
     key = secretstream.Key.generate()
-    tags = [secretstream.Tag.MESSAGE, secretstream.Tag.PUSH, secretstream.Tag.REKEY, secretstream.Tag.FINAL]
+    tags = [
+        secretstream.Tag.MESSAGE,
+        secretstream.Tag.PUSH,
+        secretstream.Tag.REKEY,
+        secretstream.Tag.FINAL,
+    ]
     with secretstream.Encryptor(key) as encryptor:
         chunks = [encryptor.push(b"part %d" % i, tag=tag) for i, tag in enumerate(tags)]
         encryptor_header = encryptor.header
     state = sodium.crypto_secretstream_xchacha20poly1305_state()
     sodium.crypto_secretstream_xchacha20poly1305_init_pull(state, encryptor_header, bytes(key))
     for i, (chunk, tag) in enumerate(zip(chunks, tags, strict=True)):
-        assert sodium.crypto_secretstream_xchacha20poly1305_pull(state, chunk) == (b"part %d" % i, tag)
+        assert sodium.crypto_secretstream_xchacha20poly1305_pull(state, chunk) == (
+            b"part %d" % i,
+            tag,
+        )
 
 
 def test_secretstream_explicit_rekey() -> None:
@@ -195,7 +211,7 @@ FAST_I = (nacl.pwhash.argon2i.OPSLIMIT_MIN, nacl.pwhash.argon2i.MEMLIMIT_MIN)
     ],
     ids=["argon2id", "argon2i"],
 )
-def test_pwhash(module, algorithm, limits) -> None:  # type: ignore[no-untyped-def]
+def test_pwhash(module, algorithm, limits) -> None:
     opslimit, memlimit = limits
     password = b"correct horse battery staple"
     theirs = module.str(password, opslimit=opslimit, memlimit=memlimit).decode()

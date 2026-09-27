@@ -70,7 +70,7 @@ def test_xwing_libsodium_edge_cases() -> None:
 
 
 @pytest.mark.parametrize("module", [xwing, mlkem768], ids=["xwing", "mlkem768"])
-def test_encapsulation_roundtrip(module) -> None:  # type: ignore[no-untyped-def]
+def test_encapsulation_roundtrip(module) -> None:
     pair = module.KeyPair.generate()
     ciphertext, shared = pair.public_key.encapsulate()
     assert pair.decapsulate(bytearray(ciphertext)) == shared
@@ -98,4 +98,4 @@ def test_xwing_sealed_box() -> None:
     with pytest.raises(TypeError, match="cannot decrypt"):
         SealedBox(recipient.public_key).decrypt(sealed)
     with pytest.raises(TypeError):
-        SealedBox(mlkem768.KeyPair.generate())  # type: ignore[arg-type]
+        SealedBox(mlkem768.KeyPair.generate())  # ty: ignore[invalid-argument-type]

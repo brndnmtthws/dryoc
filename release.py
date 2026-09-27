@@ -36,9 +36,7 @@ ROOT = Path(__file__).resolve().parent
 REPO = "brndnmtthws/dryoc"
 USER_AGENT = f"dryoc release.py (https://github.com/{REPO})"
 _ID = r"(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
-SEMVER = re.compile(
-    rf"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-({_ID}(?:\.{_ID})*))?"
-)
+SEMVER = re.compile(rf"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-({_ID}(?:\.{_ID})*))?")
 # maturin passes the Cargo version to pep440_rs's `Version::from_str`, whose
 # PEP 440 normalization maps these labels. Other labels are rejected: they
 # either fail to parse (`-foo`) or change meaning (`-1` is a post-release,
@@ -69,9 +67,7 @@ def run(*cmd: str, cwd: Path = ROOT) -> str:
     proc = execute(*cmd, cwd=cwd)
     if proc.returncode != 0:
         lines = (proc.stderr or proc.stdout).strip().splitlines()
-        raise CheckError(
-            f"`{' '.join(cmd)}` failed" + (f": {lines[-1]}" if lines else "")
-        )
+        raise CheckError(f"`{' '.join(cmd)}` failed" + (f": {lines[-1]}" if lines else ""))
     return proc.stdout.strip()
 
 
@@ -92,14 +88,10 @@ def semver_key(version: str) -> SemverKey:
     """Sort key implementing SemVer 2.0.0 precedence (build metadata ignored)."""
     match = SEMVER.fullmatch(version.split("+", 1)[0])
     if match is None:
-        raise CheckError(
-            f"{version!r} is not a SemVer version (MAJOR.MINOR.PATCH[-PRERELEASE])"
-        )
+        raise CheckError(f"{version!r} is not a SemVer version (MAJOR.MINOR.PATCH[-PRERELEASE])")
     major, minor, patch, pre = match.groups()
     ids = (
-        tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split("."))
-        if pre
-        else ()
+        tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")) if pre else ()
     )
     return int(major), int(minor), int(patch), 0 if pre else 1, ids
 
@@ -150,9 +142,7 @@ def cargo_requirement(version: str) -> str:
 
 
 def check_tools() -> str:
-    missing = [
-        tool for tool in ("git", "cargo", "uv", "gh") if shutil.which(tool) is None
-    ]
+    missing = [tool for tool in ("git", "cargo", "uv", "gh") if shutil.which(tool) is None]
     if missing:
         raise CheckError(f"not on PATH: {', '.join(missing)}")
     return "git, cargo, uv, gh"
@@ -177,9 +167,7 @@ def check_git() -> str:
 def check_manifests(version: str) -> str:
     root, python = package_version("Cargo.toml"), package_version("python/Cargo.toml")
     if not root == python == version:
-        raise CheckError(
-            f"Cargo.toml {root}, python/Cargo.toml {python}, release {version}"
-        )
+        raise CheckError(f"Cargo.toml {root}, python/Cargo.toml {python}, release {version}")
     return f"Cargo.toml and python/Cargo.toml are {version}"
 
 
@@ -190,9 +178,7 @@ def check_newer(version: str) -> str:
         return f"{version} (PyPI {wheel}); dryoc is not on crates.io yet"
     if status != 200:
         raise CheckError(f"crates.io returned HTTP {status}")
-    published = [
-        v["num"] for v in json.loads(body)["versions"] if SEMVER.match(v["num"])
-    ]
+    published = [v["num"] for v in json.loads(body)["versions"] if SEMVER.match(v["num"])]
     newest = max(published, key=semver_key, default="none")
     if newest != "none" and key <= semver_key(newest):
         raise CheckError(f"{version} is not greater than {newest} on crates.io")
@@ -202,9 +188,7 @@ def check_newer(version: str) -> str:
 def check_locks() -> str:
     problems = []
     manifest = ("--manifest-path", "python/Cargo.toml")
-    if execute(
-        "cargo", "metadata", "--locked", "--format-version", "1", *manifest
-    ).returncode:
+    if execute("cargo", "metadata", "--locked", "--format-version", "1", *manifest).returncode:
         problems.append(
             "python/Cargo.lock is stale: run `cargo update -p dryoc "
             "--manifest-path python/Cargo.toml`"
@@ -217,10 +201,7 @@ def check_locks() -> str:
 
 
 def check_tag(tag: str) -> str:
-    if (
-        execute("git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}").returncode
-        == 0
-    ):
+    if execute("git", "rev-parse", "-q", "--verify", f"refs/tags/{tag}").returncode == 0:
         raise CheckError(f"{tag} already exists locally")
     if run("git", "ls-remote", "--tags", "origin", f"refs/tags/{tag}"):
         raise CheckError(f"{tag} already exists on origin")
@@ -339,8 +320,7 @@ def bump(level: str, dry_run: bool) -> int:
     root, python = (package_version(manifest) for manifest in MANIFESTS)
     if root != python:
         raise CheckError(
-            f"Cargo.toml is {root} but python/Cargo.toml is {python}; "
-            "make them equal first"
+            f"Cargo.toml is {root} but python/Cargo.toml is {python}; make them equal first"
         )
     version = bumped(root, level)
     readme = (ROOT / README).read_text()
@@ -362,9 +342,7 @@ def bump(level: str, dry_run: bool) -> int:
             print(f"  ✓ {manifest}: {version}")
         if new_readme != readme:
             (ROOT / README).write_text(new_readme)
-            print(
-                f'  ✓ {README}: dryoc = {{ version = "{cargo_requirement(version)}" }}'
-            )
+            print(f'  ✓ {README}: dryoc = {{ version = "{cargo_requirement(version)}" }}')
         run("cargo", "update", "-p", "dryoc", "--manifest-path", "python/Cargo.toml")
         run("uv", "lock", cwd=ROOT / "python")
         print(f"  ✓ lockfiles: {check_locks()}")
@@ -387,9 +365,7 @@ def bump(level: str, dry_run: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "version", nargs="?", help="default: the root Cargo.toml version"
-    )
+    parser.add_argument("version", nargs="?", help="default: the root Cargo.toml version")
     parser.add_argument(
         "--bump",
         choices=BUMP_LEVELS,
@@ -399,12 +375,9 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="run the checks only; with --bump, "
-        "print the new version without changing anything",
+        help="run the checks only; with --bump, print the new version without changing anything",
     )
-    parser.add_argument(
-        "--yes", action="store_true", help="tag and push without asking"
-    )
+    parser.add_argument("--yes", action="store_true", help="tag and push without asking")
     args = parser.parse_args()
     if args.bump:
         if args.version or args.yes:

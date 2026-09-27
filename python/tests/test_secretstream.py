@@ -67,7 +67,7 @@ def test_rekey_tag_rekeys_automatically() -> None:
         pytest.param(lambda c: [c[0], flip(c[1], -1), c[2]], id="modified-mac"),
     ],
 )
-def test_stream_manipulation_raises(mangle) -> None:  # type: ignore[no-untyped-def]
+def test_stream_manipulation_raises(mangle) -> None:
     key = Key.generate()
     header, chunks = encrypt(key, [(b"a", Tag.MESSAGE), (b"b", Tag.MESSAGE), (b"c", Tag.FINAL)])
     decryptor = Decryptor(key, header)
@@ -113,29 +113,28 @@ def test_data_after_final_is_rejected() -> None:
 def test_truncated_stream_detected_by_context_manager() -> None:
     key = Key.generate()
     header, chunks = encrypt(key, [(b"a", Tag.MESSAGE), (b"b", Tag.FINAL)])
-    with pytest.raises(CryptoError, match="truncated"):
-        with Decryptor(key, header) as decryptor:
-            decryptor.pull(chunks[0])
+    with pytest.raises(CryptoError, match="truncated"), Decryptor(key, header) as decryptor:
+        decryptor.pull(chunks[0])
     # The state was wiped on exit.
     with pytest.raises(DryocError, match="closed"):
         decryptor.pull(chunks[1])
 
 
 def test_encryptor_context_manager_requires_final() -> None:
-    with pytest.raises(DryocError, match="without a Tag.FINAL"):
-        with Encryptor(Key.generate()) as encryptor:
-            encryptor.push(b"a")
+    with (
+        pytest.raises(DryocError, match="without a Tag.FINAL"),
+        Encryptor(Key.generate()) as encryptor,
+    ):
+        encryptor.push(b"a")
     with pytest.raises(DryocError, match="closed"):
         encryptor.push(b"b")
 
 
 def test_context_managers_do_not_mask_exceptions() -> None:
-    with pytest.raises(KeyError):
-        with Encryptor(Key.generate()):
-            raise KeyError("boom")
-    with pytest.raises(KeyError):
-        with Decryptor(Key.generate(), bytes(24)):
-            raise KeyError("boom")
+    with pytest.raises(KeyError), Encryptor(Key.generate()):
+        raise KeyError("boom")
+    with pytest.raises(KeyError), Decryptor(Key.generate(), bytes(24)):
+        raise KeyError("boom")
 
 
 def test_invalid_tag_raises_without_advancing_the_stream() -> None:
@@ -155,14 +154,12 @@ def test_tag_enum_values_match_libsodium() -> None:
 def test_close_inside_context_does_not_hide_truncation() -> None:
     key = Key.generate()
     header, chunks = encrypt(key, [(b"a", Tag.MESSAGE), (b"b", Tag.FINAL)])
-    with pytest.raises(CryptoError, match="truncated"):
-        with Decryptor(key, header) as decryptor:
-            decryptor.pull(chunks[0])
-            decryptor.close()
-    with pytest.raises(DryocError, match="without a Tag.FINAL"):
-        with Encryptor(key) as encryptor:
-            encryptor.push(b"a")
-            encryptor.close()
+    with pytest.raises(CryptoError, match="truncated"), Decryptor(key, header) as decryptor:
+        decryptor.pull(chunks[0])
+        decryptor.close()
+    with pytest.raises(DryocError, match="without a Tag.FINAL"), Encryptor(key) as encryptor:
+        encryptor.push(b"a")
+        encryptor.close()
 
 
 def test_close_after_final_inside_context_is_accepted() -> None:
