@@ -12,7 +12,7 @@
 
 use core::arch::wasm32::{i32x4_add, u32x4_shl, u32x4_shr, v128, v128_or, v128_xor};
 
-use crate::wasm32::{Dest, finish_lanes, input_lanes as shared_input_lanes};
+use crate::wasm32::{Dest, input_lanes as shared_input_lanes, transpose, xor_block};
 
 /// Blocks per 4-lane vector set.
 const SET_BLOCKS: usize = 4;
@@ -89,6 +89,24 @@ fn input_lanes(state: &[u32; 16], counter: u64) -> [v128; 16] {
     shared_input_lanes::<8, 9>(state, counter)
 }
 
+/// Finalises a lane set: adds the input back, transposes into block order
+/// and XORs the keystream into blocks `base .. base + 4` of `dest`.
+#[inline(always)]
+fn finish_set(mut x: [v128; 16], initial: &[v128; 16], base: usize, dest: &mut Dest<'_>) {
+    for (word, init) in x.iter_mut().zip(initial) {
+        *word = i32x4_add(*word, *init);
+    }
+    // `r<i>[block]` holds words `4 * i .. 4 * i + 4` of `block`.
+    let r0 = transpose(x[0], x[1], x[2], x[3]);
+    let r1 = transpose(x[4], x[5], x[6], x[7]);
+    let r2 = transpose(x[8], x[9], x[10], x[11]);
+    let r3 = transpose(x[12], x[13], x[14], x[15]);
+    xor_block([r0[0], r1[0], r2[0], r3[0]], base, dest);
+    xor_block([r0[1], r1[1], r2[1], r3[1]], base + 1, dest);
+    xor_block([r0[2], r1[2], r2[2], r3[2]], base + 2, dest);
+    xor_block([r0[3], r1[3], r2[3], r3[3]], base + 3, dest);
+}
+
 /// XORs the keystream for blocks `counter .. counter + BLOCKS` into
 /// `output`, reading the plaintext/ciphertext from `input` (or from `output`
 /// itself when `input` is `None`). `output` holds at most `BLOCKS` whole
@@ -111,8 +129,8 @@ fn xor_chunk_wide(
         super::salsa20_double_round!(step, a);
         super::salsa20_double_round!(step, b);
     }
-    finish_lanes(a, &initial_a, 0, &mut dest);
-    finish_lanes(b, &initial_b, SET_BLOCKS, &mut dest);
+    finish_set(a, &initial_a, 0, &mut dest);
+    finish_set(b, &initial_b, SET_BLOCKS, &mut dest);
 }
 
 /// [`xor_chunk_wide`] for one lane set: blocks `counter .. counter +
@@ -131,5 +149,5 @@ fn xor_chunk_set(
     for _ in 0..10 {
         super::salsa20_double_round!(step, x);
     }
-    finish_lanes(x, &initial, 0, &mut dest);
+    finish_set(x, &initial, 0, &mut dest);
 }
