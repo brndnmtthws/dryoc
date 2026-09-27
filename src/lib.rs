@@ -167,7 +167,7 @@
 //!
 //! | Area | Feature gate | Why `unsafe` is required |
 //! |-|-|-|
-//! | `src/dryocbox.rs`, `src/dryocsecretbox.rs`, and `src/dryocaead.rs` wincode impls | `wincode_0_6` | Implements `unsafe` wincode schema traits for the Rustaceous box wire formats, including both AEAD nonce sizes. The implementations write and read initialized fields in the same order. |
+//! | `src/wincode_schema.rs` wincode impls, invoked in `src/dryocbox.rs`, `src/dryocsecretbox.rs` and `src/dryocaead.rs` | `wincode_0_6` | The `impl_wincode_schema!` macro implements the `unsafe` wincode schema traits for each Rustaceous `Vec` box wire format (the public-key and secret boxes, and the AEAD boxes and envelopes of both nonce sizes) from one ordered field list: `size_of` sums the fields' own sizes, `write` and `read` visit the same fields in the same order, and `read` initializes the destination once, with a struct literal of the decoded fields, after all of them decode. |
 //! | `src/blake2b/mod.rs` parameter block | Always available | `Params::as_bytes` views the `repr(C, packed)` BLAKE2b parameter block as a `[u8; 64]` so the initialization vector is mixed exactly as specified; both backends call it. The parameter type contains only initialized byte fields, has alignment 1, and its size is checked at compile time. |
 //! | `src/protected.rs` protected memory | `protected` on Unix/Windows | Calls OS APIs such as `mlock`, `mprotect`, `VirtualLock`, and `VirtualProtect`, implements page-aligned guarded heap buffers, and exposes exact-size byte-array views over protected heap buffers. Each allocation is initialized through its raw pointer before any slice over it exists, and the OS calls take recorded address ranges rather than slices, so no reference is ever created to no-access pages. |
 //! | `src/x86_64.rs` and `src/aarch64.rs` CPU feature tokens | Always available on `x86_64` / little-endian `aarch64` | Not `unsafe` themselves: the zero-sized tokens `Avx2`, `Avx512`, `Avx512Vl`, `Avx512Ifma`, `Bmi2` (x86-64) and `Neon`, `Sve2`, `Sha2`, `Sha3` (AArch64) have a private field, and their only constructors are `new` functions that return a token when `has_x86_feature!`/`has_aarch64_feature!` reports every feature it names (runtime detection with `std`, the compile-time target features without it) (plus `Avx2::avx512vl`/`Avx512::avx512vl`, which detect the rest of the `Avx512Vl` set). `Avx512` and `Avx512Ifma` also require `avx2`: rustc's `avx512f` target feature implies it, but std's `avx512f` detection does not check the CPUID `avx2` bit. Every `#[target_feature]` kernel in the rows below is entered through a safe `#[inline(always)]` wrapper that takes its token by value and makes the one `unsafe` call into the `*_unchecked` kernel, whose features the token proves; `sve2` and `sha3` imply `neon`, so `Sve2` and `Sha3` also cover the `"neon,sve2"` and `"neon,sha3"` kernels. The dispatch enums (`Kernel`, `x86_64::LaneSet`) hold the tokens, so the calls into the wrappers are safe. |
@@ -277,6 +277,9 @@ macro_rules! has_aarch64_feature {
 
 #[macro_use]
 mod error;
+#[cfg(feature = "wincode_0_6")]
+#[macro_use]
+mod wincode_schema;
 
 /// The `alloc` prelude items that the standard prelude would provide, for
 /// unit tests in this `no_std` crate.
