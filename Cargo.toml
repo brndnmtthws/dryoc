@@ -76,6 +76,22 @@ unexpected_cfgs = { level = "warn", check-cfg = [
   "cfg(tarpaulin)",
 ] }
 
+# CI test builds (`--cargo-profile ci` with nextest, `--profile ci` with
+# `cargo test`). opt-level 1 keeps debug assertions and overflow checks but
+# inlines the SIMD intrinsics that unoptimized builds call out of line, in
+# dryoc's kernels and in curve25519-dalek's AVX2 backend; line tables keep
+# file:line backtraces with a smaller target directory. Dependents ignore
+# these profiles.
+[profile.ci]
+inherits = "dev"
+opt-level = 1
+debug = "line-tables-only"
+
+# No debuginfo at all: less wasm for wasm-bindgen-test-runner to process.
+[profile.ci-wasm]
+inherits = "ci"
+debug = false
+
 [package.metadata.docs.rs]
 # docs.rs uses nightly, enable feature flag to get all the juicy docs
 features = ["nightly", "serde", "base64", "wincode_0_6"]

@@ -8,13 +8,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Test binaries at opt-level 1 keep debug assertions and overflow checks,
-  # but inline the SIMD intrinsics that unoptimized builds call out of line
-  # (in both dryoc's kernels and curve25519-dalek's AVX2 backend), which
-  # made the native suites several times slower. Line tables keep file:line
-  # backtraces while shrinking the cached target directories.
-  CARGO_PROFILE_TEST_OPT_LEVEL: "1"
-  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 permissions:
   contents: read
@@ -114,16 +107,15 @@ jobs:
       # wasm-bindgen-test-runner (wasm-bindgen pass plus Node) per test, which
       # cost 2-7s each and dominated the job; `cargo test` starts one per
       # binary. `--tests` keeps nextest's target set (no doctests). The
-      # workflow's opt-level 1 cuts the ML-KEM accumulated-vector test from
-      # ~60s here; dropping debuginfo entirely shrinks the wasm the runner
-      # processes.
+      # `ci-wasm` profile's opt-level 1 cuts the ML-KEM accumulated-vector test
+      # from ~60s; it drops debuginfo entirely, which shrinks the wasm the
+      # runner processes.
       - run: |
           for features in "" alloc std,serde,base64,wincode_0_6; do
-            mbx test --target wasm32-unknown-unknown --tests --no-default-features --features "$features"
+            mbx test --profile ci-wasm --target wasm32-unknown-unknown --tests --no-default-features --features "$features"
           done
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-          CARGO_PROFILE_TEST_DEBUG: "0"
           RUSTFLAGS: ${{ matrix.rustflags }}
       - run: |
           for features in "" alloc std,serde,base64,wincode_0_6; do
@@ -166,7 +158,7 @@ jobs:
           cache-generation: platform-${{ matrix.features }}
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --features ${{ env.FEATURES }}
+      - run: mbx nextest run --cargo-profile ci --features ${{ env.FEATURES }}
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --features ${{ env.FEATURES }} -- -D warnings
@@ -200,7 +192,7 @@ jobs:
           cache-generation: features-${{ matrix.name }}
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --all-targets ${{ matrix.flags }}
+      - run: mbx nextest run --cargo-profile ci --all-targets ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets ${{ matrix.flags }} -- -D warnings
@@ -264,12 +256,12 @@ jobs:
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
       - run: cargo fmt --all -- --check
-      - run: mbx nextest run --all-targets --all-features
+      - run: mbx nextest run --cargo-profile ci --all-targets --all-features
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets --all-features -- -D warnings
       # `nightly` does not imply `std`: the portable SIMD backends in `no_std`.
-      - run: mbx nextest run --all-targets --no-default-features --features simd_backend,nightly
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features simd_backend,nightly
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets --no-default-features --features simd_backend,nightly -- -D warnings
@@ -353,7 +345,7 @@ jobs:
           cache-generation: no-std-target-features
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --all-targets --no-default-features --features alloc
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features alloc
         env:
           RUST_BACKTRACE: 1
 
