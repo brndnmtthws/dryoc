@@ -581,13 +581,12 @@ mod tests {
 
     #[cfg(feature = "nightly")]
     extern crate test;
-    use std::sync::LazyLock;
 
     #[cfg(dryoc_native_tests)]
     use libc::*;
-    use serde::{Deserialize, Serialize};
 
     use super::*;
+    use crate::blake2b::test_util::for_each_vector;
 
     static_assertions::assert_impl_all!(State: zeroize::ZeroizeOnDrop);
     const _: () = assert!(core::mem::needs_drop::<State>());
@@ -614,35 +613,16 @@ mod tests {
         fn blake2b_long(pout: *mut u8, outlen: u64, input: *const u8, inlen: u64);
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
-    struct TestVector {
-        hash: String,
-        #[serde(rename = "in")]
-        in_: String,
-        key: String,
-        out: String,
-    }
-
-    static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| {
-        serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap()
-    });
-
     #[test]
     fn test_vectors() {
-        for vector in TEST_VECTORS.iter() {
-            let key = if vector.key.is_empty() {
-                None
-            } else {
-                Some(hex::decode(&vector.key).unwrap())
-            };
-            let mut state = State::init(64, key.as_deref(), None, None).expect("init");
-            state.update(hex::decode(&vector.in_).unwrap().as_slice());
+        for_each_vector(|key, input, expected| {
+            let key = (!key.is_empty()).then_some(key);
+            let mut state = State::init(64, key, None, None).expect("init");
+            state.update(input);
             let mut output = [0u8; 64];
-
-            state.finalize(&mut output).ok();
-
-            assert_eq!(vector.out, hex::encode(output));
-        }
+            state.finalize(&mut output).expect("finalize");
+            assert_eq!(output.as_slice(), expected);
+        });
     }
 
     #[test]
