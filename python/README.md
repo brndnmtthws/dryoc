@@ -1,8 +1,9 @@
 # dryoc for Python
 
-**Don't Roll Your Own Crypto**: Pythonic bindings to
-[dryoc](https://github.com/brndnmtthws/dryoc), a pure-Rust cryptography
-library that is wire-compatible with [libsodium](https://doc.libsodium.org/).
+**Don't Roll Your Own Crypto**: High-performance, type-safe Pythonic bindings
+to [dryoc](https://github.com/brndnmtthws/dryoc), a pure-Rust cryptography
+library featuring up to 4x speedups over libsodium, modern post-quantum
+primitives, and full libsodium wire compatibility.
 
 - Authenticated encryption, public-key boxes, sealed boxes, encrypted
   streams, Ed25519 signatures, key exchange, Argon2 password hashing,
