@@ -833,8 +833,8 @@ fn sealedbox_hpke_known_answer() {
     .expect("encrypt");
     let opened = VecBox::from_bytes(&sealed)
         .expect("parse")
-        .unseal_to_vec(&recipient)
-        .expect("unseal");
+        .open_to_vec(&recipient)
+        .expect("open");
     assert_eq!(opened, message);
 
     // A box sealed by the crate opens with the HPKE receiver steps.
@@ -869,7 +869,7 @@ fn sealedbox_hpke_known_answer() {
         assert!(
             VecBox::from_bytes(&tampered)
                 .expect("parse")
-                .unseal_to_vec(&recipient)
+                .open_to_vec(&recipient)
                 .is_err(),
             "byte {index}"
         );

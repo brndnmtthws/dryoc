@@ -68,8 +68,8 @@
 //! let sealed = VecBox::from_bytes(&bytes).expect("unable to read box");
 //!
 //! let decrypted = sealed
-//!     .unseal_to_vec(&recipient_keypair)
-//!     .expect("unable to unseal");
+//!     .open_to_vec(&recipient_keypair)
+//!     .expect("unable to open");
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
 
@@ -129,7 +129,7 @@ pub mod protected {
     //!
     //! let sealed: LockedBox =
     //!     DryocSealedBox::seal(&message, &recipient_keypair.public_key).expect("seal");
-    //! let decrypted: LockedBytes = sealed.unseal(&recipient_keypair).expect("unseal");
+    //! let decrypted: LockedBytes = sealed.open(&recipient_keypair).expect("open");
     //! assert_eq!(message.as_slice(), decrypted.as_slice());
     //! ```
     use super::DryocSealedBox;
@@ -364,6 +364,21 @@ impl<
         Self { enc, tag, data }
     }
 
+    /// Returns the X-Wing ciphertext (HPKE `enc`).
+    pub fn enc(&self) -> &EncapsulatedKey {
+        &self.enc
+    }
+
+    /// Returns the authentication tag.
+    pub fn tag(&self) -> &Mac {
+        &self.tag
+    }
+
+    /// Returns the encrypted message.
+    pub fn data(&self) -> &Data {
+        &self.data
+    }
+
     /// Moves the X-Wing ciphertext, tag and encrypted message out of this
     /// box.
     pub fn into_parts(self) -> (EncapsulatedKey, Mac, Data) {
@@ -397,7 +412,7 @@ impl<
     /// Returns [`Error::AuthenticationFailed`] if the box was not sealed for
     /// this key pair or was modified, or an error if the X-Wing ciphertext
     /// carries a low-order X25519 point.
-    pub fn unseal<
+    pub fn open<
         RecipientPublicKey: ByteArray<CRYPTO_KEM_XWING_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_KEM_XWING_SECRETKEYBYTES> + Zeroize,
         Output: ResizableBytes + NewBytes + Zeroize,
@@ -446,15 +461,15 @@ impl DryocSealedBox<EncapsulatedKey, Mac, Vec<u8>> {
     ///
     /// # Errors
     ///
-    /// Returns the same errors as [`DryocSealedBox::unseal`].
-    pub fn unseal_to_vec<
+    /// Returns the same errors as [`DryocSealedBox::open`].
+    pub fn open_to_vec<
         RecipientPublicKey: ByteArray<CRYPTO_KEM_XWING_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_KEM_XWING_SECRETKEYBYTES> + Zeroize,
     >(
         &self,
         recipient_keypair: &KeyPair<RecipientPublicKey, RecipientSecretKey>,
     ) -> Result<Vec<u8>, Error> {
-        self.unseal(recipient_keypair)
+        self.open(recipient_keypair)
     }
 }
 
@@ -564,11 +579,11 @@ mod tests {
             let mut tampered = bytes.clone();
             tampered[index] ^= 0x01;
             let tampered = VecBox::from_bytes(&tampered).expect("parse");
-            assert!(tampered.unseal_to_vec(&keypair).is_err(), "byte {index}");
+            assert!(tampered.open_to_vec(&keypair).is_err(), "byte {index}");
         }
         let other = StackKeyPair::generate();
         assert!(matches!(
-            sealed.unseal_to_vec(&other),
+            sealed.open_to_vec(&other),
             Err(Error::AuthenticationFailed)
         ));
         for short in [0, CRYPTO_KEM_XWING_CIPHERTEXTBYTES, SEALBYTES - 1] {
@@ -583,6 +598,6 @@ mod tests {
         }
         let empty = VecBox::seal_to_vecbox(b"", &keypair.public_key).expect("seal");
         let empty = VecBox::from_bytes(&empty.to_vec()).expect("parse");
-        assert!(empty.unseal_to_vec(&keypair).expect("unseal").is_empty());
+        assert!(empty.open_to_vec(&keypair).expect("open").is_empty());
     }
 }

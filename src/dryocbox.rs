@@ -16,7 +16,7 @@
 //! but it does not identify the sender. For sealed boxes that stay
 //! confidential against future quantum computers, use
 //! [`DryocSealedBox`](crate::dryocsealedbox::DryocSealedBox), which has the
-//! same `seal`/`unseal` methods.
+//! same `seal`/`open` methods.
 //!
 //! Nonces are public, but a nonce must never repeat for the same sender and
 //! recipient keypair. The two parties share one nonce space unless they use
@@ -84,8 +84,8 @@
 //!     .expect("unable to seal");
 //!
 //! let decrypted = dryocbox
-//!     .unseal_to_vec(&recipient_keypair)
-//!     .expect("unable to unseal");
+//!     .open_to_vec(&recipient_keypair)
+//!     .expect("unable to open");
 //!
 //! assert_eq!(message, decrypted.as_slice());
 //! ```
@@ -482,14 +482,31 @@ impl<
     Data: Bytes + Zeroize,
 > DryocBox<EphemeralPublicKey, Mac, Data>
 {
-    /// Returns a new box with `tag`, `data` and (optional) `ephemeral_pk`,
-    /// consuming each.
-    pub fn from_parts(tag: Mac, data: Data, ephemeral_pk: Option<EphemeralPublicKey>) -> Self {
+    /// Returns a new box from the (optional) `ephemeral_pk`, `tag`, and
+    /// `data`, consuming each. The order matches the wire format of
+    /// [`DryocBox::to_bytes`].
+    pub fn from_parts(ephemeral_pk: Option<EphemeralPublicKey>, tag: Mac, data: Data) -> Self {
         Self {
             ephemeral_pk,
             tag,
             data,
         }
+    }
+
+    /// Returns the ephemeral public key of a sealed box, or [`None`] for a
+    /// regular box.
+    pub fn ephemeral_pk(&self) -> Option<&EphemeralPublicKey> {
+        self.ephemeral_pk.as_ref()
+    }
+
+    /// Returns the authentication tag.
+    pub fn tag(&self) -> &Mac {
+        &self.tag
+    }
+
+    /// Returns the ciphertext.
+    pub fn data(&self) -> &Data {
+        &self.data
     }
 
     /// Copies `self` into a new [`Vec`]
@@ -498,10 +515,10 @@ impl<
         self.to_bytes()
     }
 
-    /// Moves the tag, data, and (optional) ephemeral public key out of this
-    /// instance, returning them as a tuple.
-    pub fn into_parts(self) -> (Mac, Data, Option<EphemeralPublicKey>) {
-        (self.tag, self.data, self.ephemeral_pk)
+    /// Moves the (optional) ephemeral public key, tag, and data out of this
+    /// instance, returning them as a tuple in wire order.
+    pub fn into_parts(self) -> (Option<EphemeralPublicKey>, Mac, Data) {
+        (self.ephemeral_pk, self.tag, self.data)
     }
 
     /// Decrypts this box using `nonce`, `recipient_secret_key`, and
@@ -583,7 +600,7 @@ impl<
     /// output storage has the wrong length, or authentication fails.
     /// Authentication fails for the wrong recipient key pair or modified box
     /// data.
-    pub fn unseal<
+    pub fn open<
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
         Output: ResizableBytes + NewBytes + Zeroize,
@@ -740,46 +757,14 @@ impl DryocBox<PublicKey, Mac, Vec<u8>> {
     /// ephemeral public key, that key is an unacceptable low-order key, or
     /// authentication fails because the recipient key pair or box data is
     /// wrong.
-    pub fn unseal_to_vec<
+    pub fn open_to_vec<
         RecipientPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
         RecipientSecretKey: ByteArray<CRYPTO_BOX_SECRETKEYBYTES> + Zeroize,
     >(
         &self,
         recipient_keypair: &crate::keypair::KeyPair<RecipientPublicKey, RecipientSecretKey>,
     ) -> Result<Vec<u8>, Error> {
-        self.unseal(recipient_keypair)
-    }
-}
-
-impl<
-    'a,
-    EphemeralPublicKey: ByteArray<CRYPTO_BOX_PUBLICKEYBYTES> + Zeroize,
-    Mac: ByteArray<CRYPTO_BOX_MACBYTES> + Zeroize,
-    Data: Bytes + ResizableBytes + From<&'a [u8]> + Zeroize,
-> DryocBox<EphemeralPublicKey, Mac, Data>
-{
-    /// Returns a new box with ciphertext copied from `input` and the supplied
-    /// `tag`. The box has no ephemeral public key.
-    pub fn new_with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
-        Self {
-            ephemeral_pk: None,
-            tag,
-            data: input.into(),
-        }
-    }
-
-    /// Returns a new sealed box with ciphertext copied from `input` and the
-    /// supplied `ephemeral_pk` and `tag`.
-    pub fn new_with_epk_data_and_mac(
-        ephemeral_pk: EphemeralPublicKey,
-        tag: Mac,
-        input: &'a [u8],
-    ) -> Self {
-        Self {
-            ephemeral_pk: Some(ephemeral_pk),
-            tag,
-            data: input.into(),
-        }
+        self.open(recipient_keypair)
     }
 }
 
@@ -815,14 +800,14 @@ mod tests {
     use crate::test_prelude::*;
 
     #[test]
-    fn unseal_requires_an_ephemeral_public_key() {
+    fn open_requires_an_ephemeral_public_key() {
         let box_without_ephemeral_key =
             VecBox::from_bytes(&[0u8; CRYPTO_BOX_MACBYTES]).expect("a regular box should parse");
         let recipient_keypair = KeyPair::generate();
 
         let error = box_without_ephemeral_key
-            .unseal::<_, _, Vec<u8>>(&recipient_keypair)
-            .expect_err("a regular box cannot be unsealed");
+            .open::<_, _, Vec<u8>>(&recipient_keypair)
+            .expect_err("a regular box cannot be opened as a sealed box");
         assert!(matches!(
             error,
             Error::MissingData {
@@ -1090,30 +1075,28 @@ mod tests {
         expected.extend_from_slice(tag.as_slice());
         expected.extend_from_slice(&data);
 
-        let sealed = VecBox::from_parts(tag.clone(), data.clone(), Some(epk.clone()));
+        let sealed = VecBox::from_parts(Some(epk.clone()), tag.clone(), data.clone());
         assert_eq!(sealed.to_vec(), expected);
         let reparsed = VecBox::from_sealed_bytes(&expected).expect("parse");
         assert_eq!(reparsed, sealed);
-        let (parsed_tag, parsed_data, parsed_epk) = reparsed.into_parts();
+        let (parsed_epk, parsed_tag, parsed_data) = reparsed.into_parts();
         assert_eq!(parsed_tag, tag);
         assert_eq!(parsed_data, data);
         assert_eq!(parsed_epk.as_ref(), Some(&epk));
 
         // Without an ephemeral key the same tag and data serialize as a regular
         // box.
-        let regular = VecBox::from_parts(tag.clone(), data.clone(), None);
+        let regular = VecBox::from_parts(None, tag, data);
         assert_eq!(regular.to_vec(), &expected[CRYPTO_BOX_PUBLICKEYBYTES..]);
-        assert_eq!(regular, DryocBox::new_with_data_and_mac(tag.clone(), &data));
-        assert_eq!(VecBox::new_with_epk_data_and_mac(epk, tag, &data), sealed);
     }
 
     #[test]
     fn sealed_box_authenticates_recipient_and_contents() {
         let v = nacl_vector();
         let sealed = DryocBox::seal_to_vecbox(&v.message, &v.bob.public_key).expect("seal");
-        assert_eq!(sealed.unseal_to_vec(&v.bob).expect("unseal"), v.message);
+        assert_eq!(sealed.open_to_vec(&v.bob).expect("open"), v.message);
 
-        let wrong_recipient = sealed.unseal_to_vec(&v.alice);
+        let wrong_recipient = sealed.open_to_vec(&v.alice);
         assert!(matches!(wrong_recipient, Err(Error::AuthenticationFailed)));
 
         let bytes = sealed.to_vec();
@@ -1126,13 +1109,13 @@ mod tests {
             let mut tampered = bytes.clone();
             tampered[index] ^= 0x80;
             let tampered = VecBox::from_sealed_bytes(&tampered).expect("parse");
-            assert!(tampered.unseal_to_vec(&v.bob).is_err());
+            assert!(tampered.open_to_vec(&v.bob).is_err());
         }
         assert_eq!(
             VecBox::from_sealed_bytes(&bytes)
                 .expect("parse")
-                .unseal_to_vec(&v.bob)
-                .expect("unseal"),
+                .open_to_vec(&v.bob)
+                .expect("open"),
             v.message
         );
     }
@@ -1337,9 +1320,9 @@ mod tests {
             let v = nacl_vector();
             let ciphertext = sodium::box_seal(&v.message, &v.bob.public_key);
             let sealed = VecBox::from_sealed_bytes(&ciphertext).expect("parse");
-            assert_eq!(sealed.unseal_to_vec(&v.bob).expect("unseal"), v.message);
+            assert_eq!(sealed.open_to_vec(&v.bob).expect("open"), v.message);
             assert!(matches!(
-                sealed.unseal_to_vec(&v.alice),
+                sealed.open_to_vec(&v.alice),
                 Err(Error::AuthenticationFailed)
             ));
 
@@ -1349,7 +1332,7 @@ mod tests {
                 assert!(
                     VecBox::from_sealed_bytes(&tampered)
                         .expect("parse")
-                        .unseal_to_vec(&v.bob)
+                        .open_to_vec(&v.bob)
                         .is_err()
                 );
             }
@@ -1484,7 +1467,7 @@ mod tests {
 
                 let ciphertext = dryocbox.to_vec();
 
-                let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
+                let m = dryocbox.open_to_vec(&keypair_recipient).expect("hmm");
                 let so_m = sodium::box_seal_open(
                     ciphertext.as_slice(),
                     keypair_recipient.public_key.as_slice(),
@@ -1498,7 +1481,7 @@ mod tests {
         }
 
         #[test]
-        fn test_dryocbox_unseal_vecbox() {
+        fn test_dryocbox_open_vecbox() {
             for i in 0..20 {
                 let keypair_recipient = KeyPair::generate();
                 let words = vec!["hello1".to_string(); i];
@@ -1510,7 +1493,7 @@ mod tests {
                 let dryocbox =
                     DryocBox::from_sealed_bytes(&ciphertext).expect("from sealed bytes failed");
 
-                let m = dryocbox.unseal_to_vec(&keypair_recipient).expect("hmm");
+                let m = dryocbox.open_to_vec(&keypair_recipient).expect("hmm");
 
                 assert_eq!(m, message.as_bytes());
             }

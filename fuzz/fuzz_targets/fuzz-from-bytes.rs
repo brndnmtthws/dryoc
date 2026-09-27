@@ -28,7 +28,7 @@ fuzz_target!(|data: &[u8]| {
         Ok(dryocbox) => {
             assert!(data.len() >= CRYPTO_BOX_MACBYTES);
             assert_eq!(dryocbox.to_vec(), data);
-            let (tag, ciphertext, ephemeral_pk) = dryocbox.into_parts();
+            let (ephemeral_pk, tag, ciphertext) = dryocbox.into_parts();
             let (expected_tag, expected_ciphertext) = data.split_at(CRYPTO_BOX_MACBYTES);
             assert_eq!(tag.as_slice(), expected_tag);
             assert_eq!(ciphertext, expected_ciphertext);
@@ -42,7 +42,7 @@ fuzz_target!(|data: &[u8]| {
         Ok(dryocbox) => {
             assert!(data.len() >= CRYPTO_BOX_SEALBYTES);
             assert_eq!(dryocbox.to_vec(), data);
-            let (tag, ciphertext, ephemeral_pk) = dryocbox.into_parts();
+            let (ephemeral_pk, tag, ciphertext) = dryocbox.into_parts();
             let (expected_pk, rest) = data.split_at(CRYPTO_BOX_PUBLICKEYBYTES);
             let (expected_tag, expected_ciphertext) = rest.split_at(CRYPTO_BOX_MACBYTES);
             assert_eq!(

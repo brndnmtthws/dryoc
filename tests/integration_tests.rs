@@ -376,13 +376,13 @@ fn test_sealed_box_protected_keys() {
     );
     let message = HeapBytes::from_slice_into_readonly_locked(b"to the recipient").expect("message");
     let sealed: LockedBox = DryocSealedBox::seal(&message, &keypair.public_key).expect("seal");
-    let opened: LockedBytes = sealed.unseal(&keypair).expect("unseal");
+    let opened: LockedBytes = sealed.open(&keypair).expect("open");
     assert_eq!(opened.as_slice(), message.as_slice());
     // The locked box has the same wire format as a stack one.
     let bytes: Vec<u8> = sealed.to_bytes();
     let parsed = dryoc::dryocsealedbox::VecBox::from_bytes(&bytes).expect("parse");
     assert_eq!(
-        parsed.unseal_to_vec(&stack).expect("unseal"),
+        parsed.open_to_vec(&stack).expect("open"),
         b"to the recipient"
     );
 }
@@ -534,7 +534,7 @@ fn test_dryocsealedbox_serde_json() {
     );
     let decoded: VecBox = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(decoded.to_vec(), sealed.to_vec());
-    assert_eq!(decoded.unseal_to_vec(&keypair).expect("unseal"), message);
+    assert_eq!(decoded.open_to_vec(&keypair).expect("open"), message);
 
     let value: serde_json::Value = serde_json::from_str(&json).expect("json");
     // A changed byte in any field decodes but fails to open.
@@ -545,7 +545,7 @@ fn test_dryocsealedbox_serde_json() {
         let tampered: VecBox = serde_json::from_value(tampered).expect("deserialize");
         assert!(
             matches!(
-                tampered.unseal_to_vec(&keypair),
+                tampered.open_to_vec(&keypair),
                 Err(Error::AuthenticationFailed)
             ),
             "{field}"
@@ -559,7 +559,7 @@ fn test_dryocsealedbox_serde_json() {
         let decoded = serde_json::from_value::<VecBox>(truncated);
         if field == "data" {
             assert!(matches!(
-                decoded.expect("deserialize").unseal_to_vec(&keypair),
+                decoded.expect("deserialize").open_to_vec(&keypair),
                 Err(Error::AuthenticationFailed)
             ));
         } else {
@@ -610,7 +610,7 @@ fn test_kem_and_sealed_box_protected_serde_json() {
     let sealed = VecBox::seal_to_vecbox(message, &stack_keypair.public_key).expect("seal");
     let box_json = serde_json::to_string(&sealed).expect("serialize");
     let locked: LockedBox = serde_json::from_str(&box_json).expect("deserialize");
-    let opened: LockedBytes = locked.unseal(&keypair).expect("unseal");
+    let opened: LockedBytes = locked.open(&keypair).expect("open");
     assert_eq!(opened.as_slice(), message);
     assert_eq!(serde_json::to_string(&locked).expect("serialize"), box_json);
     let bytes: Vec<u8> = locked.to_bytes();
@@ -1055,7 +1055,7 @@ fn test_dryocaead() {
 
     assert_eq!(message, decrypted.as_slice());
 
-    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let envelope = VecEnvelope::seal_to_vecbox(message, Some(aad), &key).expect("unable to seal");
     let decrypted = envelope
         .open_to_vec(Some(aad), &key)
         .expect("unable to open");
@@ -1251,7 +1251,7 @@ fn test_dryocaead_serde_json() {
         .expect("decrypt failed");
     assert_eq!(message, decrypted.as_slice());
 
-    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let envelope = VecEnvelope::seal_to_vecbox(message, Some(aad), &key).expect("unable to seal");
     let json = serde_json::to_string(&envelope).expect("doesn't serialize");
     let envelope: VecEnvelope = serde_json::from_str(&json).unwrap();
     let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
@@ -1320,7 +1320,7 @@ fn test_dryocbox_wincode_wire_format() {
     // Sealed box: `Option::Some` tag followed by the ephemeral public key.
     let sealed: VecBox = DryocBox::seal(message, &recipient_keypair.public_key).expect("seal");
     let encoded = wincode::serialize(&sealed).expect("doesn't serialize");
-    let (tag, data, ephemeral_pk) = sealed.into_parts();
+    let (ephemeral_pk, tag, data) = sealed.into_parts();
     let ephemeral_pk = ephemeral_pk.expect("sealed box has an ephemeral public key");
 
     let mut expected = vec![1u8];
@@ -1330,7 +1330,7 @@ fn test_dryocbox_wincode_wire_format() {
     assert_eq!(encoded, expected);
 
     let decoded: VecBox = wincode::deserialize(&expected).expect("doesn't deserialize");
-    let decrypted: Vec<u8> = decoded.unseal(&recipient_keypair).expect("unseal failed");
+    let decrypted: Vec<u8> = decoded.open(&recipient_keypair).expect("open failed");
     assert_eq!(message, decrypted.as_slice());
 
     // Truncated input is rejected rather than read past the end.
@@ -1447,7 +1447,7 @@ fn test_dryocaead_wincode() {
         .expect("decrypt failed");
     assert_eq!(message, decrypted.as_slice());
 
-    let envelope = VecEnvelope::seal_to_vec(message, Some(aad), &key).expect("unable to seal");
+    let envelope = VecEnvelope::seal_to_vecbox(message, Some(aad), &key).expect("unable to seal");
     let encoded = wincode::serialize(&envelope).expect("doesn't serialize");
     let envelope: VecEnvelope = wincode::deserialize(&encoded).expect("doesn't deserialize");
     let decrypted = envelope.open_to_vec(Some(aad), &key).expect("open failed");
@@ -1468,9 +1468,7 @@ fn test_dryocbox_sealed_wincode() {
     let encoded = wincode::serialize(&dryocbox).expect("doesn't serialize");
     let dryocbox: VecBox = wincode::deserialize(&encoded).expect("doesn't deserialize");
 
-    let decrypted: Vec<u8> = dryocbox
-        .unseal(&recipient_keypair)
-        .expect("unable to unseal");
+    let decrypted: Vec<u8> = dryocbox.open(&recipient_keypair).expect("unable to open");
 
     assert_eq!(message, decrypted.as_slice());
 }
@@ -1925,8 +1923,8 @@ fn test_dryocbox_seal() {
         DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key).expect("unable to seal");
 
     let decrypted = dryocbox
-        .unseal_to_vec(&recipient_keypair)
-        .expect("unable to unseal");
+        .open_to_vec(&recipient_keypair)
+        .expect("unable to open");
 
     assert_eq!(message, decrypted.as_slice());
 }

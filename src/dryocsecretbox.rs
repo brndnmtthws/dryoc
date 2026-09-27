@@ -276,6 +276,16 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
         Self { tag, data }
     }
 
+    /// Returns the authentication tag.
+    pub fn tag(&self) -> &Mac {
+        &self.tag
+    }
+
+    /// Returns the ciphertext.
+    pub fn data(&self) -> &Data {
+        &self.data
+    }
+
     /// Copies `self` into a new [`Vec`].
     #[cfg(feature = "alloc")]
     pub fn to_vec(&self) -> Vec<u8> {
@@ -372,37 +382,6 @@ impl DryocSecretBox<Mac, Vec<u8>> {
     }
 }
 
-impl<
-    'a,
-    Mac: NewByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
-    Data: NewBytes + ResizableBytes + From<&'a [u8]> + Zeroize,
-> DryocSecretBox<Mac, Data>
-{
-    /// Returns a box with `data` copied from slice `input`.
-    pub fn with_data(input: &'a [u8]) -> Self {
-        Self {
-            tag: Mac::new_byte_array(),
-            data: input.into(),
-        }
-    }
-}
-
-impl<
-    'a,
-    Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize,
-    Data: Bytes + ResizableBytes + From<&'a [u8]> + Zeroize,
-> DryocSecretBox<Mac, Data>
-{
-    /// Returns a new box with ciphertext copied from `input` and the supplied
-    /// `tag`.
-    pub fn with_data_and_mac(tag: Mac, input: &'a [u8]) -> Self {
-        Self {
-            tag,
-            data: input.into(),
-        }
-    }
-}
-
 impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     PartialEq<DryocSecretBox<Mac, Data>> for DryocSecretBox<Mac, Data>
 {
@@ -467,18 +446,13 @@ mod tests {
 
         let (tag, data) = boxed.split_at(CRYPTO_SECRETBOX_MACBYTES);
         let rebuilt: VecBox =
-            DryocSecretBox::with_data_and_mac(Mac::try_from(tag).expect("mac"), data);
+            DryocSecretBox::from_parts(Mac::try_from(tag).expect("mac"), data.to_vec());
         assert_eq!(rebuilt, dryocsecretbox);
         let (rebuilt_tag, rebuilt_data) = rebuilt.into_parts();
         assert_eq!(
             VecBox::from_parts(rebuilt_tag, rebuilt_data).to_vec(),
             boxed
         );
-
-        let mut with_data: VecBox = DryocSecretBox::with_data(data);
-        assert_eq!(with_data.tag, Mac::default());
-        with_data.tag = Mac::try_from(tag).expect("mac");
-        assert_eq!(with_data.to_vec(), boxed);
     }
 
     #[test]
