@@ -25,7 +25,7 @@ secret_key_class! {
 static TAG: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
 fn to_tag(bits: u8) -> PyResult<Tag> {
-    Tag::from_bits(bits).ok_or_else(|| {
+    Tag::try_from(bits).map_err(|_| {
         InvalidInputError::new_err(format!(
             "invalid secretstream tag {bits:#04x}: use a dryoc.secretstream.Tag member"
         ))
@@ -159,7 +159,7 @@ impl Encryptor {
         let aad = opt_slice(&associated_data);
         let ciphertext =
             maybe_detach(py, message.len(), || stream.push_to_vec(message, aad, tag)).or_raise()?;
-        if tag == Tag::FINAL {
+        if tag == Tag::Final {
             state.finished = true;
         }
         Ok(PyBytes::new(py, &ciphertext))
@@ -267,7 +267,7 @@ impl Decryptor {
                 .map(|(message, tag)| (Zeroizing::new(message), tag))
         })
         .or_raise()?;
-        if tag == Tag::FINAL {
+        if tag == Tag::Final {
             state.finished = true;
         }
         drop(state);

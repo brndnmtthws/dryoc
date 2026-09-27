@@ -183,7 +183,7 @@ fn dryocstream_roundtrip() {
     let message = b"wasm secretstream".to_vec();
     let associated_data = b"fixed-width lengths".to_vec();
     let ciphertext = push_stream
-        .push_to_vec(&message, Some(&associated_data), Tag::FINAL)
+        .push_to_vec(&message, Some(&associated_data), Tag::Final)
         .expect("secretstream push failed");
 
     let mut pull_stream = DryocStream::init_pull(&key, &header);
@@ -192,7 +192,7 @@ fn dryocstream_roundtrip() {
         .expect("secretstream pull failed");
 
     assert_eq!(decrypted, message);
-    assert_eq!(tag, Tag::FINAL);
+    assert_eq!(tag, Tag::Final);
 }
 
 #[wasm_bindgen_test]
