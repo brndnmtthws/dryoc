@@ -159,27 +159,44 @@ pub mod protected {
     pub type HmacSha512256Mac = HeapByteArray<CRYPTO_AUTH_HMACSHA512256_BYTES>;
 }
 
-/// HMAC algorithm variant used by [`Hmac`].
-pub trait HmacVariant<const KEY_LENGTH: usize, const MAC_LENGTH: usize> {
-    /// Incremental state for this HMAC variant.
-    type State;
-    /// Default stack-allocated MAC type used by verification.
-    type Mac: NewByteArray<MAC_LENGTH> + Zeroize;
+mod sealed {
+    use crate::error::Error;
+    use crate::types::NewByteArray;
 
-    /// Computes a MAC in one shot.
-    fn compute(mac: &mut [u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]);
-    /// Verifies a MAC in one shot.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `mac` does not authenticate `input` under `key`.
-    fn verify(mac: &[u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]) -> Result<(), Error>;
-    /// Initializes incremental authentication.
-    fn init(key: &[u8; KEY_LENGTH]) -> Self::State;
-    /// Updates incremental authentication.
-    fn update(state: &mut Self::State, input: &[u8]);
-    /// Finalizes incremental authentication.
-    fn finalize(state: Self::State, mac: &mut [u8; MAC_LENGTH]);
+    /// The primitive operations behind an [`HmacVariant`](super::HmacVariant),
+    /// private to dryoc.
+    pub trait Sealed<const KEY_LENGTH: usize, const MAC_LENGTH: usize> {
+        /// Incremental state for this HMAC variant.
+        type State;
+        /// Default stack-allocated MAC type used by verification.
+        type Mac: NewByteArray<MAC_LENGTH> + zeroize::Zeroize;
+
+        /// Computes a MAC in one shot.
+        fn compute(mac: &mut [u8; MAC_LENGTH], input: &[u8], key: &[u8; KEY_LENGTH]);
+        /// Verifies a MAC in one shot.
+        fn verify(
+            mac: &[u8; MAC_LENGTH],
+            input: &[u8],
+            key: &[u8; KEY_LENGTH],
+        ) -> Result<(), Error>;
+        /// Initializes incremental authentication.
+        fn init(key: &[u8; KEY_LENGTH]) -> Self::State;
+        /// Updates incremental authentication.
+        fn update(state: &mut Self::State, input: &[u8]);
+        /// Finalizes incremental authentication.
+        fn finalize(state: Self::State, mac: &mut [u8; MAC_LENGTH]);
+    }
+}
+
+/// HMAC algorithm variant used by [`Hmac`]: [`HmacSha256Variant`],
+/// [`HmacSha512Variant`] or [`HmacSha512256Variant`].
+///
+/// This trait is sealed so applications cannot plug in custom cryptographic
+/// algorithms; use it to write code that is generic over the provided
+/// variants.
+pub trait HmacVariant<const KEY_LENGTH: usize, const MAC_LENGTH: usize>:
+    sealed::Sealed<KEY_LENGTH, MAC_LENGTH>
+{
 }
 
 /// Rustaceous HMAC authenticator for a specific [`HmacVariant`].
@@ -224,7 +241,9 @@ macro_rules! impl_hmac_variant {
         $update:path,
         $finalize:path
     ) => {
-        impl HmacVariant<$key_len, $mac_len> for $variant {
+        impl HmacVariant<$key_len, $mac_len> for $variant {}
+
+        impl sealed::Sealed<$key_len, $mac_len> for $variant {
             type Mac = $mac;
             type State = $state;
 

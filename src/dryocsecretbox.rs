@@ -28,6 +28,7 @@
 //!
 //! ```
 //! use dryoc::dryocsecretbox::*;
+//! use dryoc::types::*;
 //!
 //! // Generate a random secret key and nonce
 //! let secret_key = Key::generate();
@@ -70,7 +71,7 @@ use crate::constants::{
     CRYPTO_SECRETBOX_KEYBYTES, CRYPTO_SECRETBOX_MACBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
 };
 use crate::error::{Error, ErrorContext};
-pub use crate::types::*;
+use crate::types::*;
 use crate::utils::{ct_eq_bytes, split_prefix};
 
 /// Stack-allocated secret for authenticated secret box.

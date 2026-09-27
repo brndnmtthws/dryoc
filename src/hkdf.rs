@@ -146,46 +146,54 @@ pub mod protected {
     pub type LockedHkdfSha512 = HkdfSha512Expander<Locked<HkdfSha512Prk>>;
 }
 
-/// HKDF algorithm variant used by [`Hkdf`].
-pub trait HkdfVariant<const PRK_LENGTH: usize> {
-    /// Minimum output length accepted by this variant.
-    const OUTPUT_BYTES_MIN: usize;
-    /// Maximum output length accepted by this variant.
-    const OUTPUT_BYTES_MAX: usize;
+mod sealed {
+    use crate::error::Error;
 
-    /// Creates a PRK from input keying material and optional salt.
-    fn extract(prk: &mut [u8; PRK_LENGTH], salt: Option<&[u8]>, ikm: &[u8]);
-    /// Expands a PRK into output keying material.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `output.len()` is outside the range supported by
-    /// this variant.
-    fn expand(output: &mut [u8], context: &[u8], prk: &[u8; PRK_LENGTH]) -> Result<(), Error>;
+    /// The primitive operations behind an [`HkdfVariant`](super::HkdfVariant),
+    /// private to dryoc.
+    pub trait Sealed<const PRK_LENGTH: usize> {
+        /// Minimum output length accepted by this variant.
+        const OUTPUT_BYTES_MIN: usize;
+        /// Maximum output length accepted by this variant.
+        const OUTPUT_BYTES_MAX: usize;
 
-    /// Validates an output length before allocating output storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `output_len` is smaller than
-    /// [`Self::OUTPUT_BYTES_MIN`] or larger than [`Self::OUTPUT_BYTES_MAX`].
-    fn validate_output_len(output_len: usize) -> Result<(), Error> {
-        if output_len < Self::OUTPUT_BYTES_MIN || output_len > Self::OUTPUT_BYTES_MAX {
-            Err(length_error!(
-                crate::ErrorContext::Output,
-                output_len,
-                range Self::OUTPUT_BYTES_MIN,
-                Self::OUTPUT_BYTES_MAX
-            ))
-        } else {
-            Ok(())
+        /// Creates a PRK from input keying material and optional salt.
+        fn extract(prk: &mut [u8; PRK_LENGTH], salt: Option<&[u8]>, ikm: &[u8]);
+        /// Expands a PRK into output keying material, failing if
+        /// `output.len()` is outside the range supported by this variant.
+        fn expand(output: &mut [u8], context: &[u8], prk: &[u8; PRK_LENGTH]) -> Result<(), Error>;
+
+        /// Validates an output length before allocating output storage,
+        /// failing if it is outside
+        /// `OUTPUT_BYTES_MIN..=OUTPUT_BYTES_MAX`.
+        fn validate_output_len(output_len: usize) -> Result<(), Error> {
+            if output_len < Self::OUTPUT_BYTES_MIN || output_len > Self::OUTPUT_BYTES_MAX {
+                Err(length_error!(
+                    crate::ErrorContext::Output,
+                    output_len,
+                    range Self::OUTPUT_BYTES_MIN,
+                    Self::OUTPUT_BYTES_MAX
+                ))
+            } else {
+                Ok(())
+            }
         }
     }
 }
 
+/// HKDF algorithm variant used by [`Hkdf`]: [`HkdfSha256Variant`] or
+/// [`HkdfSha512Variant`].
+///
+/// This trait is sealed so applications cannot plug in custom cryptographic
+/// algorithms; use it to write code that is generic over the provided
+/// variants.
+pub trait HkdfVariant<const PRK_LENGTH: usize>: sealed::Sealed<PRK_LENGTH> {}
+
 macro_rules! impl_hkdf_variant {
     ($variant:ty, $prk_len:expr, $bytes_min:expr, $bytes_max:expr, $extract:path, $expand:path) => {
-        impl HkdfVariant<$prk_len> for $variant {
+        impl HkdfVariant<$prk_len> for $variant {}
+
+        impl sealed::Sealed<$prk_len> for $variant {
             const OUTPUT_BYTES_MAX: usize = $bytes_max;
             const OUTPUT_BYTES_MIN: usize = $bytes_min;
 

@@ -130,10 +130,10 @@ impl PrecalcSecretKey<InnerKey> {
     all(doc, not(doctest), feature = "std")
 ))]
 #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "protected")))]
-pub mod protected {
-    //! # Protected memory for [`PrecalcSecretKey`]
+mod protected {
+    //! Locked-memory constructors for [`PrecalcSecretKey`].
     use super::*;
-    pub use crate::protected::*;
+    use crate::protected::*;
 
     type InnerKey = HeapByteArray<CRYPTO_BOX_PUBLICKEYBYTES>;
 

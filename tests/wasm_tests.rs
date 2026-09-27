@@ -16,7 +16,7 @@ use dryoc::classic::crypto_xof::{
 };
 use dryoc::constants::{CRYPTO_KEM_MLKEM768_CIPHERTEXTBYTES, CRYPTO_KEM_XWING_CIPHERTEXTBYTES};
 use dryoc::dryocaead::{Key as AeadKey, Nonce as AeadNonce, VecBox as AeadVecBox};
-use dryoc::dryocbox::{DryocBox, NewByteArray, Nonce, StackKeyPair};
+use dryoc::dryocbox::{DryocBox, Nonce, StackKeyPair};
 use dryoc::dryocsecretbox::{DryocSecretBox, Key};
 use dryoc::dryocstream::{DryocStream, Header, Key as StreamKey, Tag};
 use dryoc::generichash::GenericHash;
@@ -29,7 +29,7 @@ use dryoc::precalc::PrecalcSecretKey;
 #[cfg(feature = "base64")]
 use dryoc::pwhash::VecPwHash;
 use dryoc::sign::{SigningKeyPair, VecSignedMessage};
-use dryoc::types::{ByteArray, Bytes, StackByteArray};
+use dryoc::types::{ByteArray, Bytes, NewByteArray, StackByteArray};
 use dryoc::xof::{Shake128, TurboShake128, TurboShake256};
 use wasm_bindgen_test::wasm_bindgen_test;
 

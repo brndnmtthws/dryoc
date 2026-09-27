@@ -68,7 +68,7 @@ macro_rules! kem_api {
         use crate::classic::$classic::{$enc, $seed_keypair};
         use crate::error::Error;
         use crate::rng::copy_randombytes;
-        pub use crate::types::*;
+        use crate::types::*;
 
         #[doc = concat!("Stack-allocated ", $algo, " public key.")]
         pub type PublicKey = StackByteArray<{ $pk_bytes }>;
