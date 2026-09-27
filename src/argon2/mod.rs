@@ -1030,7 +1030,8 @@ mod tests {
 
     /// Zero blocks, structured blocks and random blocks, both overwriting
     /// the destination (first pass, `None`) and XORing into it (later
-    /// passes, `Some(old)`).
+    /// passes, `Some(old)`). Miri, which checks the kernels' memory accesses
+    /// rather than their values, takes one random block of each kind.
     #[cfg(any(
         all(feature = "simd_backend", feature = "nightly"),
         target_arch = "x86_64",
@@ -1062,7 +1063,7 @@ mod tests {
             }
             block
         };
-        for i in 0..256 {
+        for i in 0..if cfg!(miri) { 2 } else { 256 } {
             let xor_old = (i % 2 == 1).then(&mut random_block);
             cases.push((random_block(), random_block(), xor_old));
         }

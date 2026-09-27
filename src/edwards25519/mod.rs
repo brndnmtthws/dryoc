@@ -1233,48 +1233,59 @@ mod tests {
     /// and in the field the scalar multiplications use.
     #[test]
     fn test_add_digits_matches_dalek() {
-        fn check<F: Field>() {
-            use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
-            use curve25519_dalek::edwards::EdwardsPoint;
+        use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
+        use curve25519_dalek::edwards::EdwardsPoint;
+        use curve25519_dalek::traits::Identity;
 
-            let mut rng = XorShift64::new(0x7137_4491_23ef_65cd);
-            let a_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
-            let q_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
-            let dalek_a: EdwardsPoint = ED25519_BASEPOINT_TABLE * &a_scalar;
-            let dalek_q: EdwardsPoint = ED25519_BASEPOINT_TABLE * &q_scalar;
-            let a = Point::decompress(&dalek_a.compress().to_bytes()).unwrap();
-            let q = Point::decompress(&dalek_q.compress().to_bytes()).unwrap();
-            let odd = Point::<F>::from_public(&a).odd_multiples_niels();
-            let q = Point::<F>::from_public(&q);
-
-            let scale = |d: i8| {
-                let magnitude = Scalar::from(d.unsigned_abs());
-                if d < 0 { -magnitude } else { magnitude }
-            };
-            // Miri covers zero, both signs and the extrema; native tests
-            // cover every digit pair.
-            let digits = |width: i8| {
-                (-width..=width)
-                    .filter(move |d| {
-                        d % 2 != 0 && (!cfg!(miri) || d.abs() == 1 || d.abs() == width)
-                    })
-                    .chain([0])
-            };
-            for da in digits(15) {
-                for db in digits(127) {
-                    let expected =
-                        dalek_q + dalek_a * scale(da) + ED25519_BASEPOINT_POINT * scale(db);
-                    let actual = Point::add_digits(q, &odd, da, db).to_fe();
-                    assert_eq!(
-                        actual.compress(),
-                        expected.compress().to_bytes(),
-                        "da {da}, db {db}"
-                    );
-                }
+        fn check<F: Field>(a: &Point, q: &Point, expected: &[(i8, i8, [u8; 32])]) {
+            let odd = Point::<F>::from_public(a).odd_multiples_niels();
+            let q = Point::<F>::from_public(q);
+            for (da, db, encoded) in expected {
+                let actual = Point::add_digits(q, &odd, *da, *db).to_fe();
+                assert_eq!(actual.compress(), *encoded, "da {da}, db {db}");
             }
         }
-        check::<Fe>();
-        check::<ScalarMulField>();
+
+        let mut rng = XorShift64::new(0x7137_4491_23ef_65cd);
+        let a_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
+        let q_scalar = Scalar::from_bytes_mod_order(rng.next_bytes32());
+        let dalek_a: EdwardsPoint = ED25519_BASEPOINT_TABLE * &a_scalar;
+        let dalek_q: EdwardsPoint = ED25519_BASEPOINT_TABLE * &q_scalar;
+        let a = Point::decompress(&dalek_a.compress().to_bytes()).unwrap();
+        let q = Point::decompress(&dalek_q.compress().to_bytes()).unwrap();
+
+        // `d * p` for every `d` in `-width..=width`, at index `d + width`,
+        // by repeated addition: a dalek scalar multiplication per digit pair
+        // took over a minute in unoptimized x86-64 builds.
+        let multiples = |p: EdwardsPoint, width: i8| {
+            let mut positive = vec![EdwardsPoint::identity()];
+            for _ in 0..width {
+                let last = positive[positive.len() - 1];
+                positive.push(last + p);
+            }
+            let negative = positive[1..].iter().rev().map(|m| -m);
+            negative.chain(positive.iter().copied()).collect::<Vec<_>>()
+        };
+        let index = |d: i8, width: i8| usize::try_from(i16::from(d) + i16::from(width)).unwrap();
+        let a_multiples = multiples(dalek_a, 15);
+        let b_multiples = multiples(ED25519_BASEPOINT_POINT, 127);
+
+        // Miri covers zero, both signs and the extrema; native tests cover
+        // every digit pair.
+        let digits = |width: i8| {
+            (-width..=width)
+                .filter(move |d| d % 2 != 0 && (!cfg!(miri) || d.abs() == 1 || d.abs() == width))
+                .chain([0])
+        };
+        let expected: Vec<(i8, i8, [u8; 32])> = digits(15)
+            .flat_map(|da| digits(127).map(move |db| (da, db)))
+            .map(|(da, db)| {
+                let sum = dalek_q + a_multiples[index(da, 15)] + b_multiples[index(db, 127)];
+                (da, db, sum.compress().to_bytes())
+            })
+            .collect();
+        check::<Fe>(&a, &q, &expected);
+        check::<ScalarMulField>(&a, &q, &expected);
     }
 
     /// Doubling, negation, cached and fixed-base addition and the

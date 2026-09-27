@@ -83,16 +83,19 @@ cargo clippy --features default -- -D warnings
 cargo +nightly fmt --all -- --check
 ```
 
-CI uses `cargo nextest` when available:
+CI uses `cargo nextest` when available, with `CARGO_PROFILE_TEST_OPT_LEVEL=1`
+and `CARGO_PROFILE_TEST_DEBUG=line-tables-only` for the whole
+`build-and-test.yml` workflow (debug assertions and overflow checks stay on;
+unoptimized x86-64 builds call every SIMD intrinsic out of line). A feature
+set's suite contains the suite of every subset, so CI runs the suites for the
+largest sets and lints every feature set in the `features / clippy` job:
 
 ```sh
 cargo nextest run --features default
-cargo nextest run --no-default-features
-cargo nextest run --no-default-features --features alloc
-cargo nextest run --no-default-features --features std,serde
-cargo nextest run --features base64
-cargo nextest run --features wincode_0_6
-cargo +nightly nextest run --features simd_backend,nightly
+cargo nextest run --no-default-features --features serde,base64,wincode_0_6
+cargo nextest run --no-default-features --features std,serde,base64,wincode_0_6
+cargo +nightly nextest run --all-features
+cargo +nightly nextest run --no-default-features --features simd_backend,nightly
 ```
 
 The wasm tests run through `wasm-bindgen-test-runner` (from the
@@ -100,8 +103,7 @@ The wasm tests run through `wasm-bindgen-test-runner` (from the
 without and once with the `simd128` kernels. Use `cargo test --tests`, not
 nextest: nextest starts one runner (a wasm-bindgen pass plus Node) per test.
 `--tests` skips doctests, which are not run on wasm. CI also sets
-`CARGO_PROFILE_TEST_OPT_LEVEL=1` and `CARGO_PROFILE_TEST_DEBUG=0` for these
-runs (debug assertions and overflow checks stay on):
+`CARGO_PROFILE_TEST_DEBUG=0` for these runs:
 
 ```sh
 export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
@@ -113,7 +115,7 @@ RUSTFLAGS=-Ctarget-feature=+simd128 cargo test --target wasm32-unknown-unknown -
 Coverage is generated on nightly with:
 
 ```sh
-cargo +nightly tarpaulin --features nightly,wincode_0_6 --out Xml
+cargo +nightly tarpaulin --engine llvm --features nightly,wincode_0_6 --out Xml
 ```
 
 Fuzzing lives in `fuzz/` and is isolated as its own workspace:

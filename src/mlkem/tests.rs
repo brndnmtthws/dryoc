@@ -304,8 +304,11 @@ fn test_backends_match_soft() {
     let mut random = |range: i16| -> Poly {
         std::array::from_fn(|_| (next() % (2 * range as u64 - 1)) as i16 - (range - 1))
     };
+    // Miri checks the kernels' memory accesses, which do not depend on the
+    // values: the bound inputs plus a few random rounds suffice there.
+    let rounds = if cfg!(miri) { 3 } else { 64 };
     for arith in Arith::all().into_iter().filter(|&a| a != Arith::Soft) {
-        for round in 0..64 {
+        for round in 0..rounds {
             // NTT inputs are in (-q, q); inverse NTT and multiply inputs are
             // decoded or reduced coefficients below 2^12.
             let (mut a, b, mut c): (PolyVec, PolyVec, Poly) = if round == 0 {
@@ -374,8 +377,8 @@ fn test_backends_match_soft() {
         }
 
         // `poly_to_msg` of every Barrett-reduced value `[0, q]`, each at
-        // every lane position of its byte.
-        for start in 0..8 {
+        // every lane position of its byte (only the first under Miri).
+        for start in 0..if cfg!(miri) { 1 } else { 8 } {
             let mut values = (0..=Q).cycle().skip(start);
             for _ in 0..(Q as usize + 1).div_ceil(N) {
                 let p: Poly = std::array::from_fn(|_| values.next().unwrap());
