@@ -160,8 +160,8 @@ pub(crate) fn crypto_secretbox_detached_b2b(
 
 pub(crate) fn crypto_secretbox_open_detached_b2b(
     message: &mut [u8],
-    mac: &Mac,
     ciphertext: &[u8],
+    mac: &Mac,
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {

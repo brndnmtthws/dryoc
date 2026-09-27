@@ -545,8 +545,8 @@ impl<
 
         crypto_box_open_detached(
             message.as_mut_slice(),
-            self.tag.as_array(),
             self.data.as_slice(),
+            self.tag.as_array(),
             nonce.as_array(),
             sender_public_key.as_array(),
             recipient_secret_key.as_array(),
@@ -579,8 +579,8 @@ impl<
 
         crypto_box_open_detached_afternm(
             message.as_mut_slice(),
-            self.tag.as_array(),
             self.data.as_slice(),
+            self.tag.as_array(),
             nonce.as_array(),
             precalc_secret_key.as_array(),
         )?;
@@ -621,8 +621,8 @@ impl<
 
                 crypto_box_open_detached(
                     message.as_mut_slice(),
-                    self.tag.as_array(),
                     self.data.as_slice(),
+                    self.tag.as_array(),
                     nonce.as_array(),
                     epk.as_array(),
                     recipient_keypair.secret_key.as_array(),

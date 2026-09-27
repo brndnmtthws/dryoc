@@ -98,8 +98,8 @@ pub fn crypto_secretbox_detached(
 /// `ciphertext`, or authentication fails.
 pub fn crypto_secretbox_open_detached(
     message: &mut [u8],
-    mac: &Mac,
     ciphertext: &[u8],
+    mac: &Mac,
     nonce: &Nonce,
     key: &Key,
 ) -> Result<(), Error> {
@@ -107,7 +107,7 @@ pub fn crypto_secretbox_open_detached(
     validate_message_len(c_len, crate::ErrorContext::Ciphertext)?;
     validate_length!(min c_len, message.len(), crate::ErrorContext::Message);
 
-    crypto_secretbox_open_detached_b2b(&mut message[..c_len], mac, ciphertext, nonce, key)
+    crypto_secretbox_open_detached_b2b(&mut message[..c_len], ciphertext, mac, nonce, key)
 }
 
 /// Encrypts `message` with `nonce` and `key`.
@@ -171,7 +171,7 @@ pub fn crypto_secretbox_open_easy(
     let (mac, ciphertext) = ciphertext
         .split_first_chunk::<CRYPTO_SECRETBOX_MACBYTES>()
         .expect("validated ciphertext length");
-    crypto_secretbox_open_detached(message, mac, ciphertext, nonce, key)
+    crypto_secretbox_open_detached(message, ciphertext, mac, nonce, key)
 }
 
 /// Encrypts `message` with `nonce` and `key` in-place, without allocating
@@ -291,8 +291,8 @@ mod tests {
         assert!(
             crypto_secretbox_open_detached(
                 &mut short_open,
-                ciphertext.first_chunk().expect("sealed ciphertext"),
                 &ciphertext[CRYPTO_SECRETBOX_MACBYTES..],
+                ciphertext.first_chunk().expect("sealed ciphertext"),
                 &nonce,
                 &key,
             )
@@ -393,8 +393,8 @@ mod tests {
         let mut decrypted = vec![0x5a; message.len() + 8];
         crypto_secretbox_open_detached(
             &mut decrypted,
-            &mac,
             &ciphertext[..message.len()],
+            &mac,
             &nonce,
             &key,
         )
@@ -419,7 +419,7 @@ mod tests {
         let mut decrypted = vec![0x5a; message.len()];
         let original_decrypted = decrypted.clone();
         assert!(
-            crypto_secretbox_open_detached(&mut decrypted, &mac, &ciphertext, &nonce, &key)
+            crypto_secretbox_open_detached(&mut decrypted, &ciphertext, &mac, &nonce, &key)
                 .is_err()
         );
         assert_eq!(decrypted, original_decrypted);
@@ -602,7 +602,7 @@ mod tests {
             assert_eq!(data, expected_easy, "len {len}: easy in place");
 
             let mut output = vec![0u8; len];
-            crypto_secretbox_open_detached(&mut output, &expected_mac, &expected, &nonce, &key)
+            crypto_secretbox_open_detached(&mut output, &expected, &expected_mac, &nonce, &key)
                 .expect("open detached");
             assert_eq!(output, message, "len {len}: open detached");
 
