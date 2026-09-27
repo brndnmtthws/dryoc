@@ -412,19 +412,52 @@ jobs:
       # corpus (plus the checked-in boundary-length seeds where a target has
       # them) and runs for a fixed wall time. `-max_total_time` does not
       # interrupt a stuck input, so `-timeout` bounds that too; every
-      # legitimate input takes well under a second.
+      # legitimate input takes well under a second. The targets run one per
+      # CPU at a time; the step above built them with the same flags, so each
+      # `cargo fuzz run` only checks freshness. Once all of them finish, each
+      # target's output is printed in its own group (in list order, so
+      # concurrent targets never interleave) and the step fails if any failed.
       - name: Run each fuzz target for 10 seconds
         run: |
           HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
-          for target in $(cargo fuzz list); do
-            corpora=("fuzz/corpus/$target")
+          logs="$RUNNER_TEMP/fuzz-logs"
+          mkdir -p "$logs"
+          fuzz() {
+            local target="$1" status=0
+            local corpora=("fuzz/corpus/$target")
             mkdir -p "${corpora[0]}"
             if [ -d "fuzz/seeds/$target" ]; then
               corpora+=("fuzz/seeds/$target")
             fi
             cargo fuzz run --target "$HOST_TARGET" --features base64 "$target" "${corpora[@]}" \
-              -- -max_total_time=10 -timeout=10
+              -- -max_total_time=10 -timeout=10 > "$logs/$target.log" 2>&1 || status=$?
+            echo "$status" > "$logs/$target.status"
+          }
+          mapfile -t targets < <(cargo fuzz list)
+          running=0
+          for target in "${targets[@]}"; do
+            if [ "$running" -ge "$(nproc)" ]; then
+              wait -n
+              running=$((running - 1))
+            fi
+            fuzz "$target" &
+            running=$((running + 1))
           done
+          wait
+          failed=()
+          for target in "${targets[@]}"; do
+            status="$(cat "$logs/$target.status")"
+            echo "::group::$target (exit $status)"
+            cat "$logs/$target.log"
+            echo "::endgroup::"
+            if [ "$status" != 0 ]; then
+              failed+=("$target")
+            fi
+          done
+          if [ ${#failed[@]} -ne 0 ]; then
+            echo "::error::fuzz targets failed: ${failed[*]}"
+            exit 1
+          fi
       - name: Upload crashing inputs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -469,8 +502,14 @@ jobs:
         run: |
           uv python install 3.14t
           echo "path=$(uv python find 3.14t)" >> "$GITHUB_OUTPUT"
+      # Without the release profile's fat LTO and single codegen unit, which
+      # serialize most of the build but change no behavior these tests check.
+      # python-sdist and publish.yml build and test with the release profile.
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         with:
           command: build
           manylinux: ${{ matrix.wheel == 'free-threaded' && 'off' || '' }}
