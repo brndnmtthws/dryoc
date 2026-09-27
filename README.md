@@ -118,3 +118,8 @@ Enable `features = ["alloc"]` on embedded/custom targets with a heap allocator.
 Licensed under the MIT License. Inspired by and compatible with [libsodium](https://doc.libsodium.org/) and [NaCl](https://nacl.cr.yp.to/).
 
 [^1]: Not actually trademarked.
+
+[^2]: Unsafe code is confined to protected memory, zeroization, the optimized
+SIMD and `asm!` backends, and a few small helpers; the
+[unsafe code inventory](https://docs.rs/dryoc/latest/dryoc/unsafe_code/index.html)
+lists every use.
