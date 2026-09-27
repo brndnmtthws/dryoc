@@ -480,11 +480,9 @@ mod tests {
 
     #[cfg(feature = "nightly")]
     extern crate test;
-    use std::sync::LazyLock;
-
-    use serde::{Deserialize, Serialize};
 
     use super::*;
+    use crate::blake2b::test_util::for_each_vector;
 
     /// The register-scheduled AArch64 rounds agree with the portable rounds
     /// on random states and blocks.
@@ -544,35 +542,16 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
-    struct TestVector {
-        hash: String,
-        #[serde(rename = "in")]
-        in_: String,
-        key: String,
-        out: String,
-    }
-
-    static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| {
-        serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap()
-    });
-
     #[test]
     fn test_vectors() {
-        for vector in TEST_VECTORS.iter() {
-            let key = if vector.key.is_empty() {
-                None
-            } else {
-                Some(hex::decode(&vector.key).unwrap())
-            };
-            let mut state = State::init(64, key.as_deref(), None, None).expect("init");
-            state.update(hex::decode(&vector.in_).unwrap().as_slice());
+        for_each_vector(|key, input, expected| {
+            let key = (!key.is_empty()).then_some(key);
+            let mut state = State::init(64, key, None, None).expect("init");
+            state.update(input);
             let mut output = [0u8; 64];
-
-            state.finalize(&mut output).ok();
-
-            assert_eq!(vector.out, hex::encode(output));
-        }
+            state.finalize(&mut output).expect("finalize");
+            assert_eq!(output.as_slice(), expected);
+        });
     }
 
     /// The one-shot `hash` (single-block fast path for unkeyed messages of at
@@ -581,17 +560,13 @@ mod tests {
     /// message length around the block boundary.
     #[test]
     fn test_hash_one_shot_matches_state_path() {
-        for vector in TEST_VECTORS.iter().filter(|v| v.key.is_empty()) {
-            let input = hex::decode(&vector.in_).unwrap();
-            let mut output = [0u8; 64];
-            hash(&mut output, &input, None).expect("hash");
-            assert_eq!(
-                vector.out,
-                hex::encode(output),
-                "vector len {}",
-                input.len()
-            );
-        }
+        for_each_vector(|key, input, expected| {
+            if key.is_empty() {
+                let mut output = [0u8; 64];
+                hash(&mut output, input, None).expect("hash");
+                assert_eq!(output.as_slice(), expected, "vector len {}", input.len());
+            }
+        });
         let input: Vec<u8> = (0..=255u8)
             .map(|b| b.wrapping_mul(37).wrapping_add(11))
             .collect();

@@ -981,6 +981,40 @@ fn mul_base_impl(scalar: &[u8; 32]) -> Point {
     p
 }
 
+/// Hand-built Edwards25519 encodings and points shared by the point-validation
+/// tests of several modules.
+#[cfg(test)]
+pub(crate) mod test_vectors {
+    use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+    use curve25519_dalek::edwards::EdwardsPoint;
+
+    /// The identity `(0, 1)`: `y = 1` with the sign bit clear.
+    pub(crate) const IDENTITY: [u8; 32] = {
+        let mut point = [0u8; 32];
+        point[0] = 1;
+        point
+    };
+
+    /// `y = p + 1`: a non-canonical alternate encoding of the identity.
+    pub(crate) const NONCANONICAL_IDENTITY: [u8; 32] = {
+        let mut point = [0xff; 32];
+        point[0] = 0xee;
+        point[31] = 0x7f;
+        point
+    };
+
+    /// A point of order 8.
+    pub(crate) fn torsion_point() -> EdwardsPoint {
+        EIGHT_TORSION[1]
+    }
+
+    /// The basepoint plus [`torsion_point`]: neither small-order nor
+    /// torsion-free.
+    pub(crate) fn mixed_order_point() -> EdwardsPoint {
+        ED25519_BASEPOINT_POINT + torsion_point()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
@@ -988,7 +1022,7 @@ mod tests {
 
     use super::*;
     use crate::test_prelude::*;
-    use crate::utils::test_util::{XorShift64, hex32 as hex};
+    use crate::utils::test_util::{XorShift64, hex_array as hex};
 
     /// `2d` really is twice `-121665 / 121666`.
     #[test]
@@ -1136,7 +1170,8 @@ mod tests {
     #[cfg(feature = "alloc")]
     fn test_rfc8032_public_key() {
         // Secret scalar a for seed 9d61b19d...; a = clamp(SHA-512(seed)[..32]).
-        let seed = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+        let seed: [u8; 32] =
+            hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
         let mut h = crate::sha512::Sha512::compute_to_vec(&seed);
         h[0] &= 248;
         h[31] &= 127;
@@ -1493,21 +1528,19 @@ mod tests {
         [out.y_plus_x.0, out.y_minus_x.0, out.xy2d.0]
     }
 
-    /// The AVX-512 lookup equals the scalar one for every table row and
-    /// every digit magnitude `0..=8`, including the identity for 0, and the
-    /// production dispatch agrees with both.
-    #[cfg(target_arch = "x86_64")]
-    #[test]
-    fn test_avx512_select_row_matches_scalar() {
-        let Some(avx512) = crate::x86_64::Avx512::new() else {
-            return;
-        };
+    /// Checks that `backend` returns exactly the limbs the scalar lookup does
+    /// for every table row and every digit magnitude `0..=8`, including the
+    /// identity for 0, and that the production dispatch agrees with both.
+    #[cfg(any(
+        target_arch = "x86_64",
+        all(target_arch = "aarch64", target_feature = "neon")
+    ))]
+    fn check_select_row_matches_scalar(backend: impl Fn(&[Niels; 8], u8, &mut Niels)) {
         let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
         for (k, row) in TABLES.base.iter().enumerate() {
             for magnitude in 0..=8u8 {
                 let expected = lookup(|out| select_row_scalar(row, magnitude, out));
-                let selected =
-                    lookup(|out| edwards25519_x86_64::select_row(avx512, row, magnitude, out));
+                let selected = lookup(|out| backend(row, magnitude, out));
                 assert_eq!(selected, expected, "row {k}, magnitude {magnitude}");
                 assert_eq!(
                     lookup(|out| select_row(row, magnitude, out)),
@@ -1521,6 +1554,20 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The AVX-512 lookup equals the scalar one for every table row and
+    /// every digit magnitude `0..=8`, including the identity for 0, and the
+    /// production dispatch agrees with both.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_avx512_select_row_matches_scalar() {
+        let Some(avx512) = crate::x86_64::Avx512::new() else {
+            return;
+        };
+        check_select_row_matches_scalar(|row, magnitude, out| {
+            edwards25519_x86_64::select_row(avx512, row, magnitude, out)
+        });
     }
 
     /// The four-limb NEON lookup in `BASE64` returns the scalar lookup's
@@ -1554,23 +1601,6 @@ mod tests {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[test]
     fn test_neon_select_row_matches_scalar() {
-        let limbs = |n: &Niels| [n.y_plus_x.0, n.y_minus_x.0, n.xy2d.0];
-        for (k, row) in TABLES.base.iter().enumerate() {
-            for magnitude in 0..=8u8 {
-                let expected = lookup(|out| select_row_scalar(row, magnitude, out));
-                let neon = lookup(|out| edwards25519_neon::select_row(row, magnitude, out));
-                assert_eq!(neon, expected, "row {k}, magnitude {magnitude}");
-                assert_eq!(
-                    lookup(|out| select_row(row, magnitude, out)),
-                    expected,
-                    "row {k}, magnitude {magnitude}"
-                );
-                if magnitude == 0 {
-                    assert_eq!(expected, limbs(&Niels::IDENTITY));
-                } else {
-                    assert_eq!(expected, limbs(&row[usize::from(magnitude) - 1]));
-                }
-            }
-        }
+        check_select_row_matches_scalar(edwards25519_neon::select_row);
     }
 }

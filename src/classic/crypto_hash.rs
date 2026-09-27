@@ -176,10 +176,7 @@ mod tests {
     use super::*;
     use crate::sha3::test_vectors::{SHA3_256_RATE, SHA3_512_RATE, sha3_256, sha3_512};
     use crate::test_prelude::*;
-
-    fn hex(s: &str) -> Vec<u8> {
-        hex::decode(s).expect("hex failed")
-    }
+    use crate::utils::test_util::hex;
 
     fn pattern(len: usize) -> Vec<u8> {
         (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()

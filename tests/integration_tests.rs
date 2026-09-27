@@ -1,7 +1,11 @@
+#[path = "support/vectors.rs"]
+mod vector_file;
+
 use std::vec;
 
 #[cfg(feature = "alloc")]
 use dryoc::precalc::PrecalcSecretKey;
+use vector_file::{bytes, records};
 
 struct RejectingByteArray<const LENGTH: usize>([u8; LENGTH]);
 
@@ -302,16 +306,6 @@ fn test_xof_public_api() {
     );
 }
 
-/// Field `key` of the first record in a `key = value` vector file.
-fn first_record_field(text: &str, key: &str) -> Vec<u8> {
-    let prefix = format!("{key} = ");
-    let line = text
-        .lines()
-        .find(|line| line.starts_with(&prefix))
-        .expect("field present");
-    hex::decode(&line[prefix.len()..]).expect("hex")
-}
-
 #[test]
 fn test_kem_public_api() {
     use dryoc::classic::crypto_kem::{crypto_kem_dec, crypto_kem_enc};
@@ -321,12 +315,10 @@ fn test_kem_public_api() {
 
     // draft-connolly-cfrg-xwing-kem Appendix C, first vector.
     let vectors = include_str!("../src/mlkem/test-vectors/xwing_draft.txt");
-    let seed = Seed::try_from(first_record_field(vectors, "seed").as_slice()).expect("seed");
+    let first = &records(vectors)[0];
+    let seed = Seed::try_from(bytes(first, "seed").as_slice()).expect("seed");
     let keypair = StackKeyPair::from_seed(&seed);
-    assert_eq!(
-        keypair.public_key.as_slice(),
-        first_record_field(vectors, "pk")
-    );
+    assert_eq!(keypair.public_key.as_slice(), bytes(first, "pk"));
     let restored = StackKeyPair::from_secret_key(keypair.secret_key.clone());
     assert_eq!(restored.public_key, keypair.public_key);
 
@@ -436,10 +428,11 @@ fn test_kem_serde_json() {
     // draft-connolly-cfrg-xwing-kem Appendix C, first vector: the decoded
     // key pair and ciphertext reproduce the draft's shared secret.
     let vectors = include_str!("../src/mlkem/test-vectors/xwing_draft.txt");
-    let seed = first_record_field(vectors, "seed");
-    let pk = first_record_field(vectors, "pk");
-    let ct = first_record_field(vectors, "ct");
-    let ss = first_record_field(vectors, "ss");
+    let first = &records(vectors)[0];
+    let seed = bytes(first, "seed");
+    let pk = bytes(first, "pk");
+    let ct = bytes(first, "ct");
+    let ss = bytes(first, "ss");
     let keypair = StackKeyPair::from_seed(&Seed::try_from(seed.as_slice()).expect("seed"));
 
     let json = serde_json::to_string(&keypair).expect("serialize");
@@ -484,9 +477,10 @@ fn test_kem_serde_json() {
     // the encapsulation key embedded in the expanded secret key after the
     // 1152-byte secret vector.
     let vectors = include_str!("../src/mlkem/test-vectors/mlkem768_acvp_decap.txt");
-    let dk = first_record_field(vectors, "dk");
-    let c = first_record_field(vectors, "c");
-    let k = first_record_field(vectors, "k");
+    let first = &records(vectors)[0];
+    let dk = bytes(first, "dk");
+    let c = bytes(first, "c");
+    let k = bytes(first, "k");
     let keypair = kem::mlkem768::StackKeyPair::from_secret_key(
         kem::mlkem768::SecretKey::try_from(dk.as_slice()).expect("secret key"),
     );
@@ -579,10 +573,11 @@ fn test_kem_and_sealed_box_protected_serde_json() {
     use dryoc::kem::{self, Ciphertext, StackKeyPair};
 
     let vectors = include_str!("../src/mlkem/test-vectors/xwing_draft.txt");
-    let seed = first_record_field(vectors, "seed");
-    let pk = first_record_field(vectors, "pk");
-    let ct = first_record_field(vectors, "ct");
-    let ss = first_record_field(vectors, "ss");
+    let first = &records(vectors)[0];
+    let seed = bytes(first, "seed");
+    let pk = bytes(first, "pk");
+    let ct = bytes(first, "ct");
+    let ss = bytes(first, "ss");
     let json = kem_keypair_json(&pk, &seed);
 
     // Locked key pairs use the stack encoding in both directions.

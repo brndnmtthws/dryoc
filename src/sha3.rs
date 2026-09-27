@@ -182,10 +182,7 @@ sha3_hasher! {
 pub(crate) mod test_vectors {
     pub(crate) use crate::keccak::{RATE_256 as SHA3_256_RATE, RATE_512 as SHA3_512_RATE};
     use crate::test_prelude::*;
-
-    fn hex(s: &str) -> Vec<u8> {
-        hex::decode(s).expect("hex failed")
-    }
+    use crate::utils::test_util::hex;
 
     fn pattern(len: usize) -> Vec<u8> {
         (0..len as u32).map(|i| (i * 31 % 251) as u8).collect()

@@ -711,6 +711,8 @@ mod tests {
 
     #[test]
     fn test_is_valid_public_key() {
+        use crate::edwards25519::test_vectors::{IDENTITY, NONCANONICAL_IDENTITY};
+
         let keypair = StackSigningKeyPair::generate();
         assert!(
             is_valid_public_key(&keypair.public_key),
@@ -735,18 +737,13 @@ mod tests {
             "zero key should be invalid"
         );
 
-        let mut identity = [0u8; CRYPTO_SIGN_PUBLICKEYBYTES];
-        identity[0] = 1;
         assert!(
-            !is_valid_public_key(&identity),
+            !is_valid_public_key(&IDENTITY),
             "identity element should be invalid"
         );
 
-        let mut noncanonical_identity = [0xff; CRYPTO_SIGN_PUBLICKEYBYTES];
-        noncanonical_identity[0] = 0xee;
-        noncanonical_identity[31] = 0x7f;
         assert!(
-            !is_valid_public_key(&noncanonical_identity),
+            !is_valid_public_key(&NONCANONICAL_IDENTITY),
             "noncanonical identity encoding should be invalid"
         );
 

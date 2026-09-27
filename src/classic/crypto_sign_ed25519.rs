@@ -384,6 +384,7 @@ mod regression_tests {
     use crate::classic::crypto_core::{
         decompress_canonical_ed25519_point, ed25519_is_torsion_free,
     };
+    use crate::edwards25519::test_vectors::{IDENTITY, NONCANONICAL_IDENTITY, mixed_order_point};
 
     pub(super) const ED25519_GROUP_ORDER: [u8; 32] = [
         0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
@@ -442,26 +443,12 @@ mod regression_tests {
 
     #[test]
     fn public_key_conversion_rejects_invalid_edwards_points() {
-        let identity = {
-            let mut point = [0u8; 32];
-            point[0] = 1;
-            point
-        };
-        let noncanonical_identity = {
-            let mut point = [0xff; 32];
-            point[0] = 0xee;
-            point[31] = 0x7f;
-            point
-        };
-        let mixed_order = (curve25519_dalek::constants::ED25519_BASEPOINT_POINT
-            + curve25519_dalek::constants::EIGHT_TORSION[1])
-            .compress()
-            .to_bytes();
+        let mixed_order = mixed_order_point().compress().to_bytes();
         let mixed_point = decompress_canonical_ed25519_point(&mixed_order).unwrap();
         assert!(!mixed_point.is_small_order());
         assert!(!ed25519_is_torsion_free(&mixed_point));
 
-        for invalid_key in [identity, noncanonical_identity, mixed_order] {
+        for invalid_key in [IDENTITY, NONCANONICAL_IDENTITY, mixed_order] {
             let mut output = [0xa5; CRYPTO_SCALARMULT_CURVE25519_BYTES];
             assert!(crypto_sign_ed25519_pk_to_curve25519(&mut output, &invalid_key).is_err());
             assert_eq!(
@@ -493,7 +480,7 @@ mod vector_tests {
     use super::*;
     use crate::scalarmult_curve25519::test_vectors::field_prime_plus;
     use crate::test_prelude::*;
-    use crate::utils::test_util::hex32 as hex;
+    use crate::utils::test_util::hex_array as hex;
 
     /// RFC 8032 section 7.1 vector: seed, public key, message and signature.
     struct Vector {
@@ -580,10 +567,6 @@ mod vector_tests {
         signature: "98a70222f0b8121aa9d30f813d683f809e462b469c7ff87639499bb94e6dae4131f85042463c2a355a2003d062adf5aaa10b8c61e636062aaad11c2a26083406",
     };
 
-    fn hex64(s: &str) -> Signature {
-        hex::decode(s).expect("hex").try_into().expect("64 bytes")
-    }
-
     /// Point encodings every verifier must refuse as `R` or `A`: the three
     /// non-canonical `y >= p` values `p`, `p + 1` and `2^255 - 1` with both
     /// sign bits, the eight small-order points, and the two alternate
@@ -621,7 +604,7 @@ mod vector_tests {
         for (i, vector) in ED25519_VECTORS.iter().enumerate() {
             let seed = hex(vector.seed);
             let message = hex::decode(vector.message).expect("hex");
-            let expected_signature = hex64(vector.signature);
+            let expected_signature: Signature = hex(vector.signature);
 
             let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&seed);
             assert_eq!(public_key, hex(vector.public_key), "public key {i}");
@@ -661,7 +644,7 @@ mod vector_tests {
         let seed = hex(ED25519PH_VECTOR.seed);
         let message = hex::decode(ED25519PH_VECTOR.message).expect("hex");
         assert_eq!(message, b"abc");
-        let expected_signature = hex64(ED25519PH_VECTOR.signature);
+        let expected_signature: Signature = hex(ED25519PH_VECTOR.signature);
 
         let (public_key, secret_key) = crypto_sign_ed25519_seed_keypair(&seed);
         assert_eq!(public_key, hex(ED25519PH_VECTOR.public_key));
@@ -881,6 +864,7 @@ mod tests {
     use base64::engine::general_purpose;
 
     use super::*;
+    use crate::edwards25519::test_vectors::{IDENTITY, NONCANONICAL_IDENTITY, mixed_order_point};
     use crate::rng::copy_randombytes;
 
     #[test]
@@ -947,23 +931,9 @@ mod tests {
 
         crate::native_test_util::init();
 
-        let identity = {
-            let mut point = [0u8; 32];
-            point[0] = 1;
-            point
-        };
-        let noncanonical_identity = {
-            let mut point = [0xff; 32];
-            point[0] = 0xee;
-            point[31] = 0x7f;
-            point
-        };
-        let mixed_order = (curve25519_dalek::constants::ED25519_BASEPOINT_POINT
-            + curve25519_dalek::constants::EIGHT_TORSION[1])
-            .compress()
-            .to_bytes();
+        let mixed_order = mixed_order_point().compress().to_bytes();
 
-        for invalid_key in [identity, noncanonical_identity, mixed_order] {
+        for invalid_key in [IDENTITY, NONCANONICAL_IDENTITY, mixed_order] {
             let mut output = [0u8; CRYPTO_SCALARMULT_CURVE25519_BYTES];
             let dryoc_result = crypto_sign_ed25519_pk_to_curve25519(&mut output, &invalid_key);
             let sodium_result =

@@ -7,43 +7,16 @@
 //! CCTV accumulated test. Every file was checked against libsodium 1.0.22.
 //! Each KEM test runs on every backend the CPU supports.
 
-use std::collections::BTreeMap;
+#[path = "../../tests/support/vectors.rs"]
+mod vector_file;
 
+pub(crate) use vector_file::{field, records};
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use wasm_bindgen_test::wasm_bindgen_test as test;
 
 use super::*;
 use crate::keccak::Sponge;
 use crate::test_prelude::*;
-
-/// Parses a vector file: `#` comments, then blank-line-separated records of
-/// `key = value` lines. Works line by line, so a CRLF checkout (Windows)
-/// parses the same; a repeated key within a record is an error rather than
-/// a silent merge of two records.
-pub(crate) fn records(text: &str) -> Vec<BTreeMap<&str, &str>> {
-    let mut records = vec![BTreeMap::new()];
-    for line in text.lines().filter(|line| !line.starts_with('#')) {
-        let record = records.last_mut().expect("at least one record");
-        if line.is_empty() {
-            if !record.is_empty() {
-                records.push(BTreeMap::new());
-            }
-        } else {
-            let (key, value) = line.split_once(" = ").expect("key = value");
-            assert!(record.insert(key, value).is_none(), "repeated key {key}");
-        }
-    }
-    records.retain(|record| !record.is_empty());
-    records
-}
-
-/// Decodes the hex field `key` of `record` into a fixed-size array.
-pub(crate) fn field<const LEN: usize>(record: &BTreeMap<&str, &str>, key: &str) -> [u8; LEN] {
-    hex::decode(record[key])
-        .expect("hex field")
-        .try_into()
-        .expect("field length")
-}
 
 fn keypair_vec(
     arith: Arith,

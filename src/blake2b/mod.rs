@@ -219,6 +219,40 @@ macro_rules! blake2b_longhash {
 }
 pub(crate) use blake2b_longhash;
 
+/// The official BLAKE2b known answers shared by the soft and SIMD backend
+/// tests.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use std::sync::LazyLock;
+
+    use serde::Deserialize;
+
+    use crate::test_prelude::*;
+
+    #[derive(Deserialize)]
+    struct TestVector {
+        #[serde(rename = "in")]
+        input: String,
+        key: String,
+        out: String,
+    }
+
+    static TEST_VECTORS: LazyLock<Vec<TestVector>> = LazyLock::new(|| {
+        serde_json::from_str(include_str!("test-vectors/blake2b-test-vectors.json")).unwrap()
+    });
+
+    /// Calls `f(key, input, out)` for every 64-byte-output vector; `key` is
+    /// empty for the unkeyed ones.
+    pub(crate) fn for_each_vector(mut f: impl FnMut(&[u8], &[u8], &[u8])) {
+        for vector in TEST_VECTORS.iter() {
+            let key = hex::decode(&vector.key).expect("key hex");
+            let input = hex::decode(&vector.input).expect("input hex");
+            let out = hex::decode(&vector.out).expect("out hex");
+            f(&key, &input, &out);
+        }
+    }
+}
+
 /// The portable-SIMD backend against the soft one (register-scheduled
 /// AArch64 rounds where those are compiled in), over every entry point.
 #[cfg(all(test, feature = "simd_backend", feature = "nightly"))]

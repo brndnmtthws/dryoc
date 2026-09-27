@@ -381,7 +381,7 @@ mod tests {
 
     use super::test_vectors::{field_prime_plus, low_order_u_encodings};
     use super::*;
-    use crate::utils::test_util::{XorShift64, hex32 as hex};
+    use crate::utils::test_util::{XorShift64, hex_array as hex};
 
     fn x25519(k: &[u8; 32], u: &[u8; 32]) -> [u8; 32] {
         let mut q = [0u8; 32];

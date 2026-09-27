@@ -1,6 +1,7 @@
 #![cfg(all(target_arch = "wasm32", target_os = "unknown", feature = "alloc"))]
 
-use std::collections::BTreeMap;
+#[path = "support/vectors.rs"]
+mod vector_file;
 
 use dryoc::auth::Auth;
 use dryoc::classic::crypto_aead_chacha20poly1305_ietf::{
@@ -31,6 +32,7 @@ use dryoc::pwhash::VecPwHash;
 use dryoc::sign::{SigningKeyPair, VecSignedMessage};
 use dryoc::types::{ByteArray, Bytes, NewByteArray, StackByteArray};
 use dryoc::xof::{Shake128, TurboShake128, TurboShake256};
+use vector_file::{field, records};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 fn unhex(hex: &str) -> Vec<u8> {
@@ -39,32 +41,6 @@ fn unhex(hex: &str) -> Vec<u8> {
 
 fn unhex_array<const N: usize>(hex: &str) -> [u8; N] {
     unhex(hex).try_into().expect("expected length")
-}
-
-/// Parses a file from `src/mlkem/test-vectors/`: `#` comments, then
-/// blank-line-separated records of `key = value` lines. Works line by line,
-/// like the native tests' parser, so a CRLF checkout parses the same; a
-/// repeated key within a record is an error.
-fn records(text: &str) -> Vec<BTreeMap<&str, &str>> {
-    let mut records = vec![BTreeMap::new()];
-    for line in text.lines().filter(|line| !line.starts_with('#')) {
-        let record = records.last_mut().expect("at least one record");
-        if line.is_empty() {
-            if !record.is_empty() {
-                records.push(BTreeMap::new());
-            }
-        } else {
-            let (key, value) = line.split_once(" = ").expect("key = value");
-            assert!(record.insert(key, value).is_none(), "repeated key {key}");
-        }
-    }
-    records.retain(|record| !record.is_empty());
-    records
-}
-
-/// Decodes the hex field `key` of `record` into a fixed-size array.
-fn field<const N: usize>(record: &BTreeMap<&str, &str>, key: &str) -> [u8; N] {
-    unhex_array(record[key])
 }
 
 /// HPKE's `suite_id` for X-Wing, HKDF-SHA256 and ChaCha20-Poly1305.
