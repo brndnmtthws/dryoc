@@ -11,6 +11,7 @@ on:
       - main
     paths:
       - .github/workflows/publish.yml
+      - .github/scripts/test-wheel.sh
       - python/**
   workflow_dispatch:
 
@@ -146,17 +147,21 @@ jobs:
           files=(dist/*)
           wheels=(dist/*.whl)
           sdists=(dist/*.tar.gz)
-          [[ ${#wheels[@]} -eq 8 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 9 ]] || {
-            echo "Expected exactly eight wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
+          [[ ${#wheels[@]} -eq 12 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 13 ]] || {
+            echo "Expected exactly twelve wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
             exit 1
           }
           expected=(
             'cp311-abi3-manylinux_*_x86_64'
             'cp311-abi3-manylinux_*_aarch64'
+            'cp311-abi3-musllinux_1_2_x86_64'
+            'cp311-abi3-musllinux_1_2_aarch64'
             'cp311-abi3-macosx_*_arm64'
             'cp311-abi3-win_amd64'
             'cp314-cp314t-manylinux_*_x86_64'
             'cp314-cp314t-manylinux_*_aarch64'
+            'cp314-cp314t-musllinux_1_2_x86_64'
+            'cp314-cp314t-musllinux_1_2_aarch64'
             'cp314-cp314t-macosx_*_arm64'
             'cp314-cp314t-win_amd64'
           )
@@ -171,8 +176,14 @@ jobs:
           enable-cache: false
       - name: Check package metadata
         run: uvx twine check --strict dist/*
+      # auditwheel vendors libgcc_s (the unwinder of Rust's dynamically linked
+      # musl cdylibs) into dryoc.libs/, which holds no Python modules. Pin the
+      # musllinux top level to exactly those two entries instead of W009/W010.
       - name: Check wheel contents
-        run: uvx check-wheel-contents dist/*.whl
+        run: |
+          shopt -s extglob
+          uvx check-wheel-contents dist/!(*musllinux*).whl
+          uvx check-wheel-contents --toplevel dryoc,dryoc.libs --ignore W010 dist/*musllinux*.whl
 
   pypi-publish:
     name: Publish Python package to PyPI
@@ -244,6 +255,25 @@ jobs:
             target: aarch64-unknown-linux-gnu
             manylinux: 2_28
             ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+          # Alpine and other musl distributions cannot load manylinux wheels.
+          # maturin-action's default musllinux image (rust-musl-cross) has no
+          # /opt/python interpreters, so both musl builds use the pypa images.
+          - name: musllinux x86_64
+            slug: musllinux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+            container: quay.io/pypa/musllinux_1_2_x86_64:latest
+            musl: true
+          - name: musllinux aarch64
+            slug: musllinux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
+            container: quay.io/pypa/musllinux_1_2_aarch64:latest
+            musl: true
           - name: macOS arm64
             slug: macos-arm64
             runner: macos-latest
@@ -266,27 +296,18 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release --locked --out dist
           working-directory: python
-      # Each test recreates python/.venv for its interpreter and installs the
-      # prebuilt wheel into it; `--no-sync` keeps uv from building the project.
       # The latest-Python test runs first: "3" matches any installed 3.x, so
       # only on a runner without managed Pythons does it fetch the newest one.
       - name: Test abi3 wheel on latest Python
-        run: |
-          uv sync --locked --only-group test --python 3
-          uv pip install dist/*cp311-abi3*.whl
-          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
-          uv run --no-sync python -c "import nacl"
-          uv run --no-sync pytest -p no:cacheprovider tests
+        if: ${{ !matrix.musl }}
+        run: sh ../.github/scripts/test-wheel.sh 3 'dist/*cp311-abi3*.whl'
         working-directory: python
       - name: Test abi3 wheel on Python 3.11
-        run: |
-          uv sync --locked --only-group test --python 3.11
-          uv pip install dist/*cp311-abi3*.whl
-          uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
-          uv run --no-sync python -c "import nacl"
-          uv run --no-sync pytest -p no:cacheprovider tests
+        if: ${{ !matrix.musl }}
+        run: sh ../.github/scripts/test-wheel.sh 3.11 'dist/*cp311-abi3*.whl'
         working-directory: python
       - name: Set up free-threaded Python for macOS and Windows build
         if: "!startsWith(matrix.target, 'x86_64-unknown-linux') && !startsWith(matrix.target, 'aarch64-unknown-linux')"
@@ -299,16 +320,29 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
           args: --release --locked --out dist -i "${{ matrix.ft_interpreter || steps.ft-python.outputs.python-path }}"
           working-directory: python
       - name: Test free-threaded wheel
-        run: |
-          uv sync --locked --only-group test --python 3.14t
-          uv pip install dist/*cp314-cp314t*.whl
-          uv run --no-sync python -c "import sys, dryoc; assert not sys._is_gil_enabled()"
-          uv run --no-sync python -c "import nacl"
-          uv run --no-sync pytest -p no:cacheprovider tests
+        if: ${{ !matrix.musl }}
+        run: sh ../.github/scripts/test-wheel.sh 3.14t 'dist/*cp314-cp314t*.whl'
         working-directory: python
+      # musllinux wheels do not install on the glibc runner: test both in
+      # Alpine, against uv's musl builds of the same interpreters. The
+      # checkout is mounted read-only, so the container cannot alter the
+      # wheels uploaded below; the environment lives in /venv instead.
+      - name: Test musllinux wheels on Alpine
+        if: ${{ matrix.musl }}
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/io:ro" --workdir /io/python \
+            --env UV_MANAGED_PYTHON --env UV_PROJECT_ENVIRONMENT=/venv --env VIRTUAL_ENV=/venv \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            ghcr.io/astral-sh/uv:0.12-alpine sh -euc '
+              sh ../.github/scripts/test-wheel.sh 3 "dist/*cp311-abi3*.whl"
+              sh ../.github/scripts/test-wheel.sh 3.11 "dist/*cp311-abi3*.whl"
+              sh ../.github/scripts/test-wheel.sh 3.14t "dist/*cp314-cp314t*.whl"
+            '
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: python-wheel-${{ matrix.slug }}
