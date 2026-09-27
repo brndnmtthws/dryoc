@@ -30,11 +30,11 @@
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
-//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+//! let keypair = StackSigningKeyPair::generate();
 //! let message = b"Fair is foul, and foul is fair: Hover through the fog and filthy air.";
 //!
-//! // Sign the message, using default types (stack-allocated byte array, Vec<u8>)
-//! let signed_message = keypair.sign_with_defaults(message);
+//! // Sign the message into a Vec-backed signed message
+//! let signed_message = keypair.sign_to_vecbox(message);
 //!
 //! // Verify the message signature
 //! signed_message
@@ -48,7 +48,7 @@
 //! use dryoc::sign::*;
 //!
 //! let seed = Seed::from([7u8; dryoc::constants::CRYPTO_SIGN_SEEDBYTES]);
-//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+//! let keypair = StackSigningKeyPair::from_seed(&seed);
 //!
 //! let extracted_seed: Seed = keypair.to_seed();
 //! let extracted_public_key: PublicKey = keypair.to_public_key();
@@ -63,7 +63,7 @@
 //! use dryoc::sign::*;
 //!
 //! // Generate a random keypair, using default types
-//! let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+//! let keypair = StackSigningKeyPair::generate();
 //!
 //! // Initialize the Ed25519ph signer
 //! let mut signer = Ed25519phSigner::new();
@@ -128,6 +128,27 @@ pub type Signature = StackByteArray<CRYPTO_SIGN_BYTES>;
 /// Heap-allocated message for message signing.
 #[cfg(feature = "alloc")]
 pub type Message = Vec<u8>;
+/// Stack-allocated signing keypair type alias.
+pub type StackSigningKeyPair = SigningKeyPair<PublicKey, SecretKey>;
+
+/// Checks if the given key is a valid prime-order Ed25519 public key.
+///
+/// The canonical compressed encoding is required. The high bit, which
+/// encodes the sign of the x-coordinate, may legitimately be set.
+///
+/// This is a strict prime-subgroup policy, not a generic Ed25519 signature
+/// validity predicate. Use it when an application or point-arithmetic
+/// protocol requires canonical, nonidentity, prime-order keys. Verify
+/// signatures with [`SignedMessage::verify`] or
+/// [`crypto_sign_verify_detached`] instead; some signature profiles
+/// intentionally define different point-acceptance rules.
+///
+/// Use [`crate::keypair::is_valid_public_key`] for X25519 keys used with
+/// [`crypto_box`](crate::classic::crypto_box).
+#[must_use]
+pub fn is_valid_public_key<PK: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>>(key: &PK) -> bool {
+    crate::classic::crypto_core::crypto_core_ed25519_is_valid_point(key.as_array())
+}
 
 /// Extracts the Ed25519 seed from a signing secret key.
 #[must_use]
@@ -255,20 +276,6 @@ impl<
     }
 }
 
-impl
-    SigningKeyPair<
-        StackByteArray<CRYPTO_SIGN_PUBLICKEYBYTES>,
-        StackByteArray<CRYPTO_SIGN_SECRETKEYBYTES>,
-    >
-{
-    /// Randomly generates a new signing keypair, using default types
-    /// (stack-allocated byte arrays). Provided for convenience.
-    #[must_use]
-    pub fn generate_with_defaults() -> Self {
-        Self::generate()
-    }
-}
-
 impl<
     'a,
     PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
@@ -330,6 +337,16 @@ pub mod protected {
     //! signed_message
     //!     .verify(&keypair.public_key)
     //!     .expect("verification failed");
+    //!
+    //! // A keypair in locked, read-only memory signs the same way.
+    //! let readonly_keypair = LockedROSigningKeyPair::generate_readonly_locked_keypair()
+    //!     .expect("keypair generate failed");
+    //! let message = Message::from_slice_into_locked(b"By the pricking of my thumbs")
+    //!     .expect("message lock failed");
+    //! let signed_message: LockedSignedMessage = readonly_keypair.sign(message);
+    //! signed_message
+    //!     .verify(&readonly_keypair.public_key)
+    //!     .expect("verification failed");
     //! ```
     use super::*;
     pub use crate::protected::*;
@@ -353,6 +370,9 @@ pub mod protected {
     /// Heap-allocated, page-aligned public/secret keypair for message signing,
     /// for use with protected memory.
     pub type LockedSigningKeyPair = SigningKeyPair<Locked<PublicKey>, Locked<SecretKey>>;
+    /// Heap-allocated, page-aligned public/secret keypair for message signing,
+    /// in locked, read-only memory, for use with protected memory.
+    pub type LockedROSigningKeyPair = SigningKeyPair<LockedRO<PublicKey>, LockedRO<SecretKey>>;
     /// Heap-allocated, page-aligned signed message, for use with protected
     /// memory.
     pub type LockedSignedMessage = SignedMessage<Locked<Signature>, Locked<Message>>;
@@ -462,14 +482,11 @@ impl<
         SignedMessage::<Signature, Message> { signature, message }
     }
 
-    /// Signs `message`, putting the result into a [`Vec`]. Convenience wrapper
-    /// for [`SigningKeyPair::sign`].
+    /// Signs a copy of `message`, returning a [`VecSignedMessage`].
+    /// Convenience wrapper for [`SigningKeyPair::sign`].
     #[cfg(feature = "alloc")]
     #[must_use]
-    pub fn sign_with_defaults<Message: Bytes>(
-        &self,
-        message: Message,
-    ) -> SignedMessage<StackByteArray<CRYPTO_SIGN_BYTES>, Vec<u8>> {
+    pub fn sign_to_vecbox<Message: Bytes + ?Sized>(&self, message: &Message) -> VecSignedMessage {
         self.sign(Vec::from(message.as_slice()))
     }
 }
@@ -666,7 +683,7 @@ mod tests {
 
     #[test]
     fn signing_keypair_debug_redacts_keys_and_secret_key_reconstructs_keypair() {
-        let keypair = SigningKeyPair::<PublicKey, SecretKey>::generate();
+        let keypair = StackSigningKeyPair::generate();
         let debug = format!("{keypair:?}");
         let reconstructed = SigningKeyPair::from_secret_key(keypair.secret_key.clone());
 
@@ -679,10 +696,10 @@ mod tests {
 
     #[test]
     fn test_message_signing() {
-        let keypair = SigningKeyPair::generate_with_defaults();
+        let keypair = StackSigningKeyPair::generate();
         let message = b"hello my frens";
 
-        let signed_message = keypair.sign_with_defaults(message);
+        let signed_message = keypair.sign_to_vecbox(message);
 
         signed_message
             .verify(&keypair.public_key)
@@ -690,9 +707,58 @@ mod tests {
     }
 
     #[test]
+    fn test_is_valid_public_key() {
+        let keypair = StackSigningKeyPair::generate();
+        assert!(
+            is_valid_public_key(&keypair.public_key),
+            "generated Ed25519 key should pass validation"
+        );
+        let (valid_pk, _) = crate::classic::crypto_sign::crypto_sign_keypair();
+        assert!(
+            is_valid_public_key(&valid_pk),
+            "Ed25519 key from crypto_sign_keypair should pass validation"
+        );
+
+        let mut negative_basepoint =
+            curve25519_dalek::constants::ED25519_BASEPOINT_COMPRESSED.to_bytes();
+        negative_basepoint[31] |= 0x80;
+        assert!(
+            is_valid_public_key(&negative_basepoint),
+            "the Ed25519 x-coordinate sign bit should be accepted"
+        );
+
+        assert!(
+            !is_valid_public_key(&PublicKey::default()),
+            "zero key should be invalid"
+        );
+
+        let mut identity = [0u8; CRYPTO_SIGN_PUBLICKEYBYTES];
+        identity[0] = 1;
+        assert!(
+            !is_valid_public_key(&identity),
+            "identity element should be invalid"
+        );
+
+        let mut noncanonical_identity = [0xff; CRYPTO_SIGN_PUBLICKEYBYTES];
+        noncanonical_identity[0] = 0xee;
+        noncanonical_identity[31] = 0x7f;
+        assert!(
+            !is_valid_public_key(&noncanonical_identity),
+            "noncanonical identity encoding should be invalid"
+        );
+
+        let mut mixed_order = [0x99; CRYPTO_SIGN_PUBLICKEYBYTES];
+        mixed_order[0] = 0x95;
+        assert!(
+            !is_valid_public_key(&mixed_order),
+            "mixed-order Ed25519 key should fail the prime-subgroup policy"
+        );
+    }
+
+    #[test]
     fn test_secret_key_extraction() {
         let seed = Seed::generate();
-        let keypair = SigningKeyPair::<PublicKey, SecretKey>::from_seed(&seed);
+        let keypair = StackSigningKeyPair::from_seed(&seed);
 
         let extracted_seed: Seed = keypair.to_seed();
         let extracted_public_key: PublicKey = keypair.to_public_key();
@@ -772,7 +838,7 @@ mod tests {
             let message = hex::decode(message).expect("hex");
             let expected: Signature = array(signature);
 
-            let signed = keypair.sign_with_defaults(message.as_slice());
+            let signed = keypair.sign_to_vecbox(message.as_slice());
             assert_eq!(signed.signature, expected);
             assert_eq!(signed.message, message);
             signed.verify(&keypair.public_key).expect("verify failed");
@@ -836,7 +902,7 @@ mod tests {
 
         // Ed25519ph and pure Ed25519 signatures are distinct and not
         // interchangeable.
-        let pure = keypair.sign_with_defaults(message.as_slice());
+        let pure = keypair.sign_to_vecbox(message.as_slice());
         assert_ne!(pure.signature, expected);
         let mut verifier = Ed25519phSigner::new();
         verifier.update(&message);
@@ -856,7 +922,7 @@ mod tests {
         let keypair = rfc_keypair(seed, public_key);
         let other = rfc_keypair(RFC8032_ED25519[1].0, RFC8032_ED25519[1].1);
         let message = hex::decode(message).expect("hex");
-        let signed = keypair.sign_with_defaults(message.as_slice());
+        let signed = keypair.sign_to_vecbox(message.as_slice());
 
         assert!(matches!(
             signed.verify(&other.public_key),
@@ -928,13 +994,13 @@ mod tests {
     fn from_slices_accepts_exact_lengths_and_reports_the_short_side() {
         let (seed, public_key, message, signature) = RFC8032_ED25519[0];
         let keypair = rfc_keypair(seed, public_key);
-        let rebuilt = SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+        let rebuilt = StackSigningKeyPair::from_slices(
             keypair.public_key.as_slice(),
             keypair.secret_key.as_slice(),
         )
         .expect("from_slices failed");
         assert_eq!(rebuilt, keypair);
-        let signed = rebuilt.sign_with_defaults(hex::decode(message).expect("hex").as_slice());
+        let signed = rebuilt.sign_to_vecbox(hex::decode(message).expect("hex").as_slice());
         assert_eq!(signed.signature, array::<CRYPTO_SIGN_BYTES>(signature));
 
         for len in [
@@ -943,7 +1009,7 @@ mod tests {
             CRYPTO_SIGN_PUBLICKEYBYTES + 1,
         ] {
             assert!(matches!(
-                SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+                StackSigningKeyPair::from_slices(
                     &vec![0u8; len],
                     keypair.secret_key.as_slice(),
                 ),
@@ -960,7 +1026,7 @@ mod tests {
             CRYPTO_SIGN_SECRETKEYBYTES + 1,
         ] {
             assert!(matches!(
-                SigningKeyPair::<PublicKey, SecretKey>::from_slices(
+                StackSigningKeyPair::from_slices(
                     keypair.public_key.as_slice(),
                     &vec![0u8; len],
                 ),
@@ -985,7 +1051,7 @@ mod tests {
         let decoded: SigningKeyPair<PublicKey, SecretKey> =
             serde_json::from_str(&json).expect("deserialize keypair");
         assert_eq!(decoded, keypair);
-        let signed = decoded.sign_with_defaults(message.as_slice());
+        let signed = decoded.sign_to_vecbox(message.as_slice());
         assert_eq!(signed.signature, expected);
 
         let json = serde_json::to_string(&signed).expect("serialize signed message");
@@ -1014,8 +1080,7 @@ mod tests {
         fn incremental_signer_matches_libsodium_ed25519ph_for_split_updates() {
             let mut rng = XorShift64::new(0x6564_3235_3531_3970);
             for round in 0..8 {
-                let keypair =
-                    SigningKeyPair::<PublicKey, SecretKey>::from_seed(&rng.next_bytes32());
+                let keypair = StackSigningKeyPair::from_seed(&rng.next_bytes32());
                 let message: Vec<u8> = (0..(round * 97) % 1023)
                     .map(|_| rng.next_u64() as u8)
                     .collect();
@@ -1061,7 +1126,7 @@ mod tests {
             let mut rng = XorShift64::new(0x7369_676e_6564_2121);
             for len in [0, 1, 63, 64, 65, 1023] {
                 let message: Vec<u8> = (0..len).map(|_| rng.next_u64() as u8).collect();
-                let signed = keypair.sign_with_defaults(message.as_slice());
+                let signed = keypair.sign_to_vecbox(message.as_slice());
                 let so_signature = sodium::sign_ed25519_detached(&message, &so_sk);
                 assert_eq!(signed.signature.as_slice(), so_signature.as_slice());
                 assert!(sodium::sign_ed25519_verify_detached(

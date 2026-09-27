@@ -161,9 +161,7 @@ fn test_structured_public_errors() {
         } if actual == CRYPTO_BOX_SECRETKEYBYTES - 1
     ));
 
-    type StackSigningKeyPair =
-        dryoc::sign::SigningKeyPair<dryoc::sign::PublicKey, dryoc::sign::SecretKey>;
-    let signing_public_key_error = StackSigningKeyPair::from_slices(
+    let signing_public_key_error = dryoc::sign::StackSigningKeyPair::from_slices(
         &[0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES - 1],
         &[0u8; dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES],
     )
@@ -177,7 +175,7 @@ fn test_structured_public_errors() {
         } if actual == dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES - 1
     ));
 
-    let signing_secret_key_error = StackSigningKeyPair::from_slices(
+    let signing_secret_key_error = dryoc::sign::StackSigningKeyPair::from_slices(
         &[0u8; dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES],
         &[0u8; dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES - 1],
     )
@@ -835,11 +833,8 @@ fn test_rustaceous_hmac_and_hkdf_protected() {
 fn test_protected_generation_api() {
     use dryoc::dryocbox::protected::{LockedKeyPair, LockedROKeyPair, Nonce as BoxNonce};
     use dryoc::dryocstream::protected::Key as StreamKey;
-    use dryoc::protected::{LockedRO, NewLocked};
-    use dryoc::sign::SigningKeyPair;
-    use dryoc::sign::protected::{
-        LockedSigningKeyPair, PublicKey as SignPublicKey, SecretKey as SignSecretKey,
-    };
+    use dryoc::protected::NewLocked;
+    use dryoc::sign::protected::{LockedROSigningKeyPair, LockedSigningKeyPair};
     use dryoc::types::Bytes;
 
     let key = StreamKey::generate_locked().expect("key failed");
@@ -868,8 +863,8 @@ fn test_protected_generation_api() {
         locked_signing_keypair.public_key.len(),
         dryoc::constants::CRYPTO_SIGN_PUBLICKEYBYTES
     );
-    let readonly_signing_keypair: SigningKeyPair<LockedRO<SignPublicKey>, LockedRO<SignSecretKey>> =
-        SigningKeyPair::generate_readonly_locked_keypair().expect("readonly signing keypair");
+    let readonly_signing_keypair = LockedROSigningKeyPair::generate_readonly_locked_keypair()
+        .expect("readonly signing keypair");
     assert_eq!(
         readonly_signing_keypair.secret_key.len(),
         dryoc::constants::CRYPTO_SIGN_SECRETKEYBYTES
@@ -973,8 +968,8 @@ fn test_stack_byte_array_serde_json_roundtrip_requires_exact_length() {
 fn test_dryocbox() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"hey";
 
@@ -1179,8 +1174,8 @@ fn test_dryocaead_chacha20poly1305_ietf_wincode() {
 fn test_dryocbox_serde_json() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"hey friend";
 
@@ -1272,8 +1267,8 @@ fn test_dryocbox_wincode_wire_format() {
     use dryoc::classic::crypto_box::crypto_box_detached;
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::from_seed(&[1u8; 32]);
-    let recipient_keypair = KeyPair::from_seed(&[2u8; 32]);
+    let sender_keypair = StackKeyPair::from_seed(&[1u8; 32]);
+    let recipient_keypair = StackKeyPair::from_seed(&[2u8; 32]);
     let nonce = Nonce::from([3u8; 24]);
     let message = b"hey friend";
 
@@ -1399,8 +1394,8 @@ fn test_dryocaead_wincode_wire_format() {
 fn test_dryocbox_wincode() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::generate();
-    let recipient_keypair = KeyPair::generate();
+    let sender_keypair = StackKeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let nonce = Nonce::generate();
     let message = b"hey friend";
 
@@ -1457,7 +1452,7 @@ fn test_dryocaead_wincode() {
 fn test_dryocbox_sealed_wincode() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let message = b"hey sealed friend";
 
     let dryocbox: VecBox =
@@ -1738,7 +1733,7 @@ fn test_streams_rustaceous() {
 fn test_dryocbox_serde_known_good() {
     use dryoc::dryocbox::*;
 
-    let sender_keypair = KeyPair::from_slices(
+    let sender_keypair = StackKeyPair::from_slices(
         &[
             19, 102, 68, 158, 243, 5, 191, 249, 31, 150, 224, 99, 131, 223, 250, 86, 183, 59, 12,
             207, 166, 197, 248, 213, 150, 17, 186, 94, 179, 184, 168, 31,
@@ -1749,7 +1744,7 @@ fn test_dryocbox_serde_known_good() {
         ],
     )
     .expect("sender keypair failed");
-    let recipient_keypair = KeyPair::from_slices(
+    let recipient_keypair = StackKeyPair::from_slices(
         &[
             203, 213, 109, 27, 115, 197, 227, 35, 161, 27, 73, 179, 181, 104, 237, 253, 207, 206,
             186, 108, 254, 67, 246, 221, 47, 60, 68, 37, 148, 169, 242, 109,
@@ -1916,7 +1911,7 @@ fn test_streams_protected() {
 fn test_dryocbox_seal() {
     use dryoc::dryocbox::*;
 
-    let recipient_keypair = KeyPair::generate();
+    let recipient_keypair = StackKeyPair::generate();
     let message = b"juicybox";
 
     let dryocbox =

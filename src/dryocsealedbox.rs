@@ -57,7 +57,7 @@
 //! ```
 //! use dryoc::dryocsealedbox::*;
 //!
-//! let recipient_keypair = KeyPair::generate_with_defaults();
+//! let recipient_keypair = StackKeyPair::generate();
 //! let message = b"Now is the winter of our discontent.";
 //!
 //! let sealed = DryocSealedBox::seal_to_vecbox(message, &recipient_keypair.public_key)

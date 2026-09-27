@@ -6,7 +6,7 @@ use dryoc::constants::{
     CRYPTO_SIGN_SEEDBYTES,
 };
 use dryoc::sign::{
-    Ed25519phSigner, PublicKey, SecretKey, Seed, Signature, SigningKeyPair, VecSignedMessage,
+    Ed25519phSigner, SecretKey, Seed, Signature, StackSigningKeyPair, VecSignedMessage,
 };
 use dryoc::types::NewByteArray;
 use pyo3::prelude::*;
@@ -15,8 +15,6 @@ use pyo3::types::{PyBytes, PyType};
 use crate::util::{
     Buf, CryptoError, DryocError, Locked, OrRaise, fixed, maybe_detach, public_key_class,
 };
-
-type StackSigningKeyPair = SigningKeyPair<PublicKey, SecretKey>;
 
 /// Every verification failure, including a malformed signature or public
 /// key, is reported as `CryptoError`.

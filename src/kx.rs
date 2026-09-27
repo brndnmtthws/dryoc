@@ -16,18 +16,16 @@
 //! use dryoc::kx::*;
 //!
 //! // Generate random client/server keypairs
-//! let client_keypair = KeyPair::generate();
-//! let server_keypair = KeyPair::generate();
+//! let client_keypair = StackKeyPair::generate();
+//! let server_keypair = StackKeyPair::generate();
 //!
 //! // Compute the client's receive and transmit keys.
-//! let client_session_keys =
-//!     Session::new_client_with_defaults(&client_keypair, &server_keypair.public_key)
-//!         .expect("compute client failed");
+//! let client_session_keys = StackSession::new_client(&client_keypair, &server_keypair.public_key)
+//!     .expect("compute client failed");
 //!
 //! // Compute the server's receive and transmit keys.
-//! let server_session_keys =
-//!     Session::new_server_with_defaults(&server_keypair, &client_keypair.public_key)
-//!         .expect("compute client failed");
+//! let server_session_keys = StackSession::new_server(&server_keypair, &client_keypair.public_key)
+//!     .expect("compute server failed");
 //!
 //! let (client_rx, client_tx) = client_session_keys.into_parts();
 //! let (server_rx, server_tx) = server_session_keys.into_parts();
@@ -62,7 +60,7 @@ pub type PublicKey = StackByteArray<CRYPTO_KX_PUBLICKEYBYTES>;
 /// Stack-allocated secret key type alias
 pub type SecretKey = StackByteArray<CRYPTO_KX_SECRETKEYBYTES>;
 /// Stack-allocated keypair type alias
-pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
+pub type StackKeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
 #[derive(Zeroize, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -213,44 +211,6 @@ impl<SessionKey: NewByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDr
     }
 }
 
-impl Session<SessionKey> {
-    /// Returns a new client session upon success using the default types for
-    /// the given `client_keypair` and `server_public_key`. Wraps
-    /// [`Session::new_client`], provided for convenience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `server_public_key` is unacceptable. See
-    /// [`Session::new_client`].
-    pub fn new_client_with_defaults<
-        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
-        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
-    >(
-        client_keypair: &crate::keypair::KeyPair<PublicKey, SecretKey>,
-        server_public_key: &PublicKey,
-    ) -> Result<Self, Error> {
-        Self::new_client(client_keypair, server_public_key)
-    }
-
-    /// Returns a new server session upon success using the default types for
-    /// the given `server_keypair` and `client_public_key`. Wraps
-    /// [`Session::new_server`], provided for convenience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `client_public_key` is unacceptable. See
-    /// [`Session::new_server`].
-    pub fn new_server_with_defaults<
-        PublicKey: ByteArray<CRYPTO_KX_PUBLICKEYBYTES> + Zeroize,
-        SecretKey: ByteArray<CRYPTO_KX_SECRETKEYBYTES> + Zeroize,
-    >(
-        server_keypair: &crate::keypair::KeyPair<PublicKey, SecretKey>,
-        client_public_key: &PublicKey,
-    ) -> Result<Self, Error> {
-        Self::new_server(server_keypair, client_public_key)
-    }
-}
-
 impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop>
     Session<SessionKey>
 {
@@ -315,10 +275,10 @@ mod tests {
     const CLIENT_RX: &str = "4081524abf55a75021ebd5e98e08552fb2bd26315c40e563b74e64abff1be442";
     const CLIENT_TX: &str = "2f9c2f944f504caf772db17affc91e3ba8886a806ba53ab37881d15c042f3410";
 
-    fn kat_keypairs() -> (KeyPair, KeyPair) {
+    fn kat_keypairs() -> (StackKeyPair, StackKeyPair) {
         (
-            KeyPair::from_seed(&CLIENT_SEED),
-            KeyPair::from_seed(&SERVER_SEED),
+            StackKeyPair::from_seed(&CLIENT_SEED),
+            StackKeyPair::from_seed(&SERVER_SEED),
         )
     }
 
@@ -334,10 +294,8 @@ mod tests {
         let client_rx = hex::decode(CLIENT_RX).expect("hex");
         let client_tx = hex::decode(CLIENT_TX).expect("hex");
 
-        let client_session =
-            Session::new_client_with_defaults(&client, &server.public_key).expect("client");
-        let server_session =
-            Session::new_server_with_defaults(&server, &client.public_key).expect("server");
+        let client_session = StackSession::new_client(&client, &server.public_key).expect("client");
+        let server_session = StackSession::new_server(&server, &client.public_key).expect("server");
 
         assert_eq!(client_session.rx_as_slice(), client_rx.as_slice());
         assert_eq!(client_session.tx_as_slice(), client_tx.as_slice());
@@ -354,17 +312,17 @@ mod tests {
         assert_eq!(tx.as_slice(), client_rx.as_slice());
 
         // Roles are part of the derivation: swapping them changes the keys.
-        let swapped = Session::new_client_with_defaults(&server, &client.public_key).expect("kx");
+        let swapped = StackSession::new_client(&server, &client.public_key).expect("kx");
         assert_ne!(swapped.rx_as_slice(), client_rx.as_slice());
         assert_ne!(swapped.rx_as_slice(), client_tx.as_slice());
     }
 
     #[test]
-    fn sessions_match_classic_session_keys_for_generic_and_default_types() {
+    fn sessions_match_classic_session_keys() {
         let mut rng = XorShift64::new(0x6b78_5f73_6573_7300);
         for _ in 0..8 {
-            let client = KeyPair::from_seed(&rng.next_bytes32());
-            let server = KeyPair::from_seed(&rng.next_bytes32());
+            let client = StackKeyPair::from_seed(&rng.next_bytes32());
+            let server = StackKeyPair::from_seed(&rng.next_bytes32());
 
             let mut rx = [0u8; CRYPTO_KX_SESSIONKEYBYTES];
             let mut tx = [0u8; CRYPTO_KX_SESSIONKEYBYTES];
@@ -380,10 +338,6 @@ mod tests {
                 Session::new_client(&client, &server.public_key).expect("client");
             assert_eq!(session.rx_as_array(), &rx);
             assert_eq!(session.tx_as_array(), &tx);
-            let defaults =
-                Session::new_client_with_defaults(&client, &server.public_key).expect("client");
-            assert_eq!(defaults.rx_as_array(), &rx);
-            assert_eq!(defaults.tx_as_array(), &tx);
 
             crypto_kx_server_session_keys(
                 &mut rx,
@@ -397,10 +351,6 @@ mod tests {
                 Session::new_server(&server, &client.public_key).expect("server");
             assert_eq!(session.rx_as_array(), &rx);
             assert_eq!(session.tx_as_array(), &tx);
-            let defaults =
-                Session::new_server_with_defaults(&server, &client.public_key).expect("server");
-            assert_eq!(defaults.rx_as_array(), &rx);
-            assert_eq!(defaults.tx_as_array(), &tx);
         }
     }
 
@@ -408,11 +358,8 @@ mod tests {
     fn low_order_peer_keys_are_rejected_on_both_sides() {
         let (client, server) = kat_keypairs();
         for low_order in low_order_public_keys() {
-            assert!(Session::new_client_with_defaults(&client, &low_order).is_err());
-            assert!(Session::new_server_with_defaults(&server, &low_order).is_err());
-            let generic: Result<Session<SessionKey>, Error> =
-                Session::new_client(&client, &low_order);
-            assert!(generic.is_err());
+            assert!(StackSession::new_client(&client, &low_order).is_err());
+            assert!(StackSession::new_server(&server, &low_order).is_err());
         }
     }
 
@@ -422,10 +369,8 @@ mod tests {
         use crate::dryocsecretbox::{DryocSecretBox, Nonce, VecBox};
 
         let (client, server) = kat_keypairs();
-        let client_session =
-            Session::new_client_with_defaults(&client, &server.public_key).expect("client");
-        let server_session =
-            Session::new_server_with_defaults(&server, &client.public_key).expect("server");
+        let client_session = StackSession::new_client(&client, &server.public_key).expect("client");
+        let server_session = StackSession::new_server(&server, &client.public_key).expect("server");
 
         let json = serde_json::to_string(&client_session).expect("serialize");
         let decoded: StackSession = serde_json::from_str(&json).expect("deserialize");
@@ -491,12 +436,12 @@ mod tests {
 
         let mut rng = XorShift64::new(0x6c69_6273_6f64_6b78);
         for _ in 0..8 {
-            let client = KeyPair::from_seed(&rng.next_bytes32());
-            let server = KeyPair::from_seed(&rng.next_bytes32());
+            let client = StackKeyPair::from_seed(&rng.next_bytes32());
+            let server = StackKeyPair::from_seed(&rng.next_bytes32());
             let client_session =
-                Session::new_client_with_defaults(&client, &server.public_key).expect("client");
+                StackSession::new_client(&client, &server.public_key).expect("client");
             let server_session =
-                Session::new_server_with_defaults(&server, &client.public_key).expect("server");
+                StackSession::new_server(&server, &client.public_key).expect("server");
 
             let (rx, tx) =
                 kx_client_session_keys(&client.public_key, &client.secret_key, &server.public_key)

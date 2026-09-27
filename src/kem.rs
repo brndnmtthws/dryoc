@@ -20,7 +20,7 @@
 //! ```
 //! use dryoc::kem::*;
 //!
-//! let recipient = KeyPair::generate_with_defaults();
+//! let recipient = StackKeyPair::generate();
 //!
 //! // The sender needs only the recipient's public key.
 //! let (ciphertext, sender_secret): (Ciphertext, SharedSecret) =
@@ -157,15 +157,6 @@ macro_rules! kem_api {
                     public_key,
                     secret_key,
                 }
-            }
-        }
-
-        impl KeyPair<PublicKey, SecretKey> {
-            /// Generates a random key pair of stack-allocated arrays.
-            /// Provided for convenience.
-            #[must_use]
-            pub fn generate_with_defaults() -> Self {
-                Self::generate()
             }
         }
 

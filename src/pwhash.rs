@@ -32,7 +32,7 @@
 //! let password = b"But, for my own part, it was Greek to me.";
 //!
 //! // Hash the password, generating a random salt
-//! let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+//! let pwhash = VecPwHash::hash(password, Config::interactive()).expect("unable to hash");
 //!
 //! pwhash.verify(password).expect("verification failed");
 //! pwhash
@@ -406,39 +406,6 @@ impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: NewBytes + ResizableBytes 
 
         Ok(Self { hash, salt, config })
     }
-
-    /// Hashes `password` with a random salt and a default configuration
-    /// suitable for interactive hashing, returning the hash, salt, and config
-    /// upon success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_interactive<Password: Bytes + ?Sized>(password: &Password) -> Result<Self, Error> {
-        Self::hash(password, Config::interactive())
-    }
-
-    /// Hashes `password` with a random salt and a default configuration
-    /// suitable for moderate hashing, returning the hash, salt, and config upon
-    /// success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_moderate<Password: Bytes + ?Sized>(password: &Password) -> Result<Self, Error> {
-        Self::hash(password, Config::moderate())
-    }
-
-    /// Hashes `password` with a random salt and a default configuration
-    /// suitable for sensitive hashing, returning the hash, salt, and config
-    /// upon success.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same errors as [`PwHash::hash`].
-    pub fn hash_sensitive<Password: Bytes + ?Sized>(password: &Password) -> Result<Self, Error> {
-        Self::hash(password, Config::sensitive())
-    }
 }
 
 impl<Hash: NewBytes + ResizableBytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
@@ -558,11 +525,10 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     ///
     /// let password = b"Come what come may, time and the hour runs through the roughest day.";
     ///
-    /// let pwhash = PwHash::hash_with_defaults(password).expect("unable to hash");
+    /// let pwhash = VecPwHash::hash(password, Config::interactive()).expect("unable to hash");
     /// let pw_string = pwhash.to_encoded_string().expect("unable to encode hash");
     ///
-    /// let parsed_pwhash =
-    ///     PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+    /// let parsed_pwhash = VecPwHash::from_string(&pw_string).expect("couldn't parse hashed password");
     ///
     /// parsed_pwhash.verify(password).expect("verification failed");
     /// parsed_pwhash
@@ -700,38 +666,6 @@ impl<Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
         Ok(keypair::KeyPair::<PublicKey, SecretKey>::from_secret_key(
             secret_key,
         ))
-    }
-}
-
-impl PwHash<Hash, Salt> {
-    /// Hashes `password` using default (interactive) config parameters,
-    /// returning the `Vec<u8>`-based hash and salt, with config, upon success.
-    ///
-    /// This function provides reasonable defaults, and is provided for
-    /// convenience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the password length is unsupported or the
-    /// underlying Argon2 operation fails.
-    pub fn hash_with_defaults<Password: Bytes + ?Sized>(
-        password: &Password,
-    ) -> Result<Self, Error> {
-        Self::hash_interactive(password)
-    }
-
-    #[cfg(any(feature = "base64", all(doc, not(doctest))))]
-    #[cfg_attr(all(feature = "nightly", doc), doc(cfg(feature = "base64")))]
-    /// Parses the `hashed_password` string, returning a new hash instance upon
-    /// success. Wraps [`PwHash::from_string`], provided for convenience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the string is malformed, uses an unsupported
-    /// algorithm or version, omits a required field, or contains an invalid
-    /// encoded value.
-    pub fn from_string_with_defaults(hashed_password: &str) -> Result<Self, Error> {
-        Self::from_string(hashed_password)
     }
 }
 
@@ -1056,7 +990,6 @@ mod tests {
                 VecPwHash::from_string(input).is_err(),
                 "accepted malformed string {input:?}"
             );
-            assert!(PwHash::from_string_with_defaults(input).is_err());
         }
 
         // The unmodified vector still parses, so the rejections above are not
@@ -1065,7 +998,7 @@ mod tests {
             format!("{prefix}{params}${salt}${hash}"),
             LIBSODIUM_ARGON2ID_STR
         );
-        PwHash::from_string_with_defaults(LIBSODIUM_ARGON2ID_STR).expect("valid string");
+        VecPwHash::from_string(LIBSODIUM_ARGON2ID_STR).expect("valid string");
     }
 
     #[cfg(feature = "base64")]
@@ -1174,7 +1107,7 @@ mod tests {
             if cfg!(miri) {
                 VecPwHash::hash(password, argon2id_min())
             } else {
-                PwHash::hash_with_defaults(password)
+                VecPwHash::hash(password, Config::interactive())
             }
             .expect("unable to hash")
         };
@@ -1240,7 +1173,7 @@ mod tests {
             .expect("couldn't encode password hash");
 
         let parsed_pwhash =
-            PwHash::from_string_with_defaults(&pw_string).expect("couldn't parse hashed password");
+            VecPwHash::from_string(&pw_string).expect("couldn't parse hashed password");
 
         parsed_pwhash.verify(password).expect("verification failed");
         parsed_pwhash

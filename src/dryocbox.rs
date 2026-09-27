@@ -38,8 +38,8 @@
 //!
 //! // In a real exchange, each party keeps its secret key private and shares
 //! // only its public key.
-//! let sender_keypair = KeyPair::generate();
-//! let recipient_keypair = KeyPair::generate();
+//! let sender_keypair = StackKeyPair::generate();
+//! let recipient_keypair = StackKeyPair::generate();
 //!
 //! // Generate a random nonce. At 24 bytes, the chance of a random nonce
 //! // repeating is negligible.
@@ -77,7 +77,7 @@
 //! ```
 //! use dryoc::dryocbox::*;
 //!
-//! let recipient_keypair = KeyPair::generate();
+//! let recipient_keypair = StackKeyPair::generate();
 //! let message = b"Now is the winter of our discontent.";
 //!
 //! let dryocbox = DryocBox::seal_to_vecbox(message, &recipient_keypair.public_key.clone())
@@ -125,7 +125,7 @@ pub type Nonce = StackByteArray<CRYPTO_BOX_NONCEBYTES>;
 pub type Mac = StackByteArray<CRYPTO_BOX_MACBYTES>;
 /// Stack-allocated public/secret keypair for authenticated public-key
 /// boxes.
-pub type KeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
+pub type StackKeyPair = crate::keypair::KeyPair<PublicKey, SecretKey>;
 
 #[cfg(any(
     all(feature = "protected", any(unix, windows)),
@@ -804,7 +804,7 @@ mod tests {
     fn open_requires_an_ephemeral_public_key() {
         let box_without_ephemeral_key =
             VecBox::from_bytes(&[0u8; CRYPTO_BOX_MACBYTES]).expect("a regular box should parse");
-        let recipient_keypair = KeyPair::generate();
+        let recipient_keypair = StackKeyPair::generate();
 
         let error = box_without_ephemeral_key
             .open::<_, _, Vec<u8>>(&recipient_keypair)
@@ -844,8 +844,8 @@ mod tests {
     }
 
     struct NaclVector {
-        alice: KeyPair,
-        bob: KeyPair,
+        alice: StackKeyPair,
+        bob: StackKeyPair,
         nonce: Nonce,
         message: Vec<u8>,
         boxed: Vec<u8>,
@@ -853,12 +853,12 @@ mod tests {
 
     fn nacl_vector() -> NaclVector {
         NaclVector {
-            alice: KeyPair::from_slices(
+            alice: StackKeyPair::from_slices(
                 &hex::decode(ALICE_PK).expect("hex"),
                 &hex::decode(ALICE_SK).expect("hex"),
             )
             .expect("alice keypair"),
-            bob: KeyPair::from_slices(
+            bob: StackKeyPair::from_slices(
                 &hex::decode(BOB_PK).expect("hex"),
                 &hex::decode(BOB_SK).expect("hex"),
             )
@@ -873,11 +873,11 @@ mod tests {
     fn nacl_vector_encrypts_to_known_bytes_and_decrypts_with_swapped_keys() {
         let v = nacl_vector();
         assert_eq!(
-            KeyPair::from_secret_key(v.alice.secret_key.clone()).public_key,
+            StackKeyPair::from_secret_key(v.alice.secret_key.clone()).public_key,
             v.alice.public_key
         );
         assert_eq!(
-            KeyPair::from_secret_key(v.bob.secret_key.clone()).public_key,
+            StackKeyPair::from_secret_key(v.bob.secret_key.clone()).public_key,
             v.bob.public_key
         );
 
@@ -954,7 +954,7 @@ mod tests {
         let v = nacl_vector();
         let dryocbox = VecBox::from_bytes(&v.boxed).expect("parse");
         let precalc = v.bob.precalculate(&v.alice.public_key).expect("precalc");
-        let stranger = KeyPair::from_seed(&[9u8; CRYPTO_BOX_SEEDBYTES]);
+        let stranger = StackKeyPair::from_seed(&[9u8; CRYPTO_BOX_SEEDBYTES]);
 
         // Wrong sender: authentication binds the sender's public key.
         assert!(matches!(
@@ -1123,8 +1123,8 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_decrypt() {
-        let keypair_sender = KeyPair::generate();
-        let keypair_recipient = KeyPair::generate();
+        let keypair_sender = StackKeyPair::generate();
+        let keypair_recipient = StackKeyPair::generate();
         let nonce = Nonce::generate();
 
         let message = b"To be, or not to be, that is the question:";
@@ -1146,8 +1146,8 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox() {
-        let keypair_sender = KeyPair::generate();
-        let keypair_recipient = KeyPair::generate();
+        let keypair_sender = StackKeyPair::generate();
+        let keypair_recipient = StackKeyPair::generate();
         let nonce = Nonce::generate();
 
         let message = b"All the world's a stage, and all the men and women merely players:";
@@ -1169,8 +1169,8 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_decrypt_with_different_messages() {
-        let keypair_sender = KeyPair::generate();
-        let keypair_recipient = KeyPair::generate();
+        let keypair_sender = StackKeyPair::generate();
+        let keypair_recipient = StackKeyPair::generate();
         let nonce = Nonce::generate();
 
         let messages: Vec<&[u8]> = vec![
@@ -1200,8 +1200,8 @@ mod tests {
 
     #[test]
     fn test_precalc_encrypt_to_vecbox_decrypt_to_vecbox_with_different_messages() {
-        let keypair_sender = KeyPair::generate();
-        let keypair_recipient = KeyPair::generate();
+        let keypair_sender = StackKeyPair::generate();
+        let keypair_recipient = StackKeyPair::generate();
         let nonce = Nonce::generate();
 
         let messages: Vec<&[u8]> = vec![
@@ -1335,8 +1335,8 @@ mod tests {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
 
-                let keypair_sender = KeyPair::generate();
-                let keypair_recipient = KeyPair::generate();
+                let keypair_sender = StackKeyPair::generate();
+                let keypair_recipient = StackKeyPair::generate();
                 let keypair_sender_copy = keypair_sender.clone();
                 let keypair_recipient_copy = keypair_recipient.clone();
                 let nonce = Nonce::generate();
@@ -1394,8 +1394,8 @@ mod tests {
                 use base64::Engine as _;
                 use base64::engine::general_purpose;
 
-                let keypair_sender = KeyPair::generate();
-                let keypair_recipient = KeyPair::generate();
+                let keypair_sender = StackKeyPair::generate();
+                let keypair_recipient = StackKeyPair::generate();
                 let keypair_sender_copy = keypair_sender.clone();
                 let keypair_recipient_copy = keypair_recipient.clone();
                 let nonce = Nonce::generate();
@@ -1424,7 +1424,7 @@ mod tests {
                     general_purpose::STANDARD.encode(&so_ciphertext)
                 );
 
-                let invalid_key = KeyPair::generate();
+                let invalid_key = StackKeyPair::generate();
                 let invalid_key_copy_1 = invalid_key.clone();
                 let invalid_key_copy_2 = invalid_key.clone();
 
@@ -1448,7 +1448,7 @@ mod tests {
         #[test]
         fn test_dryocbox_seal_vecbox() {
             for i in 0..20 {
-                let keypair_recipient = KeyPair::generate();
+                let keypair_recipient = StackKeyPair::generate();
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ");
                 let message_copy = message.clone();
@@ -1474,7 +1474,7 @@ mod tests {
         #[test]
         fn test_dryocbox_open_vecbox() {
             for i in 0..20 {
-                let keypair_recipient = KeyPair::generate();
+                let keypair_recipient = StackKeyPair::generate();
                 let words = vec!["hello1".to_string(); i];
                 let message = words.join(" :D ");
 
