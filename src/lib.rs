@@ -8,7 +8,8 @@
 //!
 //! * **High Performance:** Native SIMD and assembly kernels (AVX-512, AVX2,
 //!   NEON, SVE2) with automatic runtime CPU detection.
-//! * **Post-Quantum Cryptography:** ML-KEM-768 (FIPS 203), X-Wing hybrid (ML-KEM
+//! * **Post-Quantum Cryptography:** ML-KEM-768 (FIPS 203), X-Wing hybrid
+//!   (ML-KEM
 //!   + X25519), and RFC 9180 HPKE sealed boxes.
 //! * **Type-Safe Rustaceous API:** Strongly-typed fixed-size keys, nonces, and
 //!   containers prevent length and type misuse at compile time.
@@ -29,11 +30,13 @@
 //! cryptographic kernels:
 //!
 //! * **Rustaceous API (Recommended):** Uses strongly-typed, fixed-size array
-//!   wrappers (e.g., [`Key`](dryocsecretbox::Key), [`Nonce`](dryocsecretbox::Nonce),
-//!   [`DryocSecretBox`](dryocsecretbox::DryocSecretBox)). Ensures correct key and
-//!   nonce sizes at compile time and provides convenient helper methods.
+//!   wrappers (e.g., [`Key`](dryocsecretbox::Key),
+//!   [`Nonce`](dryocsecretbox::Nonce),
+//!   [`DryocSecretBox`](dryocsecretbox::DryocSecretBox)). Ensures correct key
+//!   and nonce sizes at compile time and provides convenient helper methods.
 //! * **Classic API:** Low-level byte-slice and array functions matching
-//!   libsodium standard signatures (`crypto_box_*`, `crypto_secretbox_*`, etc.).
+//!   libsodium standard signatures (`crypto_box_*`, `crypto_secretbox_*`,
+//!   etc.).
 //!
 //! ### Rustaceous Quick Start
 //!
@@ -48,7 +51,9 @@
 //! let message = b"Hello, post-quantum world!";
 //!
 //! let box_ = DryocSecretBox::encrypt_to_vecbox(message, &nonce, &key).expect("encryption failed");
-//! let decrypted = box_.decrypt_to_vec(&nonce, &key).expect("authentication failed");
+//! let decrypted = box_
+//!     .decrypt_to_vec(&nonce, &key)
+//!     .expect("authentication failed");
 //! assert_eq!(message, &decrypted[..]);
 //! # }
 //! ```
@@ -90,8 +95,8 @@
 //!
 //! `dryoc` has not undergone a third-party security audit. Defect surface is
 //! minimized through type safety, comprehensive compatibility test suites, and
-//! minimal `unsafe` usage confined to SIMD/assembly kernels and protected memory.
-//! See [`unsafe_code`] for the full unsafe code inventory.
+//! minimal `unsafe` usage confined to SIMD/assembly kernels and protected
+//! memory. See [`unsafe_code`] for the full unsafe code inventory.
 //!
 //! [^1]: Not actually trademarked.
 #![no_std]
