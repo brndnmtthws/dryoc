@@ -1055,6 +1055,7 @@ mod tests {
         use wasm_bindgen_test::wasm_bindgen_test as test;
 
         use super::*;
+        use crate::stream::test_util::{check_kernel_chunk, xor_scalar_blocks};
 
         /// Every kernel the CPU supports. Every little-endian AArch64 CPU
         /// has NEON; an x86-64 CPU without AVX2 leaves this empty and the
@@ -1069,67 +1070,25 @@ mod tests {
         /// Keystream for blocks `counter..` (wrapping) computed with the
         /// scalar block function only, XORed into `data`.
         fn scalar_xor(state: &[u32; 16], counter: u64, data: &mut [u8]) {
-            let mut block = [0u8; 64];
-            for (i, chunk) in data.chunks_mut(64).enumerate() {
-                chacha20_soft::block(state, counter.wrapping_add(i as u64), &mut block);
-                for (byte, ks) in chunk.iter_mut().zip(block) {
-                    *byte ^= ks;
-                }
-            }
+            xor_scalar_blocks(chacha20_soft::block, state, counter, data);
         }
 
+        /// One chunk of each kernel against the scalar block function; the
+        /// counters straddling the 32-bit boundary check the carry into
+        /// word 13.
         #[test]
         fn test_kernel_chunk_matches_scalar_blocks() {
             let cipher = ChaCha20::legacy(&[0x11u8; 32], &[0x22u8; 8], 0);
-            // Counters whose lanes straddle the 32-bit boundary check the carry
-            // into word 13.
-            let counters = [
-                0u64,
-                1,
-                5,
-                u32::MAX as u64 - 3,
-                u32::MAX as u64 - 1,
-                u32::MAX as u64,
-                1 << 40,
-            ];
-            for (kernel, counter) in kernels().into_iter().flat_map(|k| counters.map(|c| (k, c))) {
-                let plaintext = pattern(kernel.chunk());
-                let mut expected = plaintext.clone();
-                scalar_xor(&cipher.state, counter, &mut expected);
-
-                let mut in_place = plaintext.clone();
-                kernel.xor_chunk(&cipher.state, counter, None, &mut in_place, None);
-                assert_eq!(in_place, expected, "{kernel:?} in place, counter {counter}");
-
-                let mut b2b = vec![0u8; kernel.chunk()];
-                kernel.xor_chunk(&cipher.state, counter, Some(&plaintext), &mut b2b, None);
-                assert_eq!(b2b, expected, "{kernel:?} b2b, counter {counter}");
-
-                // Clipped to `blocks` whole blocks, with the next block's raw
-                // keystream delivered through the zero-filled partial slot.
-                for blocks in 0..kernel.blocks() {
-                    let len = blocks * 64;
-                    let mut clipped = plaintext[..len].to_vec();
-                    let mut partial = [0u8; 64];
-                    kernel.xor_chunk(
-                        &cipher.state,
-                        counter,
-                        None,
-                        &mut clipped,
-                        Some(&mut partial),
-                    );
-                    assert_eq!(
-                        clipped,
-                        expected[..len],
-                        "{kernel:?} clipped to {blocks}, counter {counter}"
-                    );
-                    let mut block = [0u8; 64];
-                    chacha20_soft::block(&cipher.state, counter + blocks as u64, &mut block);
-                    assert_eq!(
-                        partial, block,
-                        "{kernel:?} partial after {blocks}, counter {counter}"
-                    );
-                }
+            for kernel in kernels() {
+                check_kernel_chunk(
+                    &kernel,
+                    kernel.blocks(),
+                    &cipher.state,
+                    chacha20_soft::block,
+                    |counter, input, output, partial| {
+                        kernel.xor_chunk(&cipher.state, counter, input, output, partial)
+                    },
+                );
             }
         }
 

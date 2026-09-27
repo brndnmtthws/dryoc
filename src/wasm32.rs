@@ -1,7 +1,8 @@
 //! WebAssembly `simd128` helpers shared by the `*_wasm32.rs` kernels:
 //! 16-byte loads and stores (of bytes, and of the `i16` coefficient rows used
 //! by ML-KEM), word-vector construction, the per-lane counter input, the
-//! lane-set transpose and the keystream XOR into a [`Dest`].
+//! lane-set transpose, the keystream XOR into a [`Dest`] and the stream
+//! ciphers' lane-set finish built on them.
 //!
 //! WebAssembly has no runtime feature detection, so this module and the
 //! kernels built on it are compiled only when the crate itself is built with
@@ -93,6 +94,31 @@ pub(crate) fn xor_block(keystream: [v128; 4], index: usize, dest: &mut Dest<'_>)
         };
         store(&mut out[row], data);
     }
+}
+
+/// Finishes a ChaCha20 or Salsa20 lane set (lane `i` of word vector `w`
+/// holding word `w` of block `base + i`): adds the input back, transposes
+/// into block order and XORs the keystream into blocks `base .. base + 4` of
+/// `dest`.
+#[inline(always)]
+pub(crate) fn finish_lanes(
+    mut x: [v128; 16],
+    initial: &[v128; 16],
+    base: usize,
+    dest: &mut Dest<'_>,
+) {
+    for (word, init) in x.iter_mut().zip(initial) {
+        *word = i32x4_add(*word, *init);
+    }
+    // `r<i>[block]` holds words `4 * i .. 4 * i + 4` of `block`.
+    let r0 = transpose(x[0], x[1], x[2], x[3]);
+    let r1 = transpose(x[4], x[5], x[6], x[7]);
+    let r2 = transpose(x[8], x[9], x[10], x[11]);
+    let r3 = transpose(x[12], x[13], x[14], x[15]);
+    xor_block([r0[0], r1[0], r2[0], r3[0]], base, dest);
+    xor_block([r0[1], r1[1], r2[1], r3[1]], base + 1, dest);
+    xor_block([r0[2], r1[2], r2[2], r3[2]], base + 2, dest);
+    xor_block([r0[3], r1[3], r2[3], r3[3]], base + 3, dest);
 }
 
 /// Loads eight 16-bit lanes, lane `i` from `lanes[i]` (one `v128.load`).

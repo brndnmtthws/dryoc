@@ -738,3 +738,93 @@ pub(crate) fn xor_scalar_words(x: &[u32; 16], initial: &[u32; 16], extra: &mut [
         extra[I] = (u32::from_le_bytes(extra[I]) ^ x[I].wrapping_add(initial[I])).to_le_bytes();
     });
 }
+
+/// Reference checks shared by the ChaCha20 and Salsa20 AVX-512 kernel tests.
+#[cfg(test)]
+pub(crate) mod test_util {
+    use super::LANES512;
+    use crate::stream::test_util::BlockFn;
+    use crate::test_prelude::*;
+
+    /// Checks a fused AVX-512 run (`run_with_block`: the lanes of `run` plus
+    /// one scalar block for an unrelated `extra_counter`, XORed into
+    /// `extra`) against `run` for the lanes (whole blocks and partial slot)
+    /// and the scalar block function `block` for the extra block, in place
+    /// and buffer to buffer, for full and short lane sets and extra blocks
+    /// before and after them.
+    ///
+    /// `run(state, counter, input, output, partial)` and
+    /// `run_with_block(state, counter, input, output, partial,
+    /// extra_counter, extra)` are one algorithm's AVX-512 kernels.
+    pub(crate) fn check_avx512_with_block(
+        block: BlockFn,
+        run: impl Fn(&[u32; 16], u64, Option<&[u8]>, &mut [u8], Option<&mut [u8; 64]>),
+        run_with_block: impl Fn(
+            &[u32; 16],
+            u64,
+            Option<&[u8]>,
+            &mut [u8],
+            Option<&mut [u8; 64]>,
+            u64,
+            &mut [u8; 64],
+        ),
+    ) {
+        let mut state = [0u32; 16];
+        for (i, word) in state.iter_mut().enumerate() {
+            *word = 0x0101_0101u32.wrapping_mul(i as u32 + 3);
+        }
+        let plaintext: Vec<u8> = (0..LANES512 * 64).map(|i| (i * 13 % 251) as u8).collect();
+        for counter in [1u64, 5, u64::from(u32::MAX) - 8, u64::from(u32::MAX) - 16] {
+            for whole in [LANES512, LANES512 - 1, 3, 0] {
+                for extra_counter in [counter - 1, counter + LANES512 as u64] {
+                    let len = whole * 64;
+                    let has_partial = whole < LANES512;
+                    let mut expected = plaintext[..len].to_vec();
+                    let mut expected_partial = [0u8; 64];
+                    let mut expected_extra = [0u8; 64];
+                    run(
+                        &state,
+                        counter,
+                        None,
+                        &mut expected,
+                        has_partial.then_some(&mut expected_partial),
+                    );
+                    block(&state, extra_counter, &mut expected_extra);
+
+                    let mut in_place = plaintext[..len].to_vec();
+                    let mut partial = [0u8; 64];
+                    let mut extra = [0u8; 64];
+                    run_with_block(
+                        &state,
+                        counter,
+                        None,
+                        &mut in_place,
+                        has_partial.then_some(&mut partial),
+                        extra_counter,
+                        &mut extra,
+                    );
+                    let what = format!("counter {counter}, whole {whole}, extra {extra_counter}");
+                    assert_eq!(in_place, expected, "in place, {what}");
+                    assert_eq!(partial, expected_partial, "partial, {what}");
+                    assert_eq!(extra, expected_extra, "extra, {what}");
+
+                    let mut b2b = vec![0u8; len];
+                    let mut extra = [0xa5u8; 64];
+                    run_with_block(
+                        &state,
+                        counter,
+                        Some(&plaintext[..len]),
+                        &mut b2b,
+                        None,
+                        extra_counter,
+                        &mut extra,
+                    );
+                    assert_eq!(b2b, expected, "b2b, {what}");
+                    for (byte, ks) in extra.iter().zip(expected_extra) {
+                        assert_eq!(*byte, 0xa5 ^ ks, "extra XOR, {what}");
+                    }
+                }
+            }
+        }
+    }
+}
