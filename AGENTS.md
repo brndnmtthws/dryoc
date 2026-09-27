@@ -83,37 +83,39 @@ cargo clippy --features default -- -D warnings
 cargo +nightly fmt --all -- --check
 ```
 
-CI uses `cargo nextest` when available:
+CI uses `cargo nextest` when available, with the `ci` Cargo profile
+(`--cargo-profile ci`; nextest's own `--profile` picks a nextest profile): it
+is `dev` at opt-level 1 with line tables, so debug assertions and overflow
+checks stay on while the SIMD intrinsics, which unoptimized x86-64 builds call
+out of line, are inlined. A feature set's suite contains the suite of every
+subset, so CI runs the suites for the largest sets and lints every feature set
+in the `features / clippy` job:
 
 ```sh
-cargo nextest run --features default
-cargo nextest run --no-default-features
-cargo nextest run --no-default-features --features alloc
-cargo nextest run --no-default-features --features std,serde
-cargo nextest run --features base64
-cargo nextest run --features wincode_0_6
-cargo +nightly nextest run --features simd_backend,nightly
+cargo nextest run --cargo-profile ci --features default
+cargo nextest run --cargo-profile ci --no-default-features --features serde,base64,wincode_0_6
+cargo nextest run --cargo-profile ci --no-default-features --features std,serde,base64,wincode_0_6
+cargo +nightly nextest run --cargo-profile ci --all-features
+cargo +nightly nextest run --cargo-profile ci --no-default-features --features simd_backend,nightly
 ```
 
 The wasm tests run through `wasm-bindgen-test-runner` (from the
 `wasm-bindgen-cli` version matching the `wasm-bindgen` in `cargo tree`), once
 without and once with the `simd128` kernels. Use `cargo test --tests`, not
 nextest: nextest starts one runner (a wasm-bindgen pass plus Node) per test.
-`--tests` skips doctests, which are not run on wasm. CI also sets
-`CARGO_PROFILE_TEST_OPT_LEVEL=1` and `CARGO_PROFILE_TEST_DEBUG=0` for these
-runs (debug assertions and overflow checks stay on):
+`--tests` skips doctests, which are not run on wasm. CI uses the `ci-wasm`
+profile, `ci` without debuginfo:
 
 ```sh
 export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner
-export CARGO_PROFILE_TEST_OPT_LEVEL=1 CARGO_PROFILE_TEST_DEBUG=0
-cargo test --target wasm32-unknown-unknown --tests --no-default-features --features std,serde,base64,wincode_0_6
-RUSTFLAGS=-Ctarget-feature=+simd128 cargo test --target wasm32-unknown-unknown --tests --no-default-features --features std,serde,base64,wincode_0_6
+cargo test --profile ci-wasm --target wasm32-unknown-unknown --tests --no-default-features --features std,serde,base64,wincode_0_6
+RUSTFLAGS=-Ctarget-feature=+simd128 cargo test --profile ci-wasm --target wasm32-unknown-unknown --tests --no-default-features --features std,serde,base64,wincode_0_6
 ```
 
 Coverage is generated on nightly with:
 
 ```sh
-cargo +nightly tarpaulin --features nightly,wincode_0_6 --out Xml
+cargo +nightly tarpaulin --engine llvm --features nightly,wincode_0_6 --out Xml
 ```
 
 Fuzzing lives in `fuzz/` and is isolated as its own workspace:

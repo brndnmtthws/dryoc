@@ -106,18 +106,16 @@ jobs:
       # `cargo test --tests` rather than nextest: nextest starts one
       # wasm-bindgen-test-runner (wasm-bindgen pass plus Node) per test, which
       # cost 2-7s each and dominated the job; `cargo test` starts one per
-      # binary. `--tests` keeps nextest's target set (no doctests). opt-level
-      # 1 keeps debug assertions and overflow checks but cuts the ML-KEM
-      # accumulated-vector test from ~60s; dropping debuginfo shrinks the wasm
-      # the runner processes.
+      # binary. `--tests` keeps nextest's target set (no doctests). The
+      # `ci-wasm` profile's opt-level 1 cuts the ML-KEM accumulated-vector test
+      # from ~60s; it drops debuginfo entirely, which shrinks the wasm the
+      # runner processes.
       - run: |
           for features in "" alloc std,serde,base64,wincode_0_6; do
-            mbx test --target wasm32-unknown-unknown --tests --no-default-features --features "$features"
+            mbx test --profile ci-wasm --target wasm32-unknown-unknown --tests --no-default-features --features "$features"
           done
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
-          CARGO_PROFILE_TEST_OPT_LEVEL: "1"
-          CARGO_PROFILE_TEST_DEBUG: "0"
           RUSTFLAGS: ${{ matrix.rustflags }}
       - run: |
           for features in "" alloc std,serde,base64,wincode_0_6; do
@@ -130,22 +128,16 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.rust }} / ${{ matrix.features }}
     strategy:
       matrix:
-        rust:
-          - stable
-          # - beta
-          - nightly
-        features:
-          - default
-          - simd_backend
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-        exclude:
-          - rust: stable
-            features: simd_backend
-          - os: windows-latest
-            features: simd_backend
+        # Linux nightly (with and without `simd_backend`) is the all-features
+        # job. `simd_backend` includes the default features, so the macOS
+        # nightly run also covers the nightly allocator there; Windows keeps
+        # a nightly run for the allocator on its own page APIs.
+        include:
+          - { os: ubuntu-latest, rust: stable, features: default }
+          - { os: macos-latest, rust: stable, features: default }
+          - { os: macos-latest, rust: nightly, features: simd_backend }
+          - { os: windows-latest, rust: stable, features: default }
+          - { os: windows-latest, rust: nightly, features: default }
     runs-on: ${{ matrix.os }}
     env:
       FEATURES: ${{ matrix.rust != 'nightly' && matrix.features || format('{0},nightly', matrix.features) }}
@@ -160,49 +152,33 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           profile: minimal
-          components: clippy rustfmt
+          components: clippy
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: platform-${{ matrix.features }}
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx build --features ${{ env.FEATURES }}
-      - run: mbx nextest run --features ${{ env.FEATURES }}
+      - run: mbx nextest run --cargo-profile ci --features ${{ env.FEATURES }}
         env:
           RUST_BACKTRACE: 1
-      - run: cargo fmt --all -- --check
-        if: ${{ matrix.rust == 'nightly' && matrix.os == 'ubuntu-latest' && matrix.features == 'default' }}
       - run: mbx clippy --features ${{ env.FEATURES }} -- -D warnings
 
+  # Features only add code (the one negative gate, `not(feature = "std")`,
+  # picks compile-time CPU detection), so the test suite of a feature set
+  # contains that of every subset: the suites run for the largest `no_std`
+  # and `std` sets without `protected`, which the platform jobs test, and
+  # every set is linted with its tests.
   feature-matrix:
     name: features / ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          # `--no-default-features` alone is `no_std` without `alloc`.
-          - name: no-std
-            flags: --no-default-features
-          - name: alloc-only
-            flags: --no-default-features --features alloc
-          - name: serde-no-alloc
-            flags: --no-default-features --features serde
           - name: alloc-optional-features
             flags: --no-default-features --features serde,base64,wincode_0_6
-          - name: std-only
-            flags: --no-default-features --features std
-          - name: base64-only
-            flags: --no-default-features --features std,base64
-          - name: serde-only
-            flags: --no-default-features --features std,serde
-          - name: wincode_0_6-only
-            flags: --no-default-features --features std,wincode_0_6
+          # publish.yml restores this job's cache.
           - name: optional-features
             flags: --no-default-features --features std,serde,base64,wincode_0_6
-          - name: protected-only
-            flags: --no-default-features --features protected
-          - name: serde-protected
-            flags: --no-default-features --features serde,protected
     steps:
       - uses: actions/checkout@v7
       - name: Setup stable Rust toolchain
@@ -216,11 +192,36 @@ jobs:
           cache-generation: features-${{ matrix.name }}
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --all-targets ${{ matrix.flags }}
+      - run: mbx nextest run --cargo-profile ci --all-targets ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets ${{ matrix.flags }} -- -D warnings
 
+  feature-clippy:
+    name: features / clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup stable Rust toolchain
+        uses: brndnmtthws/rust-action-rustup@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: clippy
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          cache-generation: features-clippy
+      # An empty feature list is `no_std` without `alloc`.
+      - run: |
+          for features in "" alloc serde serde,base64,wincode_0_6 std std,base64 std,serde \
+            std,wincode_0_6 std,serde,base64,wincode_0_6 protected serde,protected; do
+            echo "::group::--features '$features'"
+            mbx clippy --all-targets --no-default-features --features "$features" -- -D warnings
+            echo "::endgroup::"
+          done
+
+  # Test runs on 1.89 add nothing over the stable jobs: this checks that
+  # every target, tests included, builds.
   msrv:
     name: Rust 1.89 MSRV
     runs-on: ubuntu-latest
@@ -234,9 +235,7 @@ jobs:
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: msrv
-      - name: Install cargo-nextest
-        uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --all-targets --features wincode_0_6
+      - run: mbx check --all-targets --features wincode_0_6
       - run: mbx check --no-default-features
       - run: mbx check --no-default-features --features alloc
 
@@ -250,18 +249,19 @@ jobs:
         with:
           toolchain: nightly
           profile: minimal
-          components: clippy
+          components: clippy rustfmt
       - uses: jdx/mr-boxington-action@v1
         with:
           cache-generation: all-features
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --all-targets --all-features
+      - run: cargo fmt --all -- --check
+      - run: mbx nextest run --cargo-profile ci --all-targets --all-features
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets --all-features -- -D warnings
       # `nightly` does not imply `std`: the portable SIMD backends in `no_std`.
-      - run: mbx nextest run --all-targets --no-default-features --features simd_backend,nightly
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features simd_backend,nightly
         env:
           RUST_BACKTRACE: 1
       - run: mbx clippy --all-targets --no-default-features --features simd_backend,nightly -- -D warnings
@@ -326,7 +326,8 @@ jobs:
       - run: mbx clippy --target ${{ matrix.target }} --no-default-features --features alloc -- -D warnings
 
   # Without `std`, CPU-specific kernels are chosen from the compile-time target
-  # features; this runs the suite through the AVX2 and BMI2 kernels that way.
+  # features; this runs the suite through the AVX2 and BMI2 kernels that way
+  # (with `alloc`, whose suite contains the one without it).
   no-std-target-features:
     name: no_std / x86-64 AVX2 and BMI2 target features
     runs-on: ubuntu-latest
@@ -344,10 +345,7 @@ jobs:
           cache-generation: no-std-target-features
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
-      - run: mbx nextest run --all-targets --no-default-features
-        env:
-          RUST_BACKTRACE: 1
-      - run: mbx nextest run --all-targets --no-default-features --features alloc
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features alloc
         env:
           RUST_BACKTRACE: 1
 
@@ -435,8 +433,10 @@ jobs:
           path: fuzz/artifacts/
           if-no-files-found: ignore
 
+  # One abi3 wheel per platform, tested on the oldest and newest supported
+  # CPython, plus the free-threaded wheel on Linux.
   python:
-    name: Python / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    name: Python / ${{ matrix.os }} / ${{ matrix.wheel }}
     runs-on: ${{ matrix.os }}
     env:
       # Never fall back to a runner's system Python: "3" means the latest
@@ -453,58 +453,48 @@ jobs:
           - ubuntu-24.04-arm
           - macos-latest
           - windows-latest
-        python-version:
-          - "3.11"
-          - "3"
+        wheel:
+          - abi3
         include:
           - os: ubuntu-latest
-            python-version: "3.14t"
+            wheel: free-threaded
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          python-version: ${{ matrix.python-version }}
           working-directory: python
-      - name: Install Python
-        id: python
+      - name: Install free-threaded Python
+        if: matrix.wheel == 'free-threaded'
+        id: ft-python
         run: |
-          uv python install
-          echo "path=$(uv python find)" >> "$GITHUB_OUTPUT"
-        working-directory: python
+          uv python install 3.14t
+          echo "path=$(uv python find 3.14t)" >> "$GITHUB_OUTPUT"
       - name: Build wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
-          manylinux: ${{ matrix.python-version == '3.14t' && 'off' || '' }}
-          args: --release --locked --out dist ${{ matrix.python-version == '3.14t' && format('-i {0}', steps.python.outputs.path) || '' }}
+          manylinux: ${{ matrix.wheel == 'free-threaded' && 'off' || '' }}
+          args: --release --locked --out dist ${{ matrix.wheel == 'free-threaded' && format('-i {0}', steps.ft-python.outputs.path) || '' }}
           working-directory: python
-      - name: Install test dependencies
-        run: uv sync --locked --only-group test
-        working-directory: python
-      - name: Install built wheel
-        run: uv pip install dist/*.whl
-        working-directory: python
-      - name: Verify imports use installed wheel
-        run: uv run --no-sync python -c "import dryoc, sys; assert 'site-packages' in dryoc.__file__, dryoc.__file__"
-        working-directory: python
-      - name: Verify interoperability dependency is installed
-        run: uv run --no-sync python -c "import nacl"
-        working-directory: python
-      - name: Run Python tests
-        run: uv run --no-sync pytest -p no:cacheprovider tests
+      # The latest-Python test runs first: "3" matches any installed 3.x, so
+      # only on a runner without managed Pythons does it fetch the newest one.
+      - name: Test abi3 wheel on latest Python
+        if: matrix.wheel == 'abi3'
+        run: sh ../.github/scripts/test-wheel.sh 3 'dist/*cp311-abi3*.whl'
         working-directory: python
       - name: Setup nightly Rust validation tools
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3'
+        if: matrix.os == 'ubuntu-latest' && matrix.wheel == 'abi3'
         uses: brndnmtthws/rust-action-rustup@v1
         with:
           toolchain: nightly
           profile: minimal
           components: clippy rustfmt
-      # ruff and ty cover every Python file in the repository. release.py is
-      # checked against its own script environment, which has its tomlkit
-      # dependency.
+      # Runs in the latest-Python environment the step above left, with the
+      # wheel installed. ruff and ty cover every Python file in the
+      # repository. release.py is checked against its own script environment,
+      # which has its tomlkit dependency.
       - name: Lint Python and Rust code
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3'
+        if: matrix.os == 'ubuntu-latest' && matrix.wheel == 'abi3'
         run: |
           uv run --no-sync ruff check ..
           uv run --no-sync ruff format --check ..
@@ -514,6 +504,14 @@ jobs:
           uv run --no-sync pyright --verifytypes dryoc --ignoreexternal
           cargo clippy --locked --all-targets -- -D warnings
           cargo +nightly fmt --check
+        working-directory: python
+      - name: Test abi3 wheel on Python 3.11
+        if: matrix.wheel == 'abi3'
+        run: sh ../.github/scripts/test-wheel.sh 3.11 'dist/*cp311-abi3*.whl'
+        working-directory: python
+      - name: Test free-threaded wheel
+        if: matrix.wheel == 'free-threaded'
+        run: sh ../.github/scripts/test-wheel.sh 3.14t 'dist/*cp314-cp314t*.whl'
         working-directory: python
 
   python-sdist:
@@ -572,6 +570,7 @@ jobs:
       - wasm
       - platform
       - feature-matrix
+      - feature-clippy
       - no-std
       - no-std-target-features
       - msrv

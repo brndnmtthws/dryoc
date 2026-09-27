@@ -65,11 +65,12 @@ jobs:
             echo "python/Cargo.lock is stale; run 'cargo update -p dryoc --manifest-path python/Cargo.toml' and commit the updated lockfile." >&2
             exit 1
           fi
-      - run: mbx nextest run --all-targets
-      - run: mbx nextest run --all-targets --no-default-features
-      - run: mbx nextest run --all-targets --no-default-features --features alloc
-      - run: mbx nextest run --all-targets --no-default-features --features std,serde,base64,wincode_0_6
-      - run: mbx nextest run --all-targets --no-default-features --features serde,protected
+      # The `ci` profile of build-and-test.yml, whose cache this job restores.
+      - run: mbx nextest run --cargo-profile ci --all-targets
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features alloc
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features std,serde,base64,wincode_0_6
+      - run: mbx nextest run --cargo-profile ci --all-targets --no-default-features --features serde,protected
       - run: mbx test --doc
       - run: mbx doc --features wincode_0_6 --no-deps
         env:
@@ -77,7 +78,7 @@ jobs:
       - run: mbx clippy --all-targets --features wincode_0_6 -- -D warnings
       - name: Install nightly validation toolchain
         run: rustup toolchain install nightly --profile minimal --component clippy
-      - run: mbx +nightly nextest run --all-targets --all-features
+      - run: mbx +nightly nextest run --cargo-profile ci --all-targets --all-features
       - run: mbx +nightly test --doc --all-features
       - run: mbx +nightly clippy --all-targets --all-features -- -D warnings
       - run: cargo package

@@ -34,11 +34,12 @@ jobs:
           packages: cargo-tarpaulin
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      # Under ptrace the compute-heavy tests go 40-50s without an event; the
-      # default 60s watchdog is too close to that and has timed out.
-      # python/ is its own Cargo workspace, tested by pytest; tarpaulin would
-      # otherwise report its sources as uncovered.
-      - run: mbx tarpaulin --timeout 300 --features nightly,wincode_0_6 --exclude-files 'python/*' --out Xml
+      # The LLVM engine reads source-based coverage counters instead of
+      # single-stepping the tests under ptrace, which made the suite several
+      # times slower. The unoptimized suite still has tests near tarpaulin's
+      # default 60s timeout. python/ is its own Cargo workspace, tested by
+      # pytest; tarpaulin would otherwise report its sources as uncovered.
+      - run: mbx tarpaulin --engine llvm --timeout 300 --features nightly,wincode_0_6 --exclude-files 'python/*' --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.repository == 'brndnmtthws/dryoc'
