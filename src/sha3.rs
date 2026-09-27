@@ -64,7 +64,7 @@ macro_rules! sha3_hasher {
                 $algo,
                 " digest for `input`, copying\nresult into `output`."
             )]
-            pub fn compute_into_bytes<Input: Bytes + ?Sized, Output: MutByteArray<$digest_bytes>>(
+            pub fn compute_into_bytes<Output: MutByteArray<$digest_bytes>, Input: Bytes + ?Sized>(
                 output: &mut Output,
                 input: &Input,
             ) {
@@ -79,7 +79,7 @@ macro_rules! sha3_hasher {
                 " digest for `input`."
             )]
             #[must_use]
-            pub fn compute<Input: Bytes + ?Sized, Output: NewByteArray<$digest_bytes>>(
+            pub fn compute<Output: NewByteArray<$digest_bytes>, Input: Bytes + ?Sized>(
                 input: &Input,
             ) -> Output {
                 let mut hasher = Self::new();
@@ -97,7 +97,7 @@ macro_rules! sha3_hasher {
             #[cfg(feature = "alloc")]
             #[must_use]
             pub fn compute_to_vec<Input: Bytes + ?Sized>(input: &Input) -> Vec<u8> {
-                Self::compute::<_, StackByteArray<$digest_bytes>>(input).to_vec()
+                Self::compute::<StackByteArray<$digest_bytes>, _>(input).to_vec()
             }
 
             #[doc = concat!("Updates ", $algo, " hash state with `input`.")]

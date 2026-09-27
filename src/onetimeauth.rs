@@ -124,9 +124,9 @@ impl OnetimeAuth {
     /// retained to verify the authentication code for this same message.
     #[must_use]
     pub fn compute<
+        Output: NewByteArray<CRYPTO_ONETIMEAUTH_BYTES>,
         Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>,
         Input: Bytes + ?Sized,
-        Output: NewByteArray<CRYPTO_ONETIMEAUTH_BYTES>,
     >(
         key: &Key,
         input: &Input,
@@ -145,7 +145,7 @@ impl OnetimeAuth {
         key: &Key,
         input: &Input,
     ) -> Vec<u8> {
-        Self::compute::<_, _, Mac>(key, input).to_vec()
+        Self::compute::<Mac, _, _>(key, input).to_vec()
     }
 
     /// Verifies that `other_mac` authenticates `input` under `key`.

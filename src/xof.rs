@@ -146,7 +146,7 @@ macro_rules! xof {
             #[doc = concat!(
                 "Computes ", $algo, " of `input` with the standard domain, filling `output`."
             )]
-            pub fn compute_into_bytes<Input: Bytes + ?Sized, Output: MutBytes + ?Sized>(
+            pub fn compute_into_bytes<Output: MutBytes + ?Sized, Input: Bytes + ?Sized>(
                 output: &mut Output,
                 input: &Input,
             ) {

@@ -209,8 +209,8 @@ impl DryocStream<Push> {
     /// Returns a new push stream, initialized from `key`.
     #[must_use]
     pub fn init_push<
-        Key: ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>,
         Header: NewByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_HEADERBYTES>,
+        Key: ByteArray<CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_KEYBYTES>,
     >(
         key: &Key,
     ) -> (Self, Header) {
@@ -238,7 +238,7 @@ impl DryocStream<Push> {
     /// Returns an error if the message exceeds the stream's maximum message
     /// length, or the output storage does not resize to exactly the required
     /// ciphertext length.
-    pub fn push<Input: Bytes + ?Sized, Output: NewBytes + ResizableBytes>(
+    pub fn push<Output: NewBytes + ResizableBytes, Input: Bytes + ?Sized>(
         &mut self,
         message: &Input,
         associated_data: Option<&[u8]>,
@@ -310,7 +310,7 @@ impl DryocStream<Pull> {
     /// data, modified ciphertext, or messages processed out of order.
     /// An authenticated tag byte that is not one of the four [`Tag`] values is
     /// also rejected without advancing the stream.
-    pub fn pull<Input: Bytes + ?Sized, Output: NewBytes + ResizableBytes>(
+    pub fn pull<Output: NewBytes + ResizableBytes, Input: Bytes + ?Sized>(
         &mut self,
         ciphertext: &Input,
         associated_data: Option<&[u8]>,

@@ -178,8 +178,8 @@ macro_rules! kem_api {
             /// of `ciphertext` is a low-order point. ML-KEM-768 decapsulation
             /// does not fail.
             pub fn decapsulate<
-                Ciphertext: ByteArray<{ $ct_bytes }>,
                 SharedSecret: NewByteArray<{ $ss_bytes }>,
+                Ciphertext: ByteArray<{ $ct_bytes }>,
             >(
                 &self,
                 ciphertext: &Ciphertext,
@@ -205,9 +205,9 @@ macro_rules! kem_api {
         /// Returns [`Error::InvalidKey`] if `public_key` is not a valid public
         /// key.
         pub fn encapsulate<
-            PublicKey: ByteArray<{ $pk_bytes }>,
             Ciphertext: NewByteArray<{ $ct_bytes }>,
             SharedSecret: NewByteArray<{ $ss_bytes }>,
+            PublicKey: ByteArray<{ $pk_bytes }>,
         >(
             public_key: &PublicKey,
         ) -> Result<(Ciphertext, SharedSecret), Error> {

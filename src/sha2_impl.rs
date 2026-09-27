@@ -87,8 +87,8 @@ macro_rules! sha2_hasher {
                 "into `output`."
             )]
             pub fn compute_into_bytes<
-                Input: $crate::types::Bytes + ?Sized,
                 Output: $crate::types::MutByteArray<$digest_bytes>,
+                Input: $crate::types::Bytes + ?Sized,
             >(
                 output: &mut Output,
                 input: &Input,
@@ -126,8 +126,8 @@ macro_rules! sha2_hasher {
             #[doc = concat!("One-time interface to compute ", $algo, " digest for `input`.")]
             #[must_use]
             pub fn compute<
-                Input: $crate::types::Bytes + ?Sized,
                 Output: $crate::types::NewByteArray<$digest_bytes>,
+                Input: $crate::types::Bytes + ?Sized,
             >(
                 input: &Input,
             ) -> Output {
@@ -143,7 +143,7 @@ macro_rules! sha2_hasher {
             #[cfg(feature = "alloc")]
             #[must_use]
             pub fn compute_to_vec<Input: $crate::types::Bytes + ?Sized>(input: &Input) -> alloc::vec::Vec<u8> {
-                Self::compute::<_, $crate::types::StackByteArray<$digest_bytes>>(input).to_vec()
+                Self::compute::<$crate::types::StackByteArray<$digest_bytes>, _>(input).to_vec()
             }
 
             #[doc = concat!("Updates ", $algo, " hash state with `input`.")]
