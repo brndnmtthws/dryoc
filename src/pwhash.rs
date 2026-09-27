@@ -201,6 +201,7 @@ impl Config {
     ///
     /// This is the default preset for online operations where users wait for
     /// the result.
+    #[must_use]
     pub fn interactive() -> Self {
         Self::preset(
             CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
@@ -211,6 +212,7 @@ impl Config {
     /// Returns libsodium's moderate password hashing configuration.
     ///
     /// This preset uses more time and memory than [`Config::interactive`].
+    #[must_use]
     pub fn moderate() -> Self {
         Self::preset(
             CRYPTO_PWHASH_OPSLIMIT_MODERATE,
@@ -222,6 +224,7 @@ impl Config {
     ///
     /// This preset has the highest resource requirements. Use it only when the
     /// deployment can tolerate its latency and memory use.
+    #[must_use]
     pub fn sensitive() -> Self {
         Self::preset(
             CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
@@ -635,6 +638,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// This function does not validate the parts. Invalid values are reported
     /// when an operation such as [`PwHash::verify`] or
     /// [`PwHash::to_encoded_string`] uses them.
+    #[must_use]
     pub fn from_parts(hash: Hash, salt: Salt, config: Config) -> Self {
         Self { hash, salt, config }
     }
@@ -642,6 +646,7 @@ impl<Hash: Bytes + Zeroize, Salt: Bytes + Zeroize> PwHash<Hash, Salt> {
     /// Moves the hash, salt, and config out of this instance, returning them as
     /// a tuple. The returned hash no longer benefits from the instance's
     /// drop-time zeroization.
+    #[must_use]
     pub fn into_parts(self) -> (Hash, Salt, Config) {
         let this = core::mem::ManuallyDrop::new(self);
         // SAFETY: Each field is read exactly once from `this`; suppressing its

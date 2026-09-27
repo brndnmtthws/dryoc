@@ -80,6 +80,7 @@ macro_rules! crypto_hash_state {
         }
 
         $(#[$init_meta])*
+        #[must_use]
         pub fn $init() -> $state {
             <$state>::default()
         }

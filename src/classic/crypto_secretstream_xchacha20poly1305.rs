@@ -150,6 +150,7 @@ impl Eq for State {}
 
 impl State {
     /// Returns a new stream state with an empty key and nonce.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -223,7 +224,7 @@ fn secretstream_init_mac(
     // Blocks 0 and 1 come out of one keystream run.
     let mut block0 = WideZeroizing::new([0u8; 64]);
     cipher.apply_keystream_with_head(&mut block0, block);
-    let mut mac_key = crate::poly1305::Key::new();
+    let mut mac_key = crate::poly1305::Key::default();
     mac_key.copy_from_slice(&block0[..mac_key.len()]);
     let mut mac = Poly1305::new(&mac_key);
     mac_key.zeroize();

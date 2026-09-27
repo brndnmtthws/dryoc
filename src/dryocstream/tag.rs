@@ -47,6 +47,7 @@ impl Tag {
     /// [`crypto_secretstream_xchacha20poly1305`](crate::classic::crypto_secretstream_xchacha20poly1305)
     /// functions.
     #[inline]
+    #[must_use]
     pub const fn bits(self) -> u8 {
         self as u8
     }

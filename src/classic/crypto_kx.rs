@@ -76,6 +76,7 @@ pub fn crypto_kx_seed_keypair(
 /// Returns a randomly generated keypair, suitable for use with key exchange.
 ///
 /// Equivalent to libsodium's `crypto_kx_keypair`.
+#[must_use]
 pub fn crypto_kx_keypair() -> (PublicKey, SecretKey) {
     let sk = SecretKey::generate();
     let mut pk = PublicKey::default();

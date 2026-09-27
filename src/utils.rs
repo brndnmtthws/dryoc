@@ -17,12 +17,6 @@ pub fn increment_bytes(bytes: &mut [u8]) {
     }
 }
 
-/// Convenience wrapper for [`increment_bytes`]. Functionally equivalent to
-/// `sodium_increment`.
-pub fn sodium_increment(bytes: &mut [u8]) {
-    increment_bytes(bytes)
-}
-
 #[inline]
 pub(crate) fn xor_buf(out: &mut [u8], in_: &[u8]) {
     let len = core::cmp::min(out.len(), in_.len());
@@ -427,7 +421,7 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_sodium_increment() {
+        fn test_increment_bytes_matches_libsodium() {
             use libsodium_sys::sodium_increment as so_sodium_increment;
 
             use crate::utils::test_util::XorShift64;
@@ -437,7 +431,7 @@ mod tests {
             fn assert_matches_libsodium(input: &[u8]) {
                 let mut ours = input.to_vec();
                 let mut theirs = input.to_vec();
-                sodium_increment(&mut ours);
+                increment_bytes(&mut ours);
                 // SAFETY: `theirs` is a valid, writable buffer of exactly
                 // `theirs.len()` bytes for the duration of the call.
                 unsafe { so_sodium_increment(theirs.as_mut_ptr(), theirs.len()) };

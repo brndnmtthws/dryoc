@@ -74,11 +74,13 @@ pub fn crypto_auth_hmacsha512_verify(mac: &Mac, input: &[u8], key: &Key) -> Resu
 }
 
 /// Generates a random key for HMAC-SHA-512.
+#[must_use]
 pub fn crypto_auth_hmacsha512_keygen() -> Key {
     hmac_keygen()
 }
 
 /// Initializes the incremental interface for HMAC-SHA-512.
+#[must_use]
 pub fn crypto_auth_hmacsha512_init(key: &[u8]) -> HmacSha512State {
     HmacSha512State(hmac_init::<Sha512, 128, CRYPTO_AUTH_HMACSHA512_BYTES>(key))
 }

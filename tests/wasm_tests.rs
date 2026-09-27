@@ -591,7 +591,7 @@ fn xof_rfc_9861_turboshake_known_answer() {
     );
     // The last 32 of 10032 output bytes: 59 full blocks, then a partial one.
     let mut reader = TurboShake128::new().finalize();
-    reader.squeeze_to_vec(10032 - 32);
+    let _skipped = reader.squeeze_to_vec(10032 - 32);
     assert_eq!(
         reader.squeeze_to_vec(32),
         unhex("a3b9b0385900ce761f22aed548e754da10a5242d62e8c658e3f3a923a7555607")
@@ -622,7 +622,7 @@ fn xof_rfc_9861_turboshake_known_answer() {
         ))
     );
     let mut reader = TurboShake256::new().finalize();
-    reader.squeeze_to_vec(10032 - 32);
+    let _skipped = reader.squeeze_to_vec(10032 - 32);
     assert_eq!(
         reader.squeeze_to_vec(32),
         unhex("abefa11630c661269249742685ec082f207265dccf2f43534e9c61ba0c9d1d75")

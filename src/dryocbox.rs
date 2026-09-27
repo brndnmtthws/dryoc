@@ -482,6 +482,7 @@ impl<
     /// Returns a new box from the (optional) `ephemeral_pk`, `tag`, and
     /// `data`, consuming each. The order matches the wire format of
     /// [`DryocBox::to_bytes`].
+    #[must_use]
     pub fn from_parts(ephemeral_pk: Option<EphemeralPublicKey>, tag: Mac, data: Data) -> Self {
         Self {
             ephemeral_pk,
@@ -508,12 +509,14 @@ impl<
 
     /// Copies `self` into a new [`Vec`]
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
 
     /// Moves the (optional) ephemeral public key, tag, and data out of this
     /// instance, returning them as a tuple in wire order.
+    #[must_use]
     pub fn into_parts(self) -> (Option<EphemeralPublicKey>, Mac, Data) {
         (self.ephemeral_pk, self.tag, self.data)
     }
@@ -635,6 +638,7 @@ impl<
     }
 
     /// Copies `self` into the target. Can be used with protected memory.
+    #[must_use]
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         match &self.ephemeral_pk {
             Some(epk) => {

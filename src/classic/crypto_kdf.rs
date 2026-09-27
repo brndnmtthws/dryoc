@@ -105,6 +105,7 @@ pub struct HkdfSha512State(HmacState<Sha512, 128, CRYPTO_KDF_HKDF_SHA512_KEYBYTE
 
 /// Generates a random key, suitable for use as a main key with
 /// [`crypto_kdf_derive_from_key`].
+#[must_use]
 pub fn crypto_kdf_keygen() -> Key {
     let mut key = Key::default();
     copy_randombytes(&mut key);
@@ -112,11 +113,13 @@ pub fn crypto_kdf_keygen() -> Key {
 }
 
 /// Generates a random pseudorandom key for HKDF-SHA-256 expand.
+#[must_use]
 pub fn crypto_kdf_hkdf_sha256_keygen() -> HkdfSha256Key {
     hmac_keygen()
 }
 
 /// Generates a random pseudorandom key for HKDF-SHA-512 expand.
+#[must_use]
 pub fn crypto_kdf_hkdf_sha512_keygen() -> HkdfSha512Key {
     hmac_keygen()
 }
@@ -178,6 +181,7 @@ pub fn crypto_kdf_hkdf_sha256_extract(prk: &mut HkdfSha256Key, salt: Option<&[u8
 }
 
 /// Initializes incremental HKDF-SHA-256 extract.
+#[must_use]
 pub fn crypto_kdf_hkdf_sha256_extract_init(salt: Option<&[u8]>) -> HkdfSha256State {
     HkdfSha256State(hmac_init::<Sha256, 64, CRYPTO_KDF_HKDF_SHA256_KEYBYTES>(
         salt.unwrap_or(&[]),
@@ -222,6 +226,7 @@ pub fn crypto_kdf_hkdf_sha512_extract(prk: &mut HkdfSha512Key, salt: Option<&[u8
 }
 
 /// Initializes incremental HKDF-SHA-512 extract.
+#[must_use]
 pub fn crypto_kdf_hkdf_sha512_extract_init(salt: Option<&[u8]>) -> HkdfSha512State {
     HkdfSha512State(hmac_init::<Sha512, 128, CRYPTO_KDF_HKDF_SHA512_KEYBYTES>(
         salt.unwrap_or(&[]),

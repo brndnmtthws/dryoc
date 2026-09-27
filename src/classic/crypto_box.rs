@@ -82,6 +82,7 @@ pub fn crypto_box_seed_keypair_inplace(
 
 /// Generates a public/secret key pair from OS-provided random data, using
 /// [`copy_randombytes`](crate::rng::copy_randombytes).
+#[must_use]
 pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_keypair()
 }
@@ -89,6 +90,7 @@ pub fn crypto_box_keypair() -> (PublicKey, SecretKey) {
 /// Deterministically derives a keypair from a 32-byte `seed`.
 ///
 /// Compatible with libsodium's `crypto_box_seed_keypair`.
+#[must_use]
 pub fn crypto_box_seed_keypair(seed: &[u8; CRYPTO_BOX_SEEDBYTES]) -> (PublicKey, SecretKey) {
     crypto_box_curve25519xsalsa20poly1305_seed_keypair(seed)
 }

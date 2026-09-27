@@ -115,6 +115,7 @@ macro_rules! kem_api {
         > KeyPair<PublicKey, SecretKey>
         {
             /// Generates a random key pair.
+            #[must_use]
             pub fn generate() -> Self {
                 let mut seed = Zeroizing::new([0u8; $seed_bytes]);
                 copy_randombytes(seed.as_mut_slice());
@@ -122,6 +123,7 @@ macro_rules! kem_api {
             }
 
             /// Deterministically derives a key pair from `seed`.
+            #[must_use]
             pub fn from_seed<Seed: ByteArray<{ $seed_bytes }>>(seed: &Seed) -> Self {
                 let mut public_key = PublicKey::new_byte_array();
                 let mut secret_key = SecretKey::new_byte_array();
@@ -143,6 +145,7 @@ macro_rules! kem_api {
         > KeyPair<PublicKey, SecretKey>
         {
             /// Returns the key pair for `secret_key`, deriving its public key.
+            #[must_use]
             pub fn from_secret_key(secret_key: SecretKey) -> Self {
                 let mut public_key = PublicKey::new_byte_array();
                 {
@@ -160,6 +163,7 @@ macro_rules! kem_api {
         impl KeyPair<PublicKey, SecretKey> {
             /// Generates a random key pair of stack-allocated arrays.
             /// Provided for convenience.
+            #[must_use]
             pub fn generate_with_defaults() -> Self {
                 Self::generate()
             }

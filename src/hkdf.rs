@@ -242,6 +242,7 @@ where
     Prk: NewByteArray<PRK_LENGTH> + Zeroize + ZeroizeOnDrop,
 {
     /// Randomly generates a new PRK for HKDF expand.
+    #[must_use]
     pub fn generate() -> Self {
         Self {
             prk: Prk::generate(),
@@ -250,6 +251,7 @@ where
     }
 
     /// Extracts a PRK from input keying material and optional salt.
+    #[must_use]
     pub fn extract<Salt: Bytes + ?Sized, Ikm: Bytes + ?Sized>(
         salt: Option<&Salt>,
         ikm: &Ikm,
@@ -333,6 +335,7 @@ where
     Prk: ByteArray<PRK_LENGTH> + Zeroize + ZeroizeOnDrop,
 {
     /// Constructs an HKDF expander from a PRK, consuming it.
+    #[must_use]
     pub fn from_prk(prk: Prk) -> Self {
         Self {
             prk,
@@ -341,6 +344,7 @@ where
     }
 
     /// Moves the PRK out of this expander.
+    #[must_use]
     pub fn into_prk(self) -> Prk {
         self.prk
     }
@@ -411,6 +415,7 @@ where
     Variant: HkdfVariant<PRK_LENGTH>,
 {
     /// Randomly generates a new PRK using the default stack-allocated type.
+    #[must_use]
     pub fn generate_with_defaults() -> Self {
         Self::generate()
     }

@@ -357,6 +357,7 @@ impl<
 > DryocSealedBox<EncapsulatedKey, Mac, Data>
 {
     /// Returns a new box from its parts, consuming each.
+    #[must_use]
     pub fn from_parts(enc: EncapsulatedKey, tag: Mac, data: Data) -> Self {
         Self { enc, tag, data }
     }
@@ -378,17 +379,20 @@ impl<
 
     /// Moves the X-Wing ciphertext, tag and encrypted message out of this
     /// box.
+    #[must_use]
     pub fn into_parts(self) -> (EncapsulatedKey, Mac, Data) {
         (self.enc, self.tag, self.data)
     }
 
     /// Copies the box's wire format into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
 
     /// Copies the box's wire format into new `Bytes`.
+    #[must_use]
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         let mut bytes = Bytes::new_bytes();
         bytes.resize(SEALBYTES + self.data.len(), 0);

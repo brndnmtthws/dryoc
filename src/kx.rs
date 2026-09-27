@@ -256,6 +256,7 @@ impl<SessionKey: ByteArray<CRYPTO_KX_SESSIONKEYBYTES> + Zeroize + ZeroizeOnDrop>
 {
     /// Moves the rx_key and tx_key out of this instance, returning them as a
     /// tuple with `(rx_key, tx_key)`.
+    #[must_use]
     pub fn into_parts(self) -> (SessionKey, SessionKey) {
         (self.rx_key, self.tx_key)
     }

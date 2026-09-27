@@ -122,6 +122,7 @@ impl OnetimeAuth {
     ///
     /// The key must not be used to authenticate any other message. It may be
     /// retained to verify the authentication code for this same message.
+    #[must_use]
     pub fn compute<
         Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>,
         Input: Bytes + ?Sized,
@@ -139,6 +140,7 @@ impl OnetimeAuth {
     ///
     /// This is a convenience wrapper around [`OnetimeAuth::compute`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn compute_to_vec<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>, Input: Bytes + ?Sized>(
         key: &Key,
         input: &Input,
@@ -168,6 +170,7 @@ impl OnetimeAuth {
     ///
     /// The key must not be used to authenticate any other message. It may be
     /// retained to verify the authentication code for this same message.
+    #[must_use]
     pub fn new<Key: ByteArray<CRYPTO_ONETIMEAUTH_KEYBYTES>>(key: &Key) -> Self {
         Self {
             state: crypto_onetimeauth_init(key.as_array()),
@@ -181,6 +184,7 @@ impl OnetimeAuth {
 
     /// Finalizes this one-time authenticator, returning the message
     /// authentication code.
+    #[must_use]
     pub fn finalize<Output: NewByteArray<CRYPTO_ONETIMEAUTH_BYTES>>(self) -> Output {
         let mut output = Output::new_byte_array();
         crypto_onetimeauth_final(self.state, output.as_mut_array());
@@ -191,6 +195,7 @@ impl OnetimeAuth {
     /// authentication code as a [`Vec`]. Convenience wrapper around
     /// [`OnetimeAuth::finalize`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn finalize_to_vec(self) -> Vec<u8> {
         self.finalize::<Mac>().to_vec()
     }

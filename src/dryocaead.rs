@@ -648,6 +648,7 @@ macro_rules! impl_aead_algorithm {
             }
 
             /// Consumes this box and returns it as `ciphertext || tag`.
+            #[must_use]
             pub fn into_vec(mut self) -> Vec<u8> {
                 self.data.resize(self.data.len() + $abytes, 0);
                 let tag_offset = self.data.len() - $abytes;
@@ -676,6 +677,7 @@ macro_rules! impl_aead_algorithm {
             }
 
             /// Consumes this envelope and returns it as `nonce || ciphertext || tag`.
+            #[must_use]
             pub fn into_vec(self) -> Vec<u8> {
                 let mut output = self.nonce.to_vec();
                 output.extend_from_slice(self.data.as_slice());
@@ -811,6 +813,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Zeroize, Mac: Zeroize, Data: Zeroize> Zero
 
 impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
     /// Returns a new AEAD box from `tag` and ciphertext `data`.
+    #[must_use]
     pub fn from_parts(tag: Mac, data: Data) -> Self {
         Self {
             algorithm: PhantomData,
@@ -830,6 +833,7 @@ impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
     }
 
     /// Moves the tag and ciphertext out of this instance.
+    #[must_use]
     pub fn into_parts(self) -> (Mac, Data) {
         (self.tag, self.data)
     }
@@ -838,6 +842,7 @@ impl<Algorithm: AeadAlgorithm, Mac, Data> AeadBox<Algorithm, Mac, Data> {
 impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, Data> {
     /// Copies `self` into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -848,6 +853,7 @@ impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, 
     /// # Panics
     ///
     /// Panics if the tag is shorter than the algorithm's tag size.
+    #[must_use]
     pub fn to_bytes<Output: NewBytes + ResizableBytes>(&self) -> Output {
         concat_bytes(
             self.data.as_slice(),
@@ -858,6 +864,7 @@ impl<Algorithm: AeadAlgorithm, Mac: Bytes, Data: Bytes> AeadBox<Algorithm, Mac, 
 
 impl<Algorithm: AeadAlgorithm, Nonce, Mac, Data> AeadEnvelope<Algorithm, Nonce, Mac, Data> {
     /// Returns a new AEAD envelope from `nonce`, `tag`, and ciphertext `data`.
+    #[must_use]
     pub fn from_parts(nonce: Nonce, tag: Mac, data: Data) -> Self {
         Self {
             algorithm: PhantomData,
@@ -883,6 +890,7 @@ impl<Algorithm: AeadAlgorithm, Nonce, Mac, Data> AeadEnvelope<Algorithm, Nonce, 
     }
 
     /// Moves the nonce, tag, and ciphertext out of this instance.
+    #[must_use]
     pub fn into_parts(self) -> (Nonce, Mac, Data) {
         (self.nonce, self.tag, self.data)
     }
@@ -893,6 +901,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
 {
     /// Copies `self` into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
@@ -904,6 +913,7 @@ impl<Algorithm: AeadAlgorithm, Nonce: Bytes, Mac: Bytes, Data: Bytes>
     /// # Panics
     ///
     /// Panics if the nonce or tag is shorter than the algorithm's size.
+    #[must_use]
     pub fn to_bytes<Output: NewBytes + ResizableBytes>(&self) -> Output {
         let nonce = &self.nonce.as_slice()[..Algorithm::NPUBBYTES];
         let tag = &self.tag.as_slice()[..Algorithm::ABYTES];

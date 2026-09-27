@@ -71,6 +71,7 @@ pub fn crypto_kem_mlkem768_seed_keypair_inplace(
 /// Deterministically derives a key pair from `seed`.
 ///
 /// Compatible with libsodium's `crypto_kem_mlkem768_seed_keypair`.
+#[must_use]
 pub fn crypto_kem_mlkem768_seed_keypair(seed: &Seed) -> (PublicKey, SecretKey) {
     let mut public_key = [0u8; CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES];
     let mut secret_key = [0u8; CRYPTO_KEM_MLKEM768_SECRETKEYBYTES];
@@ -88,6 +89,7 @@ pub fn crypto_kem_mlkem768_keypair_inplace(public_key: &mut PublicKey, secret_ke
 /// Returns a randomly generated key pair.
 ///
 /// Compatible with libsodium's `crypto_kem_mlkem768_keypair`.
+#[must_use]
 pub fn crypto_kem_mlkem768_keypair() -> (PublicKey, SecretKey) {
     let mut public_key = [0u8; CRYPTO_KEM_MLKEM768_PUBLICKEYBYTES];
     let mut secret_key = [0u8; CRYPTO_KEM_MLKEM768_SECRETKEYBYTES];

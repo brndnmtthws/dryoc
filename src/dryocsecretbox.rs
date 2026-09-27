@@ -276,6 +276,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     DryocSecretBox<Mac, Data>
 {
     /// Returns a new box with `tag` and `data`, consuming both.
+    #[must_use]
     pub fn from_parts(tag: Mac, data: Data) -> Self {
         Self { tag, data }
     }
@@ -292,11 +293,13 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
 
     /// Copies `self` into a new [`Vec`].
     #[cfg(feature = "alloc")]
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.to_bytes()
     }
 
     /// Moves the tag and data out of this instance, returning them as a tuple.
+    #[must_use]
     pub fn into_parts(self) -> (Mac, Data) {
         (self.tag, self.data)
     }
@@ -338,6 +341,7 @@ impl<Mac: ByteArray<CRYPTO_SECRETBOX_MACBYTES> + Zeroize, Data: Bytes + Zeroize>
     }
 
     /// Copies `self` into the target. Can be used with protected memory.
+    #[must_use]
     pub fn to_bytes<Bytes: NewBytes + ResizableBytes>(&self) -> Bytes {
         concat_bytes(self.tag.as_array(), self.data.as_slice())
     }
@@ -384,6 +388,7 @@ impl DryocSecretBox<Mac, Vec<u8>> {
     }
 
     /// Consumes this box and returns `tag || ciphertext` as a [`Vec`].
+    #[must_use]
     pub fn into_vec(mut self) -> Vec<u8> {
         self.data
             .resize(self.data.len() + CRYPTO_SECRETBOX_MACBYTES, 0);

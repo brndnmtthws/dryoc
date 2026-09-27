@@ -151,6 +151,7 @@ pub fn crypto_core_hchacha20(
 /// This matches `crypto_core_ed25519_is_valid_point` in libsodium 1.0.21 and
 /// later. Libsodium versions through 1.0.20 incorrectly accepted some
 /// mixed-order points; this function rejects them.
+#[must_use]
 pub fn crypto_core_ed25519_is_valid_point(p: &Ed25519Point) -> bool {
     decompress_prime_order_ed25519_point(p).is_some()
 }

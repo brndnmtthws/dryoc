@@ -75,12 +75,14 @@ pub fn crypto_sign_seed_keypair_inplace(
 
 /// Randomly generates a new Ed25519 `(PublicKey, SecretKey)` keypair that can
 /// be used for message signing.
+#[must_use]
 pub fn crypto_sign_keypair() -> (PublicKey, SecretKey) {
     crypto_sign_ed25519_keypair()
 }
 
 /// Returns a keypair derived from `seed`, which can be used for message
 /// signing.
+#[must_use]
 pub fn crypto_sign_seed_keypair(seed: &[u8; 32]) -> (PublicKey, SecretKey) {
     crypto_sign_ed25519_seed_keypair(seed)
 }
@@ -167,6 +169,7 @@ pub struct SignerState {
 }
 
 /// Initializes the incremental signing interface.
+#[must_use]
 pub fn crypto_sign_init() -> SignerState {
     SignerState {
         state: crypto_sign_ed25519ph_init(),
