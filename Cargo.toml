@@ -10,7 +10,7 @@ license = "MIT"
 name = "dryoc"
 repository = "https://github.com/brndnmtthws/dryoc"
 rust-version = "1.89"
-version = "2.0.0"
+version = "2.0.1"
 
 [dependencies]
 curve25519-dalek = { version = "5.0", default-features = false, features = ["zeroize"] }

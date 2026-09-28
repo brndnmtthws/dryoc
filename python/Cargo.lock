@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "dryoc"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "curve25519-dalek",
  "getrandom",
@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "dryoc-python"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "dryoc",
  "pyo3",
