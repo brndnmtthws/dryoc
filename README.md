@@ -13,7 +13,7 @@
 * **Fast:** Pure Rust kernels with runtime CPU feature detection (AVX-512, AVX2, NEON, SVE2) that outperform libsodium's C implementations on common workloads.
 * **Post-quantum ready:** ML-KEM-768 key encapsulation, X-Wing hybrid (ML-KEM + X25519), and RFC 9180 HPKE sealed boxes.
 * **Type-safe API:** Fixed-size Rust types for keys, nonces, and ciphertexts that catch length and type errors at compile time.
-* **Libsodium compatible:** `crypto_*` API matching libsodium wire formats and functions for integration or migration.
+* **Libsodium compatible:** `crypto_*` API matching libsodium wire formats and functions for integration or migration (see [compatibility notes](COMPATIBILITY.md)).
 * **Hardened and flexible:** Protected memory on Unix and Windows, memory zeroization, `#![no_std]` / `alloc` support, and Serde implementations.
 * **Python and Wasm support:** Python 3.11+ bindings (`pip install dryoc`, including free-threaded CPython support) and WebAssembly (`wasm32-unknown-unknown`) with optional SIMD.
 
