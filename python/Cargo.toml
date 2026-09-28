@@ -1,7 +1,7 @@
 [package]
 name = "dryoc-python"
 # Must equal the root crate's version: the wheel version comes from here.
-version = "2.0.0"
+version = "2.0.1"
 authors = ["Brenden Matthews <brenden@brndn.io>"]
 description = "Python bindings for dryoc"
 edition = "2024"
