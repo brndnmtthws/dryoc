@@ -28,6 +28,8 @@ Add `dryoc` to your `Cargo.toml`:
 dryoc = "2"
 ```
 
+Upgrading from dryoc 1.x? See [UPGRADING.md](UPGRADING.md).
+
 ### Type-Safe Rustaceous API (Recommended)
 
 ```rust
