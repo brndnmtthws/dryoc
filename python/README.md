@@ -24,11 +24,12 @@ uv add dryoc
 or `pip install dryoc`.
 
 Prebuilt wheels are published for Linux x86_64 and aarch64 (glibc
-manylinux and musl/Alpine musllinux), macOS arm64 and Windows x86_64: one
-`abi3` wheel per platform for CPython 3.11 and newer, plus a separate wheel
-for free-threaded CPython 3.14t. On other platforms (Intel macOS, Windows on
-ARM, PyPy) the installer builds from the source distribution, which needs a
-Rust toolchain, version 1.89 or newer.
+manylinux and musl/Alpine musllinux), macOS arm64 and Windows x86_64. They
+cover CPython 3.11 and newer, free-threaded builds included: an `abi3` wheel
+for 3.11 to 3.14, a wheel for free-threaded 3.14t, and an `abi3t` wheel that
+both the GIL-enabled and free-threaded builds of 3.15 and newer load. On
+other platforms (Intel macOS, Windows on ARM, PyPy) the installer builds from
+the source distribution, which needs a Rust toolchain, version 1.89 or newer.
 
 ## Quick tour
 
