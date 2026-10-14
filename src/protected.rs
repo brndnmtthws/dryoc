@@ -1284,6 +1284,9 @@ impl std::ops::DerefMut for ProtectedBuffer {
 impl_slice_index!(impl[] ProtectedBuffer, |s| s.as_slice(), |s| s.as_mut_slice());
 
 #[cfg(feature = "nightly")]
+// The allocator API is stable from Rust 1.100, which the `nightly` feature
+// requires (nightly-2026-09-24 or later); the crate MSRV does not apply here.
+#[clippy::msrv = "1.100"]
 // SAFETY: `allocate` returns the user slice inside an owned allocation preceded
 // by one guard page. `deallocate` subtracts that same guard-page offset,
 // restores guard-page permissions, and releases the original allocation with
