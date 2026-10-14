@@ -148,8 +148,8 @@ jobs:
           files=(dist/*)
           wheels=(dist/*.whl)
           sdists=(dist/*.tar.gz)
-          [[ ${#wheels[@]} -eq 12 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 13 ]] || {
-            echo "Expected exactly twelve wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
+          [[ ${#wheels[@]} -eq 18 && ${#sdists[@]} -eq 1 && ${#files[@]} -eq 19 ]] || {
+            echo "Expected exactly eighteen wheels and one sdist; found ${#wheels[@]} wheels, ${#sdists[@]} sdists, ${#files[@]} total files." >&2
             exit 1
           }
           expected=(
@@ -165,6 +165,12 @@ jobs:
             'cp314-cp314t-musllinux_1_2_aarch64'
             'cp314-cp314t-macosx_*_arm64'
             'cp314-cp314t-win_amd64'
+            'cp315-abi3.abi3t-manylinux_*_x86_64'
+            'cp315-abi3.abi3t-manylinux_*_aarch64'
+            'cp315-abi3.abi3t-musllinux_1_2_x86_64'
+            'cp315-abi3.abi3t-musllinux_1_2_aarch64'
+            'cp315-abi3.abi3t-macosx_*_arm64'
+            'cp315-abi3.abi3t-win_amd64'
           )
           for tag in "${expected[@]}"; do
             compgen -G "dist/*${tag}*.whl" > /dev/null || {
@@ -234,9 +240,15 @@ jobs:
     permissions:
       contents: read
     env:
-      # Never fall back to a runner's system Python: "3" means the latest
-      # stable uv-managed CPython.
+      # Never fall back to a runner's system Python.
       UV_MANAGED_PYTHON: "1"
+      # The CPython builds each wheel is tested on, as PYTHON:TAGS pairs (the
+      # wheel's Python and ABI tags): abi3 on the newest and oldest
+      # GIL-enabled CPython that installs it (3.15 and newer prefer abi3t),
+      # the free-threaded 3.14 wheel, and abi3t on both builds of 3.15.
+      WHEEL_TESTS: >-
+        3.14:cp311-abi3 3.11:cp311-abi3 3.14t:cp314-cp314t
+        3.15:cp315-abi3.abi3t 3.15t:cp315-abi3.abi3t
     defaults:
       run:
         shell: bash
@@ -249,13 +261,11 @@ jobs:
             runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             manylinux: 2_28
-            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
           - name: manylinux aarch64
             slug: manylinux-aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             manylinux: 2_28
-            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
           # Alpine and other musl distributions cannot load manylinux wheels.
           # maturin-action's default musllinux image (rust-musl-cross) has no
           # /opt/python interpreters, so both musl builds use the pypa images.
@@ -264,7 +274,6 @@ jobs:
             runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
             manylinux: musllinux_1_2
-            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
             container: quay.io/pypa/musllinux_1_2_x86_64:latest
             musl: true
           - name: musllinux aarch64
@@ -272,7 +281,6 @@ jobs:
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-musl
             manylinux: musllinux_1_2
-            ft_interpreter: /opt/python/cp314-cp314t/bin/python3.14t
             container: quay.io/pypa/musllinux_1_2_aarch64:latest
             musl: true
           - name: macOS arm64
@@ -280,55 +288,72 @@ jobs:
             runner: macos-latest
             target: aarch64-apple-darwin
             manylinux: ""
-            ft_interpreter: ""
           - name: Windows x86_64
             slug: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
             manylinux: ""
-            ft_interpreter: ""
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           working-directory: python
-      # Extension modules are dynamically loaded cdylibs; maturin's Linux images supply manylinux compatibility.
-      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
-        with:
-          target: ${{ matrix.target }}
-          manylinux: ${{ matrix.manylinux }}
-          container: ${{ matrix.container }}
-          args: --release --locked --out dist
-          working-directory: python
-      # The latest-Python test runs first: "3" matches any installed 3.x, so
-      # only on a runner without managed Pythons does it fetch the newest one.
-      - name: Test abi3 wheel on latest Python
-        if: ${{ !matrix.musl }}
-        run: sh ../.github/scripts/test-wheel.sh 3 'dist/*cp311-abi3*.whl'
-        working-directory: python
-      - name: Test abi3 wheel on Python 3.11
-        if: ${{ !matrix.musl }}
-        run: sh ../.github/scripts/test-wheel.sh 3.11 'dist/*cp311-abi3*.whl'
-        working-directory: python
-      - name: Set up free-threaded Python for macOS and Windows build
-        if: "!startsWith(matrix.target, 'x86_64-unknown-linux') && !startsWith(matrix.target, 'aarch64-unknown-linux')"
-        id: ft-python
+      # Each build's interpreter selects the wheel's ABI (see
+      # python/Cargo.toml): abi3 from 3.11, the version-specific free-threaded
+      # wheel from 3.14t and abi3t from 3.15. The Linux builds run in the pypa
+      # manylinux and musllinux images, which ship every CPython under
+      # /opt/python; elsewhere the interpreters are uv-managed.
+      - name: Locate build interpreters
+        id: interpreters
         run: |
-          uv python install 3.14t
-          echo "python-path=$(uv python find 3.14t)" >> "$GITHUB_OUTPUT"
-      - name: Build free-threaded wheel
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            abi3=/opt/python/cp311-cp311/bin/python3.11
+            cp314t=/opt/python/cp314-cp314t/bin/python3.14t
+            abi3t=/opt/python/cp315-cp315/bin/python3.15
+          else
+            uv python install 3.11 3.14t 3.15
+            abi3="$(uv python find 3.11)"
+            cp314t="$(uv python find 3.14t)"
+            abi3t="$(uv python find 3.15)"
+          fi
+          {
+            echo "abi3=$abi3"
+            echo "cp314t=$cp314t"
+            echo "abi3t=$abi3t"
+          } >> "$GITHUB_OUTPUT"
+      # Extension modules are dynamically loaded cdylibs; maturin's Linux images supply manylinux compatibility.
+      - name: Build abi3 wheel
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           container: ${{ matrix.container }}
-          args: --release --locked --out dist -i "${{ matrix.ft_interpreter || steps.ft-python.outputs.python-path }}"
+          args: --release --locked --out dist -i "${{ steps.interpreters.outputs.abi3 }}"
           working-directory: python
-      - name: Test free-threaded wheel
+      - name: Build free-threaded 3.14 wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
+          args: --release --locked --out dist -i "${{ steps.interpreters.outputs.cp314t }}"
+          working-directory: python
+      - name: Build abi3t wheel
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          container: ${{ matrix.container }}
+          args: --release --locked --out dist -i "${{ steps.interpreters.outputs.abi3t }}"
+          working-directory: python
+      - name: Test wheels
         if: ${{ !matrix.musl }}
-        run: sh ../.github/scripts/test-wheel.sh 3.14t 'dist/*cp314-cp314t*.whl'
+        run: |
+          for test in $WHEEL_TESTS; do
+            sh ../.github/scripts/test-wheel.sh "${test%%:*}" "dist/*${test#*:}-*.whl"
+          done
         working-directory: python
-      # musllinux wheels do not install on the glibc runner: test both in
+      # musllinux wheels do not install on the glibc runner: test them in
       # Alpine, against uv's musl builds of the same interpreters. The
       # checkout is mounted read-only, so the container cannot alter the
       # wheels uploaded below; the environment lives in /venv instead.
@@ -338,11 +363,11 @@ jobs:
           docker run --rm \
             --volume "$GITHUB_WORKSPACE:/io:ro" --workdir /io/python \
             --env UV_MANAGED_PYTHON --env UV_PROJECT_ENVIRONMENT=/venv --env VIRTUAL_ENV=/venv \
-            --env PYTHONDONTWRITEBYTECODE=1 \
-            ghcr.io/astral-sh/uv:0.12-alpine sh -euc '
-              sh ../.github/scripts/test-wheel.sh 3 "dist/*cp311-abi3*.whl"
-              sh ../.github/scripts/test-wheel.sh 3.11 "dist/*cp311-abi3*.whl"
-              sh ../.github/scripts/test-wheel.sh 3.14t "dist/*cp314-cp314t*.whl"
+            --env PYTHONDONTWRITEBYTECODE=1 --env WHEEL_TESTS \
+            ghcr.io/astral-sh/uv:0.13-alpine sh -euc '
+              for test in $WHEEL_TESTS; do
+                sh ../.github/scripts/test-wheel.sh "${test%%:*}" "dist/*${test#*:}-*.whl"
+              done
             '
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

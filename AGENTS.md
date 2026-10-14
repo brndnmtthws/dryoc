@@ -136,9 +136,14 @@ uv run ty check . ../src/keccak/keccak3_aarch64.py
 uv sync --script ../release.py
 uv run ty check --python "$(uv python find --script ../release.py)" ../release.py
 uv run pyright --verifytypes dryoc --ignoreexternal
-cargo clippy --locked --all-targets -- -D warnings
+uv python install 3.11 3.14t 3.15
+# PyO3 targets the interpreter it builds against (see python/Cargo.toml).
+PYO3_PYTHON="$(uv python find 3.11)" cargo clippy --locked --all-targets -- -D warnings  # abi3
+PYO3_PYTHON="$(uv python find 3.15)" cargo clippy --locked --all-targets -- -D warnings  # abi3t
 cargo +nightly fmt --check
-uv run maturin build --release --locked --out dist    # abi3 wheel, CPython >= 3.11
+uv run maturin build --release --locked --out dist -i "$(uv python find 3.11)"   # cp311-abi3
+uv run maturin build --release --locked --out dist -i "$(uv python find 3.14t)"  # cp314-cp314t
+uv run maturin build --release --locked --out dist -i "$(uv python find 3.15)"   # cp315-abi3.abi3t
 uv run maturin sdist --out dist
 ```
 
@@ -327,13 +332,23 @@ annotated tag, which starts `publish.yml`.
 - `tests/integration_tests.rs`: public behavior and feature integration.
 - `fuzz/`: cargo-fuzz target workspace.
 - `python/`: PyPI package `dryoc`, built with PyO3 and maturin as one
-  `abi3-py311` extension module (`dryoc._dryoc`). It is its own Cargo
-  workspace (like `fuzz/`), so root `cargo package` and `cargo publish` never
-  include it. `src/` holds the PyO3 code, `python/dryoc/` the pure-Python
-  modules and `.pyi` stubs, and `tests/` the pytest suite, which reads the
-  vectors in `src/mlkem/test-vectors/`. It uses only Rustaceous APIs (plus
-  Classic functions internally where the Rustaceous API has no runtime-sized
-  equivalent) and must stay free of `unsafe`. Rules:
+  extension module (`dryoc._dryoc`) in three wheels per platform:
+  `cp311-abi3` (PyO3's `abi3-py311`) for GIL-enabled 3.11 to 3.14,
+  `cp314-cp314t` for free-threaded 3.14, and `cp315-abi3.abi3t`
+  (`abi3t-py315`), which GIL-enabled and free-threaded 3.15+ both load. It is
+  its own Cargo workspace (like `fuzz/`), so root `cargo package` and
+  `cargo publish` never include it. `src/` holds the PyO3 code,
+  `python/dryoc/` the pure-Python modules and `.pyi` stubs, and `tests/` the
+  pytest suite, which reads the vectors in `src/mlkem/test-vectors/`. It uses
+  only Rustaceous APIs (plus Classic functions internally where the
+  Rustaceous API has no runtime-sized equivalent) and must stay free of
+  `unsafe`. Rules:
+  - Supported CPython versions follow upstream's support window. When the
+    oldest reaches end of life (3.11 in October 2027), raise `abi3-py3XX`,
+    `requires-python` (with `uv lock`), the classifiers and the CI test
+    versions together, and drop the `cp314t` wheel with 3.14. Add each new
+    CPython release to the `python` job in `build-and-test.yml` and to
+    `WHEEL_TESTS` in `publish.yml`.
   - Every pyclass is `frozen`. Mutable state (hashers, MACs, streams,
     `Ed25519ph`) goes behind `util::Locked`, which serializes calls without
     deadlocking with the GIL.

@@ -466,14 +466,17 @@ jobs:
           path: fuzz/artifacts/
           if-no-files-found: ignore
 
-  # One abi3 wheel per platform, tested on the oldest and newest supported
-  # CPython, plus the free-threaded wheel on Linux.
+  # One job per wheel and platform. Each wheel is built with the interpreter
+  # that selects its ABI (see python/Cargo.toml) and tested on the CPython
+  # builds that install it: abi3 on 3.14 and 3.11 (3.15 and newer prefer
+  # abi3t), abi3t on GIL-enabled and free-threaded 3.15. The version-specific
+  # free-threaded 3.14 wheel is tested on Linux; publish.yml builds and tests
+  # every wheel on every platform.
   python:
     name: Python / ${{ matrix.os }} / ${{ matrix.wheel }}
     runs-on: ${{ matrix.os }}
     env:
-      # Never fall back to a runner's system Python: "3" means the latest
-      # stable uv-managed CPython.
+      # Never fall back to a runner's system Python.
       UV_MANAGED_PYTHON: "1"
     defaults:
       run:
@@ -488,20 +491,31 @@ jobs:
           - windows-latest
         wheel:
           - abi3
+          - abi3t
         include:
+          - wheel: abi3
+            build: "3.11"
+            tests: "3.14 3.11"
+            glob: dist/*cp311-abi3-*.whl
+          - wheel: abi3t
+            build: "3.15"
+            tests: "3.15 3.15t"
+            glob: dist/*cp315-abi3.abi3t-*.whl
           - os: ubuntu-latest
-            wheel: free-threaded
+            wheel: cp314t
+            build: 3.14t
+            tests: 3.14t
+            glob: dist/*cp314-cp314t-*.whl
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           working-directory: python
-      - name: Install free-threaded Python
-        if: matrix.wheel == 'free-threaded'
-        id: ft-python
+      - name: Install build interpreter
+        id: build-python
         run: |
-          uv python install 3.14t
-          echo "path=$(uv python find 3.14t)" >> "$GITHUB_OUTPUT"
+          uv python install ${{ matrix.build }}
+          echo "path=$(uv python find ${{ matrix.build }})" >> "$GITHUB_OUTPUT"
       # Without the release profile's fat LTO and single codegen unit, which
       # serialize most of the build but change no behavior these tests check.
       # python-sdist and publish.yml build and test with the release profile.
@@ -512,14 +526,14 @@ jobs:
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         with:
           command: build
-          manylinux: ${{ matrix.wheel == 'free-threaded' && 'off' || '' }}
-          args: --release --locked --out dist ${{ matrix.wheel == 'free-threaded' && format('-i {0}', steps.ft-python.outputs.path) || '' }}
+          manylinux: ${{ matrix.wheel == 'cp314t' && 'off' || '' }}
+          args: --release --locked --out dist -i "${{ steps.build-python.outputs.path }}"
           working-directory: python
-      # The latest-Python test runs first: "3" matches any installed 3.x, so
-      # only on a runner without managed Pythons does it fetch the newest one.
-      - name: Test abi3 wheel on latest Python
-        if: matrix.wheel == 'abi3'
-        run: sh ../.github/scripts/test-wheel.sh 3 'dist/*cp311-abi3*.whl'
+      - name: Test wheel on CPython ${{ matrix.tests }}
+        run: |
+          for python in ${{ matrix.tests }}; do
+            sh ../.github/scripts/test-wheel.sh "$python" '${{ matrix.glob }}'
+          done
         working-directory: python
       - name: Setup nightly Rust validation tools
         if: matrix.os == 'ubuntu-latest' && matrix.wheel == 'abi3'
@@ -528,10 +542,11 @@ jobs:
           toolchain: nightly
           profile: minimal
           components: clippy rustfmt
-      # Runs in the latest-Python environment the step above left, with the
-      # wheel installed. ruff and ty cover every Python file in the
-      # repository. release.py is checked against its own script environment,
-      # which has its tomlkit dependency.
+      # Runs in the Python 3.11 environment the tests left, with the wheel
+      # installed. ruff and ty cover every Python file in the repository.
+      # release.py is checked against its own script environment, which has
+      # its tomlkit dependency. Clippy runs once per stable ABI: PyO3 targets
+      # the interpreter it builds against (see python/Cargo.toml).
       - name: Lint Python and Rust code
         if: matrix.os == 'ubuntu-latest' && matrix.wheel == 'abi3'
         run: |
@@ -541,16 +556,10 @@ jobs:
           uv sync --script ../release.py
           uv run --no-sync ty check --python "$(uv python find --script ../release.py)" ../release.py
           uv run --no-sync pyright --verifytypes dryoc --ignoreexternal
-          cargo clippy --locked --all-targets -- -D warnings
+          PYO3_PYTHON="$(uv python find 3.11)" cargo clippy --locked --all-targets -- -D warnings
+          uv python install 3.15
+          PYO3_PYTHON="$(uv python find 3.15)" cargo clippy --locked --all-targets -- -D warnings
           cargo +nightly fmt --check
-        working-directory: python
-      - name: Test abi3 wheel on Python 3.11
-        if: matrix.wheel == 'abi3'
-        run: sh ../.github/scripts/test-wheel.sh 3.11 'dist/*cp311-abi3*.whl'
-        working-directory: python
-      - name: Test free-threaded wheel
-        if: matrix.wheel == 'free-threaded'
-        run: sh ../.github/scripts/test-wheel.sh 3.14t 'dist/*cp314-cp314t*.whl'
         working-directory: python
 
   python-sdist:
