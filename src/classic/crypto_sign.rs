@@ -2,6 +2,12 @@
 //!
 //! This module implements libsodium's public-key signatures, based on Ed25519.
 //!
+//! Signing secret keys are `seed || public_key`. The Classic API trusts the
+//! embedded public key, matching libsodium; it does not check consistency with
+//! the seed. Never combine a seed with an untrusted public half. Use
+//! [`crate::sign::SigningKeyPair`] for checked imports and signing that
+//! re-derives the embedded public key.
+//!
 //! ## Classic API example
 //!
 //! ```
@@ -127,6 +133,9 @@ pub fn crypto_sign_open(
 
 /// Signs `message`, placing the signature into `signature` upon success.
 /// Detached variant of [`crypto_sign_open`].
+///
+/// The public half of `secret_key` must match its seed. This is not validated;
+/// use [`crate::sign::SigningKeyPair`] when importing untrusted key material.
 ///
 /// This function is compatible with libsodium's `crypto_sign_detached`; the
 /// `ED25519_NONDETERMINISTIC` feature is not supported.

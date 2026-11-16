@@ -180,13 +180,20 @@ pub fn secret_key_to_public_key<
 }
 
 #[derive(Zeroize, ZeroizeOnDrop, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 /// An Ed25519 keypair for public-key signatures
 ///
 /// Create keypairs with [`SigningKeyPair::generate`],
 /// [`SigningKeyPair::from_seed`], or [`SigningKeyPair::from_secret_key`].
 /// There is no `new` or [`Default`] constructor, so an all-zero secret key is
 /// never produced implicitly.
+///
+/// Slice imports and deserialization reject inconsistent key material. Because
+/// the fields remain publicly mutable, signing re-derives the embedded public
+/// key from the seed rather than trusting the stored public half. The separate
+/// `public_key` field is not used for signing; callers must keep it consistent
+/// with the seed when mutating a keypair. This defense costs one extra
+/// fixed-base scalar multiplication per signing operation.
 pub struct SigningKeyPair<
     PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
@@ -195,6 +202,43 @@ pub struct SigningKeyPair<
     pub public_key: PublicKey,
     /// Secret key
     pub secret_key: SecretKey,
+}
+
+// Keep the serialized field layout unchanged, but validate imported keypairs.
+#[cfg(feature = "serde")]
+impl<'de, PublicKey, SecretKey> Deserialize<'de> for SigningKeyPair<PublicKey, SecretKey>
+where
+    PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize + Deserialize<'de>,
+    SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize + Deserialize<'de>,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename = "SigningKeyPair")]
+        struct KeyPair<PublicKey, SecretKey> {
+            public_key: PublicKey,
+            secret_key: SecretKey,
+        }
+
+        let fields = KeyPair::deserialize(deserializer)?;
+        let keypair = Self {
+            public_key: fields.public_key,
+            secret_key: fields.secret_key,
+        };
+        keypair.validate().map_err(serde::de::Error::custom)?;
+        Ok(keypair)
+    }
+}
+
+// The returned secret copy is wiped even on an early return or unwind.
+fn normalized_secret_key(
+    secret_key: &[u8; CRYPTO_SIGN_SECRETKEYBYTES],
+) -> Zeroizing<[u8; CRYPTO_SIGN_SECRETKEYBYTES]> {
+    let mut seed = Zeroizing::new([0u8; CRYPTO_SIGN_SEEDBYTES]);
+    seed.copy_from_slice(&secret_key[..CRYPTO_SIGN_SEEDBYTES]);
+    let mut public_key = [0u8; CRYPTO_SIGN_PUBLICKEYBYTES];
+    let mut normalized = Zeroizing::new([0u8; CRYPTO_SIGN_SECRETKEYBYTES]);
+    crypto_sign_seed_keypair_inplace(&mut public_key, &mut normalized, &seed);
+    normalized
 }
 
 impl<
@@ -264,6 +308,28 @@ impl<
     SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
+    /// Checks that both public-key representations match the secret seed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-key error for an inconsistent embedded public key
+    /// or separate public key. This checks consistency, not ownership or
+    /// origin.
+    pub fn validate(&self) -> Result<(), Error> {
+        let normalized = normalized_secret_key(self.secret_key.as_array());
+        let expected = &normalized[CRYPTO_SIGN_SEEDBYTES..];
+        if !ct_eq_bytes(
+            expected,
+            &self.secret_key.as_slice()[CRYPTO_SIGN_SEEDBYTES..],
+        ) {
+            return Err(Error::invalid_key(ErrorContext::SecretKey));
+        }
+        if !ct_eq_bytes(expected, self.public_key.as_slice()) {
+            return Err(Error::invalid_key(ErrorContext::PublicKey));
+        }
+        Ok(())
+    }
+
     /// Extracts the Ed25519 seed from this keypair's secret key.
     #[must_use]
     pub fn to_seed<SeedOut: NewByteArray<CRYPTO_SIGN_SEEDBYTES>>(&self) -> SeedOut {
@@ -285,13 +351,16 @@ impl<
     SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + core::convert::TryFrom<&'a [u8]> + Zeroize,
 > SigningKeyPair<PublicKey, SecretKey>
 {
-    /// Constructs a new signing keypair from key slices, consuming them. Does
-    /// not check validity or authenticity of keypair.
+    /// Constructs a signing keypair from key slices, checking that the embedded
+    /// and supplied public keys both match the seed-derived public key.
+    /// This checks key consistency, not ownership or authenticity of its
+    /// source.
     ///
     /// # Errors
     ///
     /// Returns an error if either slice has the wrong length for its key type,
-    /// or if the target key type rejects the key bytes.
+    /// if the target key type rejects the key bytes, or if either public key
+    /// does not match the secret seed.
     pub fn from_slices(public_key: &'a [u8], secret_key: &'a [u8]) -> Result<Self, Error> {
         validate_length!(
             exact CRYPTO_SIGN_PUBLICKEYBYTES,
@@ -304,12 +373,14 @@ impl<
             crate::ErrorContext::SecretKey
         );
 
-        Ok(Self {
+        let keypair = Self {
             public_key: PublicKey::try_from(public_key)
                 .map_err(|_| Error::invalid_key(crate::ErrorContext::PublicKey))?,
             secret_key: SecretKey::try_from(secret_key)
                 .map_err(|_| Error::invalid_key(crate::ErrorContext::SecretKey))?,
-        })
+        };
+        keypair.validate()?;
+        Ok(keypair)
     }
 }
 
@@ -469,18 +540,17 @@ impl<
 {
     /// Signs `message` using this keypair, consuming the message, and returning
     /// a new [`SignedMessage`]. The type of `message` should match that of the
-    /// target signed message.
+    /// target signed message. The embedded public key is re-derived from the
+    /// seed so public-field mutation cannot introduce inconsistent signing
+    /// keys.
     #[must_use]
     pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>(
         &self,
         message: Message,
     ) -> SignedMessage<Signature, Message> {
         let mut signature = Signature::new_byte_array();
-        crypto_sign_ed25519_detached(
-            signature.as_mut_array(),
-            message.as_slice(),
-            self.secret_key.as_array(),
-        );
+        let secret_key = normalized_secret_key(self.secret_key.as_array());
+        crypto_sign_ed25519_detached(signature.as_mut_array(), message.as_slice(), &secret_key);
 
         SignedMessage::<Signature, Message> { signature, message }
     }
@@ -525,7 +595,8 @@ impl Ed25519phSigner {
     }
 
     /// Finalizes this signer with `secret_key`, returning the Ed25519ph
-    /// signature of the accumulated message.
+    /// signature of the accumulated message. The embedded public key is
+    /// re-derived from the seed, as in [`SigningKeyPair::sign`].
     #[must_use]
     pub fn finalize<
         Signature: NewByteArray<CRYPTO_SIGN_BYTES>,
@@ -536,11 +607,8 @@ impl Ed25519phSigner {
     ) -> Signature {
         let mut signature = Signature::new_byte_array();
 
-        crypto_sign_ed25519ph_final_create(
-            self.state.state,
-            signature.as_mut_array(),
-            secret_key.as_array(),
-        );
+        let secret_key = normalized_secret_key(secret_key.as_array());
+        crypto_sign_ed25519ph_final_create(self.state.state, signature.as_mut_array(), &secret_key);
 
         signature
     }
