@@ -192,8 +192,18 @@ pub fn secret_key_to_public_key<
 /// the fields remain publicly mutable, signing re-derives the embedded public
 /// key from the seed rather than trusting the stored public half. The separate
 /// `public_key` field is not used for signing; callers must keep it consistent
-/// with the seed when mutating a keypair. This defense costs one extra
-/// fixed-base scalar multiplication per signing operation.
+/// with the seed when mutating a keypair.
+///
+/// # Signing cost
+///
+/// Each signing operation reconstructs a temporary keypair from the seed,
+/// adding one SHA-512 hash of the 32-byte seed and one fixed-base scalar
+/// multiplication, even for an already-valid keypair. This also applies to
+/// Ed25519ph finalization; it does not rehash the message. The overhead
+/// is independent of message length, but its relative cost depends on the
+/// platform, backend, and message size. No benchmark-based slowdown is claimed.
+/// The temporary seed and keypair are zeroized on drop. Classic signing
+/// retains its existing behavior and cost.
 pub struct SigningKeyPair<
     PublicKey: ByteArray<CRYPTO_SIGN_PUBLICKEYBYTES> + Zeroize,
     SecretKey: ByteArray<CRYPTO_SIGN_SECRETKEYBYTES> + Zeroize,
@@ -229,16 +239,12 @@ where
     }
 }
 
-// The returned secret copy is wiped even on an early return or unwind.
-fn normalized_secret_key(
-    secret_key: &[u8; CRYPTO_SIGN_SECRETKEYBYTES],
-) -> Zeroizing<[u8; CRYPTO_SIGN_SECRETKEYBYTES]> {
+// Both the temporary seed and reconstructed keypair wipe their secret material
+// on drop, including early returns and unwinding.
+fn normalized_keypair(secret_key: &[u8; CRYPTO_SIGN_SECRETKEYBYTES]) -> StackSigningKeyPair {
     let mut seed = Zeroizing::new([0u8; CRYPTO_SIGN_SEEDBYTES]);
     seed.copy_from_slice(&secret_key[..CRYPTO_SIGN_SEEDBYTES]);
-    let mut public_key = [0u8; CRYPTO_SIGN_PUBLICKEYBYTES];
-    let mut normalized = Zeroizing::new([0u8; CRYPTO_SIGN_SECRETKEYBYTES]);
-    crypto_sign_seed_keypair_inplace(&mut public_key, &mut normalized, &seed);
-    normalized
+    StackSigningKeyPair::from_seed(&*seed)
 }
 
 impl<
@@ -316,8 +322,8 @@ impl<
     /// or separate public key. This checks consistency, not ownership or
     /// origin.
     pub fn validate(&self) -> Result<(), Error> {
-        let normalized = normalized_secret_key(self.secret_key.as_array());
-        let expected = &normalized[CRYPTO_SIGN_SEEDBYTES..];
+        let normalized = normalized_keypair(self.secret_key.as_array());
+        let expected = normalized.public_key.as_slice();
         if !ct_eq_bytes(
             expected,
             &self.secret_key.as_slice()[CRYPTO_SIGN_SEEDBYTES..],
@@ -542,15 +548,19 @@ impl<
     /// a new [`SignedMessage`]. The type of `message` should match that of the
     /// target signed message. The embedded public key is re-derived from the
     /// seed so public-field mutation cannot introduce inconsistent signing
-    /// keys.
+    /// keys. See the [signing cost](SigningKeyPair#signing-cost).
     #[must_use]
     pub fn sign<Signature: NewByteArray<CRYPTO_SIGN_BYTES> + Zeroize, Message: Bytes + Zeroize>(
         &self,
         message: Message,
     ) -> SignedMessage<Signature, Message> {
         let mut signature = Signature::new_byte_array();
-        let secret_key = normalized_secret_key(self.secret_key.as_array());
-        crypto_sign_ed25519_detached(signature.as_mut_array(), message.as_slice(), &secret_key);
+        let secret_key = normalized_keypair(self.secret_key.as_array());
+        crypto_sign_ed25519_detached(
+            signature.as_mut_array(),
+            message.as_slice(),
+            secret_key.secret_key.as_array(),
+        );
 
         SignedMessage::<Signature, Message> { signature, message }
     }
@@ -607,8 +617,12 @@ impl Ed25519phSigner {
     ) -> Signature {
         let mut signature = Signature::new_byte_array();
 
-        let secret_key = normalized_secret_key(secret_key.as_array());
-        crypto_sign_ed25519ph_final_create(self.state.state, signature.as_mut_array(), &secret_key);
+        let secret_key = normalized_keypair(secret_key.as_array());
+        crypto_sign_ed25519ph_final_create(
+            self.state.state,
+            signature.as_mut_array(),
+            secret_key.secret_key.as_array(),
+        );
 
         signature
     }
@@ -1214,5 +1228,78 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod key_consistency_tests {
+    #[test]
+    fn signing_key_import_rejects_inconsistent_public_keys() {
+        use super::StackSigningKeyPair;
+        let honest = StackSigningKeyPair::from_seed(&[7u8; 32]);
+        let other = StackSigningKeyPair::from_seed(&[8u8; 32]);
+        let mut corrupt = honest.secret_key.clone();
+        corrupt[32..].copy_from_slice(&other.public_key[..]);
+        assert!(StackSigningKeyPair::from_slices(&honest.public_key[..], &corrupt[..]).is_err());
+        // Matching the two stored public keys is insufficient: check the seed
+        // too.
+        assert!(StackSigningKeyPair::from_slices(&other.public_key[..], &corrupt[..]).is_err());
+        assert!(
+            StackSigningKeyPair::from_slices(&other.public_key[..], &honest.secret_key[..])
+                .is_err()
+        );
+        let rebuilt =
+            StackSigningKeyPair::from_slices(&honest.public_key[..], &honest.secret_key[..])
+                .unwrap();
+        assert_eq!(rebuilt, honest);
+        assert_eq!(StackSigningKeyPair::from_secret_key(corrupt), honest);
+    }
+
+    #[test]
+    fn signing_rederives_public_half_after_direct_mutation() {
+        use super::{Ed25519phSigner, Signature, SignedMessage, StackSigningKeyPair};
+        let honest = StackSigningKeyPair::from_seed(&[7u8; 32]);
+        let other = StackSigningKeyPair::from_seed(&[8u8; 32]);
+        let mut changed = honest.clone();
+        changed.secret_key[32..].copy_from_slice(&other.public_key[..]);
+        changed.public_key = other.public_key.clone();
+        let msg = [42u8; 16];
+        let original: SignedMessage<Signature, _> = honest.sign(msg);
+        let normalized: SignedMessage<Signature, _> = changed.sign(msg);
+        assert_eq!(original.signature(), normalized.signature());
+        normalized.verify(&honest.public_key).unwrap();
+        let mut signer = Ed25519phSigner::new();
+        signer.update(&msg);
+        let original: Signature = signer.finalize(&honest.secret_key);
+        let mut signer = Ed25519phSigner::new();
+        signer.update(&msg);
+        let normalized: Signature = signer.finalize(&changed.secret_key);
+        assert_eq!(original, normalized);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn signing_key_serde_rejects_inconsistent_public_keys() {
+        use super::StackSigningKeyPair;
+        let honest = StackSigningKeyPair::from_seed(&[7u8; 32]);
+        let other = StackSigningKeyPair::from_seed(&[8u8; 32]);
+        let encoded = serde_json::to_vec(&honest).unwrap();
+        let restored: StackSigningKeyPair = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored, honest);
+        for change_embedded in [false, true] {
+            let mut changed = honest.clone();
+            if change_embedded {
+                changed.secret_key[32..].copy_from_slice(&other.public_key[..]);
+            } else {
+                changed.public_key = other.public_key.clone();
+            }
+            let encoded = serde_json::to_vec(&changed).unwrap();
+            assert!(serde_json::from_slice::<StackSigningKeyPair>(&encoded).is_err());
+        }
+        let mut changed = honest.clone();
+        changed.secret_key[32..].copy_from_slice(&other.public_key[..]);
+        changed.public_key = other.public_key.clone();
+        let encoded = serde_json::to_vec(&changed).unwrap();
+        assert!(serde_json::from_slice::<StackSigningKeyPair>(&encoded).is_err());
     }
 }
