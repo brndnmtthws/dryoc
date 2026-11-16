@@ -9,6 +9,11 @@
 //! keypair. Additionally, an encrypted box doesn't need to be separately signed
 //! as it already includes a message authentication code.
 //!
+//! Signing functions in this Classic module trust that the public half of a
+//! secret key matches its seed, as libsodium does. Do not replace that public
+//! half with untrusted bytes. For checked imports and signing that re-derives
+//! the public half, use [`crate::sign::SigningKeyPair`].
+//!
 //! ## Classic API example
 //!
 //! ```

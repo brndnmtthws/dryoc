@@ -2120,3 +2120,28 @@ fn test_dryocbox_seal() {
 
     assert_eq!(message, decrypted.as_slice());
 }
+
+#[cfg(all(feature = "protected", any(unix, windows)))]
+#[test]
+fn signing_key_protected_and_readonly_paths() {
+    use dryoc::sign::protected::{LockedROSigningKeyPair, LockedSigningKeyPair};
+    use dryoc::sign::{Signature, SignedMessage, SigningKeyPair, StackSigningKeyPair};
+    let keypair: LockedSigningKeyPair = SigningKeyPair::generate_locked_keypair().unwrap();
+    keypair.validate().unwrap();
+    let message = [3u8; 16];
+    let signed: SignedMessage<Signature, _> = keypair.sign(message);
+    signed.verify(&keypair.public_key).unwrap();
+    let readonly = LockedROSigningKeyPair::generate_readonly_locked_keypair().unwrap();
+    readonly.validate().unwrap();
+    let signed: SignedMessage<Signature, _> = readonly.sign(message);
+    signed.verify(&readonly.public_key).unwrap();
+
+    type HeapPair =
+        SigningKeyPair<dryoc::sign::protected::PublicKey, dryoc::sign::protected::SecretKey>;
+    let honest = StackSigningKeyPair::from_seed(&[7u8; 32]);
+    let imported = HeapPair::from_slices(&honest.public_key[..], &honest.secret_key[..]).unwrap();
+    imported.validate().unwrap();
+    let mut corrupt = honest.secret_key.clone();
+    corrupt[32] ^= 1;
+    assert!(HeapPair::from_slices(&honest.public_key[..], &corrupt[..]).is_err());
+}
